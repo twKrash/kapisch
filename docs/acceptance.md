@@ -1,14 +1,24 @@
-# Standalone extraction acceptance
+# Standalone extraction acceptance status
+
+| Surface | Status |
+| --- | --- |
+| Standalone source extraction and portable-package isolation | completed |
+| Codex installation, plugin discovery, and `$kapisch` invocation | pending manual clean-environment acceptance |
+| Marketplace distribution | pending |
+
+The portable test below does not install a plugin through Codex or exercise a
+marketplace. It prevents source-application imports from being hidden by the
+development checkout.
 
 Run the complete acceptance command from the plugin root:
 
 ```text
-python scripts/test_clean_install.py
+python scripts/test_portable_package.py
 ```
 
-It copies the plugin into a clean temporary location, validates the Codex plugin
-layout, confirms the primary `skills/kapisch/SKILL.md`, and runs the bundled
-tests without an application-repository import or existing profile.
+It copies the plugin into a clean temporary location, checks the bundled
+manifest and primary `skills/kapisch/SKILL.md`, and runs the bundled tests
+without an application-repository import or existing profile.
 
 The test suite also covers:
 
@@ -22,4 +32,4 @@ The test suite also covers:
 | Read-only deterministic validator | `test_cli.py`, `test_hardening.py` |
 
 `python -m unittest discover -s tests/kapisch_validation` is the focused suite
-when a clean installation copy is not required.
+when portable-package isolation is not required.

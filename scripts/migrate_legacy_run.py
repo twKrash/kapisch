@@ -38,12 +38,12 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("task ID must match [a-z0-9][a-z0-9-]{2,79}")
 
     project = args.project_dir.resolve()
-    legacy_root = (project / ".planning" / "KAPISCH").resolve()
+    legacy_root = (project / ".planning" / "task-workflow").resolve()
     runs_root = (project / ".kapisch" / "runs").resolve()
     source = (legacy_root / args.task_id).resolve()
     destination = (runs_root / args.task_id).resolve()
     if source.parent != legacy_root or destination.parent != runs_root:
-        parser.error("task ID escapes the KAPISCH migration namespace")
+        parser.error("task ID escapes the legacy migration namespace")
     if not source.is_dir():
         parser.error(f"legacy source is missing: {source}")
     if destination.exists():

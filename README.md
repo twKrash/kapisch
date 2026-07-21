@@ -31,7 +31,7 @@ New artifacts live under `.kapisch/runs/<task-id>/`; cache and machine-local
 state belong in `.kapisch/cache/` and `.kapisch/local-state/`. Add `.kapisch/`
 to each consuming repository's `.gitignore`.
 
-Legacy `.planning/KAPISCH/<task-id>/` evidence is read-only migration input
+Legacy `.planning/task-workflow/<task-id>/` evidence is read-only migration input
 under compatibility version 1. Run
 `python scripts/migrate_legacy_run.py --task-id <task-id> --approve` to perform
 the explicit copy-and-validate operation into `.kapisch/runs/`. It preserves the
@@ -52,8 +52,8 @@ python -m unittest discover -s tests/kapisch_validation
 
 ## Development
 
-Run `python scripts/test_clean_install.py` and the validator tests before
-release. See [CONTRIBUTING.md](CONTRIBUTING.md),
+Run `python scripts/test_portable_package.py` and the validator tests before
+release. This verifies isolated portability, not installation through Codex. See [CONTRIBUTING.md](CONTRIBUTING.md),
 [acceptance.md](docs/acceptance.md), and [CHANGELOG.md](CHANGELOG.md).
 
 ## License

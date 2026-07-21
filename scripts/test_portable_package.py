@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
-"""Exercise KAPISCH from a clean copied plugin root.
+"""Exercise the portable plugin package from an isolated copied root.
 
-The test intentionally uses no application-repository import or existing
-profile. It validates the manifest, discovers the primary skill, and runs the
-bundled standard-library validator suite from the copied root.
+This is not a Codex installation test. It proves only that the bundled files,
+primary skill, and validator suite do not import a source application.
 """
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import sys
 import tempfile
-import json
 from pathlib import Path
 
 
@@ -21,7 +20,7 @@ REQUIRED_MANIFEST_KEYS = {"name", "version", "description", "author", "skills", 
 
 
 def main() -> int:
-    with tempfile.TemporaryDirectory(prefix="kapisch-clean-install-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="kapisch-portable-package-") as tmp:
         installed = Path(tmp) / "kapisch"
         shutil.copytree(
             ROOT,
@@ -31,12 +30,12 @@ def main() -> int:
         manifest = installed / ".codex-plugin" / "plugin.json"
         skill = installed / "skills" / "kapisch" / "SKILL.md"
         if not manifest.is_file() or not skill.is_file() or "name: KAPISCH" not in skill.read_text(encoding="utf-8"):
-            print("clean install is missing the KAPISCH plugin manifest or primary skill")
+            print("portable package is missing the KAPISCH plugin manifest or primary skill")
             return 1
         try:
             payload = json.loads(manifest.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
-            print("clean install has an invalid plugin manifest")
+            print("portable package has an invalid plugin manifest")
             return 1
         if (
             not isinstance(payload, dict)
@@ -45,7 +44,7 @@ def main() -> int:
             or payload.get("skills") != "./skills/"
             or not isinstance(payload.get("interface"), dict)
         ):
-            print("clean install has an incompatible plugin manifest")
+            print("portable package has an incompatible plugin manifest")
             return 1
         result = subprocess.run(
             [sys.executable, "-m", "unittest", "discover", "-s", "tests/kapisch_validation"],
@@ -71,7 +70,7 @@ def main() -> int:
         )
         if result.returncode:
             return result.returncode
-    print("clean-install=passed")
+    print("portable-package=passed")
     return 0
 
 

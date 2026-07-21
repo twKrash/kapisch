@@ -68,7 +68,7 @@ class ExtractionAcceptanceTests(unittest.TestCase):
     def test_approved_legacy_copy_validates_and_preserves_source_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp)
-            source = project / ".planning/KAPISCH/valid"
+            source = project / ".planning/task-workflow/valid"
             shutil.copytree(FIXTURES / "valid-sequential-v2", source)
             before = digests(source)
             self.assertEqual(migrate(["--project-dir", str(project), "--task-id", "valid", "--approve"]), 0)
@@ -78,7 +78,7 @@ class ExtractionAcceptanceTests(unittest.TestCase):
     def test_invalid_legacy_copy_leaves_source_and_creates_no_destination(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp)
-            source = project / ".planning/KAPISCH/missing-scope"
+            source = project / ".planning/task-workflow/missing-scope"
             shutil.copytree(FIXTURES / "missing-review-scope", source)
             before = digests(source)
             self.assertEqual(migrate(["--project-dir", str(project), "--task-id", "missing-scope", "--approve"]), 2)
@@ -88,7 +88,7 @@ class ExtractionAcceptanceTests(unittest.TestCase):
     def test_migration_rejects_embedded_task_id_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp)
-            source = project / ".planning/KAPISCH/example"
+            source = project / ".planning/task-workflow/example"
             shutil.copytree(FIXTURES / "valid-sequential-v2", source)
             before = digests(source)
             self.assertEqual(migrate(["--project-dir", str(project), "--task-id", "example", "--approve"]), 2)

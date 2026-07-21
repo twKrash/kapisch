@@ -2,7 +2,7 @@
 
 ## Compatibility version 1
 
-Only `.planning/KAPISCH/<task-id>/` is a supported legacy input namespace.
+Only `.planning/task-workflow/<task-id>/` is a supported legacy input namespace.
 It is read-only. `scripts/migrate_legacy_run.py` copies that directory byte for
 byte to `.kapisch/runs/<task-id>/` in a temporary staging directory, validates
 the staged canonical tree, and atomically publishes it only on success. The
@@ -23,8 +23,8 @@ repository. Its local run evidence belongs under its own ignored `.kapisch/`.
 
 Dogfood sequence:
 
-1. Install this repository into a clean Codex environment and verify `$kapisch`
-   is discoverable without profiles.
+1. Before claiming Codex-installation acceptance, install this repository into a
+   clean Codex environment and verify `$kapisch` is discoverable without profiles.
 2. Run graph-free advisory work without profiles; do not claim approval.
 3. Explicitly install `kapisch-reviewer` with `setup_profile.py`, then record a
    fresh canonical reviewer invocation before an approving review.
