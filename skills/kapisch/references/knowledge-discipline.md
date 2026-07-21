@@ -1,20 +1,21 @@
 # Task-local knowledge discipline
 
 Use one readable ledger at
-`.kapisch/runs/<task_id>/knowledge/records.yaml`:
+`.kapisch/runs/<task_id>/knowledge/records.toml`:
 
-```yaml
-version: 1
-records:
-  - id: D-001
-    kind: decision
-    scope: task:example
-    authority: binding
-    status: verified
-    statement: Durable artifacts and Git evidence are authoritative.
-    source: 01-plan.md
-    verified_at_revision: abc1234
-    applies_when: [durable execution is active]
+```toml
+version = 1
+
+[[records]]
+id = "D-001"
+kind = "decision"
+scope = "task:example"
+authority = "binding"
+status = "verified"
+statement = "Durable artifacts and Git evidence are authoritative."
+source = "01-plan.md"
+verified_at_revision = "abc1234"
+applies_when = ["durable execution is active"]
 ```
 
 Kinds are `fact`, `decision`, `tradeoff`, `hint`, `shortcut`, `pitfall`, and

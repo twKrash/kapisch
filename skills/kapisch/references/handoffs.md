@@ -41,7 +41,7 @@ artifacts. Store every review and final artifact under `reviews/`:
   tasks/T01-brief.md       # optional durable execution
   tasks/T01-context.md
   tasks/T01-report.md
-  knowledge/records.yaml
+  knowledge/records.toml
   reviews/
     round-0/00-review-invocation.toml
     round-0/03-review.md

@@ -80,7 +80,9 @@ service.
 
 ## Next milestone — standalone KAPISCH repository
 
-Status: planned. This is the first requirement before new feature development.
+Status: completed 2026-07-21. The standalone repository is now the canonical
+source; see `docs/acceptance.md`, `docs/compatibility.md`, and
+`docs/collision-check.md` for executable and operational evidence.
 
 Goal: extract the reusable skill, portable role contracts, Codex agent-profile
 templates, validator, tests, and public documentation from
