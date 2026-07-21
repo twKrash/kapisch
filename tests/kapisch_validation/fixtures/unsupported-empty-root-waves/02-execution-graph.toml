@@ -1,0 +1,18 @@
+version = 2
+task_id = "empty-root-waves"
+source_plan = "01-plan.md"
+base_revision = "base"
+waves = []
+nodes = []
+[policies]
+execution="sequential"
+executor="implementer"
+dispatch="single"
+model_tier="standard"
+batching="off"
+parallelism="off"
+max_parallel_agents=1
+commit="manual"
+push="manual"
+fix_policy="manual"
+max_fix_rounds=1

@@ -1,0 +1,7 @@
+version = 1
+task_id = "v1"
+source_plan = "01-plan.md"
+base_revision = "base"
+nodes = []
+[policies]
+execution="sequential"

@@ -1,0 +1,17 @@
+version = 2
+task_id = "parallel-agent-limit"
+source_plan = "01-plan.md"
+base_revision = "base"
+nodes = []
+[policies]
+execution="sequential"
+executor="implementer"
+dispatch="single"
+model_tier="standard"
+batching="off"
+parallelism="off"
+max_parallel_agents=2
+commit="manual"
+push="manual"
+fix_policy="manual"
+max_fix_rounds=1

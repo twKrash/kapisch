@@ -1,0 +1,29 @@
+version = 2
+task_id = "legacy-empty-scope"
+source_plan = "01-plan.md"
+base_revision = "base"
+[policies]
+execution="sequential"
+executor="implementer"
+dispatch="single"
+model_tier="standard"
+batching="off"
+parallelism="off"
+max_parallel_agents=1
+commit="manual"
+push="manual"
+fix_policy="manual"
+max_fix_rounds=1
+[[nodes]]
+id="R01"
+sequence=1
+kind="review"
+status="pending"
+depends_on=[]
+brief="tasks/R01-brief.md"
+context="tasks/R01-context.md"
+report="reviews/round-0/03-review.md"
+[nodes.review_scope]
+terminal_node_ids=[]
+integrated_wave_ids=[]
+wave_terminal_dependencies=[]

@@ -1,0 +1,15 @@
+task_id="cycle"
+source_plan="01-plan.md"
+base_revision="base"
+current_revision="base"
+workflow_status="running"
+completed_node_ids=[]
+running_node_ids=[]
+ready_node_ids=[]
+blocked_node_ids=[]
+failed_node_ids=[]
+latest_approving_review_path="unavailable"
+latest_approving_invocation_id="unavailable"
+current_fix_round=0
+max_fix_rounds=1
+next_action="block:no-ready-node"

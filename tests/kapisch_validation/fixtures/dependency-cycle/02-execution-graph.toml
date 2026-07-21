@@ -1,0 +1,28 @@
+version = 1
+task_id = "cycle"
+source_plan = "01-plan.md"
+base_revision = "base"
+[policies]
+execution="sequential"
+[[nodes]]
+id="T01"
+sequence=1
+title="one"
+kind="behavioral"
+risk="low"
+status="pending"
+depends_on=["T02"]
+brief="tasks/T01-brief.md"
+context="tasks/T01-context.md"
+report="tasks/T01-report.md"
+[[nodes]]
+id="T02"
+sequence=2
+title="two"
+kind="behavioral"
+risk="low"
+status="pending"
+depends_on=["T01"]
+brief="tasks/T02-brief.md"
+context="tasks/T02-context.md"
+report="tasks/T02-report.md"

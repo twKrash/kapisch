@@ -1,0 +1,9 @@
+version = 1
+task_id = "wave"
+source_plan = "01-plan.md"
+base_revision = "base"
+nodes = []
+[policies]
+execution="sequential"
+parallelism="on"
+max_parallel_agents=2
