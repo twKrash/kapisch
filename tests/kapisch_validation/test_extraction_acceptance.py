@@ -68,22 +68,40 @@ class ExtractionAcceptanceTests(unittest.TestCase):
     def test_approved_legacy_copy_validates_and_preserves_source_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp)
-            source = project / ".planning/KAPISCH/example"
+            source = project / ".planning/KAPISCH/valid"
             shutil.copytree(FIXTURES / "valid-sequential-v2", source)
             before = digests(source)
-            self.assertEqual(migrate(["--project-dir", str(project), "--task-id", "example", "--approve"]), 0)
+            self.assertEqual(migrate(["--project-dir", str(project), "--task-id", "valid", "--approve"]), 0)
             self.assertEqual(before, digests(source))
-            self.assertEqual(before, digests(project / ".kapisch/runs/example"))
+            self.assertEqual(before, digests(project / ".kapisch/runs/valid"))
 
     def test_invalid_legacy_copy_leaves_source_and_creates_no_destination(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp)
-            source = project / ".planning/KAPISCH/example"
+            source = project / ".planning/KAPISCH/missing-scope"
             shutil.copytree(FIXTURES / "missing-review-scope", source)
+            before = digests(source)
+            self.assertEqual(migrate(["--project-dir", str(project), "--task-id", "missing-scope", "--approve"]), 2)
+            self.assertEqual(before, digests(source))
+            self.assertFalse((project / ".kapisch/runs/missing-scope").exists())
+
+    def test_migration_rejects_embedded_task_id_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            source = project / ".planning/KAPISCH/example"
+            shutil.copytree(FIXTURES / "valid-sequential-v2", source)
             before = digests(source)
             self.assertEqual(migrate(["--project-dir", str(project), "--task-id", "example", "--approve"]), 2)
             self.assertEqual(before, digests(source))
             self.assertFalse((project / ".kapisch/runs/example").exists())
+
+    def test_migration_rejects_task_id_path_traversal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            with self.assertRaises(SystemExit):
+                migrate(["--project-dir", str(project), "--task-id", "../valid", "--approve"])
+            self.assertFalse((project / ".planning").exists())
+            self.assertFalse((project / ".kapisch").exists())
 
     def test_migration_never_writes_a_legacy_namespace(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
