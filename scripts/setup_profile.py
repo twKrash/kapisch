@@ -22,6 +22,17 @@ def profile_name(path: Path) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def identity_collisions(agent_dir: Path, expected_name: str, target: Path) -> list[Path]:
+    """Find other readable agent profiles with the identity we would install."""
+    if not agent_dir.is_dir():
+        return []
+    return [
+        path
+        for path in sorted(agent_dir.glob("*.toml"))
+        if path != target and profile_name(path) == expected_name
+    ]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--role", required=True)
@@ -43,6 +54,18 @@ def main(argv: list[str] | None = None) -> int:
     target = root / ".codex" / "agents" / template.name
     record = root / ".kapisch" / "local-state" / "profiles" / f"{args.role}.toml"
     template_digest = digest(template)
+    expected_identity = f"kapisch-{args.role}"
+
+    collisions = identity_collisions(target.parent, expected_identity, target)
+    if collisions:
+        print(f"profile={target}")
+        print(f"scope={args.scope}")
+        print("status=collision")
+        print(f"expected_identity={expected_identity}")
+        for collision in collisions:
+            print(f"identity_collision={collision}")
+        print("action=review; profile was not changed")
+        return 2
 
     if target.exists():
         installed_digest = digest(target)
@@ -51,10 +74,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"scope={args.scope}")
         print(
             "status=collision"
-            if not record.exists() or actual_name != f"kapisch-{args.role}"
+            if not record.exists() or actual_name != expected_identity
             else "status=installed"
         )
-        print(f"expected_identity=kapisch-{args.role}")
+        print(f"expected_identity={expected_identity}")
         print(f"installed_identity={actual_name or 'unreadable'}")
         print(f"template_sha256={template_digest}")
         print(f"installed_sha256={installed_digest}")
@@ -75,7 +98,7 @@ def main(argv: list[str] | None = None) -> int:
             print("drift=user-modified" if expected_installed != installed_digest else "drift=none")
             print("template_drift=updated" if expected_template != template_digest else "template_drift=none")
         print("action=review; profile was not changed")
-        return 2 if not record.exists() or actual_name != f"kapisch-{args.role}" else 0
+        return 2 if not record.exists() or actual_name != expected_identity else 0
     if not args.install:
         print(f"profile={target}")
         print("status=not-installed")
@@ -90,7 +113,7 @@ def main(argv: list[str] | None = None) -> int:
         f'template_sha256="{template_digest}"\n'
         f'installed_profile="{target}"\n'
         f'scope="{args.scope}"\n'
-        f'profile_identity="kapisch-{args.role}"\n'
+        f'profile_identity="{expected_identity}"\n'
         f'installed_sha256="{digest(target)}"\n',
         encoding="utf-8",
     )

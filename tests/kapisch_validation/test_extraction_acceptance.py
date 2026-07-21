@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import os
 import shutil
 import tempfile
 import unittest
@@ -65,6 +66,20 @@ class ExtractionAcceptanceTests(unittest.TestCase):
             self.assertEqual(setup_profile(["--role", "reviewer", "--project-dir", str(project)]), 2)
             self.assertEqual(profile.read_text(), 'name = "someone-else"\n')
 
+    def test_profile_identity_collision_in_another_filename_blocks_install(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            agent_dir = project / ".codex/agents"
+            agent_dir.mkdir(parents=True)
+            other = agent_dir / "reviewer.toml"
+            other.write_text('name = "kapisch-reviewer"\n', encoding="utf-8")
+            self.assertEqual(
+                setup_profile(["--role", "reviewer", "--project-dir", str(project), "--install"]),
+                2,
+            )
+            self.assertFalse((agent_dir / "kapisch-reviewer.toml").exists())
+            self.assertEqual(other.read_text(), 'name = "kapisch-reviewer"\n')
+
     def test_approved_legacy_copy_validates_and_preserves_source_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp)
@@ -102,6 +117,18 @@ class ExtractionAcceptanceTests(unittest.TestCase):
                 migrate(["--project-dir", str(project), "--task-id", "../valid", "--approve"])
             self.assertFalse((project / ".planning").exists())
             self.assertFalse((project / ".kapisch").exists())
+
+    def test_migration_rejects_symlinked_legacy_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            source = project / ".planning/task-workflow/valid"
+            shutil.copytree(FIXTURES / "valid-sequential-v2", source)
+            link = source / "linked-report.md"
+            os.symlink("tasks/T01-report.md", link)
+            self.assertTrue(link.is_symlink())
+            self.assertEqual(migrate(["--project-dir", str(project), "--task-id", "valid", "--approve"]), 2)
+            self.assertTrue(link.is_symlink())
+            self.assertFalse((project / ".kapisch/runs/valid").exists())
 
     def test_migration_never_writes_a_legacy_namespace(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
