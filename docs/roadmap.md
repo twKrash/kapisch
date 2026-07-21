@@ -80,7 +80,10 @@ service.
 
 ## Next milestone — standalone KAPISCH repository
 
-Status: planned. This is the first requirement before new feature development.
+Status: in progress. Standalone source extraction is complete; clean Codex
+installation, plugin discovery/invocation, and marketplace distribution remain
+pending manual acceptance. See `docs/acceptance.md`, `docs/compatibility.md`,
+and `docs/collision-check.md` for the current evidence and boundaries.
 
 Goal: extract the reusable skill, portable role contracts, Codex agent-profile
 templates, validator, tests, and public documentation from
@@ -123,7 +126,7 @@ Required work:
    writer, Git wrapper, or approval authority.
 9. Define the migration and dogfood path for the source application, including
    whether it consumes the standalone plugin directly or temporarily retains a
-   compatibility copy during stabilization. Legacy `.planning/KAPISCH/`
+   compatibility copy during stabilization. Legacy `.planning/task-workflow/`
    artifacts remain readable without mutation under an explicit compatibility
    version. Migration is an explicit, user-approved copy-and-validate operation
    into `.kapisch/runs/<task-id>/`; it retains the source until the destination

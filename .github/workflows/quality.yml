@@ -1,12 +1,11 @@
-name: quality
+name: CI
 
 on:
   pull_request:
   push:
-    branches: [main]
 
 jobs:
-  python:
+  ci:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -14,4 +13,5 @@ jobs:
         with:
           python-version: '3.11'
       - run: python -m unittest discover -s tests/kapisch_validation
+      - run: python scripts/test_portable_package.py
       - run: python scripts/validate_kapisch.py --help
