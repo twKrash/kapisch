@@ -11,7 +11,10 @@ from tempfile import TemporaryDirectory
 from kapisch_validation.manifest import parse_manifest
 from kapisch_validation.models import Manifest, Node, State
 from kapisch_validation.references import parse_state
-from kapisch_validation.review_evidence import validate_review_evidence
+from kapisch_validation.review_evidence import (
+    CANONICAL_REVIEWER_PROFILE,
+    validate_review_evidence,
+)
 
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -54,7 +57,7 @@ class ReviewEvidenceTests(unittest.TestCase):
             "mode": "review",
             "dispatch_mode": "runtime-named-spawn",
             "requested_role": "reviewer",
-            "requested_profile": ".codex/agents/reviewer.toml",
+            "requested_profile": CANONICAL_REVIEWER_PROFILE,
             "task_name": "review-task",
             "dispatching_controller": "controller-task",
             "target": "staged",
@@ -74,7 +77,7 @@ class ReviewEvidenceTests(unittest.TestCase):
             "result_encoding": "utf-8",
             "result_sha256": hashlib.sha256(result.read_bytes()).hexdigest(),
             "returned_role": "reviewer",
-            "returned_profile": ".codex/agents/reviewer.toml",
+            "returned_profile": CANONICAL_REVIEWER_PROFILE,
             "returned_target": "staged",
             "returned_revision": "head",
             "returned_working_tree_state": working_state,
@@ -221,6 +224,30 @@ class ReviewEvidenceTests(unittest.TestCase):
                     self.assert_code(findings, "TWV-REVIEW-UNRESOLVED-DISPATCH")
                 else:
                     self.assertEqual(findings, [])
+
+    def test_noncompleted_invocation_rejects_populated_post_review_fields(self) -> None:
+        for lifecycle in ("planned", "dispatched"):
+            for field, value in (
+                ("post_review_working_tree_state", state_payload("head")),
+                (
+                    "post_review_state_digest",
+                    hashlib.sha256(state_payload("head").encode()).hexdigest(),
+                ),
+            ):
+                with (
+                    self.subTest(lifecycle=lifecycle, field=field),
+                    TemporaryDirectory() as temporary,
+                ):
+                    overrides = self.noncompleted_overrides(
+                        lifecycle, "unavailable"
+                    )
+                    overrides[field] = value
+                    findings, _ = self.validate_one(
+                        Path(temporary),
+                        node_status="reviewing",
+                        overrides=overrides,
+                    )
+                    self.assert_code(findings, "TWV-REVIEW-MALFORMED-ENVELOPE")
 
         invalid = (("planned", "review-task"), ("dispatched", "other-task"))
         for lifecycle, returned_name in invalid:

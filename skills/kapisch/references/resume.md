@@ -111,4 +111,4 @@ repository changes returns the same unsupported-capability result.
 
 The retired recovery protocol is preserved only as non-normative future design
 material in
-[`../../docs/parallel-wave-design.md`](../../../../../../docs/parallel-wave-design.md).
+[`../../../docs/parallel-wave-design.md`](../../../docs/parallel-wave-design.md).

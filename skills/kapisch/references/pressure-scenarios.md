@@ -205,7 +205,7 @@ test failures.
      tier never implies a runtime model; unavailable usage is never estimated.
 105. An explicit graph-free `mode=review` or `mode=final` request creates its
      pre-dispatch canonical invocation record and routes only to
-     `.codex/agents/reviewer.toml` through one supported dispatch mode;
+     `.codex/agents/kapisch-reviewer.toml` through one supported dispatch mode;
      unavailable modes return blocked, `do-not-approve`, or `not-ready`, never
      controller self-review.
 106. A non-trivial graph-free implementation completes: a controller or generic
@@ -240,7 +240,7 @@ test failures.
 115. A terminal final-readiness attempt returns `not-ready`, `blocked`, or
      `failed`: when terminal evidence exists, the controller emits the requested
      final-only aggregate exactly once without adding provenance or estimates.
-116. A controller records `.codex/agents/reviewer.toml` as requested but receives
+116. A controller records `.codex/agents/kapisch-reviewer.toml` as requested but receives
      generic-agent output without matching runtime-spawn or external-task
      evidence: the invocation remains `blocked` or `failed`; it cannot approve.
 117. A same-task `@Reviewer` mention or a link resolving to the controller task

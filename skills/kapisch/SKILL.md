@@ -2,7 +2,10 @@
 name: KAPISCH
 description: >-
   Use when a repository task needs repeatable planning, implementation,
-  independent review, final-readiness, or narrow mechanical cleanup.
+  independent review, final-readiness, narrow mechanical cleanup, or bounded
+  read-only project understanding such as architecture questions and maps,
+  documentation-drift checks, onboarding summaries, and decision-record
+  preparation.
 ---
 
 # KAPISCH Workflow
@@ -12,8 +15,8 @@ description: >-
 For read-only structural validation of a sequential durable TOML artifact tree,
 run `python scripts/validate_kapisch.py
 --contract-dir skills/kapisch --task-dir <task-dir>`. See
-[`scripts/README.md`](scripts/README.md). The validator does not dispatch,
-repair, schedule, or approve work.
+the [validator section in the repository README](../../README.md#validator).
+The validator does not dispatch, repair, schedule, or approve work.
 
 Validator exit 0 is necessary structural evidence only; validator errors are
 blocking. Exit 0 does not establish iteration or whole-branch scope, dependency
@@ -33,6 +36,10 @@ Investigate duplicate reminder delivery; fix only if local/no API or migration.
 Execute the approved M18 plan end-to-end.
 
 Review my current branch before I open a PR.
+
+Map the repository architecture and explain where reminder delivery is owned.
+
+Check whether the architecture documentation still matches the current code.
 ```
 
 The five normal controls are optional and have safe defaults:
@@ -106,7 +113,28 @@ dependency, destructive, or external-action authority. Durable execution is
 sequential only: new manifests use `parallelism=off` and
 `max_parallel_agents=1`. Operational waves are unsupported and fail closed;
 the retired protocol is archive material only in
-[`../../docs/parallel-wave-design.md`](../../../../../docs/parallel-wave-design.md).
+[`../../docs/parallel-wave-design.md`](../../docs/parallel-wave-design.md).
+
+## Project understanding
+
+Architecture questions, maps, documentation-drift checks, onboarding summaries,
+and decision-record preparation use the bounded read-only `researcher` route in
+[project-understanding.md](references/project-understanding.md). Research
+collects attributable repository evidence; it does not edit documentation or
+make an architecture decision. Any requested documentation change is a separate
+implementation step assigned to the closed-catalog `implementer` role under the
+controller's single-writer boundary, with its own scope and verification. The
+sole exception is an exact authoritative-document synchronization that satisfies
+every mechanic condition in [dispatch.md](references/dispatch.md); it may use
+`mechanic`, but it retains the project-understanding review requirement below.
+Every versioned project-understanding or architecture-documentation change then
+receives independent review, including maps, drift corrections, onboarding
+documents, and decision records, whether or not it changes behaviour or a public
+contract. Review checks the evidence and recorded output; it does not make or
+approve the underlying architecture or product decision. Current source, tests,
+repository policy, versioned documentation, and Git history remain authoritative;
+optional retrieval tools are aids only and are never required or treated as a
+stronger source of truth.
 
 ## Contract ownership
 
@@ -118,7 +146,9 @@ selection and Codex runtime dispatch in [role-resolution.md](references/role-res
 [review.md](references/review.md); durable artifacts and invocation envelopes in
 [handoffs.md](references/handoffs.md); sequential schema in
 [execution-graph.md](references/execution-graph.md); and recovery in
-[resume.md](references/resume.md).
+[resume.md](references/resume.md). Bounded repository understanding and its
+evidence/write/review separation are owned by
+[project-understanding.md](references/project-understanding.md).
 
 The validator checks only its implemented structural artifact invariants. It
 does not authoritatively establish iteration or whole-branch scope, dependency

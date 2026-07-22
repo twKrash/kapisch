@@ -321,8 +321,17 @@ are available.
 
 ## Change 5 — project understanding and architecture documentation
 
-Status: planned after standalone extraction; it does not depend on Change 4
-measurement work.
+Status: completed. Policy B covers only advisory researcher dogfood. The
+preserved Round 0 negative review led to profile-path and lifecycle fixes;
+canonical Round 1 approved the resulting pre-correction staged delta. The first
+distinct final-readiness pass returned `not-ready` because the portable reviewer
+role embedded a Codex-specific path and this roadmap did not reflect the
+canonical review history. Those findings were corrected, canonical Round 2
+approved the complete corrected delta, and a distinct final-readiness decision
+returned `ready`. This status-only edit changes the staged state and therefore
+requires a fresh whole-delta approving review and distinct final-readiness
+decision before the resulting completed state is itself ready. Change 5 does
+not depend on Change 4 measurement work.
 
 - Add bounded read-only architecture questions through the `researcher` role.
 - Add architecture mapping, documentation drift checks, onboarding summaries,

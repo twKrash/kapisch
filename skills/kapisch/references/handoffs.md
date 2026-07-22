@@ -7,10 +7,10 @@ recovery of these artifacts is owned by [resume.md](resume.md).
 
 Use `handoff=both` by default: the controller writes a durable handoff and
 summarizes it in chat. `handoff=file` writes without the chat summary.
-`handoff=chat` suppresses optional plan/implementation/mechanic delivery files,
-but an approving review or final still requires its canonical invocation and
-result artifacts. A chat-only review/final without those artifacts is advisory
-only and cannot approve.
+`handoff=chat` suppresses optional research/plan/implementation/mechanic delivery
+files, but an approving review or final still requires its canonical invocation
+and result artifacts. A chat-only review/final without those artifacts is
+advisory only and cannot approve.
 
 The controller must never infer that `workflow=task`, graph-free execution,
 `handoff=chat`, read-only subagents, an unchanged working tree, or the absence
@@ -28,11 +28,13 @@ Handoffs are uncommitted working-tree artifacts under:
 .kapisch/runs/<task_id>/
 ```
 
-Use the root directory for plan, mechanic, and non-review implementation
-artifacts. Store every review and final artifact under `reviews/`:
+Use the root directory for research, plan, mechanic, and non-review
+implementation artifacts. Store every review and final artifact under
+`reviews/`:
 
 ```text
 .kapisch/runs/<task_id>/
+  00-research.md       # project-understanding research when requested
   00-context.md
   01-plan.md
   02-execution-graph.toml  # optional durable execution
@@ -76,6 +78,7 @@ do not silently continue without an artifact.
 Use only the file for the current mode:
 
 ```text
+00-research.md         project-understanding research
 00-context.md          plan input context, written by plan mode when useful
 01-plan.md             plan
 02-implementation.md   implementation summary
@@ -84,11 +87,16 @@ Use only the file for the current mode:
 reviews/final/05-final.md final readiness review
 ```
 
-The controller is the sole writer of every handoff. Plan, implementation,
-mechanic, review, and final roles return structured evidence only; the controller
-persists it in the relevant mode-specific artifact. This prevents a reviewer or
-architect from modifying the workspace merely to create an artifact, while
-preserving a durable, attributable record.
+For a project-understanding `researcher` route with `handoff=file|both`, the
+controller initializes `00-research.md` before dispatch and completes its
+lifecycle from the researcher's exact returned evidence under the same delivery
+guarantee. The researcher remains read-only and never writes the handoff.
+
+The controller is the sole writer of every handoff. Research, plan,
+implementation, mechanic, review, and final roles return structured evidence
+only; the controller persists it in the relevant mode-specific artifact. This
+prevents a researcher, reviewer, or architect from modifying the workspace
+merely to create an artifact, while preserving a durable, attributable record.
 
 When durable execution is active, the manifest, state, tasks, and ledger extend
 rather than replace these artifacts. Initialize the graph/state before dispatch,
@@ -263,9 +271,11 @@ fixture has a distinct external task ID/URL, or, when both are unavailable, a
 pre-persisted controller-generated `external_task_ref` such as
 `ext-final-72956c-01`. The compatibility fixture records the two unavailable
 runtime fields and `identity_assurance: user-attested-external-reference`, has
-user-attested Reviewer UI selection, requested `.codex/agents/reviewer.toml`,
-and stores its self-contained request in `external_task_request`. That request
-and the digest-bound result each contain the exact canonical
+user-attested Reviewer UI selection, requested
+`.codex/agents/kapisch-reviewer.toml`, and stores its self-contained request in
+`external_task_request`. The returned canonical profile path records that
+attested UI selection; it is Level 1 evidence, not a runtime assignment receipt.
+That request and the digest-bound result each contain the exact canonical
 `external_task_ref=<ref>` logical line once. It also
 has matching result digest/returned role/profile/target state and unchanged
 pre/post Git state. A same-task mention, generic external task, missing, changed,

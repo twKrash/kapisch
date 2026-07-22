@@ -29,7 +29,18 @@ The test suite also covers:
 | Reviewer invocation and final readiness | `test_review_evidence.py`, `test_hardening.py` |
 | Migration and no-new-legacy-write | `test_extraction_acceptance.py` |
 | User-scoped profile identity, revision, and drift | `test_extraction_acceptance.py` |
+| Project-understanding procedures, role boundaries, handoffs, review policy, and local links | `test_extraction_acceptance.py` |
 | Read-only deterministic validator | `test_cli.py`, `test_hardening.py` |
 
 `python -m unittest discover -s tests/kapisch_validation` is the focused suite
 when portable-package isolation is not required.
+
+## Change 5 dogfood observability decision
+
+Policy B was accepted on 2026-07-22. Researcher dogfood may record
+`resolved_runtime_profile=unavailable/not exposed` when the collaboration runtime
+does not expose profile selection, provided the installed profile identity and
+revision are recorded, drift is absent, and the result does not infer selection
+from installation. This decision applies only to advisory researcher dogfood. It
+does not weaken the configured-reviewer invocation and canonical evidence needed
+for independent approval or milestone final readiness.

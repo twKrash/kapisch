@@ -49,6 +49,7 @@ ENVELOPE = {
 }
 
 LIFECYCLE_STATUSES = {"planned", "dispatched", "completed", "blocked", "failed"}
+CANONICAL_REVIEWER_PROFILE = ".codex/agents/kapisch-reviewer.toml"
 IDENTITY_ASSURANCES = {
     "observable-named-dispatch",
     "external-named-task",
@@ -518,7 +519,7 @@ def _validate_invocation(
     if (
         raw["mode"] != node.kind
         or raw["requested_role"] != "reviewer"
-        or raw["requested_profile"] != ".codex/agents/reviewer.toml"
+        or raw["requested_profile"] != CANONICAL_REVIEWER_PROFILE
         or raw["base_revision"] != manifest.base_revision
         or raw["result_encoding"] != "utf-8"
     ):
@@ -588,7 +589,7 @@ def _validate_invocation(
             )
         if (
             raw["returned_role"] != "reviewer"
-            or raw["returned_profile"] != ".codex/agents/reviewer.toml"
+            or raw["returned_profile"] != CANONICAL_REVIEWER_PROFILE
             or raw["returned_target"] != raw["target"]
             or raw["returned_revision"] != raw["reviewed_revision"]
             or raw["returned_working_tree_state"] != raw["working_tree_state"]
