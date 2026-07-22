@@ -13,6 +13,7 @@ from kapisch_validation.models import Manifest, Node, State
 from kapisch_validation.references import parse_state
 from kapisch_validation.review_evidence import (
     CANONICAL_REVIEWER_PROFILE,
+    LEGACY_REVIEWER_PROFILE,
     validate_review_evidence,
 )
 
@@ -196,6 +197,56 @@ class ReviewEvidenceTests(unittest.TestCase):
         with TemporaryDirectory() as temporary:
             findings, _ = self.validate_one(Path(temporary))
         self.assertEqual(findings, [])
+
+    def test_completed_legacy_reviewer_profile_evidence_remains_valid(self) -> None:
+        for node_status in ("complete", "failed"):
+            with (
+                self.subTest(node_status=node_status),
+                TemporaryDirectory() as temporary,
+            ):
+                findings, _ = self.validate_one(
+                    Path(temporary),
+                    node_status=node_status,
+                    overrides={
+                        "requested_profile": LEGACY_REVIEWER_PROFILE,
+                        "returned_profile": LEGACY_REVIEWER_PROFILE,
+                    },
+                )
+                self.assertEqual(findings, [])
+
+    def test_legacy_reviewer_profile_is_rejected_for_noncompleted_evidence(self) -> None:
+        for lifecycle in ("planned", "dispatched", "blocked", "failed"):
+            with (
+                self.subTest(lifecycle=lifecycle),
+                TemporaryDirectory() as temporary,
+            ):
+                overrides = self.noncompleted_overrides(lifecycle, "unavailable")
+                overrides["requested_profile"] = LEGACY_REVIEWER_PROFILE
+                findings, _ = self.validate_one(
+                    Path(temporary),
+                    node_status="reviewing",
+                    overrides=overrides,
+                )
+                self.assert_code(findings, "TWV-REVIEW-MALFORMED-ENVELOPE")
+
+    def test_completed_reviewer_profile_pair_must_match_a_supported_identity(self) -> None:
+        for requested, returned in (
+            (LEGACY_REVIEWER_PROFILE, CANONICAL_REVIEWER_PROFILE),
+            (CANONICAL_REVIEWER_PROFILE, LEGACY_REVIEWER_PROFILE),
+            (".codex/agents/other.toml", ".codex/agents/other.toml"),
+        ):
+            with (
+                self.subTest(requested=requested, returned=returned),
+                TemporaryDirectory() as temporary,
+            ):
+                findings, _ = self.validate_one(
+                    Path(temporary),
+                    overrides={
+                        "requested_profile": requested,
+                        "returned_profile": returned,
+                    },
+                )
+                self.assert_code(findings, "TWV-REVIEW-MALFORMED-ENVELOPE")
 
     def test_runtime_spawn_result_follows_lifecycle(self) -> None:
         valid = (

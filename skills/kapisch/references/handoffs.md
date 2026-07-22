@@ -283,6 +283,15 @@ duplicated, or reused reference, missing attestation, or a review record reused
 for final is invalid. Resume accepts a completed matching reference
 idempotently. This fixture is documentation-only and never launches an agent.
 
+Validation-only compatibility keeps already-completed envelopes from the prior
+profile layout readable without rewriting their bytes: the requested and
+returned profiles may both be `.codex/agents/reviewer.toml` only when
+`lifecycle_status=completed`. Mixed profile identities, arbitrary paths, and the
+legacy path on any planned, dispatched, blocked, or failed invocation are
+invalid. Every newly created invocation uses
+`.codex/agents/kapisch-reviewer.toml`; compatibility acceptance never authorizes
+a new legacy-profile dispatch.
+
 ## Final-only workflow metrics
 
 When persisted `workflow_metrics=final` is requested, only the controller maintains

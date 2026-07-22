@@ -50,6 +50,7 @@ ENVELOPE = {
 
 LIFECYCLE_STATUSES = {"planned", "dispatched", "completed", "blocked", "failed"}
 CANONICAL_REVIEWER_PROFILE = ".codex/agents/kapisch-reviewer.toml"
+LEGACY_REVIEWER_PROFILE = ".codex/agents/reviewer.toml"
 IDENTITY_ASSURANCES = {
     "observable-named-dispatch",
     "external-named-task",
@@ -159,6 +160,15 @@ def _contained(task_dir: Path, relative_path: str) -> Path | None:
 
 def _digest(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _valid_reviewer_profiles(raw: dict[str, object], lifecycle: object) -> bool:
+    requested = raw["requested_profile"]
+    if lifecycle != "completed":
+        return requested == CANONICAL_REVIEWER_PROFILE
+    return requested in {CANONICAL_REVIEWER_PROFILE, LEGACY_REVIEWER_PROFILE} and (
+        raw["returned_profile"] == requested
+    )
 
 
 def _has_exact_line(value: object, field: str, expected_value: str) -> bool:
@@ -519,7 +529,7 @@ def _validate_invocation(
     if (
         raw["mode"] != node.kind
         or raw["requested_role"] != "reviewer"
-        or raw["requested_profile"] != CANONICAL_REVIEWER_PROFILE
+        or not _valid_reviewer_profiles(raw, lifecycle)
         or raw["base_revision"] != manifest.base_revision
         or raw["result_encoding"] != "utf-8"
     ):
@@ -589,7 +599,6 @@ def _validate_invocation(
             )
         if (
             raw["returned_role"] != "reviewer"
-            or raw["returned_profile"] != CANONICAL_REVIEWER_PROFILE
             or raw["returned_target"] != raw["target"]
             or raw["returned_revision"] != raw["reviewed_revision"]
             or raw["returned_working_tree_state"] != raw["working_tree_state"]

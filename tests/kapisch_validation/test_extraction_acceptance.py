@@ -10,7 +10,10 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 
-from kapisch_validation.review_evidence import CANONICAL_REVIEWER_PROFILE
+from kapisch_validation.review_evidence import (
+    CANONICAL_REVIEWER_PROFILE,
+    LEGACY_REVIEWER_PROFILE,
+)
 from scripts.migrate_legacy_run import main as migrate
 from scripts.setup_profile import main as setup_profile
 
@@ -228,6 +231,38 @@ class ExtractionAcceptanceTests(unittest.TestCase):
             shutil.copytree(FIXTURES / "valid-sequential-v2", source)
             before = digests(source)
             self.assertEqual(migrate(["--project-dir", str(project), "--task-id", "valid", "--approve"]), 0)
+            self.assertEqual(before, digests(source))
+            self.assertEqual(before, digests(project / ".kapisch/runs/valid"))
+
+    def test_migration_preserves_completed_legacy_reviewer_profile_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            source = project / ".planning/task-workflow/valid"
+            shutil.copytree(FIXTURES / "valid-sequential-v2", source)
+            for relative in (
+                "reviews/round-0/00-review-invocation.toml",
+                "reviews/final/00-final-invocation.toml",
+            ):
+                invocation = source / relative
+                invocation.write_text(
+                    invocation.read_text(encoding="utf-8").replace(
+                        CANONICAL_REVIEWER_PROFILE, LEGACY_REVIEWER_PROFILE
+                    ),
+                    encoding="utf-8",
+                )
+            before = digests(source)
+            self.assertEqual(
+                migrate(
+                    [
+                        "--project-dir",
+                        str(project),
+                        "--task-id",
+                        "valid",
+                        "--approve",
+                    ]
+                ),
+                0,
+            )
             self.assertEqual(before, digests(source))
             self.assertEqual(before, digests(project / ".kapisch/runs/valid"))
 
