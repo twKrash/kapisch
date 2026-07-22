@@ -215,7 +215,7 @@ class ReviewEvidenceTests(unittest.TestCase):
                 self.assertEqual(findings, [])
 
     def test_legacy_reviewer_profile_is_rejected_for_noncompleted_evidence(self) -> None:
-        for lifecycle in ("planned", "dispatched", "blocked", "failed"):
+        for lifecycle in ("planned", "dispatched"):
             with (
                 self.subTest(lifecycle=lifecycle),
                 TemporaryDirectory() as temporary,
@@ -228,6 +228,21 @@ class ReviewEvidenceTests(unittest.TestCase):
                     overrides=overrides,
                 )
                 self.assert_code(findings, "TWV-REVIEW-MALFORMED-ENVELOPE")
+
+    def test_terminal_legacy_reviewer_profile_failures_remain_valid(self) -> None:
+        for lifecycle in ("blocked", "failed"):
+            with (
+                self.subTest(lifecycle=lifecycle),
+                TemporaryDirectory() as temporary,
+            ):
+                overrides = self.noncompleted_overrides(lifecycle, "unavailable")
+                overrides["requested_profile"] = LEGACY_REVIEWER_PROFILE
+                findings, _ = self.validate_one(
+                    Path(temporary),
+                    node_status=lifecycle,
+                    overrides=overrides,
+                )
+                self.assertEqual(findings, [])
 
     def test_completed_reviewer_profile_pair_must_match_a_supported_identity(self) -> None:
         for requested, returned in (

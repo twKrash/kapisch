@@ -285,10 +285,12 @@ idempotently. This fixture is documentation-only and never launches an agent.
 
 Validation-only compatibility keeps already-completed envelopes from the prior
 profile layout readable without rewriting their bytes: the requested and
-returned profiles may both be `.codex/agents/reviewer.toml` only when
-`lifecycle_status=completed`. Mixed profile identities, arbitrary paths, and the
-legacy path on any planned, dispatched, blocked, or failed invocation are
-invalid. Every newly created invocation uses
+returned profiles may both be `.codex/agents/reviewer.toml` when
+`lifecycle_status=completed`. A historical `blocked` or `failed` envelope may
+also retain that legacy requested profile while every result and returned field
+remains `unavailable`. Mixed profile identities, arbitrary paths, and the legacy
+path on any planned or dispatched invocation are invalid. Every newly created
+invocation uses
 `.codex/agents/kapisch-reviewer.toml`; compatibility acceptance never authorizes
 a new legacy-profile dispatch.
 

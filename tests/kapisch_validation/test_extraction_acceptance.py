@@ -30,6 +30,84 @@ def digests(root: Path) -> dict[str, str]:
     }
 
 
+def add_terminal_legacy_review(root: Path, lifecycle: str) -> None:
+    manifest = root / "02-execution-graph.toml"
+    content = manifest.read_text(encoding="utf-8")
+    marker = '[[nodes]]\nid="R01"'
+    historical = f'''[[nodes]]
+id="R00"
+sequence=2
+title="historical terminal review"
+kind="review"
+risk="high"
+status="{lifecycle}"
+depends_on=["T01"]
+brief="tasks/R01-brief.md"
+context="tasks/R01-context.md"
+report="reviews/history/03-review.md"
+reviewer_invocation="reviews/history/00-review-invocation.toml"
+reads=[]
+writes=[]
+shared_resources=[]
+verification=[]
+context_refs=[]
+executor_class="reviewer"
+model_tier="high"
+batching="off"
+verification_evidence=[]
+[nodes.revision]
+base="base"
+head="head"
+[nodes.review_scope]
+terminal_node_ids=["T01"]
+'''
+    content = content.replace(marker, historical + marker, 1)
+    content = content.replace('id="R01"\nsequence=2', 'id="R01"\nsequence=3', 1)
+    content = content.replace('id="F01"\nsequence=3', 'id="F01"\nsequence=4', 1)
+    manifest.write_text(content, encoding="utf-8")
+
+    history = root / "reviews/history"
+    history.mkdir(parents=True)
+    (history / "03-review.md").write_text(
+        "historical terminal reviewer attempt\n", encoding="utf-8"
+    )
+    invocation = (
+        root / "reviews/round-0/00-review-invocation.toml"
+    ).read_text(encoding="utf-8")
+    replacements = {
+        "invocation_id": "I-HISTORICAL",
+        "requested_profile": LEGACY_REVIEWER_PROFILE,
+        "task_name": "historical-review",
+        "post_review_working_tree_state": "unavailable",
+        "post_review_state_digest": "unavailable",
+        "lifecycle_status": lifecycle,
+        "expected_result_path": "reviews/history/03-review.md",
+        "produced_result_path": "unavailable",
+        "result_sha256": "unavailable",
+        "returned_role": "unavailable",
+        "returned_profile": "unavailable",
+        "returned_target": "unavailable",
+        "returned_revision": "unavailable",
+        "returned_working_tree_state": "unavailable",
+        "returned_decision": "unavailable",
+        "spawn_result_task_name": "historical-review",
+    }
+    for field, value in replacements.items():
+        invocation = re.sub(
+            rf"^{field}=.*$", f'{field}="{value}"', invocation, flags=re.MULTILINE
+        )
+    (history / "00-review-invocation.toml").write_text(
+        invocation, encoding="utf-8"
+    )
+
+    state = root / "03-state.toml"
+    state_content = state.read_text(encoding="utf-8")
+    state_content = state_content.replace(
+        f"{lifecycle}_node_ids=[]", f'{lifecycle}_node_ids=["R00"]', 1
+    )
+    state.write_text(state_content, encoding="utf-8")
+
+
 class ExtractionAcceptanceTests(unittest.TestCase):
     def test_reviewer_setup_target_matches_canonical_evidence_profile(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -265,6 +343,32 @@ class ExtractionAcceptanceTests(unittest.TestCase):
             )
             self.assertEqual(before, digests(source))
             self.assertEqual(before, digests(project / ".kapisch/runs/valid"))
+
+    def test_migration_preserves_terminal_legacy_reviewer_failures(self) -> None:
+        for lifecycle in ("blocked", "failed"):
+            with (
+                self.subTest(lifecycle=lifecycle),
+                tempfile.TemporaryDirectory() as tmp,
+            ):
+                project = Path(tmp)
+                source = project / ".planning/task-workflow/valid"
+                shutil.copytree(FIXTURES / "valid-sequential-v2", source)
+                add_terminal_legacy_review(source, lifecycle)
+                before = digests(source)
+                self.assertEqual(
+                    migrate(
+                        [
+                            "--project-dir",
+                            str(project),
+                            "--task-id",
+                            "valid",
+                            "--approve",
+                        ]
+                    ),
+                    0,
+                )
+                self.assertEqual(before, digests(source))
+                self.assertEqual(before, digests(project / ".kapisch/runs/valid"))
 
     def test_invalid_legacy_copy_leaves_source_and_creates_no_destination(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

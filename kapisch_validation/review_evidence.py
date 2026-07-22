@@ -164,11 +164,13 @@ def _digest(value: str) -> str:
 
 def _valid_reviewer_profiles(raw: dict[str, object], lifecycle: object) -> bool:
     requested = raw["requested_profile"]
-    if lifecycle != "completed":
-        return requested == CANONICAL_REVIEWER_PROFILE
-    return requested in {CANONICAL_REVIEWER_PROFILE, LEGACY_REVIEWER_PROFILE} and (
-        raw["returned_profile"] == requested
-    )
+    if requested == CANONICAL_REVIEWER_PROFILE:
+        return lifecycle != "completed" or raw["returned_profile"] == requested
+    if requested != LEGACY_REVIEWER_PROFILE:
+        return False
+    if lifecycle == "completed":
+        return raw["returned_profile"] == requested
+    return lifecycle in {"blocked", "failed"}
 
 
 def _has_exact_line(value: object, field: str, expected_value: str) -> bool:
