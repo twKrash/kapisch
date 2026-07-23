@@ -294,6 +294,14 @@ invocation uses
 `.codex/agents/kapisch-reviewer.toml`; compatibility acceptance never authorizes
 a new legacy-profile dispatch.
 
+This exception is structural validation, not validator-enforced migration
+provenance. The controller must establish that the envelope came from the
+supported, explicitly approved `.planning/task-workflow/<task-id>/` migration
+before consuming it as legacy evidence. When that supported origin is not
+available, block reuse and require a fresh canonical-profile invocation. Stored
+bytes and digests detect inconsistency but do not prove authorship or creation
+history; this creation-policy trust boundary remains controller-owned.
+
 ## Final-only workflow metrics
 
 When persisted `workflow_metrics=final` is requested, only the controller maintains

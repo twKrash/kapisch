@@ -370,6 +370,37 @@ class ExtractionAcceptanceTests(unittest.TestCase):
                 self.assertEqual(before, digests(source))
                 self.assertEqual(before, digests(project / ".kapisch/runs/valid"))
 
+    def test_legacy_profile_compatibility_documents_controller_trust_boundary(
+        self,
+    ) -> None:
+        compatibility = " ".join(
+            (ROOT / "docs/compatibility.md").read_text(encoding="utf-8").split()
+        )
+        handoffs = " ".join(
+            (ROOT / "skills/kapisch/references/handoffs.md")
+            .read_text(encoding="utf-8")
+            .split()
+        )
+        resume = " ".join(
+            (ROOT / "skills/kapisch/references/resume.md")
+            .read_text(encoding="utf-8")
+            .split()
+        )
+        self.assertIn("structural compatibility only", compatibility)
+        self.assertIn("does not prove", compatibility)
+        self.assertIn(
+            "Digests detect inconsistent bytes, not authorship", compatibility
+        )
+        self.assertIn(
+            "creation-policy trust boundary remains controller-owned", handoffs
+        )
+        self.assertIn(
+            "Structural validator acceptance is not migration provenance", resume
+        )
+        for contract in (compatibility, handoffs, resume):
+            self.assertIn("fresh", contract)
+            self.assertIn("canonical", contract)
+
     def test_invalid_legacy_copy_leaves_source_and_creates_no_destination(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp)

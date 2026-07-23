@@ -92,6 +92,12 @@ remains incomplete and blocks for graph amendment and fresh configured-reviewer
 invocations. Never infer reviewer success from metrics, a role label, or a
 generic subagent artifact.
 
+Before consuming a terminal envelope that uses the legacy reviewer-profile path,
+the controller must establish its supported, human-approved migration origin
+from `.planning/task-workflow/<task-id>/`. Structural validator acceptance is
+not migration provenance. If that origin is unavailable, resume blocks legacy
+reuse and requires a fresh invocation with the canonical reviewer profile.
+
 For every syntactically readable current or historical invocation, reserve its
 valid non-`unavailable` invocation ID and every populated external task ID, URL,
 or reference before considering the narrow schema-old failed-history skip.

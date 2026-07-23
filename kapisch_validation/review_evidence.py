@@ -162,7 +162,14 @@ def _digest(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def _valid_reviewer_profiles(raw: dict[str, object], lifecycle: object) -> bool:
+def _structurally_valid_reviewer_profiles(
+    raw: dict[str, object], lifecycle: object
+) -> bool:
+    """Validate profile compatibility shape, not migration provenance.
+
+    Preserved envelopes contain no authenticated creation marker. Controllers
+    own the policy that permits legacy identities only for supported migrations.
+    """
     requested = raw["requested_profile"]
     if requested == CANONICAL_REVIEWER_PROFILE:
         return lifecycle != "completed" or raw["returned_profile"] == requested
@@ -531,7 +538,7 @@ def _validate_invocation(
     if (
         raw["mode"] != node.kind
         or raw["requested_role"] != "reviewer"
-        or not _valid_reviewer_profiles(raw, lifecycle)
+        or not _structurally_valid_reviewer_profiles(raw, lifecycle)
         or raw["base_revision"] != manifest.base_revision
         or raw["result_encoding"] != "utf-8"
     ):
