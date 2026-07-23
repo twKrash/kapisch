@@ -14,6 +14,22 @@ Migration requires the human-supplied `--approve` flag. It refuses a preexisting
 destination. A failed validation leaves no destination and reports the validator
 findings. Migration is intentionally outside the read-only validator.
 
+### Migration provenance and trust boundary
+
+Validator acceptance of a terminal legacy reviewer-profile envelope establishes
+structural compatibility only; it does not prove that the evidence originated in
+the supported legacy namespace or passed through the migration command. Only a
+controller-observed, human-approved `migrate_legacy_run.py` copy from
+`.planning/task-workflow/<task-id>/`, with source and destination bytes compared
+and the source retained through acceptance, establishes operational migration
+provenance. Digests detect inconsistent bytes, not authorship.
+
+If the controller cannot establish that supported origin, it must not treat the
+legacy profile path as migrated evidence. It blocks reuse and requires a fresh
+invocation using `.codex/agents/kapisch-reviewer.toml`. Every newly created
+invocation uses that canonical path; accepting a structurally compatible legacy
+envelope never authorizes creating one.
+
 ## Source-application dogfood
 
 During stabilization, a consuming source application installs this repository as

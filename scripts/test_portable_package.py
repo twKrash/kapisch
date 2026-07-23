@@ -25,7 +25,9 @@ def main() -> int:
         shutil.copytree(
             ROOT,
             installed,
-            ignore=shutil.ignore_patterns(".git", ".kapisch", "__pycache__", ".venv"),
+            ignore=shutil.ignore_patterns(
+                ".git", ".kapisch", ".codex", "__pycache__", ".venv"
+            ),
         )
         manifest = installed / ".codex-plugin" / "plugin.json"
         skill = installed / "skills" / "kapisch" / "SKILL.md"
@@ -45,6 +47,9 @@ def main() -> int:
             or not isinstance(payload.get("interface"), dict)
         ):
             print("portable package has an incompatible plugin manifest")
+            return 1
+        if (installed / ".codex" / "agents").exists():
+            print("portable package isolation retained an installed Codex profile")
             return 1
         result = subprocess.run(
             [sys.executable, "-m", "unittest", "discover", "-s", "tests/kapisch_validation"],

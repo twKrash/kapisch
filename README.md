@@ -50,6 +50,15 @@ python scripts/validate_kapisch.py --contract-dir skills/kapisch --task-dir .kap
 python -m unittest discover -s tests/kapisch_validation
 ```
 
+## Project understanding
+
+KAPISCH can route bounded architecture questions, architecture maps,
+documentation-drift checks, onboarding summaries, and decision-record
+preparation through its read-only researcher contract. Research reports cite
+current repository evidence and remain separate from documentation edits,
+architecture decisions, and independent review. See
+[`project-understanding.md`](skills/kapisch/references/project-understanding.md).
+
 ## Development
 
 Run `python scripts/test_portable_package.py` and the validator tests before

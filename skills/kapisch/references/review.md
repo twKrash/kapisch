@@ -57,7 +57,14 @@ whole-branch review and final readiness, not for every bounded iteration.
 | Mechanical task, `review=always` | Fresh review | Only at a delivery boundary |
 | Behavioral task | Fresh review, standard or deep by risk | Only at a delivery boundary |
 | High-risk task | Deep review with derived lenses | Only at a delivery boundary |
+| Versioned project-understanding or architecture-documentation output | Fresh review of evidence fidelity, scope, clarity, and repository consistency | Only at a delivery boundary |
 | Milestone | Integrated deep review | Always |
+
+The versioned project-understanding row takes precedence over a mechanical or
+documentation-only classification under `review=auto`. It includes architecture
+maps, documentation-drift corrections, onboarding documents, and decision
+records. The reviewer approves or rejects the written delta; it does not choose
+or approve the underlying architecture or product decision.
 
 Final readiness is required for commit preparation, PR preparation, merge,
 release, deployment handoff, and an explicit

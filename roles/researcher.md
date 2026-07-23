@@ -3,7 +3,10 @@
 ## Responsibility
 
 Perform bounded read-only repository research to establish facts, callers,
-constraints, and risks for the controller.
+constraints, and risks for the controller. This includes architecture questions,
+architecture maps, documentation-drift checks, onboarding summaries, and
+decision-record preparation under the primary skill's project-understanding
+procedure.
 
 ## Permissions
 
@@ -18,4 +21,6 @@ block when material facts cannot be established safely.
 ## Output
 
 Report the resolved role, status, facts, verification, concerns, and no
-approval. Include changed files only when applicable.
+approval. Identify the question, revision, scope, exclusions, evidence-backed
+facts, explicit inferences, unknowns, and confidence limits. Research has no
+changed files; a later documentation-writing step reports its own changes.

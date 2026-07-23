@@ -49,6 +49,8 @@ ENVELOPE = {
 }
 
 LIFECYCLE_STATUSES = {"planned", "dispatched", "completed", "blocked", "failed"}
+CANONICAL_REVIEWER_PROFILE = ".codex/agents/kapisch-reviewer.toml"
+LEGACY_REVIEWER_PROFILE = ".codex/agents/reviewer.toml"
 IDENTITY_ASSURANCES = {
     "observable-named-dispatch",
     "external-named-task",
@@ -158,6 +160,24 @@ def _contained(task_dir: Path, relative_path: str) -> Path | None:
 
 def _digest(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _structurally_valid_reviewer_profiles(
+    raw: dict[str, object], lifecycle: object
+) -> bool:
+    """Validate profile compatibility shape, not migration provenance.
+
+    Preserved envelopes contain no authenticated creation marker. Controllers
+    own the policy that permits legacy identities only for supported migrations.
+    """
+    requested = raw["requested_profile"]
+    if requested == CANONICAL_REVIEWER_PROFILE:
+        return lifecycle != "completed" or raw["returned_profile"] == requested
+    if requested != LEGACY_REVIEWER_PROFILE:
+        return False
+    if lifecycle == "completed":
+        return raw["returned_profile"] == requested
+    return lifecycle in {"blocked", "failed"}
 
 
 def _has_exact_line(value: object, field: str, expected_value: str) -> bool:
@@ -518,7 +538,7 @@ def _validate_invocation(
     if (
         raw["mode"] != node.kind
         or raw["requested_role"] != "reviewer"
-        or raw["requested_profile"] != ".codex/agents/reviewer.toml"
+        or not _structurally_valid_reviewer_profiles(raw, lifecycle)
         or raw["base_revision"] != manifest.base_revision
         or raw["result_encoding"] != "utf-8"
     ):
@@ -588,7 +608,6 @@ def _validate_invocation(
             )
         if (
             raw["returned_role"] != "reviewer"
-            or raw["returned_profile"] != ".codex/agents/reviewer.toml"
             or raw["returned_target"] != raw["target"]
             or raw["returned_revision"] != raw["reviewed_revision"]
             or raw["returned_working_tree_state"] != raw["working_tree_state"]

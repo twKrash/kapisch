@@ -1,4 +1,5 @@
 .kapisch/
+.codex/agents/kapisch-*.toml
 __pycache__/
 *.py[cod]
 .pytest_cache/

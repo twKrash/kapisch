@@ -11,7 +11,11 @@ from tempfile import TemporaryDirectory
 from kapisch_validation.manifest import parse_manifest
 from kapisch_validation.models import Manifest, Node, State
 from kapisch_validation.references import parse_state
-from kapisch_validation.review_evidence import validate_review_evidence
+from kapisch_validation.review_evidence import (
+    CANONICAL_REVIEWER_PROFILE,
+    LEGACY_REVIEWER_PROFILE,
+    validate_review_evidence,
+)
 
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -54,7 +58,7 @@ class ReviewEvidenceTests(unittest.TestCase):
             "mode": "review",
             "dispatch_mode": "runtime-named-spawn",
             "requested_role": "reviewer",
-            "requested_profile": ".codex/agents/reviewer.toml",
+            "requested_profile": CANONICAL_REVIEWER_PROFILE,
             "task_name": "review-task",
             "dispatching_controller": "controller-task",
             "target": "staged",
@@ -74,7 +78,7 @@ class ReviewEvidenceTests(unittest.TestCase):
             "result_encoding": "utf-8",
             "result_sha256": hashlib.sha256(result.read_bytes()).hexdigest(),
             "returned_role": "reviewer",
-            "returned_profile": ".codex/agents/reviewer.toml",
+            "returned_profile": CANONICAL_REVIEWER_PROFILE,
             "returned_target": "staged",
             "returned_revision": "head",
             "returned_working_tree_state": working_state,
@@ -194,6 +198,71 @@ class ReviewEvidenceTests(unittest.TestCase):
             findings, _ = self.validate_one(Path(temporary))
         self.assertEqual(findings, [])
 
+    def test_completed_legacy_reviewer_profile_evidence_remains_valid(self) -> None:
+        for node_status in ("complete", "failed"):
+            with (
+                self.subTest(node_status=node_status),
+                TemporaryDirectory() as temporary,
+            ):
+                findings, _ = self.validate_one(
+                    Path(temporary),
+                    node_status=node_status,
+                    overrides={
+                        "requested_profile": LEGACY_REVIEWER_PROFILE,
+                        "returned_profile": LEGACY_REVIEWER_PROFILE,
+                    },
+                )
+                self.assertEqual(findings, [])
+
+    def test_legacy_reviewer_profile_is_rejected_for_noncompleted_evidence(self) -> None:
+        for lifecycle in ("planned", "dispatched"):
+            with (
+                self.subTest(lifecycle=lifecycle),
+                TemporaryDirectory() as temporary,
+            ):
+                overrides = self.noncompleted_overrides(lifecycle, "unavailable")
+                overrides["requested_profile"] = LEGACY_REVIEWER_PROFILE
+                findings, _ = self.validate_one(
+                    Path(temporary),
+                    node_status="reviewing",
+                    overrides=overrides,
+                )
+                self.assert_code(findings, "TWV-REVIEW-MALFORMED-ENVELOPE")
+
+    def test_terminal_legacy_reviewer_profile_failures_remain_valid(self) -> None:
+        for lifecycle in ("blocked", "failed"):
+            with (
+                self.subTest(lifecycle=lifecycle),
+                TemporaryDirectory() as temporary,
+            ):
+                overrides = self.noncompleted_overrides(lifecycle, "unavailable")
+                overrides["requested_profile"] = LEGACY_REVIEWER_PROFILE
+                findings, _ = self.validate_one(
+                    Path(temporary),
+                    node_status=lifecycle,
+                    overrides=overrides,
+                )
+                self.assertEqual(findings, [])
+
+    def test_completed_reviewer_profile_pair_must_match_a_supported_identity(self) -> None:
+        for requested, returned in (
+            (LEGACY_REVIEWER_PROFILE, CANONICAL_REVIEWER_PROFILE),
+            (CANONICAL_REVIEWER_PROFILE, LEGACY_REVIEWER_PROFILE),
+            (".codex/agents/other.toml", ".codex/agents/other.toml"),
+        ):
+            with (
+                self.subTest(requested=requested, returned=returned),
+                TemporaryDirectory() as temporary,
+            ):
+                findings, _ = self.validate_one(
+                    Path(temporary),
+                    overrides={
+                        "requested_profile": requested,
+                        "returned_profile": returned,
+                    },
+                )
+                self.assert_code(findings, "TWV-REVIEW-MALFORMED-ENVELOPE")
+
     def test_runtime_spawn_result_follows_lifecycle(self) -> None:
         valid = (
             ("planned", "unavailable"),
@@ -221,6 +290,30 @@ class ReviewEvidenceTests(unittest.TestCase):
                     self.assert_code(findings, "TWV-REVIEW-UNRESOLVED-DISPATCH")
                 else:
                     self.assertEqual(findings, [])
+
+    def test_noncompleted_invocation_rejects_populated_post_review_fields(self) -> None:
+        for lifecycle in ("planned", "dispatched"):
+            for field, value in (
+                ("post_review_working_tree_state", state_payload("head")),
+                (
+                    "post_review_state_digest",
+                    hashlib.sha256(state_payload("head").encode()).hexdigest(),
+                ),
+            ):
+                with (
+                    self.subTest(lifecycle=lifecycle, field=field),
+                    TemporaryDirectory() as temporary,
+                ):
+                    overrides = self.noncompleted_overrides(
+                        lifecycle, "unavailable"
+                    )
+                    overrides[field] = value
+                    findings, _ = self.validate_one(
+                        Path(temporary),
+                        node_status="reviewing",
+                        overrides=overrides,
+                    )
+                    self.assert_code(findings, "TWV-REVIEW-MALFORMED-ENVELOPE")
 
         invalid = (("planned", "review-task"), ("dispatched", "other-task"))
         for lifecycle, returned_name in invalid:

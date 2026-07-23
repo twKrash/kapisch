@@ -26,7 +26,7 @@ wave recovery or sequential integration is permitted.
 
 The retired parallel-wave protocol is preserved only as non-normative future
 design material in
-[`../../docs/parallel-wave-design.md`](../../../../../../docs/parallel-wave-design.md).
+[`../../../docs/parallel-wave-design.md`](../../../docs/parallel-wave-design.md).
 
 ## Manifest and state
 
@@ -333,7 +333,7 @@ request explicitly authorizes the existing bounded blocking-fix policy.
 ## Archived parallel-wave design
 
 The retired S4 protocol is preserved in
-[`../../docs/parallel-wave-design.md`](../../../../../../docs/parallel-wave-design.md).
+[`../../../docs/parallel-wave-design.md`](../../../docs/parallel-wave-design.md).
 It is non-normative and cannot authorize operational routing or state changes.
 
 ## Node artifacts

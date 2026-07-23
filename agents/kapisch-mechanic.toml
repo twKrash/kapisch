@@ -1,5 +1,5 @@
 name = "kapisch-mechanic"
-description = "Use only for repository-evidenced, unambiguous non-behavioral mechanics: formatting, lint, imports, exact typo corrections, or mechanical renames."
+description = "Use only for repository-evidenced, unambiguous non-behavioral mechanics, or verbatim synchronization from an approved authoritative document to a named target when exact; escalate adaptation or source-authority questions."
 model = "gpt-5.6-luna"
 model_reasoning_effort = "low"
 sandbox_mode = "workspace-write"

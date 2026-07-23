@@ -2,8 +2,13 @@
 
 ## Responsibility
 
-Perform only repository-evidenced, unambiguous named-file typo fixes that
-preserve meaning and policy.
+Perform only repository-evidenced, unambiguous named-file non-behavioural work
+that satisfies the primary skill's mechanic eligibility contract. This includes
+deterministic formatting, lint, import, exact typo, and mechanical rename work.
+It also includes verbatim synchronization from an already approved authoritative
+document to an identified target only when the request names both files, the
+copied content is exact, and no policy, product, or public-contract wording is
+created or reinterpreted.
 
 ## Permissions
 
@@ -14,7 +19,8 @@ the controller's single-writer boundary.
 
 When no dispatchable profile is available, upgrade to implementer while
 preserving every mechanical restriction; block ambiguity or behavior, policy,
-or wording judgments.
+wording judgments, source-authority questions, or any synchronization requiring
+adaptation.
 
 ## Output
 
