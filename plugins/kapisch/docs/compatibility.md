@@ -32,15 +32,18 @@ envelope never authorizes creating one.
 
 ## Source-application dogfood
 
-During stabilization, a consuming source application installs this repository as
-the single KAPISCH plugin source and invokes `$kapisch`; it must not copy
-`skills/`, `roles/`, `agents/`, `kapisch_validation/`, or `scripts/` into its
-repository. Its local run evidence belongs under its own ignored `.kapisch/`.
+During stabilization, a consuming source application configures
+`twKrash/kapisch` as the `kapisch-local` Git-backed marketplace, installs its
+single `kapisch` entry, and invokes `$kapisch`; it must not copy `skills/`,
+`roles/`, `agents/`, `kapisch_validation/`, or `scripts/` into its repository.
+Its local run evidence belongs under its own ignored `.kapisch/`.
 
 Dogfood sequence:
 
-1. Before claiming Codex-installation acceptance, install this repository into a
-   clean Codex environment and verify `$kapisch` is discoverable without profiles.
+1. Before claiming Codex-installation acceptance, run
+   `codex plugin marketplace add twKrash/kapisch --ref main` in a clean Codex
+   environment, then install `kapisch@kapisch-local` and verify `$kapisch` is
+   discoverable without profiles.
 2. Run graph-free advisory work without profiles; do not claim approval.
 3. Explicitly install `kapisch-reviewer` with `setup_profile.py`, then record a
    fresh canonical reviewer invocation before an approving review.
@@ -48,6 +51,11 @@ Dogfood sequence:
    source until a human accepts the validated destination.
 5. Remove any compatibility copy after the consumer uses the installed plugin
    for one accepted task. No consumer-maintained fork is permitted thereafter.
+
+Adding the marketplace only configures a local Git-backed catalog snapshot. Its
+`AVAILABLE` policy does not install or enable KAPISCH automatically. Installation
+is a later explicit user action. This flow neither submits to nor depends on the
+OpenAI public Plugin Directory.
 
 ## Removal boundary and rollback
 

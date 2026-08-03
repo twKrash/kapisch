@@ -4,12 +4,18 @@ The LLM/controller owns interpretation of natural-language repository requests.
 Repository Python has no request parser, routing API, intent schema, or rule
 engine.
 
-Explicit controls such as `workflow=task`, `review=always`, `mode=review`, and
-`risk=high` constrain the LLM/controller's interpretation. When controls and
-prose conflict, explicit controls take precedence; explicit prose constraints,
-active durable context, repository evidence, and safe defaults follow. Material
-ambiguity about scope, authority, active task, public behavior, security, or an
-approved plan stops for a user decision.
+Explicit controls such as `workflow=task`, `review=always`, `mode=review`,
+`risk=high`, and `theme=foundry` constrain the LLM/controller's interpretation.
+When controls and prose conflict, explicit controls take precedence; explicit
+prose constraints, active durable context, repository evidence, and safe
+defaults follow. Material ambiguity about scope, authority, active task, public
+behavior, security, or an approved plan stops for a user decision.
+
+`theme` is the sole presentation-only control. It follows the selection and
+fallback rules in [themes.md](themes.md) and is removed from semantic
+normalization before workflow shape, role, risk, review, approval, or authority
+is decided. It is not a durable manifest policy. Thus two otherwise identical
+requests with different themes normalize to the same workflow semantics.
 
 The LLM/controller selects `task` or `milestone`, logical roles, risk, review
 needs, and whether a request is read-only. It records only the durable facts

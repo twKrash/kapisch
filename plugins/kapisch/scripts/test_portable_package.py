@@ -31,8 +31,18 @@ def main() -> int:
         )
         manifest = installed / ".codex-plugin" / "plugin.json"
         skill = installed / "skills" / "kapisch" / "SKILL.md"
-        if not manifest.is_file() or not skill.is_file() or "name: KAPISCH" not in skill.read_text(encoding="utf-8"):
-            print("portable package is missing the KAPISCH plugin manifest or primary skill")
+        themes = installed / "skills" / "kapisch" / "themes"
+        if (
+            not manifest.is_file()
+            or not skill.is_file()
+            or "name: kapisch" not in skill.read_text(encoding="utf-8")
+            or not (themes / "default.toml").is_file()
+            or not (themes / "foundry.toml").is_file()
+        ):
+            print(
+                "portable package is missing the KAPISCH manifest, primary skill, "
+                "or bundled themes"
+            )
             return 1
         try:
             payload = json.loads(manifest.read_text(encoding="utf-8"))

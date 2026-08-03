@@ -68,7 +68,7 @@ Its core responsibilities are:
   context can be reused without replaying whole conversations;
 - validate durable TOML artifacts, lifecycle, freshness, and reviewer evidence
   with a bundled Python 3.11 standard-library validator; and
-- keep presentation themes, including a future Adeptus Mechanicus-inspired
+- keep presentation themes, including an original industrial-mystic `foundry`
   theme, separate from workflow semantics and safety policy.
 
 The intended dependency boundary is Codex, Git for repository work, and Python
@@ -80,14 +80,16 @@ service.
 
 ## Next milestone — standalone KAPISCH repository
 
-Status: in progress. Standalone source extraction is complete; clean Codex
-installation, plugin discovery/invocation, and marketplace distribution remain
-pending manual acceptance. See `docs/acceptance.md`, `docs/compatibility.md`,
-and `docs/collision-check.md` for the current evidence and boundaries.
+Status: in progress. Standalone source extraction and the Git-backed local
+marketplace layout are complete; clean Codex marketplace import, installation,
+plugin discovery, and invocation remain pending manual acceptance. OpenAI public
+Plugin Directory submission is out of scope. See `docs/acceptance.md`,
+`docs/compatibility.md`, and `docs/collision-check.md` for the current evidence
+and boundaries.
 
 Goal: extract the reusable skill, portable role contracts, Codex agent-profile
-templates, validator, tests, and public documentation from
-the source application into a standalone public plugin repository without
+templates, validator, tests, and public documentation from the source
+application into a standalone Git-backed local marketplace repository without
 weakening the current workflow invariants.
 
 Required work:
@@ -96,8 +98,9 @@ Required work:
    GitHub, package registries, and adjacent AI coding tools before publishing.
    Decide the public display name, repository name, plugin ID, and primary skill
    invocation together so they do not drift.
-2. Create the standalone repository with the minimal supported Codex plugin
-   layout, license, README, changelog, contribution guidance, and CI.
+2. Create the standalone repository as a Git-backed local marketplace with the
+   minimal supported Codex plugin layout under `plugins/kapisch`, repository
+   catalog metadata, license, README, changelog, contribution guidance, and CI.
 3. Move the current `KAPISCH` skill, normative references, Python standard-library
    validator, fixtures, and validator tests into the standalone plugin layout.
 4. Separate portable `KAPISCH` role contracts from Codex-specific custom-agent
@@ -136,9 +139,10 @@ Required work:
 10. Verify natural-language routing, role/profile resolution, graph-free review,
    durable sequential execution, resume, reviewer invocation evidence, and final
    readiness against the extracted plugin.
-11. Publish only after installation from the standalone repository works in a
-   clean Codex environment and the bundled validator test suite passes without
-   application-repository imports.
+11. Treat the GitHub repository as locally distributable only after
+   `codex plugin marketplace add twKrash/kapisch --ref main` and installation of
+   `kapisch@kapisch-local` work in a clean Codex environment and the bundled
+   validator test suite passes without application-repository imports.
 12. Define the compatibility removal boundary and rollback path from active
     KAPISCH profiles to prior user-owned configuration.
 13. Convert newly created task-local knowledge records to canonical TOML during
@@ -148,7 +152,8 @@ Required work:
 
 Exit criteria:
 
-- the standalone repository is the canonical source of KAPISCH;
+- the standalone marketplace repository and its sole `plugins/kapisch` bundle
+  are the canonical source of KAPISCH;
 - the portable validator runs without Node.js or third-party Python packages;
 - the validator remains Python 3.11 standard-library only and read-only;
 - focused automated coverage establishes implemented schema, lifecycle,
@@ -181,7 +186,10 @@ Non-goals for this milestone:
   commit, push, or merge;
 - persistent memory or retrieval data that outranks current repository evidence;
 - measured token-saving claims before observable runtime evidence exists;
-- presentation themes beyond retaining a clear extension point; and
+- presentation-theme implementation within this extraction milestone; Change 6
+  is a separate post-extraction slice;
+- submission to OpenAI's public Plugin Directory; distribution uses the
+  Git-backed `kapisch-local` marketplace; and
 - cross-machine synchronization, remote evidence storage, or shared workflow
   state between developers.
 
@@ -342,11 +350,26 @@ not depend on Change 4 measurement work.
 
 ## Change 6 — presentation themes
 
-Status: planned after standalone public contracts and artifact vocabulary
-stabilize; it does not depend on Change 4 measurement work.
+Status: completed as a separate post-extraction slice after the extracted public
+contracts and artifact vocabulary stabilized. The change-6 dogfood run
+(`change6-presentation-themes-dogfood` under the local `.kapisch/runs/`)
+recorded the review history: the research handoff documented the delta and
+found that an earlier status claim of a fresh-context review with no actionable
+findings was not supported by durable evidence; Round 0 returned `do-not-approve`
+on that unsupported claim and on the absent pre-dispatch invocation evidence;
+the first status correction pre-claimed its own review outcome and was rejected
+by Round 1; the text was restaged to end at existing evidence; Round 2 approved
+the corrected whole delta under the user-attested external-task path; and a
+distinct final-readiness decision returned `ready`. The runtime did not expose
+configured reviewer-profile receipts, and this status-only edit changes the
+reviewed state; fresh approval-capable review and a distinct final-readiness
+decision are therefore required before the resulting completed state is itself
+ready. The standalone milestone's pending manual local-marketplace import and
+installation acceptance remain orthogonal. Change 6 does not depend on Change 4
+measurement work.
 
 - Add presentation-only terminology themes with `default` and an original
-  Adeptus Mechanicus-inspired theme as the first examples.
+  industrial-mystic `foundry` theme as the first examples.
 - Allow themes to rename user-visible roles, procedures, gates, and status text
   without changing artifact schemas, logical role IDs, permissions, routing,
   validation, or safety behavior.

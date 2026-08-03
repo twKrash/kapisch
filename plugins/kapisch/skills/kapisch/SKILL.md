@@ -1,5 +1,5 @@
 ---
-name: KAPISCH
+name: kapisch
 description: >-
   Use when a repository task needs repeatable planning, implementation,
   independent review, final-readiness, narrow mechanical cleanup, or bounded
@@ -13,10 +13,24 @@ description: >-
 ## Durable artifact validation
 
 For read-only structural validation of a sequential durable TOML artifact tree,
-run `python scripts/validate_kapisch.py
---contract-dir skills/kapisch --task-dir <task-dir>`. See
-the [validator section in the repository README](../../README.md#validator).
-The validator does not dispatch, repair, schedule, or approve work.
+run the bundled validator with both bundled paths derived from the loaded
+skill location, and `--task-dir` rooted in the consumer repository:
+
+```text
+python <plugin-root>/scripts/validate_kapisch.py
+--contract-dir <plugin-root>/skills/kapisch
+--task-dir <consumer-repository>/.kapisch/runs/<task-id>
+```
+
+Derive `<plugin-root>` from the loaded skill file
+`skills/kapisch/SKILL.md`: it is `<skill-dir>/../..`, i.e. two directory
+levels above the skill's own directory `skills/kapisch/`. After marketplace
+installation the command runs from the consumer repository, which does not
+contain the plugin's `scripts/` or `skills/` paths; resolve both bundled paths
+from the installed plugin location, never from the consumer's working
+directory. See the [validator section in the repository
+README](../../README.md#validator). The validator does not dispatch, repair,
+schedule, or approve work.
 
 Validator exit 0 is necessary structural evidence only; validator errors are
 blocking. Exit 0 does not establish iteration or whole-branch scope, dependency
@@ -42,7 +56,7 @@ Map the repository architecture and explain where reminder delivery is owned.
 Check whether the architecture documentation still matches the current code.
 ```
 
-The five normal controls are optional and have safe defaults:
+The six normal controls are optional and have safe defaults:
 
 | Control | Values and default |
 | --- | --- |
@@ -51,17 +65,24 @@ The five normal controls are optional and have safe defaults:
 | `handoff` | `chat|file|both` (`both`) |
 | `fix_policy` | `manual|blocking` (`manual`) |
 | `task_id` | `<id>` (safely derived when useful) |
+| `theme` | `default|foundry` (`default`) |
 
 Structured syntax is for expert and compatibility use only:
 
 ```text
-$KAPISCH workflow=task review=auto task_id=reconnect
-$KAPISCH mode=review base=origin/main review_target=branch
+$kapisch workflow=task review=auto task_id=reconnect
+$kapisch mode=review base=origin/main review_target=branch
+$kapisch theme=foundry workflow=task
 ```
 
 Legacy or expert fields such as `mode`, `risk`, `depth`, `focus`, `dispatch`,
 and `batching` remain supported through
 [request normalization](references/request-normalization.md).
+
+`theme` changes presentation labels only. It never changes controls, canonical
+role IDs, profiles, routes, permissions, artifact fields or values, validation,
+review depth, gates, or side-effect authority. See
+[themes.md](references/themes.md).
 
 ## What happens
 
@@ -149,6 +170,8 @@ selection and Codex runtime dispatch in [role-resolution.md](references/role-res
 [resume.md](references/resume.md). Bounded repository understanding and its
 evidence/write/review separation are owned by
 [project-understanding.md](references/project-understanding.md).
+Presentation vocabulary and its strict separation from workflow semantics are
+owned by [themes.md](references/themes.md).
 
 The validator checks only its implemented structural artifact invariants. It
 does not authoritatively establish iteration or whole-branch scope, dependency
