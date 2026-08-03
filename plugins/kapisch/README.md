@@ -68,9 +68,21 @@ creates no destination. KAPISCH never creates new legacy artifacts.
 The validator uses only the Python 3.11 standard library and never writes,
 dispatches, schedules, routes requests, invokes Git, or grants approval.
 
+From the plugin directory (development), the validator runs directly:
+
 ```text
 python scripts/validate_kapisch.py --contract-dir skills/kapisch --task-dir <consumer-repository>/.kapisch/runs/example
 python -m unittest discover -s tests/kapisch_validation
+```
+
+After marketplace installation, `$kapisch` runs from the consumer repository,
+which does not contain the plugin's `scripts/` or `skills/` paths. Resolve the
+script and `--contract-dir` from the installed plugin root (the directory
+containing `skills/kapisch/SKILL.md`) and keep only `--task-dir` rooted in the
+consumer:
+
+```text
+python <plugin-root>/scripts/validate_kapisch.py --contract-dir <plugin-root>/skills/kapisch --task-dir <consumer-repository>/.kapisch/runs/example
 ```
 
 ## Project understanding

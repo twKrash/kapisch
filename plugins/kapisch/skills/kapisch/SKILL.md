@@ -13,11 +13,22 @@ description: >-
 ## Durable artifact validation
 
 For read-only structural validation of a sequential durable TOML artifact tree,
-run `python scripts/validate_kapisch.py
---contract-dir skills/kapisch
---task-dir <consumer-repository>/.kapisch/runs/<task-id>`. See
-the [validator section in the repository README](../../README.md#validator).
-The validator does not dispatch, repair, schedule, or approve work.
+run the bundled validator with `--contract-dir` resolved from the installed
+plugin root — the directory that contains this skill at
+`skills/kapisch/SKILL.md` — and `--task-dir` rooted in the consumer repository:
+
+```text
+python <plugin-root>/scripts/validate_kapisch.py
+--contract-dir <plugin-root>/skills/kapisch
+--task-dir <consumer-repository>/.kapisch/runs/<task-id>
+```
+
+After marketplace installation the command runs from the consumer repository,
+which does not contain the plugin's `scripts/` or `skills/` paths; resolve both
+from the installed plugin location, never from the consumer's working
+directory. See the [validator section in the repository
+README](../../README.md#validator). The validator does not dispatch, repair,
+schedule, or approve work.
 
 Validator exit 0 is necessary structural evidence only; validator errors are
 blocking. Exit 0 does not establish iteration or whole-branch scope, dependency
