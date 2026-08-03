@@ -357,13 +357,16 @@ recorded the review history: the research handoff documented the delta and
 found that an earlier status claim of a fresh-context review with no actionable
 findings was not supported by durable evidence; Round 0 returned `do-not-approve`
 on that unsupported claim and on the absent pre-dispatch invocation evidence;
-and the status text was corrected to describe this evidence chain. The runtime
-did not expose configured reviewer-profile receipts, and this status-only edit
-changes the reviewed state; fresh approval-capable review and a distinct
-final-readiness decision are therefore required before the resulting completed
-state is itself ready. The standalone milestone's pending manual
-local-marketplace import and installation acceptance remain orthogonal. Change 6
-does not depend on Change 4 measurement work.
+the first status correction pre-claimed its own review outcome and was rejected
+by Round 1; the text was restaged to end at existing evidence; Round 2 approved
+the corrected whole delta under the user-attested external-task path; and a
+distinct final-readiness decision returned `ready`. The runtime did not expose
+configured reviewer-profile receipts, and this status-only edit changes the
+reviewed state; fresh approval-capable review and a distinct final-readiness
+decision are therefore required before the resulting completed state is itself
+ready. The standalone milestone's pending manual local-marketplace import and
+installation acceptance remain orthogonal. Change 6 does not depend on Change 4
+measurement work.
 
 - Add presentation-only terminology themes with `default` and an original
   industrial-mystic `foundry` theme as the first examples.
