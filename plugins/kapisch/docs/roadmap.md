@@ -351,12 +351,17 @@ not depend on Change 4 measurement work.
 ## Change 6 — presentation themes
 
 Status: completed as a separate post-extraction slice after the extracted public
-contracts and artifact vocabulary stabilized. Automated contract checks pass,
-and the latest fresh-context whole-delta review found no actionable findings.
-The runtime did not expose configured reviewer-profile proof, and this
-status-only edit changes the reviewed state; fresh approval-capable review and a
-distinct final-readiness decision are therefore required before the resulting
-completed state is itself ready. The standalone milestone's pending manual
+contracts and artifact vocabulary stabilized. The change-6 dogfood run
+(`change6-presentation-themes-dogfood` under the local `.kapisch/runs/`)
+recorded the review history: the research handoff documented the delta and
+found that an earlier status claim of a fresh-context review with no actionable
+findings was not supported by durable evidence; Round 0 returned `do-not-approve`
+on that unsupported claim and on the absent pre-dispatch invocation evidence;
+and the status text was corrected to describe this evidence chain. The runtime
+did not expose configured reviewer-profile receipts, and this status-only edit
+changes the reviewed state; fresh approval-capable review and a distinct
+final-readiness decision are therefore required before the resulting completed
+state is itself ready. The standalone milestone's pending manual
 local-marketplace import and installation acceptance remain orthogonal. Change 6
 does not depend on Change 4 measurement work.
 
