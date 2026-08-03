@@ -1,0 +1,20 @@
+{
+  "name": "kapisch-local",
+  "interface": {
+    "displayName": "KAPISCH Local"
+  },
+  "plugins": [
+    {
+      "name": "kapisch",
+      "source": {
+        "source": "local",
+        "path": "./plugins/kapisch"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

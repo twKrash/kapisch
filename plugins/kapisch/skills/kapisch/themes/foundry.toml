@@ -1,0 +1,42 @@
+version = 1
+id = "foundry"
+display_name = "Foundry"
+description = "Original industrial-mystic vocabulary for ritualized machine craft."
+
+[vocabulary.roles]
+architect = "Patternwright"
+researcher = "Archive Surveyor"
+implementer = "Forgehand"
+implementer-lite = "Precision Forgehand"
+mechanic = "Calibrator"
+reviewer = "Seal Examiner"
+
+[vocabulary.procedures]
+plan = "Draft the pattern"
+research = "Survey the archive"
+implement = "Work the forge"
+mechanic = "Calibrate the mechanism"
+review = "Examine the work"
+final = "Apply the release seal"
+resume = "Rekindle the run"
+
+[vocabulary.gates]
+material_scope = "Scope seal"
+architecture_choice = "Pattern seal"
+review_fixes = "Correction warrant"
+publication = "Release warrant"
+side_effect = "Action warrant"
+
+[vocabulary.statuses]
+pending = "Awaiting charge"
+planned = "Pattern drafted"
+ready = "Primed"
+dispatched = "Sent forth"
+running = "In motion"
+implemented = "Forged"
+reviewing = "Under examination"
+complete = "Sealed"
+completed = "Returned"
+blocked = "Interlock engaged"
+failed = "Operation failed"
+cancelled = "Quenched"

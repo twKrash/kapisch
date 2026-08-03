@@ -3,12 +3,17 @@
 | Surface | Status |
 | --- | --- |
 | Standalone source extraction and portable-package isolation | completed |
-| Codex installation, plugin discovery, and `$kapisch` invocation | pending manual clean-environment acceptance |
-| Marketplace distribution | pending |
+| Git-backed local marketplace catalog and plugin-source resolution | completed |
+| `codex plugin marketplace add twKrash/kapisch`, installation, discovery, and `$kapisch` invocation | pending manual clean-environment acceptance |
+| OpenAI public Plugin Directory submission | out of scope |
 
-The portable test below does not install a plugin through Codex or exercise a
-marketplace. It prevents source-application imports from being hidden by the
-development checkout.
+The repository-level `tests/test_marketplace.py` verifies the closed marketplace
+catalog, `AVAILABLE` installation policy, canonical `./plugins/kapisch` source,
+plugin identity, and documented GitHub import/install commands. It does not
+modify a developer's Codex configuration or claim live installation acceptance.
+
+The portable test below does not install a plugin through Codex. It prevents
+source-application imports from being hidden by the development checkout.
 
 Run the complete acceptance command from the plugin root:
 
@@ -24,12 +29,14 @@ The test suite also covers:
 
 | Requirement | Coverage |
 | --- | --- |
+| Git-backed local marketplace metadata and source resolution | repository-level `tests/test_marketplace.py` |
 | Routing and graph-free/durable contracts | `test_manifest.py`, `test_transitions.py`, contract references |
 | Resume and lifecycle | `test_cli.py`, `test_transitions.py`, `test_hardening.py` |
 | Reviewer invocation and final readiness | `test_review_evidence.py`, `test_hardening.py` |
 | Migration and no-new-legacy-write | `test_extraction_acceptance.py` |
 | User-scoped profile identity, revision, and drift | `test_extraction_acceptance.py` |
 | Project-understanding procedures, role boundaries, handoffs, review policy, and local links | `test_extraction_acceptance.py` |
+| Presentation theme vocabulary and semantic firewall | `test_themes.py` |
 | Read-only deterministic validator | `test_cli.py`, `test_hardening.py` |
 
 `python -m unittest discover -s tests/kapisch_validation` is the focused suite

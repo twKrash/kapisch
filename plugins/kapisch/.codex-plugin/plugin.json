@@ -3,8 +3,18 @@
   "version": "0.1.0",
   "description": "A lightweight Codex-native workflow contract and validation plugin.",
   "author": {
-    "name": "twKrash"
+    "name": "twKrash",
+    "url": "https://github.com/twKrash"
   },
+  "homepage": "https://github.com/twKrash/kapisch/tree/main/plugins/kapisch",
+  "repository": "https://github.com/twKrash/kapisch",
+  "license": "Apache-2.0",
+  "keywords": [
+    "codex",
+    "workflow",
+    "review",
+    "validation"
+  ],
   "skills": "./skills/",
   "interface": {
     "displayName": "KAPISCH",

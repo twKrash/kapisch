@@ -1,0 +1,42 @@
+version = 1
+id = "default"
+display_name = "Default"
+description = "Direct KAPISCH product vocabulary."
+
+[vocabulary.roles]
+architect = "Architect"
+researcher = "Researcher"
+implementer = "Implementer"
+implementer-lite = "Implementer Lite"
+mechanic = "Mechanic"
+reviewer = "Reviewer"
+
+[vocabulary.procedures]
+plan = "Plan"
+research = "Research"
+implement = "Implement"
+mechanic = "Mechanical cleanup"
+review = "Independent review"
+final = "Final readiness"
+resume = "Resume"
+
+[vocabulary.gates]
+material_scope = "Material-scope approval"
+architecture_choice = "Architecture-choice approval"
+review_fixes = "Review-fix approval"
+publication = "Publication approval"
+side_effect = "Side-effect approval"
+
+[vocabulary.statuses]
+pending = "Pending"
+planned = "Planned"
+ready = "Ready"
+dispatched = "Dispatched"
+running = "Running"
+implemented = "Implemented"
+reviewing = "Under review"
+complete = "Complete"
+completed = "Completed"
+blocked = "Blocked"
+failed = "Failed"
+cancelled = "Cancelled"
