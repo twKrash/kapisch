@@ -162,6 +162,64 @@ class MarketplaceTests(unittest.TestCase):
             )
             self.assertTrue((consumer / ".kapisch/runs/valid").is_dir())
 
+    def test_installed_plugin_validator_resolves_bundled_paths_from_plugin_root(
+        self,
+    ) -> None:
+        """The documented validator command must work from a consumer repository
+        against an installed plugin copy; cwd=PLUGIN in the unit suites masks
+        the consumer-context defect this regression guards."""
+        with tempfile.TemporaryDirectory() as temporary:
+            consumer = Path(temporary) / "consumer"
+            consumer.mkdir()
+            installed = Path(temporary) / "installed-plugin"
+            shutil.copytree(PLUGIN, installed)
+
+            skill = installed / "skills/kapisch/SKILL.md"
+            self.assertTrue(skill.is_file())
+            plugin_root = skill.parents[2]
+            self.assertEqual(plugin_root, installed)
+            self.assertTrue((plugin_root / "scripts/validate_kapisch.py").is_file())
+
+            run_dir = consumer / ".kapisch/runs/valid"
+            shutil.copytree(
+                PLUGIN / "tests/kapisch_validation/fixtures/valid-sequential-v2",
+                run_dir,
+            )
+
+            consumer_relative = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/validate_kapisch.py",
+                    "--contract-dir",
+                    "skills/kapisch",
+                    "--task-dir",
+                    str(run_dir),
+                ],
+                cwd=consumer,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(consumer_relative.returncode, 0)
+
+            installed_qualified = subprocess.run(
+                [
+                    sys.executable,
+                    str(plugin_root / "scripts/validate_kapisch.py"),
+                    "--contract-dir",
+                    str(plugin_root / "skills/kapisch"),
+                    "--task-dir",
+                    str(run_dir),
+                ],
+                cwd=consumer,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(
+                installed_qualified.returncode,
+                0,
+                installed_qualified.stdout + installed_qualified.stderr,
+            )
+
     def test_foundry_theme_uses_original_vocabulary_boundary(self) -> None:
         roadmap = " ".join(
             (PLUGIN / "docs/roadmap.md").read_text(encoding="utf-8").split()

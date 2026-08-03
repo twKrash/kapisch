@@ -13,9 +13,8 @@ description: >-
 ## Durable artifact validation
 
 For read-only structural validation of a sequential durable TOML artifact tree,
-run the bundled validator with `--contract-dir` resolved from the installed
-plugin root — the directory that contains this skill at
-`skills/kapisch/SKILL.md` — and `--task-dir` rooted in the consumer repository:
+run the bundled validator with both bundled paths derived from the loaded
+skill location, and `--task-dir` rooted in the consumer repository:
 
 ```text
 python <plugin-root>/scripts/validate_kapisch.py
@@ -23,8 +22,11 @@ python <plugin-root>/scripts/validate_kapisch.py
 --task-dir <consumer-repository>/.kapisch/runs/<task-id>
 ```
 
-After marketplace installation the command runs from the consumer repository,
-which does not contain the plugin's `scripts/` or `skills/` paths; resolve both
+Derive `<plugin-root>` from the loaded skill file
+`skills/kapisch/SKILL.md`: it is `<skill-dir>/../..`, i.e. two directory
+levels above the skill's own directory `skills/kapisch/`. After marketplace
+installation the command runs from the consumer repository, which does not
+contain the plugin's `scripts/` or `skills/` paths; resolve both bundled paths
 from the installed plugin location, never from the consumer's working
 directory. See the [validator section in the repository
 README](../../README.md#validator). The validator does not dispatch, repair,
