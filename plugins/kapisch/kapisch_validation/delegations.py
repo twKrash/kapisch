@@ -555,6 +555,24 @@ def validate_route_references(
         return route_errors
     errors: list[ValidationError] = []
     path = task_dir / ROUTE_FILE
+    if route.get("task_id") != manifest.task_id:
+        errors.append(
+            _e(
+                "TWV-DELEG-TASK-MISMATCH",
+                path,
+                "root.task_id",
+                "route task_id must match the manifest task_id",
+            )
+        )
+    if route.get("source_revision") != manifest.base_revision:
+        errors.append(
+            _e(
+                "TWV-DELEG-REVISION-MISMATCH",
+                path,
+                "root.source_revision",
+                "route source_revision must match the manifest base_revision",
+            )
+        )
     steps = [step for step in route["steps"] if isinstance(step, dict)]
     by_id: dict[str, dict[str, object]] = {}
     for step in steps:

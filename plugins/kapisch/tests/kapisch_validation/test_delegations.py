@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -207,7 +208,7 @@ class RouteSchemaTests(unittest.TestCase):
             cpath, csha, epath, esha = write_step_files(task, "D01", "# c\n", "# e\n")
             step = completed_step("D01", 1)
             step.update({"context_path": cpath, "context_sha256": csha, "evidence_path": epath, "evidence_sha256": esha})
-            write_route(task, "t", "r-1", [step])
+            write_route(task, "test-task", "r-1", [step])
             path = task / "delegations/00-route.toml"
             path.write_text(path.read_text(encoding="utf-8").replace("version = 1", "version = 2"), encoding="utf-8")
             _, errors = parse_route(task)
@@ -219,7 +220,7 @@ class RouteSchemaTests(unittest.TestCase):
             cpath, csha, epath, esha = write_step_files(task, "D01", "# c\n", "# e\n")
             step = completed_step("D01", 1)
             step.update({"context_path": cpath, "context_sha256": csha, "evidence_path": epath, "evidence_sha256": esha})
-            write_route(task, "t", "r-1", [step])
+            write_route(task, "test-task", "r-1", [step])
             path = task / "delegations/00-route.toml"
             path.write_text(path.read_text(encoding="utf-8") + 'bogus="x"\n', encoding="utf-8")
             _, errors = parse_route(task)
@@ -231,7 +232,7 @@ class RouteSchemaTests(unittest.TestCase):
             cpath, csha, epath, esha = write_step_files(task, "D01", "# c\n", "# e\n")
             step = completed_step("D01", 1)
             step.update({"context_path": cpath, "context_sha256": csha, "evidence_path": epath, "evidence_sha256": esha, "bogus": "x"})
-            write_route(task, "t", "r-1", [step])
+            write_route(task, "test-task", "r-1", [step])
             _, errors = parse_route(task)
             self.assertEqual(errors[0].code, "TWV-DELEG-SCHEMA-UNKNOWN-FIELD")
 
@@ -241,7 +242,7 @@ class RouteSchemaTests(unittest.TestCase):
             cpath, csha, epath, esha = write_step_files(task, "D01", "# c\n", "# e\n")
             step = completed_step("D01", 1)
             step.update({"id": "X1", "context_path": cpath, "context_sha256": csha, "evidence_path": epath, "evidence_sha256": esha})
-            write_route(task, "t", "r-1", [step])
+            write_route(task, "test-task", "r-1", [step])
             _, errors = parse_route(task)
             self.assertEqual(errors[0].code, "TWV-DELEG-INVALID-STEP-ID")
 
@@ -251,7 +252,7 @@ class RouteSchemaTests(unittest.TestCase):
             cpath, csha, epath, esha = write_step_files(task, "D01", "# c\n", "# e\n")
             step = completed_step("D01", 1)
             step.update({"context_path": cpath, "context_sha256": csha, "evidence_path": epath, "evidence_sha256": esha})
-            write_route(task, "t", "r-1", [step])
+            write_route(task, "test-task", "r-1", [step])
             path = task / "delegations/00-route.toml"
             path.write_text(path.read_text(encoding="utf-8").replace('route_id = "r-1"', 'route_id = "!"'), encoding="utf-8")
             _, errors = parse_route(task)
@@ -287,7 +288,7 @@ class RouteSchemaTests(unittest.TestCase):
             cpath, csha, epath, esha = write_step_files(task, "D01", "# c\n", "# e\n")
             step = completed_step("D01", 1)
             step.update({"status": "running", "context_path": cpath, "context_sha256": csha, "evidence_path": epath, "evidence_sha256": esha})
-            write_route(task, "t", "r-1", [step])
+            write_route(task, "test-task", "r-1", [step])
             _, errors = parse_route(task)
             self.assertEqual(errors[0].code, "TWV-DELEG-INVALID-ENUM")
 
@@ -321,7 +322,7 @@ class RouteSchemaTests(unittest.TestCase):
             cpath, csha, epath, esha = write_step_files(task, "D01", "# c\n", "# e\n")
             step = completed_step("D01", 1)
             step.update({"effect_class": "external-write", "authority_mode": "request-scoped", "context_path": cpath, "context_sha256": csha, "evidence_path": epath, "evidence_sha256": esha})
-            write_route(task, "t", "r-1", [step])
+            write_route(task, "test-task", "r-1", [step])
             _, errors = parse_route(task)
             self.assertEqual(errors[0].code, "TWV-DELEG-MISSING-EXPLICIT-AUTHORITY")
 
@@ -331,7 +332,7 @@ class RouteSchemaTests(unittest.TestCase):
             cpath, csha, epath, esha = write_step_files(task, "D01", "# c\n", "# e\n")
             step = completed_step("D01", 1)
             step.update({"effect_class": "external-write", "authority_mode": "explicit-step", "authority_ref": "unavailable", "context_path": cpath, "context_sha256": csha, "evidence_path": epath, "evidence_sha256": esha})
-            write_route(task, "t", "r-1", [step])
+            write_route(task, "test-task", "r-1", [step])
             _, errors = parse_route(task)
             self.assertEqual(errors[0].code, "TWV-DELEG-MISSING-AUTHORITY-REF")
 
@@ -341,7 +342,7 @@ class RouteSchemaTests(unittest.TestCase):
             cpath, csha, epath, esha = write_step_files(task, "D01", "# c\n", "# e\n")
             step = completed_step("D01", 1)
             step.update({"resolved_capability": "unavailable", "context_path": cpath, "context_sha256": csha, "evidence_path": epath, "evidence_sha256": esha})
-            write_route(task, "t", "r-1", [step])
+            write_route(task, "test-task", "r-1", [step])
             _, errors = parse_route(task)
             self.assertEqual(errors[0].code, "TWV-DELEG-UNRESOLVED-CAPABILITY")
 
@@ -351,7 +352,7 @@ class RouteSchemaTests(unittest.TestCase):
             cpath, csha, epath, esha = write_step_files(task, "D01", "# c\n", "# e\n")
             step = completed_step("D01", 1)
             step.update({"result_revision": "unavailable", "context_path": cpath, "context_sha256": csha, "evidence_path": epath, "evidence_sha256": esha})
-            write_route(task, "t", "r-1", [step])
+            write_route(task, "test-task", "r-1", [step])
             _, errors = parse_route(task)
             self.assertEqual(errors[0].code, "TWV-DELEG-MISSING-RESULT-REVISION")
 
@@ -361,7 +362,7 @@ class RouteSchemaTests(unittest.TestCase):
             cpath, csha, epath, esha = write_step_files(task, "D01", "# c\n", "# e\n")
             step = completed_step("D01", 1)
             step.update({"status": "planned", "resolved_capability": "unavailable", "context_path": cpath, "context_sha256": csha})
-            write_route(task, "t", "r-1", [step])
+            write_route(task, "test-task", "r-1", [step])
             _, errors = parse_route(task)
             self.assertEqual(errors[0].code, "TWV-DELEG-PREMATURE-EVIDENCE")
 
@@ -371,7 +372,7 @@ class RouteSchemaTests(unittest.TestCase):
             cpath, csha, epath, esha = write_step_files(task, "D01", "# c\n", "# e\n")
             step = completed_step("D01", 1)
             step.update({"requested_capability": "$kapisch", "context_path": cpath, "context_sha256": csha, "evidence_path": epath, "evidence_sha256": esha})
-            write_route(task, "t", "r-1", [step])
+            write_route(task, "test-task", "r-1", [step])
             _, errors = parse_route(task)
             self.assertEqual(errors[0].code, "TWV-DELEG-SELF-DELEGATION")
 
@@ -389,10 +390,15 @@ class EvidenceFileTests(unittest.TestCase):
             step = self._route_with_files(task)
             step["context_path"] = "unavailable"
             step["context_sha256"] = "unavailable"
-            write_route(task, "t", "r-1", [step])
+            write_route(task, "test-task", "r-1", [step])
             _, errors = parse_route(task)
             self.assertEqual(errors[0].code, "TWV-DELEG-MISSING-CONTEXT")
 
+    @unittest.skipIf(os.name == "nt", "chmod does not revoke read access on Windows")
+    @unittest.skipIf(
+        hasattr(os, "geteuid") and os.geteuid() == 0,
+        "root bypasses mode-based read denial",
+    )
     def test_unreadable_evidence_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             task = Path(temporary)
@@ -400,7 +406,7 @@ class EvidenceFileTests(unittest.TestCase):
             evidence = task / "delegations/D01/01-evidence.md"
             evidence.chmod(0)
             try:
-                write_route(task, "t", "r-1", [step])
+                write_route(task, "test-task", "r-1", [step])
                 _, errors = parse_route(task)
                 self.assertEqual(errors[0].code, "TWV-DELEG-UNREADABLE-EVIDENCE")
             finally:
@@ -411,10 +417,11 @@ class EvidenceFileTests(unittest.TestCase):
             task = Path(temporary)
             step = self._route_with_files(task)
             step["context_path"] = "../../escape.md"
-            write_route(task, "t", "r-1", [step])
+            write_route(task, "test-task", "r-1", [step])
             _, errors = parse_route(task)
             self.assertEqual(errors[0].code, "TWV-DELEG-PATH-ESCAPE")
 
+    @unittest.skipIf(os.name == "nt", "symlink creation requires privileges on Windows")
     def test_symlinked_evidence_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -429,7 +436,7 @@ class EvidenceFileTests(unittest.TestCase):
             csha = sha256("# context\n")
             step = completed_step("D01", 1)
             step.update({"context_path": "delegations/D01/00-context.md", "context_sha256": csha, "evidence_path": "delegations/D01/01-evidence.md", "evidence_sha256": sha256("# evidence\n")})
-            write_route(task, "t", "r-1", [step])
+            write_route(task, "test-task", "r-1", [step])
             _, errors = parse_route(task)
             self.assertEqual(errors[0].code, "TWV-DELEG-PATH-ESCAPE")
 
@@ -438,7 +445,7 @@ class EvidenceFileTests(unittest.TestCase):
             task = Path(temporary)
             step = self._route_with_files(task)
             (task / "delegations/D01/01-evidence.md").unlink()
-            write_route(task, "t", "r-1", [step])
+            write_route(task, "test-task", "r-1", [step])
             _, errors = parse_route(task)
             self.assertEqual(errors[0].code, "TWV-DELEG-MISSING-EVIDENCE")
 
@@ -447,7 +454,7 @@ class EvidenceFileTests(unittest.TestCase):
             task = Path(temporary)
             step = self._route_with_files(task)
             (task / "delegations/D01/01-evidence.md").write_bytes(b"\xff\xfe\x00\x01")
-            write_route(task, "t", "r-1", [step])
+            write_route(task, "test-task", "r-1", [step])
             _, errors = parse_route(task)
             self.assertEqual(errors[0].code, "TWV-DELEG-EVIDENCE-ENCODING")
 
@@ -456,7 +463,7 @@ class EvidenceFileTests(unittest.TestCase):
             task = Path(temporary)
             step = self._route_with_files(task)
             step["evidence_sha256"] = sha256("# different\n")
-            write_route(task, "t", "r-1", [step])
+            write_route(task, "test-task", "r-1", [step])
             _, errors = parse_route(task)
             self.assertEqual(errors[0].code, "TWV-DELEG-STALE-EVIDENCE")
 
@@ -465,7 +472,7 @@ class EvidenceFileTests(unittest.TestCase):
             task = Path(temporary)
             step = self._route_with_files(task)
             step["evidence_sha256"] = "not-a-digest"
-            write_route(task, "t", "r-1", [step])
+            write_route(task, "test-task", "r-1", [step])
             _, errors = parse_route(task)
             self.assertEqual(errors[0].code, "TWV-DELEG-INVALID-DIGEST")
 
@@ -478,7 +485,7 @@ class RouteReferenceTests(unittest.TestCase):
             cpath, csha, epath, esha = write_step_files(task, "D01", "# c\n", "# e\n")
             step = completed_step("D01", 1, parent="T01")
             step.update({"context_path": cpath, "context_sha256": csha, "evidence_path": epath, "evidence_sha256": esha})
-            write_route(task, "t", "r-1", [step])
+            write_route(task, "test-task", "r-1", [step])
             errors = validate_route_references(manifest, task)
             self.assertEqual(errors[0].code, "TWV-DELEG-UNRESOLVED-STEP")
 
@@ -494,7 +501,7 @@ class RouteReferenceTests(unittest.TestCase):
             cpath, csha, epath, esha = write_step_files(task, "D01", "# c\n", "# e\n")
             step = completed_step("D01", 1, parent="T01")
             step.update({"context_path": cpath, "context_sha256": csha, "evidence_path": epath, "evidence_sha256": esha})
-            write_route(task, "t", "r-1", [step])
+            write_route(task, "test-task", "r-1", [step])
             errors = validate_route_references(manifest, task)
             self.assertEqual(errors[0].code, "TWV-DELEG-REUSED-STEP")
 
@@ -505,7 +512,7 @@ class RouteReferenceTests(unittest.TestCase):
             cpath, csha, epath, esha = write_step_files(task, "D01", "# c\n", "# e\n")
             step = completed_step("D01", 1, parent="OTHER")
             step.update({"context_path": cpath, "context_sha256": csha, "evidence_path": epath, "evidence_sha256": esha})
-            write_route(task, "t", "r-1", [step])
+            write_route(task, "test-task", "r-1", [step])
             errors = validate_route_references(manifest, task)
             self.assertEqual(errors[0].code, "TWV-DELEG-OWNER-MISMATCH")
 
@@ -516,7 +523,7 @@ class RouteReferenceTests(unittest.TestCase):
             cpath, csha, epath, esha = write_step_files(task, "D01", "# c\n", "# e\n")
             step = completed_step("D01", 1, parent="MISSING")
             step.update({"context_path": cpath, "context_sha256": csha, "evidence_path": epath, "evidence_sha256": esha})
-            write_route(task, "t", "r-1", [step])
+            write_route(task, "test-task", "r-1", [step])
             errors = validate_route_references(manifest, task)
             self.assertEqual(errors[0].code, "TWV-DELEG-ORPHAN-OWNER")
 
@@ -527,7 +534,7 @@ class RouteReferenceTests(unittest.TestCase):
             cpath, csha, epath, esha = write_step_files(task, "D01", "# c\n", "# e\n")
             step = completed_step("D01", 1, parent="T01")
             step.update({"context_path": cpath, "context_sha256": csha, "evidence_path": epath, "evidence_sha256": esha})
-            write_route(task, "t", "r-1", [step])
+            write_route(task, "test-task", "r-1", [step])
             errors = validate_route_references(manifest, task)
             self.assertEqual(errors[0].code, "TWV-DELEG-ORPHANED-STEP")
 
@@ -538,7 +545,7 @@ class RouteReferenceTests(unittest.TestCase):
             cpath, csha, epath, esha = write_step_files(task, "D01", "# c\n", "# e\n")
             step = completed_step("D01", 1, parent="T01")
             step.update({"status": "started", "resolved_capability": "skill-a", "evidence_path": "unavailable", "evidence_sha256": "unavailable", "context_path": cpath, "context_sha256": csha})
-            write_route(task, "t", "r-1", [step])
+            write_route(task, "test-task", "r-1", [step])
             errors = validate_route_references(manifest, task)
             self.assertEqual(errors[0].code, "TWV-DELEG-UNRESOLVED-DELEGATION")
 
@@ -549,9 +556,33 @@ class RouteReferenceTests(unittest.TestCase):
             cpath, csha, epath, esha = write_step_files(task, "D01", "# c\n", "# e\n")
             step = completed_step("D01", 1, parent="R01", effect_class="external-write", authority_mode="explicit-step", authority_ref="gate:test")
             step.update({"context_path": cpath, "context_sha256": csha, "evidence_path": epath, "evidence_sha256": esha})
-            write_route(task, "t", "r-1", [step])
+            write_route(task, "test-task", "r-1", [step])
             errors = validate_route_references(manifest, task)
             self.assertEqual(errors[0].code, "TWV-DELEG-REVIEW-WRITE")
+
+    def test_route_task_id_mismatch(self) -> None:
+        manifest = make_manifest([make_node("T01", "behavioral", delegation_ids=["D01"])])
+        with tempfile.TemporaryDirectory() as temporary:
+            task = Path(temporary)
+            cpath, csha, epath, esha = write_step_files(task, "D01", "# c\n", "# e\n")
+            step = completed_step("D01", 1, parent="T01")
+            step.update({"context_path": cpath, "context_sha256": csha, "evidence_path": epath, "evidence_sha256": esha})
+            write_route(task, "other-task", "r-1", [step])
+            errors = validate_route_references(manifest, task)
+            self.assertEqual(errors[0].code, "TWV-DELEG-TASK-MISMATCH")
+
+    def test_route_source_revision_mismatch(self) -> None:
+        manifest = make_manifest([make_node("T01", "behavioral", delegation_ids=["D01"])])
+        with tempfile.TemporaryDirectory() as temporary:
+            task = Path(temporary)
+            cpath, csha, epath, esha = write_step_files(task, "D01", "# c\n", "# e\n")
+            step = completed_step("D01", 1, parent="T01")
+            step.update({"context_path": cpath, "context_sha256": csha, "evidence_path": epath, "evidence_sha256": esha})
+            write_route(task, "test-task", "r-1", [step])
+            path = task / "delegations/00-route.toml"
+            path.write_text(path.read_text(encoding="utf-8").replace('source_revision = "base"', 'source_revision = "other"'), encoding="utf-8")
+            errors = validate_route_references(manifest, task)
+            self.assertEqual(errors[0].code, "TWV-DELEG-REVISION-MISMATCH")
 
     def test_valid_graph_references_have_no_findings(self) -> None:
         manifest = make_manifest(
@@ -569,7 +600,7 @@ class RouteReferenceTests(unittest.TestCase):
             second.update({"context_path": cpath, "context_sha256": csha, "evidence_path": epath, "evidence_sha256": esha})
             third = completed_step("D03", 3, parent="R01", effect_class="external-read")
             third.update({"context_path": cpath, "context_sha256": csha, "evidence_path": epath, "evidence_sha256": esha})
-            write_route(task, "t", "r-1", [first, second, third])
+            write_route(task, "test-task", "r-1", [first, second, third])
             errors = validate_route_references(manifest, task)
             self.assertEqual(errors, ())
 
