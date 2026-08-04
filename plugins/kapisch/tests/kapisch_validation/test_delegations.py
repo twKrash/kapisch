@@ -337,7 +337,15 @@ class RouteSchemaTests(unittest.TestCase):
             _, errors = parse_route(task)
             self.assertEqual(errors[0].code, "TWV-DELEG-MISSING-AUTHORITY-REF")
 
-    def test_resolved_capability_unavailable_is_rejected(self) -> None:
+    def test_capability_unavailable_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task = Path(temporary)
+            step = materialize(task, minimal_step("D01", 1))
+            step["requested_capability"] = "unavailable"
+            write_route(task, "test-task", "r-1", [step])
+            _, errors = parse_route(task)
+            self.assertEqual(errors[0].code, "TWV-DELEG-WRONG-SHAPE")
+            self.assertEqual(errors[0].reference, "steps[0].requested_capability")
         with tempfile.TemporaryDirectory() as temporary:
             task = Path(temporary)
             step = materialize(task, minimal_step("D01", 1))

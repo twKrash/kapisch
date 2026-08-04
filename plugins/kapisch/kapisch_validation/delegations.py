@@ -314,16 +314,17 @@ def parse_route(task_dir: Path) -> tuple[dict[str, object] | None, tuple[Validat
                     errors,
                     _e("TWV-DELEG-WRONG-SHAPE", path, f"{ref}.{key}", "must be a non-empty string"),
                 )
-        resolved = step.get("resolved_capability")
-        if isinstance(resolved, str) and resolved == UNAVAILABLE:
-            errors.append(
-                _e(
-                    "TWV-DELEG-WRONG-SHAPE",
-                    path,
-                    f"{ref}.resolved_capability",
-                    "resolved_capability must identify the selected capability, not 'unavailable'",
+        for capability_field in ("requested_capability", "resolved_capability"):
+            capability = step.get(capability_field)
+            if isinstance(capability, str) and capability == UNAVAILABLE:
+                errors.append(
+                    _e(
+                        "TWV-DELEG-WRONG-SHAPE",
+                        path,
+                        f"{ref}.{capability_field}",
+                        "capability fields must identify a capability, not 'unavailable'",
+                    )
                 )
-            )
         step_id = step.get("id")
         if not isinstance(step_id, str) or STEP_ID_RE.fullmatch(step_id) is None:
             errors.append(

@@ -450,21 +450,20 @@ Negative scenarios:
 174. A route contains path traversal, a symlinked evidence file, missing
      context/evidence, invalid UTF-8, or a digest mismatch: structural
      validation fails closed.
-175. A completed step records `resolved_capability=unavailable`: the completed
-     step is invalid because a resolved capability and complete evidence are
-     required.
+175. A completed step records `resolved_capability=unavailable`: the step is
+     invalid because a resolved capability and complete evidence are required.
+     (The step lifecycle model is deferred; the capability and evidence rules
+     still apply.)
 176. An external write or destructive action lacks `authority_mode=explicit-step`
      and a valid in-context authority reference: it is blocked; preparation and
      preview may proceed separately, execution may not.
-177. A later step starts or completes while an earlier step is unresolved: the
-     ordered sequential lifecycle with at most one `started` step fails closed.
+177. Step lifecycle validation (ordered sequential lifecycle with at most one
+     `started` step, step-state/node consistency) is deferred to a later
+     change; the graph node lifecycle rules apply unchanged.
 178. A graph references a step whose `parent_node_id` mismatches, reuses a step
      ID across nodes, or depends on an orphaned required reference: graph
-     validation and resume block it.
-179. A completed graph implementation node still has a required delegated step
-     `planned`, `started`, `blocked`, `failed`, missing, stale, or invalid: the
-     node cannot complete.
-180. A review/final delegation attempts a write or destructive effect: blocked;
+     validation blocks it.
+179. A review/final delegation attempts a write or destructive effect: blocked;
      review/final nodes reference only read-only advisory steps.
 181. A delegated capability tries to delegate the KAPISCH route or invoke
      `$kapisch`: refused as recursive route ownership; the need is recorded as a
