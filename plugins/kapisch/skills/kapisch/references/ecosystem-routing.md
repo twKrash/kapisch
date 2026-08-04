@@ -185,7 +185,7 @@ source_revision = "base"
 [[steps]]
 id = "D01"
 sequence = 1
-parent_node_id = "T01"                       # the owning graph node
+parent_node_id = "T01"                     # the owning graph node
 selection_mode = "explicit"               # explicit|automatic
 capability_kind = "skill"                 # skill|plugin-skill|plugin-tools
 requested_capability = "instruction-only-skill"
