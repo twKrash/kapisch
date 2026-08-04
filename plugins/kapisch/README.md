@@ -67,6 +67,10 @@ creates no destination. KAPISCH never creates new legacy artifacts.
 
 The validator uses only the Python 3.11 standard library and never writes,
 dispatches, schedules, routes requests, invokes Git, or grants approval.
+Delegation evidence is validated the same way: `--scope delegations` validates
+only a graph-free `delegations/00-route.toml` record, and durable validation of
+a version-3 manifest automatically validates the route record and every graph
+reference. Findings use `TWV-DELEG-*` error codes.
 
 From the plugin directory (development), the validator runs directly:
 
@@ -101,6 +105,61 @@ terminology. Foundry is an original industrial-mystic vocabulary pack. Themes
 change labels only: canonical roles, controls, permissions, routing, artifacts,
 status values, validation, and approval gates remain unchanged. See
 [`themes.md`](skills/kapisch/references/themes.md).
+
+## Delegated ecosystem capabilities
+
+KAPISCH may delegate one bounded step to an available Codex skill or plugin
+capability while remaining the sole route controller: request normalization,
+role and risk selection, focused context, authority, human gates, durable
+evidence, recovery, independent review, and final readiness stay with KAPISCH.
+The expert control is `ecosystem=auto|off` (default `auto`); ordinary natural
+language remains the normal interface, and an explicit skill or plugin mention
+overrides `auto` as a binding capability constraint. Every delegation is
+recorded under `.kapisch/runs/<task-id>/delegations/` — a route record plus one
+context and evidence pair per step — even when the user selected
+`handoff=chat`. See
+[`ecosystem-routing.md`](skills/kapisch/references/ecosystem-routing.md), the
+sole normative owner of selection and delegated-step behavior.
+
+### Example: explicit delegation
+
+The user names a skill, for example "run the checklist review of this diff
+with the installed documentation-review skill." KAPISCH treats that name as a
+binding constraint, selects it with `selection_mode=explicit`, persists the
+step context before invocation, and records the requested and resolved
+capability plus the observed result in `delegations/`. It never silently
+substitutes another capability.
+
+### Example: automatic read-only selection
+
+The controller may automatically select a plugin-bundled read-only skill that
+is visibly available in the current session for a bounded read-only substep,
+recording `selection_mode=automatic` and a `repository-read` or `external-read`
+effect class. Selection uses the capability's current documented description
+and exposed actions, never name similarity alone, and never claims the visible
+set is exhaustive. If the selected capability is unavailable, KAPISCH falls
+back to native execution only when the same approved outcome remains achievable
+without changing methodology, data boundary, or authority — and discloses the
+fallback.
+
+### Example: external-write gate
+
+Preparation for an external write (for example posting a pull-request comment)
+stops at the gate after preview. The controller presents the exact target and
+payload and waits for explicit approval; only then does it execute with
+`authority_mode=explicit-step` and a valid in-context `authority_ref`, and it
+persists the external result (operation ID or URL when exposed) in the step's
+evidence. Authority cannot be laundered through a delegate, and an
+external-write or destructive step is never blindly retried on resume.
+
+### Example: unavailable capability
+
+If the user explicitly requires a capability that is unavailable, KAPISCH
+blocks and reports the missing capability and a safe setup or selection action;
+it never installs, enables, signs in to, or reconfigures anything as a
+fallback. If only an automatically selected capability is unavailable, the
+disclosed native fallback is used solely when the approved outcome is
+unchanged.
 
 ## Development
 

@@ -1,7 +1,7 @@
 {
   "name": "kapisch",
   "version": "0.1.0",
-  "description": "A lightweight Codex-native workflow contract and validation plugin.",
+  "description": "A lightweight Codex-native workflow contract and validation plugin with optional bounded delegation to installed Codex skills and plugin capabilities.",
   "author": {
     "name": "twKrash",
     "url": "https://github.com/twKrash"
@@ -19,7 +19,7 @@
   "interface": {
     "displayName": "KAPISCH",
     "shortDescription": "Safe, explainable repository-work workflows for Codex.",
-    "longDescription": "KAPISCH provides role contracts, durable evidence validation, and human approval gates for repository work.",
+    "longDescription": "KAPISCH provides role contracts, durable evidence validation, and human approval gates for repository work, with optional bounded delegation to installed Codex skills and plugin capabilities.",
     "developerName": "twKrash",
     "category": "Productivity",
     "capabilities": [],
