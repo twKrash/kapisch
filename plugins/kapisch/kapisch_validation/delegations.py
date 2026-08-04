@@ -681,6 +681,8 @@ def validate_route_lifecycle(
                 "source_plugin",
                 "authority_mode",
                 "authority_ref",
+                "parent_node_id",
+                "selection_mode",
             ):
                 previous_binding = previous.get(binding_key)
                 current_binding = step.get(binding_key)
@@ -828,60 +830,69 @@ def validate_route_references(
                     "a step owned by a graph node must be referenced by that node's delegation_ids",
                 )
             )
-    groups: dict[str, list[dict[str, object]]] = {}
-    for step in steps:
-        parent = step.get("parent_node_id")
-        if isinstance(step.get("id"), str):
-            group_key = parent if isinstance(parent, str) and parent != UNAVAILABLE else UNAVAILABLE
-            groups.setdefault(group_key, []).append(step)
-    for parent, group in groups.items():
-        group.sort(key=lambda s: int(s["sequence"]) if is_integer(s.get("sequence")) else 0)
-        for index, step in enumerate(group):
-            step_id = step.get("id")
-            source = step.get("source_revision")
-            route_source = route.get("source_revision")
-            effect_class = step.get("effect_class")
-            is_write = effect_class in WRITE_CLASSES
-            previous_result = (
-                group[index - 1].get("result_revision") if index > 0 else None
+    ordered_steps = sorted(
+        (
+            step
+            for step in steps
+            if isinstance(step.get("id"), str)
+        ),
+        key=lambda s: int(s["sequence"]) if is_integer(s.get("sequence")) else 0,
+    )
+    for index, step in enumerate(ordered_steps):
+        step_id = step["id"]
+        source = step.get("source_revision")
+        route_source = route.get("source_revision")
+        effect_class = step.get("effect_class")
+        status = step.get("status")
+        is_write = effect_class in WRITE_CLASSES
+        executed = status in {"started", "completed", "blocked", "failed"}
+        previous_result = (
+            ordered_steps[index - 1].get("result_revision") if index > 0 else None
+        )
+        if index == 0:
+            valid_sources = {route_source}
+        elif is_write and executed:
+            valid_sources = {previous_result}
+        else:
+            valid_sources = {route_source, previous_result}
+        if source not in valid_sources:
+            errors.append(
+                _e(
+                    "TWV-DELEG-STEP-REVISION-MISMATCH",
+                    path,
+                    f"steps[{step_id}].source_revision",
+                    "step source_revision must equal the route source_revision or the previous step's result_revision (an executed write must start from the previous result)",
+                )
             )
-            if index == 0:
-                valid_sources = {route_source}
-            elif is_write:
-                valid_sources = {previous_result}
-            else:
-                valid_sources = {route_source, previous_result}
-            if source not in valid_sources:
+        if status != "completed":
+            continue
+        result = step.get("result_revision")
+        parent = step.get("parent_node_id")
+        node = (
+            nodes_by_id.get(parent)
+            if isinstance(parent, str) and parent != UNAVAILABLE
+            else None
+        )
+        node_revision = node.raw.get("revision") if node is not None else None
+        expected_head = (
+            node_revision.get("head")
+            if isinstance(node_revision, dict)
+            else None
+        )
+        if not is_write:
+            if result != source:
                 errors.append(
                     _e(
                         "TWV-DELEG-STEP-REVISION-MISMATCH",
                         path,
-                        f"steps[{step_id}].source_revision",
-                        "step source_revision must equal the route source_revision, or the previous step's result_revision (writes must start from the previous result)",
+                        f"steps[{step_id}].result_revision",
+                        "a read-only step's result_revision must equal its source_revision",
                     )
                 )
-            if step.get("status") != "completed":
-                continue
-            result = step.get("result_revision")
-            node = nodes_by_id.get(parent) if parent != UNAVAILABLE else None
-            node_revision = node.raw.get("revision") if node is not None else None
-            expected_head = (
-                node_revision.get("head")
-                if isinstance(node_revision, dict)
-                else None
-            )
-            if not is_write:
-                if result != source:
-                    errors.append(
-                        _e(
-                            "TWV-DELEG-STEP-REVISION-MISMATCH",
-                            path,
-                            f"steps[{step_id}].result_revision",
-                            "a read-only step's result_revision must equal its source_revision",
-                        )
-                    )
-            elif index + 1 < len(group):
-                if result != group[index + 1].get("source_revision"):
+        elif index + 1 < len(ordered_steps):
+            next_step = ordered_steps[index + 1]
+            if next_step.get("status") in {"started", "completed", "blocked", "failed"}:
+                if result != next_step.get("source_revision"):
                     errors.append(
                         _e(
                             "TWV-DELEG-STEP-REVISION-MISMATCH",
@@ -890,18 +901,18 @@ def validate_route_references(
                             "a write step's result_revision must equal the next step's source_revision",
                         )
                     )
-            elif (
-                expected_head is not None
-                and node is not None
-                and node.kind not in {"review", "final"}
-                and result != expected_head
-            ):
-                errors.append(
-                    _e(
-                        "TWV-DELEG-STEP-REVISION-MISMATCH",
-                        path,
-                        f"steps[{step_id}].result_revision",
-                        "the final write step's result_revision must match its owning node's revision head",
-                    )
+        elif (
+            expected_head is not None
+            and node is not None
+            and node.kind not in {"review", "final"}
+            and result != expected_head
+        ):
+            errors.append(
+                _e(
+                    "TWV-DELEG-STEP-REVISION-MISMATCH",
+                    path,
+                    f"steps[{step_id}].result_revision",
+                    "the final write step's result_revision must match its owning node's revision head",
                 )
+            )
     return sorted_errors(errors)

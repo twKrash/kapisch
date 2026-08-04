@@ -566,6 +566,74 @@ class EvidenceFileTests(unittest.TestCase):
                 any(error.code == "TWV-DELEG-STEP-REVISION-MISMATCH" for error in errors)
             )
 
+    def test_binding_rebound_covers_parent_and_selection_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            previous = root / "previous"
+            current = root / "current"
+            cpath, csha, epath, esha = write_step_files(previous, "D01", "# c\n", "# e\n")
+            previous_step = completed_step("D01", 1, parent="T01", selection_mode="explicit")
+            previous_step.update({"status": "started", "resolved_capability": "skill-a", "evidence_path": "unavailable", "evidence_sha256": "unavailable", "context_path": cpath, "context_sha256": csha, "result_revision": "unavailable"})
+            write_route(previous, "test-task", "r-1", [previous_step])
+            c2, s2, e2, se2 = write_step_files(current, "D01", "# c\n", "# e\n")
+            current_step = completed_step("D01", 1, parent="T02", selection_mode="automatic")
+            current_step.update({"status": "started", "resolved_capability": "skill-a", "evidence_path": "unavailable", "evidence_sha256": "unavailable", "context_path": c2, "context_sha256": s2, "result_revision": "unavailable"})
+            write_route(current, "test-task", "r-1", [current_step])
+            current_route, current_errors = parse_route(current)
+            self.assertEqual(current_errors, ())
+            previous_route, previous_errors = parse_route(previous)
+            self.assertEqual(previous_errors, ())
+            from kapisch_validation.delegations import validate_route_lifecycle
+            errors = validate_route_lifecycle(current_route, previous_route, previous)
+            self.assertEqual(
+                [error.code for error in errors],
+                ["TWV-DELEG-BINDING-REBOUND", "TWV-DELEG-BINDING-REBOUND"],
+            )
+
+    def test_cross_node_write_continuity(self) -> None:
+        manifest = make_manifest(
+            [
+                make_node("T01", "behavioral", delegation_ids=["D01"]),
+                make_node("T02", "behavioral", delegation_ids=["D02"]),
+            ]
+        )
+        manifest.nodes[0].raw["revision"] = {"base": "base", "head": "head1"}
+        manifest.nodes[1].raw["revision"] = {"base": "head1", "head": "head2"}
+        with tempfile.TemporaryDirectory() as temporary:
+            task = Path(temporary)
+            c1, s1, e1, se1 = write_step_files(task, "D01", "# c\n", "# e\n")
+            first = completed_step("D01", 1, parent="T01", effect_class="repository-write", authority_mode="explicit-step", authority_ref="gate:test")
+            first.update({"source_revision": "base", "result_revision": "head1", "context_path": c1, "context_sha256": s1, "evidence_path": e1, "evidence_sha256": se1})
+            c2, s2, e2, se2 = write_step_files(task, "D02", "# c\n", "# e\n")
+            second = completed_step("D02", 2, parent="T02", effect_class="repository-write", authority_mode="explicit-step", authority_ref="gate:test")
+            second.update({"source_revision": "base", "result_revision": "head2", "context_path": c2, "context_sha256": s2, "evidence_path": e2, "evidence_sha256": se2})
+            write_route(task, "test-task", "r-1", [first, second])
+            errors = validate_route_references(manifest, task)
+            self.assertTrue(
+                any(error.code == "TWV-DELEG-STEP-REVISION-MISMATCH" for error in errors)
+            )
+            second["source_revision"] = "head1"
+            (task / "delegations/00-route.toml").unlink()
+            write_route(task, "test-task", "r-1", [first, second])
+            errors = validate_route_references(manifest, task)
+            self.assertEqual(errors, ())
+
+    def test_planned_write_steps_accept_route_base(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task = Path(temporary)
+            c1, s1, e1, se1 = write_step_files(task, "D01", "# c\n", "# e\n")
+            first = completed_step("D01", 1, effect_class="repository-write", authority_mode="explicit-step", authority_ref="gate:test")
+            first.update({"status": "planned", "resolved_capability": "unavailable", "source_revision": "base", "result_revision": "unavailable", "evidence_path": "unavailable", "evidence_sha256": "unavailable", "context_path": c1, "context_sha256": s1})
+            c2, s2, e2, se2 = write_step_files(task, "D02", "# c\n", "# e\n")
+            second = completed_step("D02", 2, effect_class="repository-write", authority_mode="explicit-step", authority_ref="gate:test")
+            second.update({"status": "planned", "resolved_capability": "unavailable", "source_revision": "base", "result_revision": "unavailable", "evidence_path": "unavailable", "evidence_sha256": "unavailable", "context_path": c2, "context_sha256": s2})
+            write_route(task, "test-task", "r-1", [first, second])
+            route, errors = parse_route(task)
+            self.assertEqual(errors, ())
+            manifest = make_manifest([])
+            errors = validate_route_references(manifest, task)
+            self.assertEqual(errors, ())
+
     def test_binding_rebound_covers_all_binding_fields(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
