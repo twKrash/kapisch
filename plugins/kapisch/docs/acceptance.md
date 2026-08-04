@@ -62,19 +62,19 @@ for independent approval or milestone final readiness.
 
 - `tests/kapisch_validation/test_delegations.py` covers the closed route schema
   (unknown fields, allowed enums, step-ID grammar, duplicate IDs and
-  sequences), ordered sequential lifecycle with at most one started step,
-  evidence-file integrity (path containment, symlink rejection, UTF-8,
-  lowercase SHA-256 digests), authority rules (external-write and destructive
-  steps require `authority_mode=explicit-step` with a valid reference), graph
-  parent ownership and unique references, review/final read-only delegation,
-  and the `--scope delegations` and version-3 durable CLI paths.
+  sequences), evidence-file integrity (path containment, symlink rejection,
+  UTF-8, lowercase SHA-256 digests), authority rules (external-write and
+  destructive steps require `authority_mode=explicit-step` with a valid
+  reference), graph parent ownership and unique references, review/final
+  read-only delegation, route/manifest identity, and the version-3 durable CLI
+  path (including `ecosystem_routing=off` gating and missing-route-with-refs
+  rejection).
 - `tests/kapisch_validation/test_manifest.py` covers the version-3
   `policies.ecosystem_routing` and `nodes[].delegation_ids` fields and their
   rejection on version-1 and version-2 manifests
   (`TWV-SCHEMA-UNSUPPORTED-V3-FIELD`).
-- `scripts/test_portable_package.py` runs one graph-free delegation validation
-  (`--scope delegations`) and one version-3 durable validation from the
-  isolated package copy.
+- `scripts/test_portable_package.py` runs one version-3 durable validation
+  (with a delegation route record) from the isolated package copy.
 
 ### Manual clean-environment acceptance (pending)
 

@@ -17,7 +17,7 @@ max_fix_rounds=1
 ecosystem_routing="off"
 [[nodes]]
 id="T01"
-delegation_ids=["D01","D02"]
+delegation_ids=["D01"]
 sequence=1
 title="implement"
 kind="behavioral"
@@ -41,7 +41,7 @@ base="base"
 head="head"
 [[nodes]]
 id="R01"
-delegation_ids=["D03"]
+delegation_ids=[]
 sequence=2
 title="review"
 kind="review"

@@ -201,8 +201,9 @@ evidence_sha256 = "4567...64 lowercase hex..."
 Every step records a context file and digest (persisted before invocation) and
 an evidence file and digest (persisted after the step resolves). Both files
 must be valid UTF-8 inside the task directory, with exact lowercase SHA-256
-digests of the persisted bytes; paths and digests use the literal `unavailable`
-only where a required field is not yet observable. Step lifecycle states
+digests of the persisted bytes; the literal `unavailable` is used only where
+the schema allows it (`parent_node_id`, `source_plugin`), never for required
+context or evidence paths/digests. Step lifecycle states
 (`planned`/`started`/`completed`/...) and per-step repository revisions are
 deferred to a later change: the graph node lifecycle and revision evidence
 already cover them, and the route record identifies the selected capability and
@@ -298,14 +299,15 @@ mirrors them for interrupted workflows:
 
 Repository Python validates the route record structurally and read-only:
 supported route version and closed root/step schemas; required fields, scalar
-and list types, and allowed enums; stable delegation-ID grammar; unique step IDs
-and sequence values; ordered sequential lifecycle with at most one `started`
-step; task-directory path containment; rejection of symlinked evidence; required
-UTF-8 context and evidence files; lowercase SHA-256 format and exact byte-digest
-matches; terminal-step diagnostic evidence; external-write/destructive steps
+and list types, and allowed enums; stable delegation-ID grammar; unique step
+IDs and sequence values; task-directory path containment; rejection of
+symlinked evidence; required UTF-8 context and evidence files; lowercase
+SHA-256 format and exact byte-digest matches; external-write/destructive steps
 having `authority_mode = explicit-step` and a valid authority reference; graph
-parent ownership, unique graph references, and node/step lifecycle consistency;
-and read-only effect classes for review/final delegations.
+parent ownership, unique graph references, and route/manifest identity; and
+read-only effect classes for review/final delegations. Step lifecycle states
+and per-step repository revisions are deferred to a later change and are not
+validated here.
 
 Python does not implement capability discovery or installation; description
 matching or semantic selection; request parsing or route planning;

@@ -48,10 +48,10 @@ occurred. The legacy migration described under Compatibility version 1 is
 unchanged: explicit (`--approve`), byte-preserving, source-retaining, and free
 of new legacy writes; it neither reads nor writes delegation records.
 
-Delegation records are validated only under `--scope delegations` or during
-version-3 durable validation, which automatically validates the route record
-and every graph reference. Version-1 and version-2 durable validation neither
-reads nor requires delegation records.
+Delegation records are validated only during version-3 durable validation,
+which automatically validates the route record and every graph reference when
+a route exists or `delegation_ids` are present. Version-1 and version-2 durable
+validation neither reads nor requires delegation records.
 
 ## Source-application dogfood
 

@@ -337,6 +337,25 @@ class RouteSchemaTests(unittest.TestCase):
             _, errors = parse_route(task)
             self.assertEqual(errors[0].code, "TWV-DELEG-MISSING-AUTHORITY-REF")
 
+    def test_resolved_capability_unavailable_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task = Path(temporary)
+            step = materialize(task, minimal_step("D01", 1))
+            step["resolved_capability"] = "unavailable"
+            write_route(task, "test-task", "r-1", [step])
+            _, errors = parse_route(task)
+            self.assertEqual(errors[0].code, "TWV-DELEG-WRONG-SHAPE")
+            self.assertEqual(errors[0].reference, "steps[0].resolved_capability")
+
+    def test_resolved_capability_non_string_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task = Path(temporary)
+            step = materialize(task, minimal_step("D01", 1))
+            step["resolved_capability"] = 5
+            write_route(task, "test-task", "r-1", [step])
+            _, errors = parse_route(task)
+            self.assertEqual(errors[0].code, "TWV-DELEG-WRONG-SHAPE")
+
     def test_missing_required_step_field(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             task = Path(temporary)
@@ -584,11 +603,9 @@ class DelegationCliTests(unittest.TestCase):
             FIXTURES.parents[2] / "skills/kapisch",
             FIXTURES / "invalid-v3-off-with-refs",
         )
-        self.assertTrue(
-            any(error.code == "TWV-DELEG-ROUTING-OFF-WITH-REFS" for error in errors)
-        )
-        self.assertTrue(
-            any(error.code == "TWV-DELEG-ROUTE-WITH-ROUTING-OFF" for error in errors)
+        self.assertEqual(
+            {error.code for error in errors},
+            {"TWV-DELEG-ROUTING-OFF-WITH-REFS", "TWV-DELEG-ROUTE-WITH-ROUTING-OFF"},
         )
 
     def test_cli_durable_v3_missing_route_with_refs_rejected(self) -> None:
