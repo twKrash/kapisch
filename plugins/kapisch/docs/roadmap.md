@@ -379,18 +379,22 @@ measurement work.
 
 Status: implemented; clean-environment ecosystem-routing acceptance (Phase 8)
 and a distinct final-readiness decision for the current head remain required
-before the completed state is reported ready. The change-7 dogfood run
-(`change7-ecosystem-routing-dogfood` under the local `.kapisch/runs/`)
-recorded the review history: the research handoff assessed the definition of
-done and flagged the evidence gaps; Round 0 approved the implementation with
-thirteen non-blocking findings; a bounded P3 fix round resolved every fixable
-finding; Round 1 approved the corrected whole delta under the user-attested
-external-task path; a distinct final-readiness decision returned `ready` for
-that state; the roadmap status edit and the final-review amendment received
-their own fresh reviews (Rounds 2 and 3). The PR review blockers (route gating
-on actual delegation, required v3 node fields and step fields, scalar type
-safety, evidence path binding, lifecycle monotonicity, revision binding, node
-kind guard) are addressed in the review fix round. This status text itself
+before the completed state is reported ready. The maintainer's scope-reduction
+decision (2026-08-04, PR #4) is implemented: the route record carries the
+minimum delegation metadata (selected capability, maximum effect class,
+authority, digest-bound context/evidence); the parallel route lifecycle/revision
+engine, graph-free delegation, and resume/external-effect reconciliation
+machinery are deferred to later changes backed by demonstrated needs (recorded
+in the plan's scope-decision section and `acceptance.md`). The change-7
+dogfood run (`change7-ecosystem-routing-dogfood` under the local
+`.kapisch/runs/`) recorded the review history: the research handoff assessed
+the definition of done and flagged the evidence gaps; Round 0 approved the
+implementation with thirteen non-blocking findings; a bounded P3 fix round
+resolved every fixable finding; Round 1 approved the corrected whole delta
+under the user-attested external-task path; a distinct final-readiness decision
+returned `ready` for that state; the roadmap status edit and the final-review
+amendment received their own fresh reviews (Rounds 2 and 3); the PR review
+blockers were addressed in the review fix round. This status text itself
 changes the reviewed state; fresh approval-capable review and a distinct
 final-readiness decision are required before the resulting state is reported
 completed or ready. Change 7 does not depend on Change 4 measurement work.

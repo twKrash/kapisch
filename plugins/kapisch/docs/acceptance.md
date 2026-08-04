@@ -91,8 +91,10 @@ acceptance; it has not been executed in this environment. Acceptance checklist:
    fallback or a precise blocker.
 7. Install a plugin and verify its capability only in a fresh session when the
    runtime requires that refresh.
-8. Interrupt a started external-write step and verify resume does not duplicate
-   it.
+8. Interrupt a delegated external-write step and verify resume does not
+   duplicate the external effect (deferred: the delegation lifecycle/recovery
+   machinery is a later change; the evidence and the never-blindly-retry rule
+   are already in scope).
 9. Use a specialist review capability and verify that it remains advisory
    until the configured KAPISCH reviewer produces canonical evidence.
 10. Verify that KAPISCH never installs, authenticates, commits, pushes,

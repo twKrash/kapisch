@@ -68,8 +68,8 @@ head="head"
 terminal_node_ids=["T01"]
 [[nodes]]
 id="F01"
-sequence=3
 delegation_ids=[]
+sequence=3
 title="final"
 kind="final"
 risk="high"

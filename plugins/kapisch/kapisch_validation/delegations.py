@@ -6,12 +6,16 @@ import tomllib
 from pathlib import Path
 
 from .errors import ValidationError, sorted_errors
-from .helpers import is_integer, non_empty_string, string_list
+from .helpers import is_integer, non_empty_string
 from .models import Manifest
 
 ROUTE_FILE = "delegations/00-route.toml"
 ROUTE_VERSION = 1
 
+# Minimal closed delegation metadata. The delegation route lifecycle/revision
+# engine, graph-free delegation, and sophisticated resume/external-effect
+# reconciliation are deferred to later changes backed by demonstrated needs
+# (see docs/change-7-execution-plan.md scope decision).
 ROUTE = {
     "version",
     "task_id",
@@ -24,7 +28,6 @@ STEP = {
     "id",
     "sequence",
     "parent_node_id",
-    "status",
     "selection_mode",
     "capability_kind",
     "requested_capability",
@@ -37,11 +40,8 @@ STEP = {
     "context_sha256",
     "evidence_path",
     "evidence_sha256",
-    "source_revision",
-    "result_revision",
     "extensions",
 }
-STATUSES = {"planned", "started", "completed", "blocked", "failed"}
 SELECTION_MODES = {"explicit", "automatic"}
 CAPABILITY_KINDS = {"skill", "plugin-skill", "plugin-tools"}
 EFFECT_CLASSES = {
@@ -54,12 +54,10 @@ EFFECT_CLASSES = {
 AUTHORITY_MODES = {"request-scoped", "explicit-step"}
 EXTERNAL_WRITE_CLASSES = {"external-write", "destructive"}
 READ_CLASSES = {"repository-read", "external-read"}
-WRITE_CLASSES = {"repository-write", "external-write", "destructive"}
 UNAVAILABLE = "unavailable"
 STEP_ID_RE = re.compile(r"^D\d{2,}$")
 ROUTE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{2,79}$")
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
-IMPLEMENTATION_KIND = "behavioral"
 
 
 def _e(c: str, p: Path, r: str, m: str) -> ValidationError:
@@ -284,7 +282,6 @@ def parse_route(task_dir: Path) -> tuple[dict[str, object] | None, tuple[Validat
             "id",
             "sequence",
             "parent_node_id",
-            "status",
             "selection_mode",
             "capability_kind",
             "requested_capability",
@@ -297,8 +294,6 @@ def parse_route(task_dir: Path) -> tuple[dict[str, object] | None, tuple[Validat
             "context_sha256",
             "evidence_path",
             "evidence_sha256",
-            "source_revision",
-            "result_revision",
         ):
             if key not in step:
                 errors.append(
@@ -311,7 +306,6 @@ def parse_route(task_dir: Path) -> tuple[dict[str, object] | None, tuple[Validat
             "context_sha256",
             "evidence_path",
             "evidence_sha256",
-            "source_revision",
         ):
             if key in step:
                 non_empty_string(
@@ -354,7 +348,6 @@ def parse_route(task_dir: Path) -> tuple[dict[str, object] | None, tuple[Validat
                 )
             )
         for key, allowed in (
-            ("status", STATUSES),
             ("selection_mode", SELECTION_MODES),
             ("capability_kind", CAPABILITY_KINDS),
             ("effect_class", EFFECT_CLASSES),
@@ -369,27 +362,6 @@ def parse_route(task_dir: Path) -> tuple[dict[str, object] | None, tuple[Validat
                         path,
                         f"{ref}.{key}",
                         f"must be a string and one of {sorted(allowed)}",
-                    )
-                )
-        status = step.get("status")
-        resolved = step.get("resolved_capability")
-        if resolved is not None:
-            if not isinstance(resolved, str) or not resolved:
-                errors.append(
-                    _e(
-                        "TWV-DELEG-WRONG-SHAPE",
-                        path,
-                        f"{ref}.resolved_capability",
-                        "must be a non-empty string",
-                    )
-                )
-            elif isinstance(status, str) and status in {"started", "completed", "blocked", "failed"} and resolved == UNAVAILABLE:
-                errors.append(
-                    _e(
-                        "TWV-DELEG-UNRESOLVED-CAPABILITY",
-                        path,
-                        f"{ref}.resolved_capability",
-                        "a started, completed, blocked, or failed step must resolve a capability",
                     )
                 )
         for capability_field in ("requested_capability", "resolved_capability"):
@@ -451,51 +423,28 @@ def parse_route(task_dir: Path) -> tuple[dict[str, object] | None, tuple[Validat
                     "external-write and destructive steps require explicit-step authority",
                 )
             )
-        result_revision = step.get("result_revision")
-        if result_revision is not None and (
-            not isinstance(result_revision, str) or not result_revision
-        ):
-            errors.append(
-                _e(
-                    "TWV-DELEG-WRONG-SHAPE",
-                    path,
-                    f"{ref}.result_revision",
-                    "must be a non-empty string or 'unavailable'",
-                )
-            )
-        if status == "completed" and (
-            not isinstance(result_revision, str) or result_revision == UNAVAILABLE
-        ):
-            errors.append(
-                _e(
-                    "TWV-DELEG-MISSING-RESULT-REVISION",
-                    path,
-                    f"{ref}.result_revision",
-                    "a completed step must record its resulting repository revision",
-                )
-            )
         context_path = step.get("context_path")
         context_sha256 = step.get("context_sha256")
-        if (
-            isinstance(step_id, str)
-            and context_path != UNAVAILABLE
-            and context_path != f"delegations/{step_id}/00-context.md"
-        ):
-            errors.append(
-                _e(
-                    "TWV-DELEG-EVIDENCE-PATH-BINDING",
-                    path,
-                    f"{ref}.context_path",
-                    "context path must be delegations/<step-id>/00-context.md",
+        if isinstance(step_id, str):
+            if (
+                context_path != UNAVAILABLE
+                and context_path != f"delegations/{step_id}/00-context.md"
+            ):
+                errors.append(
+                    _e(
+                        "TWV-DELEG-EVIDENCE-PATH-BINDING",
+                        path,
+                        f"{ref}.context_path",
+                        "context path must be delegations/<step-id>/00-context.md",
+                    )
                 )
-            )
         if context_path == UNAVAILABLE or context_sha256 == UNAVAILABLE:
             errors.append(
                 _e(
                     "TWV-DELEG-MISSING-CONTEXT",
                     path,
                     f"{ref}.context_path",
-                    "every step must persist a context file and digest before invocation",
+                    "every step must persist a context file and digest",
                 )
             )
         elif isinstance(context_path, str) and isinstance(context_sha256, str):
@@ -516,44 +465,17 @@ def parse_route(task_dir: Path) -> tuple[dict[str, object] | None, tuple[Validat
                     "evidence path must be delegations/<step-id>/01-evidence.md",
                 )
             )
-        if status == "planned":
-            if evidence_path != UNAVAILABLE or evidence_sha256 != UNAVAILABLE:
-                errors.append(
-                    _e(
-                        "TWV-DELEG-PREMATURE-EVIDENCE",
-                        path,
-                        f"{ref}.evidence_path",
-                        "a planned step must leave evidence fields 'unavailable'",
-                    )
+        if evidence_path == UNAVAILABLE or evidence_sha256 == UNAVAILABLE:
+            errors.append(
+                _e(
+                    "TWV-DELEG-MISSING-EVIDENCE",
+                    path,
+                    f"{ref}.evidence_path",
+                    "every step must record evidence paths and digests",
                 )
-        elif isinstance(status, str) and status in {"completed", "blocked", "failed"}:
-            if evidence_path == UNAVAILABLE or evidence_sha256 == UNAVAILABLE:
-                errors.append(
-                    _e(
-                        "TWV-DELEG-MISSING-EVIDENCE",
-                        path,
-                        f"{ref}.evidence_path",
-                        "a completed, blocked, or failed step must record evidence paths and digests",
-                    )
-                )
-            elif isinstance(evidence_path, str) and isinstance(evidence_sha256, str):
-                _evidence_file(task_dir, evidence_path, evidence_sha256, ref, "evidence_path", errors)
-        elif isinstance(status, str) and status == "started":
-            if (evidence_path == UNAVAILABLE) != (evidence_sha256 == UNAVAILABLE):
-                errors.append(
-                    _e(
-                        "TWV-DELEG-MIXED-EVIDENCE",
-                        path,
-                        f"{ref}.evidence_path",
-                        "started evidence fields must be both 'unavailable' or both populated",
-                    )
-                )
-            elif (
-                isinstance(evidence_path, str)
-                and isinstance(evidence_sha256, str)
-                and evidence_path != UNAVAILABLE
-            ):
-                _evidence_file(task_dir, evidence_path, evidence_sha256, ref, "evidence_path", errors)
+            )
+        elif isinstance(evidence_path, str) and isinstance(evidence_sha256, str):
+            _evidence_file(task_dir, evidence_path, evidence_sha256, ref, "evidence_path", errors)
         _extensions(step.get("extensions"), path, f"{ref}.extensions", errors)
     if len(step_ids) != len(set(step_ids)):
         errors.append(
@@ -573,147 +495,9 @@ def parse_route(task_dir: Path) -> tuple[dict[str, object] | None, tuple[Validat
                 "step sequence values must be unique",
             )
         )
-    ordered = sorted(
-        (step for step in raw_steps if isinstance(step, dict) and is_integer(step.get("sequence"))),
-        key=lambda s: int(s["sequence"]),
-    )
-    if len([s for s in ordered if s.get("status") == "started"]) > 1:
-        errors.append(
-            _e(
-                "TWV-DELEG-PARALLEL-STARTED",
-                path,
-                "steps",
-                "at most one delegated step may be started",
-            )
-        )
-    for index, step in enumerate(ordered):
-        status = step.get("status")
-        if not isinstance(status, str) or status not in {"started", "completed", "blocked", "failed"}:
-            continue
-        for earlier in ordered[:index]:
-            if earlier.get("status") != "completed":
-                errors.append(
-                    _e(
-                        "TWV-DELEG-ORDERING",
-                        path,
-                        f"steps[{step.get('id')}]",
-                        "a step may start or complete only after every preceding step completes",
-                    )
-                )
-                break
     if errors:
         return None, sorted_errors(errors)
     return raw, ()
-
-
-LIFECYCLE_ORDER = {
-    "planned": 0,
-    "started": 1,
-    "completed": 2,
-    "blocked": 2,
-    "failed": 2,
-}
-
-
-def validate_route_lifecycle(
-    current_route: dict[str, object],
-    previous_route: dict[str, object],
-    previous_task_dir: Path,
-) -> tuple[ValidationError, ...]:
-    """Reject lifecycle regressions and evidence erasure across resume snapshots.
-
-    A step that was started, completed, blocked, or failed in the previous route
-    must not regress to an earlier state in the current route; a completed step
-    must never regress, including to blocked or failed. A step that had already
-    started in the previous snapshot must not be deleted, and its capability or
-    effect binding must not be silently changed while its status is preserved.
-    This prevents an unresolved external effect from being rewritten to planned,
-    erased, or rebound and silently retried.
-    """
-    errors: list[ValidationError] = []
-    path = previous_task_dir / ROUTE_FILE
-    previous_by_id: dict[str, dict[str, object]] = {}
-    for step in previous_route.get("steps", []):
-        if isinstance(step, dict) and isinstance(step.get("id"), str):
-            previous_by_id[step["id"]] = step
-    current_ids: set[str] = set()
-    for step in current_route.get("steps", []):
-        if not isinstance(step, dict) or not isinstance(step.get("id"), str):
-            continue
-        step_id = step["id"]
-        current_ids.add(step_id)
-        previous = previous_by_id.get(step_id)
-        if previous is None:
-            continue
-        previous_status = previous.get("status")
-        current_status = step.get("status")
-        if (
-            not isinstance(previous_status, str)
-            or not isinstance(current_status, str)
-            or previous_status not in LIFECYCLE_ORDER
-            or current_status not in LIFECYCLE_ORDER
-        ):
-            continue
-        if LIFECYCLE_ORDER[current_status] < LIFECYCLE_ORDER[previous_status]:
-            errors.append(
-                _e(
-                    "TWV-DELEG-LIFECYCLE-REGRESSION",
-                    path,
-                    f"steps[{step_id}].status",
-                    f"delegated step lifecycle regressed from {previous_status} to {current_status}",
-                )
-            )
-        elif previous_status == "completed" and current_status in {"blocked", "failed"}:
-            errors.append(
-                _e(
-                    "TWV-DELEG-LIFECYCLE-REGRESSION",
-                    path,
-                    f"steps[{step_id}].status",
-                    f"a completed delegated step must never regress to {current_status}",
-                )
-            )
-        if previous_status in {"started", "completed", "blocked", "failed"}:
-            for binding_key in (
-                "capability_kind",
-                "effect_class",
-                "requested_capability",
-                "resolved_capability",
-                "source_plugin",
-                "authority_mode",
-                "authority_ref",
-                "parent_node_id",
-                "selection_mode",
-            ):
-                previous_binding = previous.get(binding_key)
-                current_binding = step.get(binding_key)
-                if (
-                    isinstance(previous_binding, str)
-                    and previous_binding != current_binding
-                ):
-                    errors.append(
-                        _e(
-                            "TWV-DELEG-BINDING-REBOUND",
-                            path,
-                            f"steps[{step_id}].{binding_key}",
-                            f"delegated step binding changed after {previous_status}: {previous_binding} -> {current_binding}",
-                        )
-                    )
-    for step_id, previous in previous_by_id.items():
-        previous_status = previous.get("status")
-        if (
-            isinstance(previous_status, str)
-            and previous_status in {"started", "completed", "blocked", "failed"}
-            and step_id not in current_ids
-        ):
-            errors.append(
-                _e(
-                    "TWV-DELEG-MISSING-STEP",
-                    path,
-                    f"steps[{step_id}]",
-                    f"a delegated step that had {previous_status} in the previous snapshot is missing from the current route",
-                )
-            )
-    return sorted_errors(errors)
 
 
 def validate_route_references(
@@ -796,16 +580,6 @@ def validate_route_references(
                         "review and final nodes may reference only repository-read or external-read steps",
                     )
                 )
-            if node.kind not in {"review", "final"} and node.status == "complete":
-                if step.get("status") != "completed":
-                    errors.append(
-                        _e(
-                            "TWV-DELEG-UNRESOLVED-DELEGATION",
-                            path,
-                            f"nodes[{node.id}].delegation_ids.{step_id}",
-                            "a completed implementation node requires every referenced delegated step completed",
-                        )
-                    )
     for step in steps:
         parent = step.get("parent_node_id")
         step_id = step.get("id")
@@ -828,91 +602,6 @@ def validate_route_references(
                     path,
                     f"steps[{step_id}].parent_node_id",
                     "a step owned by a graph node must be referenced by that node's delegation_ids",
-                )
-            )
-    ordered_steps = sorted(
-        (
-            step
-            for step in steps
-            if isinstance(step.get("id"), str)
-        ),
-        key=lambda s: int(s["sequence"]) if is_integer(s.get("sequence")) else 0,
-    )
-    for index, step in enumerate(ordered_steps):
-        step_id = step["id"]
-        source = step.get("source_revision")
-        route_source = route.get("source_revision")
-        effect_class = step.get("effect_class")
-        status = step.get("status")
-        is_write = effect_class in WRITE_CLASSES
-        executed = status in {"started", "completed", "blocked", "failed"}
-        previous_result = (
-            ordered_steps[index - 1].get("result_revision") if index > 0 else None
-        )
-        if index == 0:
-            valid_sources = {route_source}
-        elif is_write and executed:
-            valid_sources = {previous_result}
-        else:
-            valid_sources = {route_source, previous_result}
-        if source not in valid_sources:
-            errors.append(
-                _e(
-                    "TWV-DELEG-STEP-REVISION-MISMATCH",
-                    path,
-                    f"steps[{step_id}].source_revision",
-                    "step source_revision must equal the route source_revision or the previous step's result_revision (an executed write must start from the previous result)",
-                )
-            )
-        if status != "completed":
-            continue
-        result = step.get("result_revision")
-        parent = step.get("parent_node_id")
-        node = (
-            nodes_by_id.get(parent)
-            if isinstance(parent, str) and parent != UNAVAILABLE
-            else None
-        )
-        node_revision = node.raw.get("revision") if node is not None else None
-        expected_head = (
-            node_revision.get("head")
-            if isinstance(node_revision, dict)
-            else None
-        )
-        if not is_write:
-            if result != source:
-                errors.append(
-                    _e(
-                        "TWV-DELEG-STEP-REVISION-MISMATCH",
-                        path,
-                        f"steps[{step_id}].result_revision",
-                        "a read-only step's result_revision must equal its source_revision",
-                    )
-                )
-        elif index + 1 < len(ordered_steps):
-            next_step = ordered_steps[index + 1]
-            if next_step.get("status") in {"started", "completed", "blocked", "failed"}:
-                if result != next_step.get("source_revision"):
-                    errors.append(
-                        _e(
-                            "TWV-DELEG-STEP-REVISION-MISMATCH",
-                            path,
-                            f"steps[{step_id}].result_revision",
-                            "a write step's result_revision must equal the next step's source_revision",
-                        )
-                    )
-        elif (
-            expected_head is not None
-            and node is not None
-            and node.kind not in {"review", "final"}
-            and result != expected_head
-        ):
-            errors.append(
-                _e(
-                    "TWV-DELEG-STEP-REVISION-MISMATCH",
-                    path,
-                    f"steps[{step_id}].result_revision",
-                    "the final write step's result_revision must match its owning node's revision head",
                 )
             )
     return sorted_errors(errors)

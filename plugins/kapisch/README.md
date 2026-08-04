@@ -67,10 +67,10 @@ creates no destination. KAPISCH never creates new legacy artifacts.
 
 The validator uses only the Python 3.11 standard library and never writes,
 dispatches, schedules, routes requests, invokes Git, or grants approval.
-Delegation evidence is validated the same way: `--scope delegations` validates
-only a graph-free `delegations/00-route.toml` record, and durable validation of
-a version-3 manifest automatically validates the route record and every graph
-reference. Findings use `TWV-DELEG-*` error codes.
+Delegation evidence is validated the same way: a version-3 durable run with
+`delegation_ids` on graph nodes automatically validates the matching
+`delegations/00-route.toml` record and its digest-bound context/evidence files.
+Findings use `TWV-DELEG-*` error codes.
 
 From the plugin directory (development), the validator runs directly:
 

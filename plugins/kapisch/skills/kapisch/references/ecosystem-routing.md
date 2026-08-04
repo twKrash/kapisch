@@ -90,10 +90,10 @@ authority, or effect without observable evidence.
 The route stays flat and explainable. A delegated capability cannot recursively
 delegate the KAPISCH route or invoke `$kapisch`. If its documented procedure
 requires another capability, the controller evaluates that need and records a
-new sibling delegated step with its own context, authority, lifecycle, and
-evidence. Delegation never revives operational waves, parallel scheduling,
-worktree integration, or multi-writer execution: at most one delegated step may
-be active, and a graph-free workflow remains graph-free.
+new sibling delegated step with its own context, authority, and evidence.
+Delegation never revives operational waves, parallel scheduling, worktree
+integration, or multi-writer execution: at most one delegated step may be
+active, and a graph-free workflow remains graph-free.
 
 ## Delegation evidence layout
 
@@ -123,11 +123,12 @@ A closed, versioned schema with these root fields:
 - ordered `steps`;
 - optional reverse-DNS `extensions` for runtime-specific receipts.
 
-Each step records:
+Each step records the minimum delegation metadata needed to identify the
+selected capability and its maximum effect class:
 
 - stable `id` and non-negative `sequence`;
-- `parent_node_id`, or the literal `unavailable` for graph-free work;
-- `status = planned|started|completed|blocked|failed`;
+- `parent_node_id`, or the literal `unavailable` when the step is not owned by
+a graph node;
 - `selection_mode = explicit|automatic`;
 - `capability_kind = skill|plugin-skill|plugin-tools`;
 - `requested_capability` and `resolved_capability`;
@@ -135,8 +136,15 @@ Each step records:
 - maximum `effect_class`;
 - `authority_mode` and an in-context `authority_ref`;
 - context and evidence paths plus lowercase SHA-256 digests;
-- source and resulting repository revisions;
 - optional exposed runtime/tool receipts below reverse-DNS `extensions`.
+
+Step lifecycle tracking (planned/started/completed/blocked/failed states) and
+per-step repository revision chains are deferred to later changes backed by
+demonstrated needs; the graph node lifecycle and revision evidence already
+exist on the execution graph. The same applies to sophisticated
+resume/external-effect reconciliation: this contract requires the evidence,
+the authority gate, and that an external-write or destructive step is never
+blindly retried, but the recovery machinery itself is deferred.
 
 The effect classes are:
 
@@ -176,7 +184,6 @@ source_revision = "base"
 id = "D01"
 sequence = 1
 parent_node_id = "unavailable"            # or the owning graph node id
-status = "completed"                      # planned|started|completed|blocked|failed
 selection_mode = "explicit"               # explicit|automatic
 capability_kind = "skill"                 # skill|plugin-skill|plugin-tools
 requested_capability = "instruction-only-skill"
@@ -189,21 +196,20 @@ context_path = "delegations/D01/00-context.md"
 context_sha256 = "0123...64 lowercase hex..."
 evidence_path = "delegations/D01/01-evidence.md"
 evidence_sha256 = "4567...64 lowercase hex..."
-source_revision = "base"
-result_revision = "head"                  # or `unavailable` until completed
 ```
 
-A `planned` step leaves `evidence_path` and `evidence_sha256` as the literal
-`unavailable`. A `started` step records real evidence paths and digests once
-evidence is produced, and may leave the fields `unavailable` until the step
-resolves (a started step is unresolved by definition). A completed, blocked,
-or failed step always records real evidence paths and exact lowercase SHA-256
-digests of the persisted UTF-8 files. Every step records a context file and
-digest before invocation.
-`resolved_capability` is required (not `unavailable`) for any step that has
-started; `result_revision` is required once a step completes. External-write
-and destructive steps require `authority_mode = "explicit-step"` with a
-non-empty in-context `authority_ref`.
+Every step records a context file and digest (persisted before invocation) and
+an evidence file and digest (persisted after the step resolves). Both files
+must be valid UTF-8 inside the task directory, with exact lowercase SHA-256
+digests of the persisted bytes; paths and digests use the literal `unavailable`
+only where a required field is not yet observable. Step lifecycle states
+(`planned`/`started`/`completed`/...) and per-step repository revisions are
+deferred to a later change: the graph node lifecycle and revision evidence
+already cover them, and the route record identifies the selected capability and
+its maximum effect class. `resolved_capability` is required (not
+`unavailable`). External-write and destructive steps require
+`authority_mode = "explicit-step"` with a non-empty in-context
+`authority_ref`.
 
 ### `Dnn/00-context.md`
 

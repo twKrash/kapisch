@@ -15,14 +15,14 @@
   while remaining the sole route controller; the normative contract lives in
   `skills/kapisch/references/ecosystem-routing.md`.
 - Added durable delegation evidence (`delegations/00-route.toml` plus per-step
-  context and evidence) for graph-free and version-3 durable runs, with the
-  `ecosystem=auto|off` control and fail-closed fallback behavior.
+  context and evidence) for version-3 durable runs, with the `ecosystem=auto|off`
+  control and fail-closed fallback behavior.
 - Added manifest version 3 (`policies.ecosystem_routing`,
   `nodes[].delegation_ids`) while preserving version-1 and version-2 parsing,
   defaults, fixtures, and byte-preserving legacy migration.
-- Extended the validator with `--scope delegations` and automatic route
-  validation for version-3 durable manifests, keeping Python structural,
-  deterministic, and read-only.
+- Extended the validator with automatic route validation for version-3 durable
+  manifests, keeping Python structural, deterministic, and read-only. Step
+  lifecycle tracking and graph-free delegation are deferred to later changes.
 
 ## 0.1.0 - 2026-07-21
 

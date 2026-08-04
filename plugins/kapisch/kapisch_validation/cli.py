@@ -5,11 +5,7 @@ import json
 from pathlib import Path
 
 from .errors import ValidationError, sorted_errors
-from .delegations import (
-    parse_route,
-    validate_route_lifecycle,
-    validate_route_references,
-)
+from .delegations import parse_route, validate_route_references
 from .manifest import parse_manifest
 from .references import parse_state, validate_references
 from .review_evidence import validate_review_evidence
@@ -20,26 +16,7 @@ def validate(
     contract_dir: Path,
     task_dir: Path,
     previous_task_dir: Path | None = None,
-    *,
-    scope: str = "durable",
 ) -> tuple[ValidationError, ...]:
-    if scope == "delegations":
-        current_route, parse_errors = parse_route(task_dir)
-        errors = list(parse_errors)
-        if current_route is None:
-            return sorted_errors(errors)
-        if previous_task_dir:
-            previous_route_path = previous_task_dir / "delegations" / "00-route.toml"
-            if previous_route_path.is_file():
-                previous_route, previous_errors = parse_route(previous_task_dir)
-                errors.extend(previous_errors)
-                if previous_route is not None:
-                    errors.extend(
-                        validate_route_lifecycle(
-                            current_route, previous_route, previous_task_dir
-                        )
-                    )
-        return sorted_errors(errors)
     parsed = parse_manifest(task_dir / "02-execution-graph.toml")
     errors = list(parsed.errors)
     if parsed.manifest is None:
@@ -74,15 +51,6 @@ def validate(
             errors.extend(route_errors)
             if route is not None and route_exists:
                 errors.extend(validate_route_references(parsed.manifest, task_dir))
-            if route is not None and previous_task_dir:
-                previous_route_path = previous_task_dir / "delegations" / "00-route.toml"
-                if previous_route_path.is_file():
-                    previous_route, previous_errors = parse_route(previous_task_dir)
-                    errors.extend(previous_errors)
-                    if previous_route is not None:
-                        errors.extend(
-                            validate_route_lifecycle(route, previous_route, previous_task_dir)
-                        )
     state, state_errors = parse_state(task_dir / "03-state.toml")
     errors.extend(state_errors)
     if state is None:
@@ -103,19 +71,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--contract-dir", required=True, type=Path)
     parser.add_argument("--task-dir", required=True, type=Path)
     parser.add_argument("--previous-task-dir", type=Path)
-    parser.add_argument(
-        "--scope",
-        choices=("durable", "delegations"),
-        default="durable",
-        help="durable validates the execution graph plus state, review evidence, and "
-        "version-3 delegation records; delegations validates only the graph-free "
-        "delegations/00-route.toml record",
-    )
     parser.add_argument("--format", choices=("text", "json"), default="text")
     args = parser.parse_args(argv)
-    errors = validate(
-        args.contract_dir, args.task_dir, args.previous_task_dir, scope=args.scope
-    )
+    errors = validate(args.contract_dir, args.task_dir, args.previous_task_dir)
     if args.format == "json":
         print(
             json.dumps(

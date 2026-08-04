@@ -126,6 +126,36 @@ gates recorded in `acceptance.md`; they are not coding gates for this change.
 Phase 8 clean-environment scenarios are therefore recorded as pending manual
 acceptance evidence, not executed in this environment.
 
+### Scope decision (2026-08-04, maintainer review of PR #4)
+
+After the implementation and three review rounds, the maintainer required a
+scope reduction before approval: keep a concise ecosystem-routing contract and
+the minimum delegation metadata needed to identify the selected capability and
+its effect class; reuse the existing node assignment, attempt, revision,
+context, report, and lifecycle evidence; and remove or defer the parallel
+delegation route lifecycle/revision engine, graph-free delegation, and
+sophisticated resume/external-effect reconciliation to later changes backed by
+demonstrated needs. The user agreed. Consequent scope adjustments:
+
+- The route record keeps: identity (`version`, `task_id`, `route_id`,
+  `source_revision`), and per-step `id`, `sequence`, `parent_node_id`,
+  `selection_mode`, `capability_kind`, `requested_capability`,
+  `resolved_capability`, `source_plugin`, `effect_class`, `authority_mode`,
+  `authority_ref`, digest-bound `context_path`/`context_sha256`/
+  `evidence_path`/`evidence_sha256`, and reverse-DNS `extensions`. Step
+  `status` and per-step revision fields are removed (deferred).
+- `validate_route_lifecycle` (step status monotonicity across resume), the
+  revision-chain checks, binding-rebound detection, and the `--scope
+  delegations` graph-free CLI path are removed (deferred); the graph
+  cross-checks (unresolved/reused/owner/orphan/review-write and route/manifest
+  identity) remain.
+- Phase 5's delegated-step recovery machinery is reduced to the two applicable
+  rules (never blindly retry an external-write/destructive step; repeated
+  resume against unchanged evidence produces no duplicate effect); the rest is
+  deferred.
+- `acceptance.md` Phase 8 scenario 8 is marked deferred for the recovery
+  machinery itself.
+
 ## Phase 1 — establish the normative routing contract
 
 Add `skills/kapisch/references/ecosystem-routing.md` as the sole normative owner
