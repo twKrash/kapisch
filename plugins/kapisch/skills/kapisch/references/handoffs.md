@@ -110,6 +110,20 @@ contract must be created before its transition or dispatch. Before returning,
 persist the report and state reference. Missing named evidence blocks; chat-only
 results never substitute for durable evidence.
 
+## Delegation evidence
+
+Delegation records live under `.kapisch/runs/<task_id>/delegations/` as
+`00-route.toml` plus `Dnn/00-context.md` and `Dnn/01-evidence.md`, with the
+exact schema and required contents defined in
+[ecosystem-routing.md](ecosystem-routing.md). They are separate from review
+artifacts and are mandatory whenever KAPISCH uses an ecosystem capability,
+including with `handoff=chat`: they are required for route explanation, review,
+and safe resume, not an optional presentation handoff. The controller remains
+the sole writer of the route, context, and evidence records; a delegated
+researcher, architect, reviewer, skill, or plugin tool does not modify shared
+KAPISCH state merely to record its own result. Inline skill application is
+recorded as observed operations, never as a fabricated separate agent result.
+
 ## Canonical reviewer invocation artifact
 
 The sole canonical reviewer-invocation representation is a pre-dispatch file:

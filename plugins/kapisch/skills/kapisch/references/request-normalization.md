@@ -5,7 +5,8 @@ Repository Python has no request parser, routing API, intent schema, or rule
 engine.
 
 Explicit controls such as `workflow=task`, `review=always`, `mode=review`,
-`risk=high`, and `theme=foundry` constrain the LLM/controller's interpretation.
+`risk=high`, `theme=foundry`, and `ecosystem=off` constrain the
+LLM/controller's interpretation.
 When controls and prose conflict, explicit controls take precedence; explicit
 prose constraints, active durable context, repository evidence, and safe
 defaults follow. Material ambiguity about scope, authority, active task, public
@@ -16,6 +17,23 @@ fallback rules in [themes.md](themes.md) and is removed from semantic
 normalization before workflow shape, role, risk, review, approval, or authority
 is decided. It is not a durable manifest policy. Thus two otherwise identical
 requests with different themes normalize to the same workflow semantics.
+
+Naming a skill or plugin is explicit capability wording: a user who mandates a
+particular methodology or integration (for example "use the X plugin to
+inspect this") states a binding capability constraint, not a suggestion.
+`ecosystem=auto|off` is an explicit control with default `auto`. An explicit
+mention overrides `ecosystem=auto`; under `ecosystem=off` a mandated capability
+cannot be delegated, and the controller reports the conflict and a safe setup
+or selection action instead of ignoring the mention or delegating anyway. The
+selection, fallback, and fail-closed rules for delegated steps are owned by
+[ecosystem-routing.md](ecosystem-routing.md).
+
+The current graph-free `workflow=task` surface does not support delegation. A
+mandated capability therefore blocks for a user choice to promote the work to a
+durable version-3 graph or relax the constraint; it is never silently executed
+natively. An automatic capability selection may use native execution only when
+the approved outcome remains unchanged, otherwise it asks whether to promote the
+work to a durable graph.
 
 The LLM/controller selects `task` or `milestone`, logical roles, risk, review
 needs, and whether a request is read-only. It records only the durable facts

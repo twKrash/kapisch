@@ -6,6 +6,18 @@ owns the LLM/runtime boundary. It does not create a scheduler, classify English
 requests, or resolve profiles. Durable execution is sequential; operational
 waves are unsupported.
 
+## Delegation annotates an assignment
+
+Using an ecosystem capability annotates an existing role assignment; it never
+creates an executor class or tier. The controller may delegate one bounded
+substep of the assigned role's work to an available skill or plugin capability,
+but the persisted role, executor class, model tier, review depth, and approval
+authority stay unchanged, and delegation never dispatches a second executor.
+At most one delegated step may be active: delegation is sequential and never
+revives parallel scheduling, worktree integration, or multi-writer execution.
+The selection procedure, fallback, and delegation evidence contract are owned by
+[ecosystem-routing.md](ecosystem-routing.md).
+
 ## Observable classification
 
 Classify from the approved task's stated behaviour change, acceptance criteria,

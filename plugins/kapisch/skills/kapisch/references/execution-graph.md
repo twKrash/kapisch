@@ -47,7 +47,7 @@ Review/final and other referenced artifact locations are defined only in
 [handoffs.md](handoffs.md).
 
 ```toml
-version = 2
+version = 3
 task_id = "example"
 source_plan = "01-plan.md"
 base_revision = "abc1234"
@@ -64,6 +64,7 @@ commit = "manual"
 push = "manual"
 fix_policy = "manual"
 max_fix_rounds = 1
+ecosystem_routing = "auto"
 
 [[nodes]]
 id = "T01"
@@ -85,6 +86,7 @@ executor_class = "implementer"
 model_tier = "standard"
 batching = "off"
 verification_evidence = []
+delegation_ids = []
 
 [nodes.assignment]
 id = "A-T01-1"
@@ -123,6 +125,7 @@ executor_class = "reviewer"
 model_tier = "high"
 batching = "off"
 verification_evidence = []
+delegation_ids = []
 
 [nodes.review_scope]
 terminal_node_ids = ["T01"]
@@ -148,15 +151,20 @@ executor_class = "reviewer"
 model_tier = "high"
 batching = "off"
 verification_evidence = []
+delegation_ids = []
 ```
 
-This version-2 template is for a newly initialized general graph. Its `auto`
+This version-3 template is for a newly initialized general graph. Its `auto`
 policy values do not override a task's persisted policies. In particular, the
 active Change 2 graph remains scoped to its recorded `dispatch=single` and
 `batching=off` bootstrap, while the active Change 3 graph records
 `execution=sequential`, `dispatch=auto`, `batching=auto`, `parallelism=off`, and
 `max_parallel_agents=1`. A version-2 resume uses those exact recorded values; it
 never applies Change 1 compatibility defaults or another task's bootstrap policy.
+Version-2 manifests remain readable as compatibility input only (see
+"Version-3 delegated-step references" below); newly initialized graphs are
+version 3 and always record `ecosystem_routing` and `delegation_ids = []` on
+every node.
 
 Each node has a stable ID; changing a title does not change identity. Its
 non-negative integer `sequence` is the persisted approved-plan order; there is
@@ -183,6 +191,35 @@ valid fresh reviewer evidence, even if all implementation nodes are complete.
 Before a node advances or review/final returns, persist the required evidence
 artifact and update graph/state references. Missing named durable evidence
 blocks the transition; conversation results cannot fill it.
+
+## Version-3 delegated-step references
+
+Newly created durable graphs are version 3 after Change 7 lands. Version-1 and
+version-2 parsing, defaults, fixtures, and migration behavior are preserved
+without rewriting: a version-1 or version-2 manifest must reject
+version-3-only fields rather than silently adopting new behavior, and reading an
+old manifest must never create a route record or delegation fields.
+
+A version-3 manifest adds:
+
+- required policy `ecosystem_routing = "auto|off"`;
+- `delegation_ids = []` on each node.
+
+Each referenced ID resolves against `.kapisch/runs/<task_id>/delegations/00-route.toml`.
+Every referenced step's `parent_node_id` must match the owning graph node, and
+one step may be referenced by only one node. Every shipped route step must be
+referenced by exactly one owning node. Review/final nodes may reference only
+`repository-read` or `external-read` advisory steps, and a review/final node's
+decision remains bound to its existing canonical reviewer invocation and result
+artifact, never to delegated output. Delegated-step lifecycle/status gating is
+deferred and does not alter graph-node transitions.
+
+Version 3 changes no node-status transitions, deterministic node selection,
+parallelism sentinels, assignment semantics, batches, or logical model tiers.
+Graph-free delegation is deferred to a later change. The current version-3
+delegation route is for durable graphs only, and every shipped delegated step
+must name its owning graph node. The delegation record schema is owned by
+[ecosystem-routing.md](ecosystem-routing.md).
 
 ## Dispatch-compatible graph fields
 

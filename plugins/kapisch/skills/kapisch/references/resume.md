@@ -61,6 +61,22 @@ unless explicit member-level dependencies authorize it. Old manifests without
 dispatch fields resolve to their documented Change 1 defaults, and simple
 graph-free workflows remain graph-free.
 
+## Delegated-step recovery
+
+The controller applies the delegated-step rules owned by
+[ecosystem-routing.md](ecosystem-routing.md). Within the current scope, a
+delegated step is declarative minimum metadata (selected capability, maximum
+effect class, authority, and digest-bound context/evidence); step lifecycle
+states and the resume reconciliation machinery (planned/started/completed
+recovery, external-effect deduplication) are deferred to later changes backed by
+demonstrated needs. Two rules still apply today:
+
+- an external-write or destructive delegated step is never blindly retried on
+  resume: reconcile read-only against the external system when already
+  authorized and possible, otherwise block for user direction;
+- repeated resume against unchanged evidence returns the same next action and
+  creates no duplicate tool call or external effect.
+
 ## Reviewer invocation recovery
 
 Before trusting review or final evidence, validate the complete canonical

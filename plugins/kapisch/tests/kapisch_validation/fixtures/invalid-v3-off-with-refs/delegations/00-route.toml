@@ -1,0 +1,21 @@
+version = 1
+task_id = "valid"
+route_id = "invalid-route"
+source_revision = "base"
+
+[[steps]]
+id = "D01"
+sequence = 1
+parent_node_id = "T01"
+selection_mode = "explicit"
+capability_kind = "skill"
+requested_capability = "instruction-only-skill"
+resolved_capability = "instruction-only-skill"
+source_plugin = "unavailable"
+effect_class = "repository-read"
+authority_mode = "request-scoped"
+authority_ref = "request:invalid"
+context_path = "delegations/D01/00-context.md"
+context_sha256 = "117399647da7662fb769cea8b581f6d43055e21f34a430c5499555c9925e9837"
+evidence_path = "delegations/D01/01-evidence.md"
+evidence_sha256 = "d34eb997403c7156538bb51e5dc971fa9ee784aeee048923f85007f8941007f4"

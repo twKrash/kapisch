@@ -30,6 +30,29 @@ invocation using `.codex/agents/kapisch-reviewer.toml`. Every newly created
 invocation uses that canonical path; accepting a structurally compatible legacy
 envelope never authorizes creating one.
 
+## Manifest version 3
+
+Manifest parsing remains a strict closed schema. Version-1 and version-2
+parsing, defaults, fixtures, and migration behavior are preserved without
+rewriting. Version-3-only fields are rejected on version-1 and version-2
+manifests rather than silently adopted:
+
+- `policies.ecosystem_routing` (`"auto"|"off"`) is required only on version-3
+  manifests; on older versions it fails with `TWV-SCHEMA-UNSUPPORTED-V3-FIELD`.
+- `nodes[].delegation_ids` is version-3-only; on older versions it fails with
+  `TWV-SCHEMA-UNSUPPORTED-V3-FIELD`.
+
+Reading an old manifest never creates a route record or delegation fields;
+`.kapisch/runs/<task-id>/delegations/` exists only when a delegation actually
+occurred. The legacy migration described under Compatibility version 1 is
+unchanged: explicit (`--approve`), byte-preserving, source-retaining, and free
+of new legacy writes; it neither reads nor writes delegation records.
+
+Delegation records are validated only during version-3 durable validation,
+which automatically validates the route record and every graph reference when
+a route exists or `delegation_ids` are present. Version-1 and version-2 durable
+validation neither reads nor requires delegation records.
+
 ## Source-application dogfood
 
 During stabilization, a consuming source application configures

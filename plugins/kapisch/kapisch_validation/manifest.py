@@ -31,6 +31,7 @@ POLICIES = {
     "push",
     "fix_policy",
     "max_fix_rounds",
+    "ecosystem_routing",
 }
 NODE = {
     "id",
@@ -58,6 +59,7 @@ NODE = {
     "blocker",
     "revision",
     "review_scope",
+    "delegation_ids",
     "extensions",
 }
 REVISION = {"base", "head"}
@@ -172,9 +174,14 @@ def parse_manifest(path: Path) -> ParseResult:
     _extensions(raw.get("extensions"), path, "extensions", errors)
     _closed(raw.get("policies"), POLICIES, path, "policies", errors)
     version = raw.get("version")
-    if not is_integer(version) or version not in (1, 2):
+    if not is_integer(version) or version not in (1, 2, 3):
         errors.append(
-            _e("TWV-SCHEMA-INVALID-VERSION", path, "version", "must be integer 1 or 2")
+            _e(
+                "TWV-SCHEMA-INVALID-VERSION",
+                path,
+                "version",
+                "must be integer 1, 2, or 3",
+            )
         )
     for key in ("task_id", "source_plan", "base_revision", "nodes"):
         if key not in raw:
@@ -195,7 +202,7 @@ def parse_manifest(path: Path) -> ParseResult:
         for key, value in V1.items():
             policies.setdefault(key, value)
     if version == 2:
-        for key in POLICIES:
+        for key in POLICIES - {"ecosystem_routing"}:
             if key not in policies:
                 errors.append(
                     _e(
@@ -205,6 +212,37 @@ def parse_manifest(path: Path) -> ParseResult:
                         "required version-2 policy is missing",
                     )
                 )
+    if version == 3:
+        for key in POLICIES:
+            if key not in policies:
+                errors.append(
+                    _e(
+                        "TWV-SCHEMA-MISSING-FIELD",
+                        path,
+                        f"policies.{key}",
+                        "required version-3 policy is missing",
+                    )
+                )
+    if version in (1, 2) and "ecosystem_routing" in policies:
+        errors.append(
+            _e(
+                "TWV-SCHEMA-UNSUPPORTED-V3-FIELD",
+                path,
+                "policies.ecosystem_routing",
+                "version-3-only policy on a version-1 or version-2 manifest",
+            )
+        )
+    if version == 3 and "ecosystem_routing" in policies and policies[
+        "ecosystem_routing"
+    ] not in ("auto", "off"):
+        errors.append(
+            _e(
+                "TWV-SCHEMA-WRONG-SHAPE",
+                path,
+                "policies.ecosystem_routing",
+                "must be 'auto' or 'off'",
+            )
+        )
     for key, value in policies.items():
         reference = f"policies.{key}"
         if key == "max_parallel_agents":
@@ -335,6 +373,44 @@ def parse_manifest(path: Path) -> ParseResult:
                         "must be an array of non-empty strings",
                     ),
                 )
+        if "delegation_ids" in n:
+            valid_ids = string_list(
+                n["delegation_ids"],
+                errors,
+                _e(
+                    "TWV-SCHEMA-WRONG-SHAPE",
+                    path,
+                    f"{ref}.delegation_ids",
+                    "must be an array of unique non-empty strings",
+                ),
+            )
+            if valid_ids and len(n["delegation_ids"]) != len(set(n["delegation_ids"])):
+                errors.append(
+                    _e(
+                        "TWV-SCHEMA-WRONG-SHAPE",
+                        path,
+                        f"{ref}.delegation_ids",
+                        "must be an array of unique non-empty strings",
+                    )
+                )
+        if version in (1, 2) and "delegation_ids" in n:
+            errors.append(
+                _e(
+                    "TWV-SCHEMA-UNSUPPORTED-V3-FIELD",
+                    path,
+                    f"{ref}.delegation_ids",
+                    "version-3-only node field on a version-1 or version-2 manifest",
+                )
+            )
+        if version == 3 and "delegation_ids" not in n:
+            errors.append(
+                _e(
+                    "TWV-SCHEMA-MISSING-FIELD",
+                    path,
+                    f"{ref}.delegation_ids",
+                    "required version-3 node field is missing",
+                )
+            )
         for key, allowed in (("revision", REVISION), ("review_scope", SCOPE)):
             if key in n:
                 _closed(n[key], allowed, path, f"{ref}.{key}", errors)
