@@ -130,7 +130,7 @@ selected capability and its maximum effect class:
 
 - stable `id` and non-negative `sequence`;
 - `parent_node_id` — the owning graph node (steps without an owning node are
-deferred with graph-free delegation);
+  deferred with graph-free delegation);
 - `selection_mode = explicit|automatic`;
 - `capability_kind = skill|plugin-skill|plugin-tools`;
 - `requested_capability` and `resolved_capability`;
@@ -185,7 +185,7 @@ source_revision = "base"
 [[steps]]
 id = "D01"
 sequence = 1
-parent_node_id = "unavailable"            # or the owning graph node id
+parent_node_id = "T01"                       # the owning graph node
 selection_mode = "explicit"               # explicit|automatic
 capability_kind = "skill"                 # skill|plugin-skill|plugin-tools
 requested_capability = "instruction-only-skill"
