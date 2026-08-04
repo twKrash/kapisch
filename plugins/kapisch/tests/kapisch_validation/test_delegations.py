@@ -395,7 +395,10 @@ class EvidenceFileTests(unittest.TestCase):
             step["context_sha256"] = "unavailable"
             write_route(task, "test-task", "r-1", [step])
             _, errors = parse_route(task)
-            self.assertTrue(any(error.code == "TWV-DELEG-MISSING-CONTEXT" for error in errors))
+            self.assertEqual(
+                [(error.code, error.reference) for error in errors],
+                [("TWV-DELEG-MISSING-CONTEXT", "steps[0].context_path")],
+            )
 
     @unittest.skipIf(os.name == "nt", "chmod does not revoke read access on Windows")
     @unittest.skipIf(
@@ -791,6 +794,24 @@ class DelegationScopeCliTests(unittest.TestCase):
             self.assertTrue(
                 any(error.code == "TWV-DELEG-LIFECYCLE-REGRESSION" for error in errors)
             )
+
+    def test_cli_scope_delegations_resume_without_previous_route_ok(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            previous = root / "previous"
+            current = root / "current"
+            previous.mkdir()  # previous snapshot legitimately has no route record
+            cpath, csha, epath, esha = write_step_files(current, "D01", "# c\n", "# e\n")
+            step = completed_step("D01", 1)
+            step.update({"context_path": cpath, "context_sha256": csha, "evidence_path": epath, "evidence_sha256": esha})
+            write_route(current, "test-task", "r-1", [step])
+            errors = validate(
+                Path("contracts"),
+                current,
+                previous_task_dir=previous,
+                scope="delegations",
+            )
+            self.assertEqual(errors, ())
 
     def test_cli_durable_v3_rejects_bad_route(self) -> None:
         errors = validate(
