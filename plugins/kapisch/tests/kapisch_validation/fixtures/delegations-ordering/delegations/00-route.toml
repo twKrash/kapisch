@@ -39,4 +39,4 @@ context_sha256="a26823fc28dd49447e6833e7d7a37986b8ee1d70259646daea96057824dfda59
 evidence_path="delegations/D02/01-evidence.md"
 evidence_sha256="e643094f20a03315741e7006678d850b0f6a9c44309c87343e99c34a7e2cc6f8"
 source_revision="base"
-result_revision="head"
+result_revision="base"

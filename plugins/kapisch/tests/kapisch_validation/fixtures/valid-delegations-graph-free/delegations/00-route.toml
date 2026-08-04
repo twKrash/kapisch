@@ -20,4 +20,4 @@ context_sha256="1da2ce50e2689100e0c48a20b73b96e250e15b9271b095fcbcaa136da8b00f1a
 evidence_path="delegations/D01/01-evidence.md"
 evidence_sha256="0186d424f69ccdeedf15470c052b7d4ef26caa189b2cfdde27e72403afee7bd4"
 source_revision="base"
-result_revision="head"
+result_revision="base"

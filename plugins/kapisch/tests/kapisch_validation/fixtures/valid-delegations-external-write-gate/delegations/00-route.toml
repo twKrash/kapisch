@@ -20,7 +20,7 @@ context_sha256="820f63d61d4ae88cf4d1931e0440b2443db40c5e0523056cae801386bf401176
 evidence_path="delegations/D01/01-evidence.md"
 evidence_sha256="c4297c288169f02ec25ef55cfcf351f8e79f845e5c6c7016fc72a16902b93728"
 source_revision="base"
-result_revision="head"
+result_revision="base"
 [[steps]]
 id="D02"
 sequence=2

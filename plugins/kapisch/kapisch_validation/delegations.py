@@ -54,6 +54,7 @@ EFFECT_CLASSES = {
 AUTHORITY_MODES = {"request-scoped", "explicit-step"}
 EXTERNAL_WRITE_CLASSES = {"external-write", "destructive"}
 READ_CLASSES = {"repository-read", "external-read"}
+WRITE_CLASSES = {"repository-write", "external-write", "destructive"}
 UNAVAILABLE = "unavailable"
 STEP_ID_RE = re.compile(r"^D\d{2,}$")
 ROUTE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{2,79}$")
@@ -672,7 +673,15 @@ def validate_route_lifecycle(
                 )
             )
         if previous_status in {"started", "completed", "blocked", "failed"}:
-            for binding_key in ("capability_kind", "effect_class"):
+            for binding_key in (
+                "capability_kind",
+                "effect_class",
+                "requested_capability",
+                "resolved_capability",
+                "source_plugin",
+                "authority_mode",
+                "authority_ref",
+            ):
                 previous_binding = previous.get(binding_key)
                 current_binding = step.get(binding_key)
                 if (
@@ -831,17 +840,24 @@ def validate_route_references(
             step_id = step.get("id")
             source = step.get("source_revision")
             route_source = route.get("source_revision")
+            effect_class = step.get("effect_class")
+            is_write = effect_class in WRITE_CLASSES
+            previous_result = (
+                group[index - 1].get("result_revision") if index > 0 else None
+            )
             if index == 0:
                 valid_sources = {route_source}
+            elif is_write:
+                valid_sources = {previous_result}
             else:
-                valid_sources = {route_source, group[index - 1].get("result_revision")}
+                valid_sources = {route_source, previous_result}
             if source not in valid_sources:
                 errors.append(
                     _e(
                         "TWV-DELEG-STEP-REVISION-MISMATCH",
                         path,
                         f"steps[{step_id}].source_revision",
-                        "step source_revision must equal the route source_revision or the previous step's result_revision",
+                        "step source_revision must equal the route source_revision, or the previous step's result_revision (writes must start from the previous result)",
                     )
                 )
             if step.get("status") != "completed":
@@ -854,17 +870,24 @@ def validate_route_references(
                 if isinstance(node_revision, dict)
                 else None
             )
-            if index + 1 < len(group):
-                valid_results = {group[index + 1].get("source_revision")}
-                if expected_head is not None:
-                    valid_results.add(expected_head)
-                if result not in valid_results:
+            if not is_write:
+                if result != source:
                     errors.append(
                         _e(
                             "TWV-DELEG-STEP-REVISION-MISMATCH",
                             path,
                             f"steps[{step_id}].result_revision",
-                            "step result_revision must equal the next step's source_revision or the owning node's revision head",
+                            "a read-only step's result_revision must equal its source_revision",
+                        )
+                    )
+            elif index + 1 < len(group):
+                if result != group[index + 1].get("source_revision"):
+                    errors.append(
+                        _e(
+                            "TWV-DELEG-STEP-REVISION-MISMATCH",
+                            path,
+                            f"steps[{step_id}].result_revision",
+                            "a write step's result_revision must equal the next step's source_revision",
                         )
                     )
             elif (
@@ -878,7 +901,7 @@ def validate_route_references(
                         "TWV-DELEG-STEP-REVISION-MISMATCH",
                         path,
                         f"steps[{step_id}].result_revision",
-                        "the final completed step's result_revision must match its owning node's revision head",
+                        "the final write step's result_revision must match its owning node's revision head",
                     )
                 )
     return sorted_errors(errors)
