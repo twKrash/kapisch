@@ -39,3 +39,11 @@ canonical order above. A manual focus cannot suppress an obvious P0/P1 outside i
 | Reminder, tool call, or external side effect | behavior, permissions, data, audit, recovery, operations, tests |
 | Production refactor | behavior, compatibility, tests |
 | Mechanical only | tests and quick final-readiness checks |
+
+Ecosystem capability presence never lowers risk. Delegating a bounded substep to
+a skill or plugin capability does not change the classification: external side
+effects, permissions, retries/idempotency, and recovery remain high-risk
+triggers regardless of which capability performs the work, and review depth,
+required lenses, and regression coverage are preserved. Additional task detail
+or a specialist capability never downgrades risk. See
+[ecosystem-routing.md](ecosystem-routing.md).

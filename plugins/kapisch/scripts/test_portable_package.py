@@ -85,6 +85,46 @@ def main() -> int:
         )
         if result.returncode:
             return result.returncode
+        graph_free = consumer / ".kapisch" / "runs" / "graph-free"
+        shutil.copytree(
+            installed / "tests/kapisch_validation/fixtures/valid-delegations-graph-free",
+            graph_free,
+        )
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(installed / "scripts/validate_kapisch.py"),
+                "--contract-dir",
+                str(installed / "skills/kapisch"),
+                "--task-dir",
+                str(graph_free),
+                "--scope",
+                "delegations",
+            ],
+            cwd=consumer,
+            text=True,
+        )
+        if result.returncode:
+            return result.returncode
+        durable = consumer / ".kapisch" / "runs" / "durable-v3"
+        shutil.copytree(
+            installed / "tests/kapisch_validation/fixtures/valid-v3-durable",
+            durable,
+        )
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(installed / "scripts/validate_kapisch.py"),
+                "--contract-dir",
+                str(installed / "skills/kapisch"),
+                "--task-dir",
+                str(durable),
+            ],
+            cwd=consumer,
+            text=True,
+        )
+        if result.returncode:
+            return result.returncode
     print("portable-package=passed")
     return 0
 

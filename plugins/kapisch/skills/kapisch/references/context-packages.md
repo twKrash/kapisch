@@ -18,3 +18,18 @@ Reference counts are advisory budgets: `cheap=4`, `standard=8`, and `high=16`.
 Record a justified budget overrun in the context artifact. A budget never blocks
 necessary correctness, safety, security, or compatibility inspection, and it
 does not establish a cache or token-saving claim without evidence.
+
+## Delegated-step context package
+
+When a delegated step uses an ecosystem capability, the controller writes the
+step's self-contained focused context as `delegations/Dnn/00-context.md` with
+the exact required contents defined in the
+[`Dnn/00-context.md` section](ecosystem-routing.md#dnn00-contextmd) of
+[ecosystem-routing.md](ecosystem-routing.md); this file does not duplicate that
+schema. Data minimization applies strictly: include only the accepted input
+paths, symbols, resources, and context references the step needs, and record
+explicitly which data may cross the repository boundary. Do not include full
+conversation history, broad repository content, secrets, or unrelated durable
+knowledge "just in case." The package is written before the step starts, is
+digest-bound in `00-route.toml`, and is mandatory regardless of `handoff`
+mode.

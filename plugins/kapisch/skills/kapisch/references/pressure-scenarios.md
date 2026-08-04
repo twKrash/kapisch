@@ -398,3 +398,92 @@ test failures.
 162. Digest-bound result bytes omit, change, embed as a substring, or duplicate
      `invocation_id=<id>`: provenance fails. Exactly one case-sensitive LF or
      CRLF logical line is accepted.
+
+## Change 7 ecosystem-routing scenarios
+
+Positive scenarios:
+
+163. A graph-free explicit instruction-only skill: the user names the skill,
+     `ecosystem=auto` is active, and the controller records
+     `selection_mode=explicit` plus the route/context/evidence under
+     `delegations/`. The workflow stays graph-free
+     (`parent_node_id=unavailable`) and the verified result feeds the existing
+     role and workflow.
+164. A graph-free automatically selected read-only plugin skill: the controller
+     considers only visibly available capabilities, selects the smallest
+     capability that covers the bounded substep, and records the observable
+     selection reason; it never claims the visible set is exhaustive and never
+     selects from name similarity alone.
+165. A version-3 durable implementation node with one completed delegation: the
+     node's `delegation_ids` resolves against `delegations/00-route.toml`, the
+     step's `parent_node_id` matches the owning node, and the node completes
+     only with the step `completed` and evidence digest-valid.
+166. Multiple sequential delegations with distinct authority classes: GitHub
+     diagnosis (`external-read`, `request-scoped`), local repair
+     (`repository-write`, `request-scoped`), and posting a PR comment
+     (`external-write`, `explicit-step`) are three sequential records split at
+     the authority boundary, never one opaque operation.
+167. An external read followed by an explicitly approved external write: the
+     controller prepares and previews, stops at the gate, receives exact
+     explicit authority for target and payload, executes the write, and
+     persists the external result.
+168. A review node consumes read-only advisory specialist evidence: the
+     referenced delegation is `repository-read` or `external-read`, the node's
+     decision remains bound to its canonical reviewer invocation, and the
+     specialist output never approves.
+169. A valid completed delegation is accepted idempotently on resume: repeated
+     resume against unchanged evidence returns the same next action and creates
+     no duplicate tool call or external effect.
+170. Existing version-1 and version-2 fixtures remain unchanged and valid:
+     reading an old manifest never creates a route record or delegation fields,
+     and version-3-only fields are rejected by older versions.
+
+Negative scenarios:
+
+171. An explicitly required capability is unavailable: the controller blocks and
+     reports the missing capability and a safe setup or selection action; it
+     never silently substitutes another capability.
+172. An unknown route field, capability kind, effect class, authority mode, or
+     lifecycle value appears: the closed route schema fails closed.
+173. Two steps share a delegation ID or sequence value: duplicate IDs and
+     duplicate sequence values fail closed.
+174. A route contains path traversal, a symlinked evidence file, missing
+     context/evidence, invalid UTF-8, or a digest mismatch: structural
+     validation fails closed.
+175. A completed step records `resolved_capability=unavailable`: the completed
+     step is invalid because a resolved capability and complete evidence are
+     required.
+176. An external write or destructive action lacks `authority_mode=explicit-step`
+     and a valid in-context authority reference: it is blocked; preparation and
+     preview may proceed separately, execution may not.
+177. A later step starts or completes while an earlier step is unresolved: the
+     ordered sequential lifecycle with at most one `started` step fails closed.
+178. A graph references a step whose `parent_node_id` mismatches, reuses a step
+     ID across nodes, or depends on an orphaned required reference: graph
+     validation and resume block it.
+179. A completed graph implementation node still has a required delegated step
+     `planned`, `started`, `blocked`, `failed`, missing, stale, or invalid: the
+     node cannot complete.
+180. A review/final delegation attempts a write or destructive effect: blocked;
+     review/final nodes reference only read-only advisory steps.
+181. A delegated capability tries to delegate the KAPISCH route or invoke
+     `$kapisch`: refused as recursive route ownership; the need is recorded as a
+     new sibling step with its own context, authority, lifecycle, and evidence.
+182. An unavailable capability would be installed, enabled, signed in to, or
+     reconfigured: never. The controller discloses native fallback only when
+     the approved outcome remains achievable without changing methodology, data
+     boundary, or authority; otherwise it blocks.
+183. An interrupted external-write step is blindly repeated on resume: never.
+     Resume reconciles read-only against the external system when already
+     authorized and possible, otherwise blocks for user direction.
+184. A requested plugin name or controller prose is treated as runtime proof of
+     selection: unexposed runtime receipts are recorded as `unavailable`, never
+     inferred from installed filenames, requested names, prompts, or output
+     wording.
+185. Specialist review output is treated as approving review/final evidence:
+     it remains advisory until the canonical reviewer invocation produces
+     approving evidence.
+186. A capability expands files, behavior, data boundary, or external action
+     beyond the approved context: treated as material scope expansion and
+     blocked for a user decision; the capability never renormalizes the
+     top-level request or takes ownership of later gates.

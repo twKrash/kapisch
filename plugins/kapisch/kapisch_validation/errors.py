@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-_ORDER = {"PARSE": 0, "SCHEMA": 1, "REF": 2, "LIFECYCLE": 3, "REVIEW": 4}
+_ORDER = {
+    "PARSE": 0,
+    "SCHEMA": 1,
+    "REF": 2,
+    "LIFECYCLE": 3,
+    "REVIEW": 4,
+    "DELEG": 5,
+}
 
 
 @dataclass(frozen=True)

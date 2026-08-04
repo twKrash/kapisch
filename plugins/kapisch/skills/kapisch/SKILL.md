@@ -56,7 +56,7 @@ Map the repository architecture and explain where reminder delivery is owned.
 Check whether the architecture documentation still matches the current code.
 ```
 
-The six normal controls are optional and have safe defaults:
+The seven normal controls are optional and have safe defaults:
 
 | Control | Values and default |
 | --- | --- |
@@ -66,6 +66,7 @@ The six normal controls are optional and have safe defaults:
 | `fix_policy` | `manual|blocking` (`manual`) |
 | `task_id` | `<id>` (safely derived when useful) |
 | `theme` | `default|foundry` (`default`) |
+| `ecosystem` | `auto|off` (`auto`) |
 
 Structured syntax is for expert and compatibility use only:
 
@@ -73,6 +74,7 @@ Structured syntax is for expert and compatibility use only:
 $kapisch workflow=task review=auto task_id=reconnect
 $kapisch mode=review base=origin/main review_target=branch
 $kapisch theme=foundry workflow=task
+$kapisch workflow=task ecosystem=off
 ```
 
 Legacy or expert fields such as `mode`, `risk`, `depth`, `focus`, `dispatch`,
@@ -136,6 +138,24 @@ sequential only: new manifests use `parallelism=off` and
 the retired protocol is archive material only in
 [`../../docs/parallel-wave-design.md`](../../docs/parallel-wave-design.md).
 
+Ecosystem capability routing is an optional, sequential capability-delegation
+layer: the controller may use an available Codex skill or plugin capability for
+one bounded step under `ecosystem=auto`, but KAPISCH remains the sole route
+controller and owns normalization, role/risk selection, focused context,
+authority, human gates, durable evidence, recovery, independent review, and
+final readiness. `ecosystem=off` prevents delegation without disabling ordinary
+roles or built-in repository tools. An explicit skill or plugin mention is a
+binding capability constraint; an unavailable capability blocks with the safe
+setup or selection action, and an automatic selection may fall back to native
+KAPISCH execution only when the approved outcome stays achievable without
+changing methodology, data boundary, or authority, with the fallback disclosed.
+Delegation never creates a role, executor class, profile, tier, or second
+controller, never lowers risk or review depth, cannot launder authority, never
+installs or authenticates anything, and never approves or declares readiness.
+Every delegation produces mandatory route/context/evidence records even with
+`handoff=chat`. See
+[ecosystem-routing.md](references/ecosystem-routing.md).
+
 ## Project understanding
 
 Architecture questions, maps, documentation-drift checks, onboarding summaries,
@@ -169,7 +189,9 @@ selection and Codex runtime dispatch in [role-resolution.md](references/role-res
 [execution-graph.md](references/execution-graph.md); and recovery in
 [resume.md](references/resume.md). Bounded repository understanding and its
 evidence/write/review separation are owned by
-[project-understanding.md](references/project-understanding.md).
+[project-understanding.md](references/project-understanding.md). Ecosystem
+capability selection and delegated-step behavior are owned by
+[ecosystem-routing.md](references/ecosystem-routing.md).
 Presentation vocabulary and its strict separation from workflow semantics are
 owned by [themes.md](references/themes.md).
 

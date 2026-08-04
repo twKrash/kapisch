@@ -11,6 +11,14 @@ invocation result. The role TOMLs remain directly supported by Codex. A failed
 or missing required reviewer invocation blocks approval; it is not predicted or
 replaced by a repository resolver.
 
+A skill or plugin capability is not a logical role, executor class, profile, or
+model tier. The six-role catalog stays closed, and capability selection follows
+role resolution: a delegated capability may supply methodology, repository
+tooling, or an external integration for a bounded substep of the assigned
+role's work, but it never replaces or reclassifies that role. Capability
+selection and delegated-step behavior are owned by
+[ecosystem-routing.md](ecosystem-routing.md).
+
 Durable artifacts record factual invocation and review metadata only. The
 validator checks that metadata for schema, revision, digest, freshness, and
 state consistency; it does not emulate runtime registration or permissions.

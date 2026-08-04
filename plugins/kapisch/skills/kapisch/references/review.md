@@ -250,7 +250,8 @@ natural-language routing, stale approvals, bounded fixes, docs, and pressure
 scenarios. Specifically challenge duplicate resumes, skipped/dependency-violating
 nodes, stale state trusted over Git, completed-node reruns, evidence-free reports,
 candidate knowledge injection, advisory override of binding rules, parallel or
-mechanic/model-tier dispatch, cyclic fixing, and stale final approval.
+mechanic/model-tier dispatch, cyclic fixing, stale final approval, and delegated-step
+selection, authority, data exposure, results, fallback, and recovery.
 
 For dispatch-compatible changes, search the full diff and durable examples for
 mechanic misrouting, detail-based risk downgrade, unsafe force-standard or tier
@@ -265,6 +266,21 @@ An integrated finding may use one eligible `fix_policy=blocking` round only when
 the existing bounded-fix rules permit it. Review that fix as a new iteration
 against the original finding. After all fixes, rerun the whole-branch review
 before final readiness; creating a fix node or artifact never adds a graph cycle.
+
+## Delegated capability review
+
+When the delta uses ecosystem capabilities, review covers selection, authority,
+data exposure, results, fallback, and recovery: the recorded selection reason
+and `selection_mode`; the exact effect class and `authority_mode` with a valid
+in-context `authority_ref` for external-write or destructive steps; the focused
+context package and what data crossed the repository boundary; the observed
+results against the parent acceptance criteria; disclosed fallback and blocking
+behavior; and the route/context/evidence digests. Delegated review stays
+advisory: specialist review skills and tools may provide advisory evidence or a
+review lens, but only a fresh canonical `reviewer` invocation may approve or
+declare final readiness, and a review/final node's decision remains bound to its
+canonical invocation and result artifact. See
+[ecosystem-routing.md](ecosystem-routing.md).
 
 ## Revision-bound final
 

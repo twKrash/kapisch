@@ -1,11 +1,52 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
 from pathlib import Path
 
 from kapisch_validation.manifest import parse_manifest
 
 FIXTURES = Path(__file__).parent / "fixtures"
+
+V2_BODY = """version = 2
+task_id = "t"
+source_plan = "01-plan.md"
+base_revision = "base"
+[policies]
+execution="sequential"
+executor="implementer"
+dispatch="single"
+model_tier="standard"
+batching="off"
+parallelism="off"
+max_parallel_agents=1
+commit="manual"
+push="manual"
+fix_policy="manual"
+max_fix_rounds=1
+[[nodes]]
+id="T01"
+sequence=1
+title="implement"
+kind="behavioral"
+risk="low"
+status="complete"
+depends_on=[]
+brief="b.md"
+context="c.md"
+report="r.md"
+reads=[]
+writes=[]
+shared_resources=[]
+verification=[]
+context_refs=[]
+executor_class="implementer"
+model_tier="standard"
+batching="off"
+[nodes.revision]
+base="base"
+head="head"
+"""
 
 
 class ManifestTests(unittest.TestCase):
@@ -126,6 +167,70 @@ class ManifestTests(unittest.TestCase):
                 )
             ],
         )
+
+    def test_version_three_requires_ecosystem_routing_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "02-execution-graph.toml"
+            path.write_text(V2_BODY.replace("version = 2", "version = 3"), encoding="utf-8")
+            result = parse_manifest(path)
+            self.assertEqual(
+                [(error.code, error.reference) for error in result.errors],
+                [("TWV-SCHEMA-MISSING-FIELD", "policies.ecosystem_routing")],
+            )
+
+    def test_version_three_accepts_ecosystem_routing_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "02-execution-graph.toml"
+            body = V2_BODY.replace("version = 2", "version = 3")
+            body = body.replace("max_fix_rounds=1", 'max_fix_rounds=1\necosystem_routing="auto"')
+            path.write_text(body, encoding="utf-8")
+            result = parse_manifest(path)
+            self.assertEqual(result.errors, ())
+            self.assertEqual(result.manifest.version, 3)
+            self.assertEqual(result.manifest.policies["ecosystem_routing"], "auto")
+
+    def test_version_three_rejects_invalid_ecosystem_routing_value(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "02-execution-graph.toml"
+            body = V2_BODY.replace("version = 2", "version = 3")
+            body = body.replace("max_fix_rounds=1", 'max_fix_rounds=1\necosystem_routing="sometimes"')
+            path.write_text(body, encoding="utf-8")
+            result = parse_manifest(path)
+            self.assertEqual(
+                [(error.code, error.reference) for error in result.errors],
+                [("TWV-SCHEMA-WRONG-SHAPE", "policies.ecosystem_routing")],
+            )
+
+    def test_version_two_rejects_version_three_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "02-execution-graph.toml"
+            body = V2_BODY.replace("max_fix_rounds=1", 'max_fix_rounds=1\necosystem_routing="auto"')
+            path.write_text(body, encoding="utf-8")
+            result = parse_manifest(path)
+            self.assertEqual(
+                [(error.code, error.reference) for error in result.errors],
+                [("TWV-SCHEMA-UNSUPPORTED-V3-FIELD", "policies.ecosystem_routing")],
+            )
+
+    def test_version_two_rejects_version_three_node_field(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "02-execution-graph.toml"
+            body = V2_BODY.replace(
+                'id="T01"\nsequence=1', 'id="T01"\nsequence=1\ndelegation_ids=["D01"]'
+            )
+            path.write_text(body, encoding="utf-8")
+            result = parse_manifest(path)
+            self.assertEqual(
+                [(error.code, error.reference) for error in result.errors],
+                [("TWV-SCHEMA-UNSUPPORTED-V3-FIELD", "nodes[0].delegation_ids")],
+            )
+
+    def test_valid_v3_durable_fixture_parses(self) -> None:
+        result = parse_manifest(
+            FIXTURES / "valid-v3-durable" / "02-execution-graph.toml"
+        )
+        self.assertEqual(result.errors, ())
+        self.assertEqual(result.manifest.version, 3)
 
 
 if __name__ == "__main__":

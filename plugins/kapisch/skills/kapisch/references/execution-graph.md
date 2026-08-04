@@ -184,6 +184,34 @@ Before a node advances or review/final returns, persist the required evidence
 artifact and update graph/state references. Missing named durable evidence
 blocks the transition; conversation results cannot fill it.
 
+## Version-3 delegated-step references
+
+Newly created durable graphs are version 3 after Change 7 lands. Version-1 and
+version-2 parsing, defaults, fixtures, and migration behavior are preserved
+without rewriting: a version-1 or version-2 manifest must reject
+version-3-only fields rather than silently adopting new behavior, and reading an
+old manifest must never create a route record or delegation fields.
+
+A version-3 manifest adds:
+
+- required policy `ecosystem_routing = "auto|off"`;
+- `delegation_ids = []` on each node.
+
+Each referenced ID resolves against `.kapisch/runs/<task_id>/delegations/00-route.toml`.
+Every referenced step's `parent_node_id` must match the owning graph node, and
+one step may be referenced by only one node. An implementation node cannot
+complete while any required delegated step is `planned`, `started`, `blocked`,
+`failed`, missing, stale, or invalid. Review/final nodes may reference only
+`repository-read` or `external-read` advisory steps, and a review/final node's
+decision remains bound to its existing canonical reviewer invocation and result
+artifact, never to delegated output.
+
+Version 3 changes no node-status transitions, deterministic node selection,
+parallelism sentinels, assignment semantics, batches, or logical model tiers.
+Graph-free workflows have no delegation graph references: their steps record
+`parent_node_id = "unavailable"` in the route record. The delegation record
+schema and lifecycle are owned by [ecosystem-routing.md](ecosystem-routing.md).
+
 ## Dispatch-compatible graph fields
 
 `dispatch`, `model_tier`, and `batching` are optional policy fields;

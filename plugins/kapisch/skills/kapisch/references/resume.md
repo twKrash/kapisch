@@ -61,6 +61,27 @@ unless explicit member-level dependencies authorize it. Old manifests without
 dispatch fields resolve to their documented Change 1 defaults, and simple
 graph-free workflows remain graph-free.
 
+## Delegated-step recovery
+
+The controller applies the delegated-step resume rules owned by
+[ecosystem-routing.md](ecosystem-routing.md); this section mirrors them for
+interrupted workflows without contradicting them. A `planned` step may start
+once after its capability and authority are revalidated. A `started` step is
+unresolved: inspect its effect class, context, evidence, repository state, and
+exposed external operation identifiers before deciding anything. A read-only
+step may be repeated only when doing so is safe and the record clearly
+identifies the new attempt. A repository-write step follows existing Git/diff
+reconciliation and must not infer completion from a summary alone. An
+external-write or destructive step is never blindly retried: reconcile read-only
+against the external system when already authorized and possible, otherwise
+block for user direction. A completed step is reusable only while its context,
+evidence digest, capability binding, revisions, and resulting state remain
+current. A blocked or failed step does not silently select a substitute
+capability: replacement requires a new explicit or automatic selection record
+and, when material, renewed user approval. Repeated resume against unchanged
+evidence returns the same next action and creates no duplicate tool call or
+external effect.
+
 ## Reviewer invocation recovery
 
 Before trusting review or final evidence, validate the complete canonical
