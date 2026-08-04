@@ -95,6 +95,10 @@ approved multi-step plan and durable sequential artifacts. Material scope growth
 stops for a user decision rather than reusing narrower approval.
 Graph-free means that no execution graph, manifest, durable task nodes, or
 sequential execution state is required. It does not mean artifact-free.
+Graph-free workflows do not delegate in the current scope. A mandated skill or
+plugin blocks for a user choice to promote the work to a durable version-3 graph
+or relax the capability constraint; an automatic selection may use the disclosed
+native fallback only when the approved outcome is unchanged.
 
 Before reporting approval or readiness, apply the controller
 approval-reporting check defined in [review.md](references/review.md).
@@ -149,6 +153,10 @@ binding capability constraint; an unavailable capability blocks with the safe
 setup or selection action, and an automatic selection may fall back to native
 KAPISCH execution only when the approved outcome stays achievable without
 changing methodology, data boundary, or authority, with the fallback disclosed.
+Delegation is supported only by durable version-3 graphs. In a graph-free
+workflow, an explicit capability request blocks for a user decision to promote
+the work or relax the request; it is never silently delegated or executed
+natively. Automatic selection follows the native-fallback rule above.
 Delegation never creates a role, executor class, profile, tier, or second
 controller, never lowers risk or review depth, cannot launder authority, never
 installs or authenticates anything, and never approves or declares readiness.

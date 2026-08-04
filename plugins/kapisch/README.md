@@ -121,6 +121,12 @@ context and evidence pair per step — even when the user selected
 [`ecosystem-routing.md`](skills/kapisch/references/ecosystem-routing.md), the
 sole normative owner of selection and delegated-step behavior.
 
+Delegation is currently supported only by durable version-3 graphs. A graph-free
+workflow does not delegate: an explicit capability request blocks for the user
+to promote the work to a durable graph or relax that constraint, while an
+automatic selection may use native execution only when the approved outcome is
+unchanged.
+
 ### Example: explicit delegation
 
 The user names a skill, for example "run the checklist review of this diff

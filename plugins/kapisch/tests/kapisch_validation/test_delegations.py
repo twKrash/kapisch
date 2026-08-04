@@ -5,6 +5,7 @@ import os
 import shutil
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from kapisch_validation.cli import validate
@@ -64,7 +65,7 @@ def minimal_step(
     step_id: str,
     sequence: int,
     *,
-    parent: str = "unavailable",
+    parent: str = "T01",
     selection_mode: str = "explicit",
     capability_kind: str = "skill",
     requested: str = "instruction-only-skill",
@@ -174,6 +175,36 @@ class RouteSchemaTests(unittest.TestCase):
             )
             _, errors = parse_route(task)
             self.assertEqual(errors[0].code, "TWV-DELEG-MALFORMED-TOML")
+
+    def test_unreadable_route_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task = Path(temporary)
+            (task / "delegations").mkdir()
+            path = task / "delegations/00-route.toml"
+            path.write_text("version = 1\n", encoding="utf-8")
+            with mock.patch.object(Path, "open", side_effect=PermissionError("denied")):
+                _, errors = parse_route(task)
+            self.assertEqual(errors[0].code, "TWV-DELEG-UNREADABLE-ROUTE")
+
+    def test_empty_route_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task = Path(temporary)
+            (task / "delegations").mkdir()
+            (task / "delegations/00-route.toml").write_text(
+                '\n'.join(
+                    [
+                        "version = 1",
+                        'task_id = "test-task"',
+                        'route_id = "r-1"',
+                        'source_revision = "base"',
+                        "steps = []",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            _, errors = parse_route(task)
+            self.assertEqual(errors[0].code, "TWV-DELEG-EMPTY-ROUTE")
 
     def test_invalid_version(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -289,6 +320,31 @@ class RouteSchemaTests(unittest.TestCase):
                 any(error.code == "TWV-DELEG-INVALID-ENUM" for error in errors)
             )
 
+    def test_every_enum_rejects_non_scalar_values_without_crashing(self) -> None:
+        allowed_values = {
+            "selection_mode": "explicit",
+            "capability_kind": "skill",
+            "effect_class": "repository-read",
+            "authority_mode": "request-scoped",
+        }
+        for field, value in allowed_values.items():
+            for malformed in (f'["{value}"]', '{ value = "x" }'):
+                with self.subTest(field=field, malformed=malformed), tempfile.TemporaryDirectory() as temporary:
+                    task = Path(temporary)
+                    step = materialize(task, minimal_step("D01", 1))
+                    lines = route_toml("test-task", "r-1", [step]).splitlines()
+                    lines = [
+                        line if not line.startswith(f"{field}=") else f"{field}={malformed}"
+                        for line in lines
+                    ]
+                    (task / "delegations/00-route.toml").write_text(
+                        "\n".join(lines) + "\n", encoding="utf-8"
+                    )
+                    _, errors = parse_route(task)
+                    self.assertTrue(
+                        any(error.code == "TWV-DELEG-INVALID-ENUM" for error in errors)
+                    )
+
     def test_self_delegation_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             task = Path(temporary)
@@ -336,6 +392,25 @@ class RouteSchemaTests(unittest.TestCase):
             write_route(task, "test-task", "r-1", [step])
             _, errors = parse_route(task)
             self.assertEqual(errors[0].code, "TWV-DELEG-MISSING-AUTHORITY-REF")
+
+    def test_request_scoped_authority_requires_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task = Path(temporary)
+            step = materialize(
+                task,
+                minimal_step("D01", 1, authority_ref="unavailable"),
+            )
+            write_route(task, "test-task", "r-1", [step])
+            _, errors = parse_route(task)
+            self.assertEqual(errors[0].code, "TWV-DELEG-MISSING-AUTHORITY-REF")
+
+    def test_parent_node_must_not_use_graph_free_sentinel(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task = Path(temporary)
+            step = materialize(task, minimal_step("D01", 1, parent="unavailable"))
+            write_route(task, "test-task", "r-1", [step])
+            _, errors = parse_route(task)
+            self.assertEqual(errors[0].code, "TWV-DELEG-MISSING-OWNER")
 
     def test_capability_unavailable_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -625,6 +700,27 @@ class DelegationCliTests(unittest.TestCase):
         self.assertTrue(
             any(error.code == "TWV-DELEG-MISSING-ARTIFACT" for error in errors)
         )
+
+    def test_cli_durable_v3_empty_route_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task = Path(temporary)
+            shutil.copytree(FIXTURES / "valid-v3-no-delegation", task, dirs_exist_ok=True)
+            (task / "delegations").mkdir(exist_ok=True)
+            (task / "delegations/00-route.toml").write_text(
+                '\n'.join(
+                    [
+                        "version = 1",
+                        'task_id = "valid-v3-durable"',
+                        'route_id = "route-empty"',
+                        'source_revision = "base"',
+                        "steps = []",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            errors = validate(FIXTURES.parents[2] / "skills/kapisch", task)
+        self.assertTrue(any(error.code == "TWV-DELEG-EMPTY-ROUTE" for error in errors))
 
 
 if __name__ == "__main__":

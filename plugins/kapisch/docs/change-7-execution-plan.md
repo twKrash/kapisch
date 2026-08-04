@@ -4,6 +4,11 @@ Status: implementation complete; review and final-readiness evidence in the
 `change7-ecosystem-routing-dogfood` run under the local `.kapisch/runs/`
 (originally "execution plan only; implementation has not started").
 
+The historical full-design sections below are superseded where they conflict
+with the 2026-08-04 scope decision. They are planning history, not current
+normative requirements; the shipped contract is the reduced durable-graph-only
+route model in `references/ecosystem-routing.md` and `references/resume.md`.
+
 ## Outcome
 
 Implement Change 7 as an optional, sequential capability-delegation layer owned
@@ -90,7 +95,7 @@ Current product references:
    that a runtime selected a particular skill or plugin. Unexposed receipts are
    recorded as `unavailable`.
 10. **Python remains structural and read-only.** It validates schemas,
-    references, digests, lifecycle, and factual consistency. It does not discover
+    references, digests, and factual consistency. It does not discover
     capabilities, choose a route, judge semantic fit, infer authority, dispatch,
     write artifacts, or approve work.
 
@@ -176,7 +181,7 @@ The controller applies this order:
    substep without changing its authority or acceptance boundary.
 6. If multiple candidates imply materially different behavior, data access,
    external systems, or side effects, stop for one focused user decision.
-7. Persist the delegated-step context and planned lifecycle before invocation.
+7. Persist the delegated-step context before invocation.
 8. Start only one delegated step, persist its observed result or exact error,
    and verify it before advancing.
 9. Feed the verified result back into the existing KAPISCH role and workflow;
@@ -207,8 +212,7 @@ The controller applies this order:
 Keep the route flat and explainable. A delegated capability cannot recursively
 delegate the KAPISCH route or invoke `$kapisch`. If its documented procedure
 requires another capability, the controller evaluates that need and records a
-new sibling delegated step with its own context, authority, lifecycle, and
-evidence.
+new sibling delegated step with its own context, authority, and evidence.
 
 ### Contract files to update
 
@@ -222,7 +226,7 @@ evidence.
 | `references/context-packages.md` | Define the delegated-step context package and data minimization rules. |
 | `references/handoffs.md` | Own artifact placement, controller write ownership, and evidence delivery. |
 | `references/execution-graph.md` | Define version-3 graph references to delegated steps. |
-| `references/resume.md` | Define interrupted-step reconciliation and non-duplicating external-write recovery. |
+| `references/resume.md` | Define the two retained external-effect retry-safety rules; lifecycle reconciliation is deferred. |
 | `references/review.md` | Require review of selection, authority, data exposure, results, fallback, and recovery; keep delegated review advisory. |
 | `references/pressure-scenarios.md` | Add positive and negative Change 7 routing scenarios. |
 
@@ -267,10 +271,7 @@ Define a closed, versioned schema with these root fields:
 Each step records:
 
 - stable `id` and non-negative `sequence`;
-- `parent_node_id`, or the literal `unavailable` for graph-free work
-  *(deferred: the shipped schema always names the owning graph node)*;
-- `status = planned|started|completed|blocked|failed` *(deferred by the scope
-  decision — the shipped route records no status)*;
+- `parent_node_id`, naming the owning graph node;
 - `selection_mode = explicit|automatic`;
 - `capability_kind = skill|plugin-skill|plugin-tools`;
 - `requested_capability` and `resolved_capability`;
@@ -278,7 +279,6 @@ Each step records:
 - maximum `effect_class`;
 - `authority_mode` and an in-context `authority_ref`;
 - context and evidence paths plus lowercase SHA-256 digests;
-- source and resulting repository revisions *(deferred by the scope decision)*;
 - optional exposed runtime/tool receipts below reverse-DNS `extensions`.
 
 The effect classes are:
@@ -322,13 +322,13 @@ unrelated durable knowledge “just in case.”
 
 The controller persists:
 
-- lifecycle outcome;
+- observed outcome;
 - capability and tools actually observed;
 - relevant returned data or bounded output references;
 - local files or external resources affected;
 - external operation IDs or URLs when exposed;
 - exact commands/checks and results;
-- resulting revision or unchanged-state evidence;
+- changed artifacts or unchanged-state evidence when exposed;
 - omissions, errors, ambiguity, and retry safety;
 - verification against the parent acceptance criteria.
 
@@ -356,8 +356,8 @@ Implement version 3 as follows:
 6. Require every referenced step's `parent_node_id` to match the owning graph
    node.
 7. Prevent a step from being referenced by multiple nodes.
-8. Prevent an implementation node from completing while any required delegated
-   step is planned, started, blocked, failed, missing, stale, or invalid.
+8. Require every shipped route step to be referenced by exactly one owning node;
+   delegated-step lifecycle/status gating is deferred.
 9. Permit review/final nodes to reference only `repository-read` or
    `external-read` advisory steps.
 10. Keep a review/final node's decision bound to its existing canonical reviewer
@@ -382,18 +382,13 @@ Validate:
 - required fields, correct scalar/list types, and allowed enums;
 - stable delegation-ID grammar;
 - unique step IDs and unique sequence values;
-- ordered, sequential lifecycle with at most one `started` step;
-- no later step starting or completing before every preceding step completes;
 - task-directory path containment;
 - rejection of symlinked evidence;
 - required UTF-8 context and evidence files;
 - lowercase SHA-256 format and exact byte-digest matches;
-- completed steps having a resolved capability and complete evidence;
-- blocked/failed terminal steps retaining diagnostic evidence;
-- external-write/destructive steps having `authority_mode=explicit-step` and a
-  valid authority reference;
-- graph parent ownership, unique graph references, and node/step lifecycle
-  consistency;
+- every authority mode having a valid in-context authority reference;
+- external-write/destructive steps having `authority_mode=explicit-step`;
+- graph parent ownership and exactly-one graph reference per route step;
 - read-only effect classes for review/final delegations.
 
 ### Explicit validator boundary
@@ -421,33 +416,14 @@ Do not implement:
 
 ## Phase 5 — implement resume and side-effect recovery
 
-Deferred by the 2026-08-04 scope decision: the delegated-step reconciliation
-machinery (planned/started/completed recovery, external-effect deduplication).
-The shipped scope keeps only the two applicable rules (never blindly retry an
-external-write/destructive step; repeated resume against unchanged evidence
-produces no duplicate effect), mirrored in `resume.md`. The following
-historical design is retained for the deferred parts.
+Delegated-step lifecycle/revision reconciliation is deferred by the 2026-08-04
+scope decision. The shipped scope keeps only the two rules mirrored in
+`resume.md`:
 
-Extend `references/resume.md` and structural validation with these controller
-rules:
-
-1. `planned` may start once after the capability and authority are revalidated.
-2. `started` is unresolved. Resume inspects the effect class, context, evidence,
-   repository state, and exposed external operation identifiers before deciding
-   anything.
-3. A read-only step may be repeated only when doing so is safe and the record
-   clearly identifies the new attempt.
-4. A repository-write step follows existing Git/diff reconciliation and must not
-   infer completion from a summary alone.
-5. An external-write or destructive step is never blindly retried. Reconcile
-   read-only against the external system when already authorized and possible;
-   otherwise block for user direction.
-6. A completed step is reusable only while its context, evidence digest,
-   capability binding, revisions, and resulting state remain current.
-7. A blocked or failed step does not silently select a substitute capability.
-   Replacement requires a new explicit or automatic selection record and, when
-   material, renewed user approval.
-8. Repeated resume against unchanged evidence returns the same next action and
+1. An external-write or destructive delegated step is never blindly retried on
+   resume: reconcile read-only when already authorized and possible, otherwise
+   block for user direction.
+2. Repeated resume against unchanged evidence returns the same next action and
    creates no duplicate tool call or external effect.
 
 ## Phase 6 — test-first implementation and fixtures
@@ -456,36 +432,32 @@ Add contract and validator tests before treating prose as implemented behavior.
 
 ### Positive fixtures
 
-1. Graph-free explicit instruction-only skill.
-2. Graph-free automatically selected read-only plugin skill.
-3. Version-3 durable implementation node with one completed delegation.
-4. Multiple sequential delegations with distinct authority classes.
-5. External read followed by an explicitly approved external write.
-6. Review node consuming read-only advisory specialist evidence while the
+1. Version-3 durable graph with one digest-bound delegated step.
+2. Version-3 durable graph with multiple delegated steps and distinct authority
+   classes.
+3. External read followed by an explicitly approved external write.
+4. Review node consuming read-only advisory specialist evidence while the
    canonical reviewer owns the decision.
-7. Valid completed delegation accepted idempotently on resume.
-8. Existing version-1 and version-2 fixtures unchanged and still valid.
+5. Existing version-1 and version-2 fixtures unchanged and still valid.
 
 ### Negative fixtures and scenarios
 
 1. Explicitly required capability unavailable.
-2. Unknown route field, capability kind, effect class, authority mode, or
-   lifecycle.
+2. Unknown route field, capability kind, effect class, or authority mode.
 3. Duplicate delegation ID or sequence.
 4. Path traversal, symlink, missing context/evidence, invalid UTF-8, or digest
    mismatch.
-5. Completed step with `resolved_capability=unavailable`.
-6. External write or destructive action without `explicit-step` authority.
-7. A later step started/completed while an earlier step is unresolved.
-8. Graph parent mismatch, reused step ID, or orphaned required reference.
-9. Completed graph node with an incomplete, blocked, or failed delegation.
-10. Reviewer/final delegation attempting a write.
-11. Delegation to KAPISCH itself or attempted recursive route ownership.
-12. Automatically installing/authenticating an unavailable capability.
-13. Interrupted external write being blindly repeated.
-14. Requested plugin name or controller prose being treated as runtime proof.
-15. Specialist review output being treated as approving review/final evidence.
-16. A capability expanding files, behavior, data boundary, or external action
+5. `parent_node_id=unavailable`, an empty route, graph parent mismatch, reused
+   step ID, or orphaned route step.
+6. Any authority mode with `authority_ref=unavailable`, or an external write or
+   destructive action without `explicit-step` authority.
+7. Reviewer/final delegation attempting a write.
+8. Delegation to KAPISCH itself or attempted recursive route ownership.
+9. Automatically installing/authenticating an unavailable capability.
+10. Interrupted external write being blindly repeated.
+11. Requested plugin name or controller prose being treated as runtime proof.
+12. Specialist review output being treated as approving review/final evidence.
+13. A capability expanding files, behavior, data boundary, or external action
     beyond the approved context.
 
 ### Test locations
@@ -560,10 +532,9 @@ data/action boundaries, retry behavior, and recovery rules.
    - role/risk preservation;
    - context and data minimization;
    - local/external authority;
-   - normal, failed, interrupted, and resumed lifecycle;
-   - duplicate external-effect prevention;
-   - graph-free and durable consumers *(graph-free delegation deferred by the
-     scope decision; the matrix covers version-3 durable consumers)*;
+   - the retained external-effect retry-safety rules (not the deferred
+     lifecycle/revision reconciliation machinery);
+   - durable consumers and the graph-free fallback/promotion rule;
    - version-1/version-2 compatibility;
    - reviewer/final non-delegability;
    - validator boundary and negative scenarios.
@@ -583,9 +554,7 @@ Change 7 is complete only when all of the following are true:
 - `ecosystem-routing.md` is the single normative owner and all related contracts
   link to it without duplicating or contradicting its rules;
 - explicit and automatic capability selection are explainable and fail closed;
-- graph-free and durable delegated steps have inspectable, digest-bound evidence
-  *(graph-free delegation deferred by the scope decision; version-3 durable
-  delegated steps have inspectable, digest-bound evidence)*;
+- version-3 durable delegated steps have inspectable, digest-bound evidence;
 - manifest version 3 cross-validates graph nodes and delegated steps;
 - version-1 and version-2 manifests and compatibility defaults remain unchanged;
 - legacy migration remains explicit, byte-preserving, source-retaining, and

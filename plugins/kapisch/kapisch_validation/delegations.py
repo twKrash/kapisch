@@ -221,6 +221,10 @@ def parse_route(task_dir: Path) -> tuple[dict[str, object] | None, tuple[Validat
     try:
         with path.open("rb") as f:
             raw = tomllib.load(f)
+    except OSError as exc:
+        return None, sorted_errors(
+            [_e("TWV-DELEG-UNREADABLE-ROUTE", path, ROUTE_FILE, f"route file is unreadable: {exc}")]
+        )
     except UnicodeDecodeError as exc:
         return None, sorted_errors(
             [_e("TWV-DELEG-MALFORMED-TOML", path, "toml", f"route file is not valid UTF-8: {exc}")]
@@ -271,6 +275,15 @@ def parse_route(task_dir: Path) -> tuple[dict[str, object] | None, tuple[Validat
             _e("TWV-DELEG-WRONG-SHAPE", path, "steps", "must be an array of tables")
         )
         raw_steps = []
+    elif not raw_steps:
+        errors.append(
+            _e(
+                "TWV-DELEG-EMPTY-ROUTE",
+                path,
+                "steps",
+                "a route record must contain at least one delegated step",
+            )
+        )
     step_ids: list[str] = []
     sequences: list[int] = []
     for i, step in enumerate(raw_steps):
@@ -299,6 +312,16 @@ def parse_route(task_dir: Path) -> tuple[dict[str, object] | None, tuple[Validat
                 errors.append(
                     _e("TWV-DELEG-MISSING-FIELD", path, f"{ref}.{key}", "required step field is missing")
                 )
+        parent_node_id = step.get("parent_node_id")
+        if parent_node_id == UNAVAILABLE:
+            errors.append(
+                _e(
+                    "TWV-DELEG-MISSING-OWNER",
+                    path,
+                    f"{ref}.parent_node_id",
+                    "every delegated step must name its owning graph node",
+                )
+            )
         for key in (
             "parent_node_id",
             "requested_capability",
@@ -412,7 +435,7 @@ def parse_route(task_dir: Path) -> tuple[dict[str, object] | None, tuple[Validat
                     "must be a non-empty string",
                 )
             )
-        if authority_mode == "explicit-step" and (
+        if isinstance(authority_mode, str) and authority_mode in AUTHORITY_MODES and (
             not isinstance(authority_ref, str)
             or not authority_ref
             or authority_ref == UNAVAILABLE
@@ -422,11 +445,15 @@ def parse_route(task_dir: Path) -> tuple[dict[str, object] | None, tuple[Validat
                     "TWV-DELEG-MISSING-AUTHORITY-REF",
                     path,
                     f"{ref}.authority_ref",
-                    "explicit-step authority requires an in-context authority reference",
+                    "authority requires an in-context authority reference",
                 )
             )
         effect_class = step.get("effect_class")
-        if effect_class in EXTERNAL_WRITE_CLASSES and authority_mode != "explicit-step":
+        if (
+            isinstance(effect_class, str)
+            and effect_class in EXTERNAL_WRITE_CLASSES
+            and authority_mode != "explicit-step"
+        ):
             errors.append(
                 _e(
                     "TWV-DELEG-MISSING-EXPLICIT-AUTHORITY",
@@ -595,7 +622,7 @@ def validate_route_references(
     for step in steps:
         parent = step.get("parent_node_id")
         step_id = step.get("id")
-        if not isinstance(parent, str) or parent == UNAVAILABLE or not isinstance(step_id, str):
+        if not isinstance(parent, str) or not isinstance(step_id, str):
             continue
         if parent not in nodes_by_id:
             errors.append(

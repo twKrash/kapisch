@@ -80,6 +80,13 @@ LLM/controller's interpretation, never a separate entry point.
 - Do not choose a capability from name similarity alone. Use its current
   documented description and exposed actions.
 
+Graph-free workflows do not delegate in the current scope. An explicit
+capability constraint in a graph-free workflow blocks and asks the user to
+promote the work to a durable version-3 graph or to relax the constraint before
+native execution. An automatic selection may use the disclosed native fallback
+only when the approved outcome remains unchanged; otherwise it asks whether to
+promote the work to a durable graph.
+
 Delegation fails closed: any ambiguity about capability identity, availability,
 authority, or side-effect boundary stops for a user decision or blocks with the
 missing capability and a safe next action. Never claim capability presence,
@@ -92,9 +99,9 @@ delegate the KAPISCH route or invoke `$kapisch`. If its documented procedure
 requires another capability, the controller evaluates that need and records a
 new sibling delegated step with its own context, authority, and evidence.
 Delegation never revives operational waves, parallel scheduling, worktree
-integration, or multi-writer execution: at most one delegated step may be
-active. Graph-free delegation (a route record without a version-3 execution
-graph) is deferred to a later change.
+integration, or multi-writer execution: the controller invokes at most one
+delegated capability at a time. Graph-free delegation (a route record without a
+version-3 execution graph) is deferred to a later change.
 
 ## Delegation evidence layout
 
@@ -129,8 +136,7 @@ Each step records the minimum delegation metadata needed to identify the
 selected capability and its maximum effect class:
 
 - stable `id` and non-negative `sequence`;
-- `parent_node_id` — the owning graph node (steps without an owning node are
-  deferred with graph-free delegation);
+- `parent_node_id` — the owning graph node; every shipped step must name one;
 - `selection_mode = explicit|automatic`;
 - `capability_kind = skill|plugin-skill|plugin-tools`;
 - `requested_capability` and `resolved_capability`;
@@ -156,7 +162,8 @@ The effect classes are:
 - `external-write`;
 - `destructive`.
 
-The authority modes are:
+Every authority mode requires a non-empty in-context `authority_ref`; the
+literal `unavailable` is not an authority reference. The authority modes are:
 
 - `request-scoped`: the already-approved request authorizes this bounded read or
   workspace action;
@@ -210,9 +217,9 @@ paths/digests. Step lifecycle states
 deferred to a later change: the graph node lifecycle and revision evidence
 already cover them, and the route record identifies the selected capability and
 its maximum effect class. `resolved_capability` is required (not
-`unavailable`). External-write and destructive steps require
-`authority_mode = "explicit-step"` with a non-empty in-context
-`authority_ref`.
+`unavailable`). Every authority mode requires a non-empty in-context
+`authority_ref`; external-write and destructive steps additionally require
+`authority_mode = "explicit-step"`.
 
 ### `Dnn/00-context.md`
 
@@ -237,13 +244,13 @@ unrelated durable knowledge "just in case."
 
 The controller persists:
 
-- lifecycle outcome;
+- observed outcome;
 - capability and tools actually observed;
 - relevant returned data or bounded output references;
 - local files or external resources affected;
 - external operation IDs or URLs when exposed;
 - exact commands/checks and results;
-- resulting revision or unchanged-state evidence;
+- changed artifacts or unchanged-state evidence when exposed;
 - omissions, errors, ambiguity, and retry safety;
 - verification against the parent acceptance criteria.
 
@@ -275,26 +282,15 @@ not modify shared KAPISCH state merely to record its own result.
 
 ## Resume and side-effect recovery
 
-The controller applies these rules to delegated steps; [resume.md](resume.md)
-mirrors them for interrupted workflows:
+Delegated-step lifecycle states, revision chains, replacement records, and
+resume reconciliation are deferred to a later change. The current route is
+structural metadata, not a recovery state machine. Only these two rules apply
+to a delegated external effect today:
 
-1. `planned` may start once after the capability and authority are revalidated.
-2. `started` is unresolved. Resume inspects the effect class, context, evidence,
-   repository state, and exposed external operation identifiers before deciding
-   anything.
-3. A read-only step may be repeated only when doing so is safe and the record
-   clearly identifies the new attempt.
-4. A repository-write step follows existing Git/diff reconciliation and must not
-   infer completion from a summary alone.
-5. An external-write or destructive step is never blindly retried. Reconcile
-   read-only against the external system when already authorized and possible;
-   otherwise block for user direction.
-6. A completed step is reusable only while its context, evidence digest,
-   capability binding, revisions, and resulting state remain current.
-7. A blocked or failed step does not silently select a substitute capability.
-   Replacement requires a new explicit or automatic selection record and, when
-   material, renewed user approval.
-8. Repeated resume against unchanged evidence returns the same next action and
+1. An external-write or destructive delegated step is never blindly retried on
+   resume: reconcile read-only against the external system when already
+   authorized and possible, otherwise block for user direction.
+2. Repeated resume against unchanged evidence returns the same next action and
    creates no duplicate tool call or external effect.
 
 ## Validator boundary

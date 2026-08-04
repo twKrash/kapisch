@@ -207,12 +207,12 @@ A version-3 manifest adds:
 
 Each referenced ID resolves against `.kapisch/runs/<task_id>/delegations/00-route.toml`.
 Every referenced step's `parent_node_id` must match the owning graph node, and
-one step may be referenced by only one node. An implementation node cannot
-complete while any required delegated step is `planned`, `started`, `blocked`,
-`failed`, missing, stale, or invalid. Review/final nodes may reference only
+one step may be referenced by only one node. Every shipped route step must be
+referenced by exactly one owning node. Review/final nodes may reference only
 `repository-read` or `external-read` advisory steps, and a review/final node's
 decision remains bound to its existing canonical reviewer invocation and result
-artifact, never to delegated output.
+artifact, never to delegated output. Delegated-step lifecycle/status gating is
+deferred and does not alter graph-node transitions.
 
 Version 3 changes no node-status transitions, deterministic node selection,
 parallelism sentinels, assignment semantics, batches, or logical model tiers.

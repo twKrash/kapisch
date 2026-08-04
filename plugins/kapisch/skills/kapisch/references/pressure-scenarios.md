@@ -403,23 +403,17 @@ test failures.
 
 Positive scenarios:
 
-163. A graph-free explicit instruction-only skill: the user names the skill,
-     `ecosystem=auto` is active, and the controller records
-     `selection_mode=explicit` plus the route/context/evidence under
-     `delegations/`. The workflow stays graph-free
-     (`parent_node_id=unavailable`) and the verified result feeds the existing
-     role and workflow. *(Deferred by the 2026-08-04 scope decision: graph-free
-     delegation is a later change; the shipped route record is validated only
-     as part of version-3 durable runs.)*
-164. A graph-free automatically selected read-only plugin skill: the controller
-     considers only visibly available capabilities, selects the smallest
-     capability that covers the bounded substep, and records the observable
-     selection reason; it never claims the visible set is exhaustive and never
-     selects from name similarity alone. *(Deferred with item 163.)*
-165. A version-3 durable implementation node with one completed delegation: the
+163. A graph-free workflow contains an explicit capability request: the
+     controller does not delegate, creates no route record, and asks the user to
+     promote the work to a durable version-3 graph or relax the constraint.
+164. A graph-free workflow would otherwise select a read-only capability
+     automatically: the controller uses disclosed native execution only when
+     the approved outcome is unchanged, otherwise it asks whether to promote
+     the work to a durable graph.
+165. A version-3 durable implementation node has one digest-bound delegation:
      node's `delegation_ids` resolves against `delegations/00-route.toml`, the
-     step's `parent_node_id` matches the owning node, and the node completes
-     only with the step `completed` and evidence digest-valid.
+     step's `parent_node_id` matches the owning node, and every route step is
+     referenced by exactly one graph node.
 166. Multiple sequential delegations with distinct authority classes: GitHub
      diagnosis (`external-read`, `request-scoped`), local repair
      (`repository-write`, `request-scoped`), and posting a PR comment
@@ -433,9 +427,9 @@ Positive scenarios:
      referenced delegation is `repository-read` or `external-read`, the node's
      decision remains bound to its canonical reviewer invocation, and the
      specialist output never approves.
-169. A valid completed delegation is accepted idempotently on resume: repeated
-     resume against unchanged evidence returns the same next action and creates
-     no duplicate tool call or external effect.
+169. Delegated-step lifecycle/revision resume behavior is deferred. The retained
+     safety rules prohibit blindly retrying an external write and prohibit a
+     duplicate effect on repeated resume against unchanged evidence.
 170. Existing version-1 and version-2 fixtures remain unchanged and valid:
      reading an old manifest never creates a route record or delegation fields,
      and version-3-only fields are rejected by older versions.
@@ -446,19 +440,19 @@ Negative scenarios:
      reports the missing capability and a safe setup or selection action; it
      never silently substitutes another capability.
 172. An unknown route field, capability kind, effect class, authority mode, or
-     lifecycle value appears: the closed route schema fails closed.
+     wrong-shaped enum value appears: the closed route schema fails closed.
 173. Two steps share a delegation ID or sequence value: duplicate IDs and
      duplicate sequence values fail closed.
 174. A route contains path traversal, a symlinked evidence file, missing
      context/evidence, invalid UTF-8, or a digest mismatch: structural
      validation fails closed.
-175. A completed step records `resolved_capability=unavailable`: the step is
-     invalid because a resolved capability and complete evidence are required.
-     (The step lifecycle model is deferred; the capability and evidence rules
-     still apply.)
-176. An external write or destructive action lacks `authority_mode=explicit-step`
-     and a valid in-context authority reference: it is blocked; preparation and
-     preview may proceed separately, execution may not.
+175. A route step uses `parent_node_id=unavailable`, the route is empty, or a
+     route step is not referenced by exactly one owning node: validation fails
+     closed because graph-free delegation is deferred.
+176. Any authority mode uses `authority_ref=unavailable`, or an external write
+     or destructive action lacks `authority_mode=explicit-step`: validation
+     fails closed; preparation and preview may proceed separately, execution may
+     not.
 177. Step lifecycle validation (ordered sequential lifecycle with at most one
      `started` step, step-state/node consistency) is deferred to a later
      change; the graph node lifecycle rules apply unchanged.
@@ -468,8 +462,8 @@ Negative scenarios:
 179. A review/final delegation attempts a write or destructive effect: blocked;
      review/final nodes reference only read-only advisory steps.
 180. A delegated capability tries to delegate the KAPISCH route or invoke
-     `$kapisch`: refused as recursive route ownership; the need is recorded as a
-     new sibling step with its own context, authority, lifecycle, and evidence.
+     `$kapisch`: refused as recursive route ownership; any separately selected
+     sibling step has its own context, authority, and evidence.
 181. An unavailable capability would be installed, enabled, signed in to, or
      reconfigured: never. The controller discloses native fallback only when
      the approved outcome remains achievable without changing methodology, data
