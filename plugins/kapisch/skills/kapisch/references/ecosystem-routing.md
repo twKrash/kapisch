@@ -48,7 +48,7 @@ The controller applies this order:
    substep without changing its authority or acceptance boundary.
 6. If multiple candidates imply materially different behavior, data access,
    external systems, or side effects, stop for one focused user decision.
-7. Persist the delegated-step context and planned lifecycle before invocation.
+7. Persist the delegated-step context before invocation.
 8. Start only one delegated step, persist its observed result or exact error,
    and verify it before advancing.
 9. Feed the verified result back into the existing KAPISCH role and workflow;

@@ -216,9 +216,10 @@ artifact, never to delegated output.
 
 Version 3 changes no node-status transitions, deterministic node selection,
 parallelism sentinels, assignment semantics, batches, or logical model tiers.
-Graph-free workflows have no delegation graph references: their steps record
-`parent_node_id = "unavailable"` in the route record. The delegation record
-schema and lifecycle are owned by [ecosystem-routing.md](ecosystem-routing.md).
+Graph-free delegation is deferred to a later change. The current version-3
+delegation route is for durable graphs only, and every shipped delegated step
+must name its owning graph node. The delegation record schema is owned by
+[ecosystem-routing.md](ecosystem-routing.md).
 
 ## Dispatch-compatible graph fields
 
