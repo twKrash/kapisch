@@ -471,7 +471,11 @@ def parse_route(task_dir: Path) -> tuple[dict[str, object] | None, tuple[Validat
             )
         context_path = step.get("context_path")
         context_sha256 = step.get("context_sha256")
-        if isinstance(step_id, str) and context_path != f"delegations/{step_id}/00-context.md":
+        if (
+            isinstance(step_id, str)
+            and context_path != UNAVAILABLE
+            and context_path != f"delegations/{step_id}/00-context.md"
+        ):
             errors.append(
                 _e(
                     "TWV-DELEG-EVIDENCE-PATH-BINDING",

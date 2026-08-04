@@ -29,14 +29,16 @@ def validate(
         if current_route is None:
             return sorted_errors(errors)
         if previous_task_dir:
-            previous_route, previous_errors = parse_route(previous_task_dir)
-            errors.extend(previous_errors)
-            if previous_route is not None:
-                errors.extend(
-                    validate_route_lifecycle(
-                        current_route, previous_route, previous_task_dir
+            previous_route_path = previous_task_dir / "delegations" / "00-route.toml"
+            if previous_route_path.is_file():
+                previous_route, previous_errors = parse_route(previous_task_dir)
+                errors.extend(previous_errors)
+                if previous_route is not None:
+                    errors.extend(
+                        validate_route_lifecycle(
+                            current_route, previous_route, previous_task_dir
+                        )
                     )
-                )
         return sorted_errors(errors)
     parsed = parse_manifest(task_dir / "02-execution-graph.toml")
     errors = list(parsed.errors)
@@ -70,15 +72,17 @@ def validate(
         if route_exists or has_delegation_ids:
             route, route_errors = parse_route(task_dir)
             errors.extend(route_errors)
-            if route is not None and has_delegation_ids:
+            if route is not None and route_exists:
                 errors.extend(validate_route_references(parsed.manifest, task_dir))
             if route is not None and previous_task_dir:
-                previous_route, previous_errors = parse_route(previous_task_dir)
-                errors.extend(previous_errors)
-                if previous_route is not None:
-                    errors.extend(
-                        validate_route_lifecycle(route, previous_route, previous_task_dir)
-                    )
+                previous_route_path = previous_task_dir / "delegations" / "00-route.toml"
+                if previous_route_path.is_file():
+                    previous_route, previous_errors = parse_route(previous_task_dir)
+                    errors.extend(previous_errors)
+                    if previous_route is not None:
+                        errors.extend(
+                            validate_route_lifecycle(route, previous_route, previous_task_dir)
+                        )
     state, state_errors = parse_state(task_dir / "03-state.toml")
     errors.extend(state_errors)
     if state is None:
