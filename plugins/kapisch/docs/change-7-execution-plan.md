@@ -424,7 +424,8 @@ scope decision. The shipped scope keeps only the two rules mirrored in
    resume: reconcile read-only when already authorized and possible, otherwise
    block for user direction.
 2. Repeated resume against unchanged evidence returns the same next action and
-   creates no duplicate tool call or external effect.
+   does not retry or claim duplicate-effect safety for an external effect;
+   reconciliation remains deferred under [issue #10](https://github.com/twKrash/kapisch/issues/10).
 
 ## Phase 6 — test-first implementation and fixtures
 

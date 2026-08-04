@@ -1,16 +1,24 @@
 # KAPISCH Roadmap
 
-`KAPISCH` is the planned standalone identity of the repository-local workflow
-capability currently implemented under the temporary `KAPISCH`
-name. Until the standalone plugin is created and the name is validated, the
-existing paths and contracts retain the `KAPISCH` name.
-
-The standalone extraction will make `KAPISCH` the canonical plugin, repository,
-skill, package, documentation, and artifact namespace. Existing
-`KAPISCH` identifiers are migration inputs only and must not remain the
-long-term public or internal vocabulary.
+KAPISCH is the implemented standalone plugin, distributed from this repository
+through the Git-backed `kapisch-local` marketplace. Legacy task-workflow
+identifiers are supported migration inputs; new artifacts use `.kapisch/`.
 
 This roadmap is separate from the product milestones of the source application.
+
+## Status vocabulary
+
+| Status | Meaning |
+| --- | --- |
+| planned | No implementation is merged. |
+| implemented | The documented code or contract is merged. |
+| reviewed | Required project review evidence exists for the implemented scope. |
+| runtime accepted | A named supported Codex surface exercised the documented flow. |
+| released | An immutable version/tag identifies an accepted commit. |
+| deferred/archived | Intentionally outside the active supported runtime. |
+
+Automated package, validator, and marketplace tests establish implementation
+coverage; they are not Codex runtime acceptance.
 
 During extraction, provide an explicitly bounded compatibility path for existing
 `KAPISCH` invocations and durable artifacts. New installations and newly
@@ -80,12 +88,13 @@ service.
 
 ## Next milestone — standalone KAPISCH repository
 
-Status: in progress. Standalone source extraction and the Git-backed local
-marketplace layout are complete; clean Codex marketplace import, installation,
-plugin discovery, and invocation remain pending manual acceptance. OpenAI public
-Plugin Directory submission is out of scope. See `docs/acceptance.md`,
-`docs/compatibility.md`, and `docs/collision-check.md` for the current evidence
-and boundaries.
+Status: implemented and reviewed; runtime acceptance and release remain
+planned under [issue #11](https://github.com/twKrash/kapisch/issues/11).
+The source extraction and Git-backed local-marketplace layout are implemented.
+Clean Codex installation, fresh-session discovery, reviewer invocation, and
+`$kapisch` acceptance have not been exercised. OpenAI public Plugin Directory
+submission is deferred/archived. See [acceptance.md](acceptance.md),
+[compatibility.md](compatibility.md), and [collision-check.md](collision-check.md).
 
 Goal: extract the reusable skill, portable role contracts, Codex agent-profile
 templates, validator, tests, and public documentation from the source
@@ -193,19 +202,19 @@ Non-goals for this milestone:
 - cross-machine synchronization, remote evidence storage, or shared workflow
   state between developers.
 
-## Foundation 0 — completed
+## Foundation 0 — implemented and reviewed
 
 - Establish the role-based `plan`, `implement`, `review`, `mechanic`, and
   `final` workflow, normalized requests, durable handoffs, and independent
   review/final-readiness contracts.
 
-## Change 1 — completed
+## Change 1 — implemented and reviewed
 
 - Add durable sequential execution: a versioned graph and state, one active
   standard `implementer`, lifecycle-controlled resume, task briefs, contexts,
   reports, and a task-local knowledge ledger.
 
-## Change 2 — completed
+## Change 2 — implemented and reviewed
 
 Completed after independent integrated review and initial final-readiness
 evidence. This status edit requires a fresh final-readiness refresh on the
@@ -223,7 +232,7 @@ resulting working-tree state.
   for routing, resume, batching, escalation, context freshness, and review
   independence.
 
-## Change 3 — completed
+## Change 3 — implemented and reviewed
 
 Completed following the valid Round 13 integrated review. This status-only edit
 requires fresh final readiness on the resulting revision; provenance-only
@@ -234,7 +243,7 @@ generic analysis is not completion evidence.
   independent review evidence. The active Change 3 bootstrap remains sequential;
   it must not use the scheduler it is introducing.
 
-## Stabilization S1 — completed
+## Stabilization S1 — implemented and reviewed
 
 Completed in this revision because the policy change and roadmap update together
 deliver this stabilization slice.
@@ -248,17 +257,23 @@ deliver this stabilization slice.
 - Preserve the existing wave protocol as design input rather than claiming
   runtime support.
 
-## Stabilization S2 — completed
+## Stabilization S2 — implemented, partially complete
 
-- Add a minimal executable validator for sequential durable manifests, state,
+- The validator and its existing structural coverage are implemented. Its
+  completion is blocked by [#5](https://github.com/twKrash/kapisch/issues/5),
+  [#6](https://github.com/twKrash/kapisch/issues/6), and
+  [#7](https://github.com/twKrash/kapisch/issues/7): deterministic unreadable
+  artifact handling, closed policy/state vocabularies, and immutable resume
+  snapshots remain unresolved.
+- Existing coverage validates sequential durable manifests, state,
   node references, dependency ordering, legal transitions, review scopes,
   review/final ordering, and canonical reviewer invocation envelopes.
-- Validate resume and idempotency decisions from persisted evidence.
+- It does not establish complete resume or idempotency safety.
 - Provide valid and invalid fixtures reproducing missing `review_scope`, stale
   review evidence, malformed invocation envelopes, and illegal transitions.
 - Do not implement waves or a scheduler in this stage.
 
-## Stabilization S3 — completed
+## Stabilization S3 — implemented and reviewed
 
 Completed by consolidating the existing supported contracts without changing
 workflow behavior. Parallel waves remain experimental and deferred to S4.
@@ -276,11 +291,12 @@ workflow behavior. Parallel waves remain experimental and deferred to S4.
   execution cannot resume, but a fresh revision-bound review may start.
 - Do not change the supported workflow behavior while consolidating contracts.
 
-## Stabilization S4 — completed
+## Stabilization S4 — implemented and reviewed
 
-Completed by choosing archive-only removal. Graph-free workflows and durable
+Implemented and reviewed by choosing archive-only removal. Graph-free workflows and durable
 sequential execution are the sole active surfaces; operational wave input fails
-closed, while the retired protocol remains available under `docs/future/`.
+closed, while the retired protocol is deferred/archived in
+[parallel-wave-design.md](parallel-wave-design.md).
 
 - Preserve version-1/version-2 sequential compatibility and the
   `parallelism=off`, `max_parallel_agents=1`, and root-`waves` rejection
@@ -294,7 +310,7 @@ closed, while the retired protocol remains available under `docs/future/`.
   failure, cancellation, and idempotent resume.
 - Do not add broader parallelism, semantic auto-merge, or more than two agents.
 
-## UX and portability simplification — completed
+## UX and portability simplification — implemented and reviewed
 
 Completed after S4 without changing durable execution semantics.
 
@@ -329,7 +345,7 @@ are available.
 
 ## Change 5 — project understanding and architecture documentation
 
-Status: completed. Policy B covers only advisory researcher dogfood. The
+Status: implemented and reviewed. Policy B covers only advisory researcher dogfood. The
 preserved Round 0 negative review led to profile-path and lifecycle fixes;
 canonical Round 1 approved the resulting pre-correction staged delta. The first
 distinct final-readiness pass returned `not-ready` because the portable reviewer
@@ -350,7 +366,7 @@ not depend on Change 4 measurement work.
 
 ## Change 6 — presentation themes
 
-Status: completed as a separate post-extraction slice after the extracted public
+Status: implemented and reviewed as a separate post-extraction slice after the extracted public
 contracts and artifact vocabulary stabilized. The change-6 dogfood run
 (`change6-presentation-themes-dogfood` under the local `.kapisch/runs/`)
 recorded the review history: the research handoff documented the delta and
@@ -377,15 +393,16 @@ measurement work.
 
 ## Change 7 — composable Codex ecosystem routing
 
-Status: implemented; clean-environment ecosystem-routing acceptance (Phase 8)
-and a distinct final-readiness decision for the current head remain required
-before the completed state is reported ready. The maintainer's scope-reduction
+Status: implemented and reviewed. Clean Codex installation, fresh-session
+discovery, reviewer invocation, and `$kapisch` runtime acceptance remain
+planned under [issue #11](https://github.com/twKrash/kapisch/issues/11); this
+is not runtime accepted or released. The maintainer's scope-reduction
 decision (2026-08-04, PR #4) is implemented: the route record carries the
 minimum delegation metadata (selected capability, maximum effect class,
 authority, digest-bound context/evidence); the parallel route lifecycle/revision
 engine, graph-free delegation, and resume/external-effect reconciliation
-machinery are deferred to later changes backed by demonstrated needs (recorded
-in the plan's scope-decision section and `acceptance.md`). The change-7
+machinery are deferred/archived pending demonstrated needs and
+[#10](https://github.com/twKrash/kapisch/issues/10). The change-7
 dogfood run (`change7-ecosystem-routing-dogfood` under the local
 `.kapisch/runs/`) recorded the review history: the research handoff assessed
 the definition of done and flagged the evidence gaps; Round 0 approved the

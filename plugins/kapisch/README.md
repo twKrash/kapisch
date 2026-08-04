@@ -26,6 +26,10 @@ plugin works without custom agent profiles, but that degraded mode is advisory
 only: independent review and final-readiness approval require an explicitly
 installed, successfully invoked reviewer profile.
 
+This is the documented path, not runtime-acceptance evidence. Clean Codex
+installation, fresh-session discovery, reviewer invocation, and `$kapisch`
+acceptance remain planned under [issue #11](https://github.com/twKrash/kapisch/issues/11).
+
 ## Optional profiles
 
 `agents/` contains templates only. They are not activated by plugin installation.
@@ -170,7 +174,9 @@ unchanged.
 ## Development
 
 Run `python scripts/test_portable_package.py` and the validator tests before
-release. This verifies isolated portability, not installation through Codex. See [CONTRIBUTING.md](CONTRIBUTING.md),
+release. This verifies isolated portability, not installation through Codex or
+external-effect recovery safety. `main` is mutable, manifest version `0.1.0`
+is not an immutable release tag, and `Unreleased` changes are not released. See [CONTRIBUTING.md](CONTRIBUTING.md),
 [acceptance.md](docs/acceptance.md), and [CHANGELOG.md](CHANGELOG.md).
 
 ## License

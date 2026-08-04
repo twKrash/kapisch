@@ -46,7 +46,7 @@ evidence determines the next action; otherwise block. Repeating resume without
 repository changes must choose the same next action and must not redispatch a
 completed verified node.
 
-For a dispatch-compatible node, also load its persisted logical assignment,
+For a dispatch-compatible repository-only node, also load its persisted logical assignment,
 reason codes, source/attempt revisions, context/scope references or
 fingerprints, escalation history, batch membership/outcomes, and exact
 verification evidence. Resume uses that assignment idempotently. Reclassify only
@@ -68,14 +68,15 @@ The controller applies the delegated-step rules owned by
 delegated step is declarative minimum metadata (selected capability, maximum
 effect class, authority, and digest-bound context/evidence); step lifecycle
 states and the resume reconciliation machinery (planned/started/completed
-recovery, external-effect deduplication) are deferred to later changes backed by
-demonstrated needs. Two rules still apply today:
+recovery, external-effect deduplication) are deferred/archived pending
+[issue #10](https://github.com/twKrash/kapisch/issues/10). Structural route
+validation does not make an external effect safe to resume. Two rules still apply today:
 
 - an external-write or destructive delegated step is never blindly retried on
   resume: reconcile read-only against the external system when already
   authorized and possible, otherwise block for user direction;
-- repeated resume against unchanged evidence returns the same next action and
-  creates no duplicate tool call or external effect.
+- repeated resume may preserve the same local recovery decision, but it does
+  not prove idempotency and must not issue or retry an external effect.
 
 ## Reviewer invocation recovery
 

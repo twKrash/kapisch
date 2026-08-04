@@ -284,14 +284,16 @@ not modify shared KAPISCH state merely to record its own result.
 
 Delegated-step lifecycle states, revision chains, replacement records, and
 resume reconciliation are deferred to a later change. The current route is
-structural metadata, not a recovery state machine. Only these two rules apply
+implemented structural metadata, not a recovery state machine or external-effect
+runtime acceptance. Only these two rules apply
 to a delegated external effect today:
 
 1. An external-write or destructive delegated step is never blindly retried on
    resume: reconcile read-only against the external system when already
    authorized and possible, otherwise block for user direction.
-2. Repeated resume against unchanged evidence returns the same next action and
-   creates no duplicate tool call or external effect.
+2. Repeated resume against unchanged evidence may return the same local decision,
+   but it must not claim idempotency or issue/retry an external effect. Full
+   reconciliation remains deferred under [issue #10](https://github.com/twKrash/kapisch/issues/10).
 
 ## Validator boundary
 
