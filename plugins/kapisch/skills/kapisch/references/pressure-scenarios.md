@@ -468,21 +468,21 @@ Negative scenarios:
 180. A delegated capability tries to delegate the KAPISCH route or invoke
      `$kapisch`: refused as recursive route ownership; the need is recorded as a
      new sibling step with its own context, authority, lifecycle, and evidence.
-182. An unavailable capability would be installed, enabled, signed in to, or
+181. An unavailable capability would be installed, enabled, signed in to, or
      reconfigured: never. The controller discloses native fallback only when
      the approved outcome remains achievable without changing methodology, data
      boundary, or authority; otherwise it blocks.
-183. An interrupted external-write step is blindly repeated on resume: never.
+182. An interrupted external-write step is blindly repeated on resume: never.
      Resume reconciles read-only against the external system when already
      authorized and possible, otherwise blocks for user direction.
-184. A requested plugin name or controller prose is treated as runtime proof of
+183. A requested plugin name or controller prose is treated as runtime proof of
      selection: unexposed runtime receipts are recorded as `unavailable`, never
      inferred from installed filenames, requested names, prompts, or output
      wording.
-185. Specialist review output is treated as approving review/final evidence:
+184. Specialist review output is treated as approving review/final evidence:
      it remains advisory until the canonical reviewer invocation produces
      approving evidence.
-186. A capability expands files, behavior, data boundary, or external action
+185. A capability expands files, behavior, data boundary, or external action
      beyond the approved context: treated as material scope expansion and
      blocked for a user decision; the capability never renormalizes the
      top-level request or takes ownership of later gates.
