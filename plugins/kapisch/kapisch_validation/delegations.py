@@ -222,7 +222,11 @@ def parse_route(task_dir: Path) -> tuple[dict[str, object] | None, tuple[Validat
     try:
         with path.open("rb") as f:
             raw = tomllib.load(f)
-    except tomllib.TOMLDecodeError as exc:
+    except UnicodeDecodeError as exc:
+        return None, sorted_errors(
+            [_e("TWV-DELEG-MALFORMED-TOML", path, "toml", f"route file is not valid UTF-8: {exc}")]
+        )
+    except (tomllib.TOMLDecodeError, ValueError) as exc:
         return None, sorted_errors(
             [_e("TWV-DELEG-MALFORMED-TOML", path, "toml", str(exc))]
         )
@@ -615,13 +619,15 @@ def validate_route_lifecycle(
     previous_route: dict[str, object],
     previous_task_dir: Path,
 ) -> tuple[ValidationError, ...]:
-    """Reject lifecycle regressions of a delegated step across resume snapshots.
+    """Reject lifecycle regressions and evidence erasure across resume snapshots.
 
     A step that was started, completed, blocked, or failed in the previous route
     must not regress to an earlier state in the current route; a completed step
-    must never regress, including to blocked or failed. This prevents an
-    unresolved external effect from being rewritten to planned and silently
-    retried.
+    must never regress, including to blocked or failed. A step that had already
+    started in the previous snapshot must not be deleted, and its capability or
+    effect binding must not be silently changed while its status is preserved.
+    This prevents an unresolved external effect from being rewritten to planned,
+    erased, or rebound and silently retried.
     """
     errors: list[ValidationError] = []
     path = previous_task_dir / ROUTE_FILE
@@ -629,10 +635,12 @@ def validate_route_lifecycle(
     for step in previous_route.get("steps", []):
         if isinstance(step, dict) and isinstance(step.get("id"), str):
             previous_by_id[step["id"]] = step
+    current_ids: set[str] = set()
     for step in current_route.get("steps", []):
         if not isinstance(step, dict) or not isinstance(step.get("id"), str):
             continue
         step_id = step["id"]
+        current_ids.add(step_id)
         previous = previous_by_id.get(step_id)
         if previous is None:
             continue
@@ -661,6 +669,37 @@ def validate_route_lifecycle(
                     path,
                     f"steps[{step_id}].status",
                     f"a completed delegated step must never regress to {current_status}",
+                )
+            )
+        if previous_status in {"started", "completed", "blocked", "failed"}:
+            for binding_key in ("capability_kind", "effect_class"):
+                previous_binding = previous.get(binding_key)
+                current_binding = step.get(binding_key)
+                if (
+                    isinstance(previous_binding, str)
+                    and previous_binding != current_binding
+                ):
+                    errors.append(
+                        _e(
+                            "TWV-DELEG-BINDING-REBOUND",
+                            path,
+                            f"steps[{step_id}].{binding_key}",
+                            f"delegated step binding changed after {previous_status}: {previous_binding} -> {current_binding}",
+                        )
+                    )
+    for step_id, previous in previous_by_id.items():
+        previous_status = previous.get("status")
+        if (
+            isinstance(previous_status, str)
+            and previous_status in {"started", "completed", "blocked", "failed"}
+            and step_id not in current_ids
+        ):
+            errors.append(
+                _e(
+                    "TWV-DELEG-MISSING-STEP",
+                    path,
+                    f"steps[{step_id}]",
+                    f"a delegated step that had {previous_status} in the previous snapshot is missing from the current route",
                 )
             )
     return sorted_errors(errors)
@@ -756,35 +795,6 @@ def validate_route_references(
                             "a completed implementation node requires every referenced delegated step completed",
                         )
                     )
-            if step.get("source_revision") != route.get("source_revision"):
-                errors.append(
-                    _e(
-                        "TWV-DELEG-STEP-REVISION-MISMATCH",
-                        path,
-                        f"nodes[{node.id}].delegation_ids.{step_id}",
-                        "step source_revision must match the route source_revision",
-                    )
-                )
-            if (
-                node.kind not in {"review", "final"}
-                and node.status == "complete"
-                and step.get("status") == "completed"
-            ):
-                node_revision = node.raw.get("revision")
-                expected_head = (
-                    node_revision.get("head")
-                    if isinstance(node_revision, dict)
-                    else None
-                )
-                if expected_head is not None and step.get("result_revision") != expected_head:
-                    errors.append(
-                        _e(
-                            "TWV-DELEG-STEP-REVISION-MISMATCH",
-                            path,
-                            f"nodes[{node.id}].delegation_ids.{step_id}",
-                            "completed step result_revision must match its owning node's revision head",
-                        )
-                    )
     for step in steps:
         parent = step.get("parent_node_id")
         step_id = step.get("id")
@@ -809,4 +819,66 @@ def validate_route_references(
                     "a step owned by a graph node must be referenced by that node's delegation_ids",
                 )
             )
+    groups: dict[str, list[dict[str, object]]] = {}
+    for step in steps:
+        parent = step.get("parent_node_id")
+        if isinstance(step.get("id"), str):
+            group_key = parent if isinstance(parent, str) and parent != UNAVAILABLE else UNAVAILABLE
+            groups.setdefault(group_key, []).append(step)
+    for parent, group in groups.items():
+        group.sort(key=lambda s: int(s["sequence"]) if is_integer(s.get("sequence")) else 0)
+        for index, step in enumerate(group):
+            step_id = step.get("id")
+            source = step.get("source_revision")
+            route_source = route.get("source_revision")
+            if index == 0:
+                valid_sources = {route_source}
+            else:
+                valid_sources = {route_source, group[index - 1].get("result_revision")}
+            if source not in valid_sources:
+                errors.append(
+                    _e(
+                        "TWV-DELEG-STEP-REVISION-MISMATCH",
+                        path,
+                        f"steps[{step_id}].source_revision",
+                        "step source_revision must equal the route source_revision or the previous step's result_revision",
+                    )
+                )
+            if step.get("status") != "completed":
+                continue
+            result = step.get("result_revision")
+            node = nodes_by_id.get(parent) if parent != UNAVAILABLE else None
+            node_revision = node.raw.get("revision") if node is not None else None
+            expected_head = (
+                node_revision.get("head")
+                if isinstance(node_revision, dict)
+                else None
+            )
+            if index + 1 < len(group):
+                valid_results = {group[index + 1].get("source_revision")}
+                if expected_head is not None:
+                    valid_results.add(expected_head)
+                if result not in valid_results:
+                    errors.append(
+                        _e(
+                            "TWV-DELEG-STEP-REVISION-MISMATCH",
+                            path,
+                            f"steps[{step_id}].result_revision",
+                            "step result_revision must equal the next step's source_revision or the owning node's revision head",
+                        )
+                    )
+            elif (
+                expected_head is not None
+                and node is not None
+                and node.kind not in {"review", "final"}
+                and result != expected_head
+            ):
+                errors.append(
+                    _e(
+                        "TWV-DELEG-STEP-REVISION-MISMATCH",
+                        path,
+                        f"steps[{step_id}].result_revision",
+                        "the final completed step's result_revision must match its owning node's revision head",
+                    )
+                )
     return sorted_errors(errors)

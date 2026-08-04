@@ -484,6 +484,88 @@ class EvidenceFileTests(unittest.TestCase):
             _, errors = parse_route(task)
             self.assertEqual(errors[0].code, "TWV-DELEG-MIXED-EVIDENCE")
 
+    def test_invalid_utf8_route_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task = Path(temporary)
+            (task / "delegations").mkdir()
+            (task / "delegations/00-route.toml").write_bytes(
+                b'version = 1\ntask_id = "\xff\xfe"'
+            )
+            _, errors = parse_route(task)
+            self.assertEqual(errors[0].code, "TWV-DELEG-MALFORMED-TOML")
+
+    def test_deleted_started_step_is_detected_across_resume(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            previous = root / "previous"
+            current = root / "current"
+            cpath, csha, epath, esha = write_step_files(previous, "D01", "# c\n", "# e\n")
+            previous_step = completed_step("D01", 1)
+            previous_step.update({"status": "started", "resolved_capability": "skill-a", "evidence_path": "unavailable", "evidence_sha256": "unavailable", "context_path": cpath, "context_sha256": csha, "result_revision": "unavailable"})
+            write_route(previous, "test-task", "r-1", [previous_step])
+            c2, s2, e2, se2 = write_step_files(current, "D02", "# c\n", "# e\n")
+            current_step = completed_step("D02", 2)
+            current_step.update({"status": "planned", "resolved_capability": "unavailable", "evidence_path": "unavailable", "evidence_sha256": "unavailable", "result_revision": "unavailable", "context_path": c2, "context_sha256": s2})
+            write_route(current, "test-task", "r-1", [current_step])
+            current_route, current_errors = parse_route(current)
+            self.assertEqual(current_errors, ())
+            previous_route, previous_errors = parse_route(previous)
+            self.assertEqual(previous_errors, ())
+            from kapisch_validation.delegations import validate_route_lifecycle
+            errors = validate_route_lifecycle(current_route, previous_route, previous)
+            self.assertEqual(errors[0].code, "TWV-DELEG-MISSING-STEP")
+
+    def test_binding_rebound_is_detected_across_resume(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            previous = root / "previous"
+            current = root / "current"
+            cpath, csha, epath, esha = write_step_files(previous, "D01", "# c\n", "# e\n")
+            previous_step = completed_step("D01", 1)
+            previous_step.update({"context_path": cpath, "context_sha256": csha, "evidence_path": epath, "evidence_sha256": esha})
+            write_route(previous, "test-task", "r-1", [previous_step])
+            c2, s2, e2, se2 = write_step_files(current, "D01", "# c\n", "# e\n")
+            current_step = completed_step("D01", 1)
+            current_step.update({"capability_kind": "plugin-tools", "context_path": c2, "context_sha256": s2, "evidence_path": e2, "evidence_sha256": se2})
+            write_route(current, "test-task", "r-1", [current_step])
+            current_route, _ = parse_route(current)
+            previous_route, _ = parse_route(previous)
+            from kapisch_validation.delegations import validate_route_lifecycle
+            errors = validate_route_lifecycle(current_route, previous_route, previous)
+            self.assertEqual(errors[0].code, "TWV-DELEG-BINDING-REBOUND")
+
+    def test_sequential_write_chain_is_valid(self) -> None:
+        manifest = make_manifest([make_node("T01", "behavioral", delegation_ids=["D01", "D02"])])
+        manifest.nodes[0].raw["revision"] = {"base": "base", "head": "head"}
+        with tempfile.TemporaryDirectory() as temporary:
+            task = Path(temporary)
+            c1, s1, e1, se1 = write_step_files(task, "D01", "# c\n", "# e\n")
+            first = completed_step("D01", 1, parent="T01", effect_class="repository-write", authority_mode="explicit-step", authority_ref="gate:test")
+            first.update({"source_revision": "base", "result_revision": "mid", "context_path": c1, "context_sha256": s1, "evidence_path": e1, "evidence_sha256": se1})
+            c2, s2, e2, se2 = write_step_files(task, "D02", "# c\n", "# e\n")
+            second = completed_step("D02", 2, parent="T01", effect_class="repository-write", authority_mode="explicit-step", authority_ref="gate:test")
+            second.update({"source_revision": "mid", "result_revision": "head", "context_path": c2, "context_sha256": s2, "evidence_path": e2, "evidence_sha256": se2})
+            write_route(task, "test-task", "r-1", [first, second])
+            errors = validate_route_references(manifest, task)
+            self.assertEqual(errors, ())
+
+    def test_chain_source_mismatch_is_rejected(self) -> None:
+        manifest = make_manifest([make_node("T01", "behavioral", delegation_ids=["D01", "D02"])])
+        manifest.nodes[0].raw["revision"] = {"base": "base", "head": "head"}
+        with tempfile.TemporaryDirectory() as temporary:
+            task = Path(temporary)
+            c1, s1, e1, se1 = write_step_files(task, "D01", "# c\n", "# e\n")
+            first = completed_step("D01", 1, parent="T01")
+            first.update({"source_revision": "base", "result_revision": "mid", "context_path": c1, "context_sha256": s1, "evidence_path": e1, "evidence_sha256": se1})
+            c2, s2, e2, se2 = write_step_files(task, "D02", "# c\n", "# e\n")
+            second = completed_step("D02", 2, parent="T01")
+            second.update({"source_revision": "other", "result_revision": "head", "context_path": c2, "context_sha256": s2, "evidence_path": e2, "evidence_sha256": se2})
+            write_route(task, "test-task", "r-1", [first, second])
+            errors = validate_route_references(manifest, task)
+            self.assertTrue(
+                any(error.code == "TWV-DELEG-STEP-REVISION-MISMATCH" for error in errors)
+            )
+
     def test_lifecycle_regression_across_resume(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -727,7 +809,7 @@ class RouteReferenceTests(unittest.TestCase):
             first.update({"context_path": c1, "context_sha256": s1, "evidence_path": e1, "evidence_sha256": se1})
             c2, s2, e2, se2 = write_step_files(task, "D02", "# c\n", "# e\n")
             second = completed_step("D02", 2, parent="T01", effect_class="external-read")
-            second.update({"context_path": c2, "context_sha256": s2, "evidence_path": e2, "evidence_sha256": se2})
+            second.update({"source_revision": "head", "context_path": c2, "context_sha256": s2, "evidence_path": e2, "evidence_sha256": se2})
             c3, s3, e3, se3 = write_step_files(task, "D03", "# c\n", "# e\n")
             third = completed_step("D03", 3, parent="R01", effect_class="external-read")
             third.update({"context_path": c3, "context_sha256": s3, "evidence_path": e3, "evidence_sha256": se3})
@@ -812,6 +894,14 @@ class DelegationScopeCliTests(unittest.TestCase):
                 scope="delegations",
             )
             self.assertEqual(errors, ())
+
+    def test_cli_durable_v3_resume_from_no_route_snapshot(self) -> None:
+        errors = validate(
+            FIXTURES.parents[2] / "skills/kapisch",
+            FIXTURES / "valid-v3-durable",
+            previous_task_dir=FIXTURES / "valid-v3-no-delegation",
+        )
+        self.assertEqual(errors, ())
 
     def test_cli_durable_v3_rejects_bad_route(self) -> None:
         errors = validate(
