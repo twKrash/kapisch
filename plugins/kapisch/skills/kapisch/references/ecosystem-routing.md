@@ -93,15 +93,17 @@ requires another capability, the controller evaluates that need and records a
 new sibling delegated step with its own context, authority, and evidence.
 Delegation never revives operational waves, parallel scheduling, worktree
 integration, or multi-writer execution: at most one delegated step may be
-active, and a graph-free workflow remains graph-free.
+active. Graph-free delegation (a route record without a version-3 execution
+graph) is deferred to a later change.
 
 ## Delegation evidence layout
 
 Delegation evidence is mandatory whenever KAPISCH uses an ecosystem capability,
 including when the user selected `handoff=chat`. It is required for route
 explanation, review, and safe resume; it is not an optional presentation
-handoff. It is a separate route record so a graph-free workflow remains
-graph-free:
+handoff. It is a separate route record under the task run directory. Within
+the current scope the record is validated only as part of version-3 durable
+runs; graph-free delegation is deferred to a later change:
 
 ```text
 .kapisch/runs/<task-id>/
@@ -127,8 +129,8 @@ Each step records the minimum delegation metadata needed to identify the
 selected capability and its maximum effect class:
 
 - stable `id` and non-negative `sequence`;
-- `parent_node_id`, or the literal `unavailable` when the step is not owned by
-a graph node;
+- `parent_node_id` — the owning graph node (steps without an owning node are
+deferred with graph-free delegation);
 - `selection_mode = explicit|automatic`;
 - `capability_kind = skill|plugin-skill|plugin-tools`;
 - `requested_capability` and `resolved_capability`;
@@ -202,8 +204,8 @@ Every step records a context file and digest (persisted before invocation) and
 an evidence file and digest (persisted after the step resolves). Both files
 must be valid UTF-8 inside the task directory, with exact lowercase SHA-256
 digests of the persisted bytes; the literal `unavailable` is used only where
-the schema allows it (`parent_node_id`, `source_plugin`), never for required
-context or evidence paths/digests. Step lifecycle states
+the schema allows it (`source_plugin`), never for required context or evidence
+paths/digests. Step lifecycle states
 (`planned`/`started`/`completed`/...) and per-step repository revisions are
 deferred to a later change: the graph node lifecycle and revision evidence
 already cover them, and the route record identifies the selected capability and

@@ -232,7 +232,12 @@ profile should be added, and existing profile runtime settings should not change
 
 ## Phase 2 — introduce durable delegation evidence
 
-Use a separate route record so a graph-free workflow remains graph-free:
+Deferred by the 2026-08-04 scope decision (recorded above): graph-free
+delegation, the step `status` lifecycle, and per-step repository revisions. The
+shipped route record is the minimum metadata set listed in the scope decision;
+this section retains the historical full design for the deferred parts, marked
+accordingly. Within the shipped scope the route record is validated only as
+part of version-3 durable runs:
 
 ```text
 .kapisch/runs/<task-id>/
@@ -262,8 +267,10 @@ Define a closed, versioned schema with these root fields:
 Each step records:
 
 - stable `id` and non-negative `sequence`;
-- `parent_node_id`, or the literal `unavailable` for graph-free work;
-- `status = planned|started|completed|blocked|failed`;
+- `parent_node_id`, or the literal `unavailable` for graph-free work
+  *(deferred: the shipped schema always names the owning graph node)*;
+- `status = planned|started|completed|blocked|failed` *(deferred by the scope
+  decision — the shipped route records no status)*;
 - `selection_mode = explicit|automatic`;
 - `capability_kind = skill|plugin-skill|plugin-tools`;
 - `requested_capability` and `resolved_capability`;
@@ -271,7 +278,7 @@ Each step records:
 - maximum `effect_class`;
 - `authority_mode` and an in-context `authority_ref`;
 - context and evidence paths plus lowercase SHA-256 digests;
-- source and resulting repository revisions;
+- source and resulting repository revisions *(deferred by the scope decision)*;
 - optional exposed runtime/tool receipts below reverse-DNS `extensions`.
 
 The effect classes are:
@@ -405,13 +412,21 @@ Do not implement:
 ### CLI behavior
 
 - Preserve the current default durable validator behavior.
-- Add `--scope delegations` for graph-free delegation records.
+- Add `--scope delegations` for graph-free delegation records *(deferred by the
+  scope decision — the shipped CLI has no `--scope` flag)*.
 - During version-3 durable validation, automatically validate the route record
   and every graph reference.
 - Keep deterministic `text|json` output, stable error ordering, exit status 0/2,
   standard-library-only Python 3.11 support, and read-only operation.
 
 ## Phase 5 — implement resume and side-effect recovery
+
+Deferred by the 2026-08-04 scope decision: the delegated-step reconciliation
+machinery (planned/started/completed recovery, external-effect deduplication).
+The shipped scope keeps only the two applicable rules (never blindly retry an
+external-write/destructive step; repeated resume against unchanged evidence
+produces no duplicate effect), mirrored in `resume.md`. The following
+historical design is retained for the deferred parts.
 
 Extend `references/resume.md` and structural validation with these controller
 rules:
@@ -482,7 +497,9 @@ Add contract and validator tests before treating prose as implemented behavior.
 - Add valid and invalid fixture directories under
   `tests/kapisch_validation/fixtures/`.
 - Extend `scripts/test_portable_package.py` with one graph-free delegation
-  validation and one version-3 durable validation from the isolated copy.
+  validation *(deferred by the scope decision — the shipped portable check
+  covers only the version-3 durable route record)* and one version-3 durable
+  validation from the isolated copy.
 - Preserve the existing legacy-migration byte-comparison tests.
 
 ## Phase 7 — public documentation and packaging
@@ -545,7 +562,8 @@ data/action boundaries, retry behavior, and recovery rules.
    - local/external authority;
    - normal, failed, interrupted, and resumed lifecycle;
    - duplicate external-effect prevention;
-   - graph-free and durable consumers;
+   - graph-free and durable consumers *(graph-free delegation deferred by the
+     scope decision; the matrix covers version-3 durable consumers)*;
    - version-1/version-2 compatibility;
    - reviewer/final non-delegability;
    - validator boundary and negative scenarios.
@@ -565,7 +583,9 @@ Change 7 is complete only when all of the following are true:
 - `ecosystem-routing.md` is the single normative owner and all related contracts
   link to it without duplicating or contradicting its rules;
 - explicit and automatic capability selection are explainable and fail closed;
-- graph-free and durable delegated steps have inspectable, digest-bound evidence;
+- graph-free and durable delegated steps have inspectable, digest-bound evidence
+  *(graph-free delegation deferred by the scope decision; version-3 durable
+  delegated steps have inspectable, digest-bound evidence)*;
 - manifest version 3 cross-validates graph nodes and delegated steps;
 - version-1 and version-2 manifests and compatibility defaults remain unchanged;
 - legacy migration remains explicit, byte-preserving, source-retaining, and

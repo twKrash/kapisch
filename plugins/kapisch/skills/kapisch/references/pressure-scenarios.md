@@ -408,12 +408,14 @@ Positive scenarios:
      `selection_mode=explicit` plus the route/context/evidence under
      `delegations/`. The workflow stays graph-free
      (`parent_node_id=unavailable`) and the verified result feeds the existing
-     role and workflow.
+     role and workflow. *(Deferred by the 2026-08-04 scope decision: graph-free
+     delegation is a later change; the shipped route record is validated only
+     as part of version-3 durable runs.)*
 164. A graph-free automatically selected read-only plugin skill: the controller
      considers only visibly available capabilities, selects the smallest
      capability that covers the bounded substep, and records the observable
      selection reason; it never claims the visible set is exhaustive and never
-     selects from name similarity alone.
+     selects from name similarity alone. *(Deferred with item 163.)*
 165. A version-3 durable implementation node with one completed delegation: the
      node's `delegation_ids` resolves against `delegations/00-route.toml`, the
      step's `parent_node_id` matches the owning node, and the node completes
