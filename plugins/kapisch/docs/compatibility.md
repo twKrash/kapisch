@@ -1,5 +1,13 @@
 # Compatibility, migration, and rollback
 
+## Compatibility status
+
+Legacy migration and the `default`/`foundry` presentation themes are
+implemented, reviewed, and frozen supported compatibility surfaces. They are
+not scheduled for removal; a separate product decision is required before that
+changes. Their presence does not establish Codex runtime acceptance or a
+release.
+
 ## Compatibility version 1
 
 Only `.planning/task-workflow/<task-id>/` is a supported legacy input namespace.

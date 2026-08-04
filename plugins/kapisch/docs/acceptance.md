@@ -2,12 +2,12 @@
 
 | Surface | Status |
 | --- | --- |
-| Standalone source extraction and portable-package isolation | completed |
-| Git-backed local marketplace catalog and plugin-source resolution | completed |
-| `codex plugin marketplace add twKrash/kapisch`, installation, discovery, and `$kapisch` invocation | pending manual clean-environment acceptance |
-| OpenAI public Plugin Directory submission | out of scope |
+| Standalone source extraction and portable-package isolation | implemented and reviewed |
+| Git-backed local marketplace catalog and plugin-source resolution | implemented and reviewed |
+| `codex plugin marketplace add twKrash/kapisch`, installation, fresh-session discovery, reviewer invocation, and `$kapisch` invocation | planned runtime acceptance under [#11](https://github.com/twKrash/kapisch/issues/11) |
+| OpenAI public Plugin Directory submission | deferred/archived |
 
-The repository-level `tests/test_marketplace.py` verifies the closed marketplace
+The repository-level `tests/test_marketplace.py` verifies the implemented closed marketplace
 catalog, `AVAILABLE` installation policy, canonical `./plugins/kapisch` source,
 plugin identity, and documented GitHub import/install commands. It does not
 modify a developer's Codex configuration or claim live installation acceptance.
@@ -76,7 +76,7 @@ for independent approval or milestone final readiness.
 - `scripts/test_portable_package.py` runs one version-3 durable validation
   (with a delegation route record) from the isolated package copy.
 
-### Manual clean-environment acceptance (pending)
+### Manual clean-environment runtime acceptance (planned under [#11](https://github.com/twKrash/kapisch/issues/11))
 
 Phase 8 of the Change 7 execution plan is recorded as pending manual
 acceptance; it has not been executed in this environment. Acceptance checklist:
@@ -91,10 +91,9 @@ acceptance; it has not been executed in this environment. Acceptance checklist:
    fallback or a precise blocker.
 7. Install a plugin and verify its capability only in a fresh session when the
    runtime requires that refresh.
-8. Interrupt a delegated external-write step and verify resume does not
-   duplicate the external effect (deferred: the delegation lifecycle/recovery
-   machinery is a later change; the evidence and the never-blindly-retry rule
-   are already in scope).
+8. Do not treat an interrupted delegated external-write step as safely
+   resumable. Recovery reconciliation, idempotency, and duplicate-effect safety
+   remain unresolved under [#10](https://github.com/twKrash/kapisch/issues/10).
 9. Use a specialist review capability and verify that it remains advisory
    until the configured KAPISCH reviewer produces canonical evidence.
 10. Verify that KAPISCH never installs, authenticates, commits, pushes,
@@ -119,5 +118,5 @@ this environment.
 
 | Surface | Capability exposure | Verification |
 | --- | --- | --- |
-| Codex desktop and CLI | can exercise plugin-bundled skills and tools | pending manual clean-environment acceptance |
-| Surface without plugin support | may expose local skills and must degrade safely (disclosed native fallback or a precise blocker) | pending manual clean-environment acceptance |
+| Codex desktop and CLI | can exercise plugin-bundled skills and tools | planned runtime acceptance under [#11](https://github.com/twKrash/kapisch/issues/11) |
+| Surface without plugin support | may expose local skills and must degrade safely (disclosed native fallback or a precise blocker) | planned runtime acceptance under [#11](https://github.com/twKrash/kapisch/issues/11) |
