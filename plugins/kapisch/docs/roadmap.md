@@ -377,21 +377,23 @@ measurement work.
 
 ## Change 7 — composable Codex ecosystem routing
 
-Status: completed. The change-7 dogfood run
+Status: implemented; clean-environment ecosystem-routing acceptance (Phase 8)
+and a distinct final-readiness decision for the current head remain required
+before the completed state is reported ready. The change-7 dogfood run
 (`change7-ecosystem-routing-dogfood` under the local `.kapisch/runs/`)
 recorded the review history: the research handoff assessed the definition of
 done and flagged the evidence gaps; Round 0 approved the implementation with
 thirteen non-blocking findings; a bounded P3 fix round resolved every fixable
-finding (normative started-evidence wording, missing error-code coverage,
-fixture hygiene, attribution, plan status, profile refresh); Round 1 approved
-the corrected whole delta under the user-attested external-task path; and a
-distinct final-readiness decision returned `ready`. Clean-environment
-ecosystem-routing acceptance remains pending as a separate manual release gate
-under the approved 2026-08-04 deviation (`docs/change-7-execution-plan.md`),
-and this status-only edit changes the reviewed state; fresh approval-capable
-review and a distinct final-readiness decision are therefore required before
-the resulting completed state is itself ready. Change 7 does not depend on
-Change 4 measurement work.
+finding; Round 1 approved the corrected whole delta under the user-attested
+external-task path; a distinct final-readiness decision returned `ready` for
+that state; the roadmap status edit and the final-review amendment received
+their own fresh reviews (Rounds 2 and 3). The PR review blockers (route gating
+on actual delegation, required v3 node fields and step fields, scalar type
+safety, evidence path binding, lifecycle monotonicity, revision binding, node
+kind guard) are addressed in the review fix round. This status text itself
+changes the reviewed state; fresh approval-capable review and a distinct
+final-readiness decision are required before the resulting state is reported
+completed or ready. Change 7 does not depend on Change 4 measurement work.
 
 - Allow KAPISCH routes to delegate bounded work to existing Codex skills and
   plugins instead of reimplementing their methodology or integrations.

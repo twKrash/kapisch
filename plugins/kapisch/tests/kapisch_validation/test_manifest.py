@@ -168,10 +168,23 @@ class ManifestTests(unittest.TestCase):
             ],
         )
 
+    def _v3_body(self, policy_value: str = "auto") -> str:
+        body = V2_BODY.replace("version = 2", "version = 3")
+        body = body.replace(
+            'id="T01"\nsequence=1', 'id="T01"\nsequence=1\ndelegation_ids=[]'
+        )
+        return body.replace(
+            "max_fix_rounds=1", f'max_fix_rounds=1\necosystem_routing="{policy_value}"'
+        )
+
     def test_version_three_requires_ecosystem_routing_policy(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "02-execution-graph.toml"
-            path.write_text(V2_BODY.replace("version = 2", "version = 3"), encoding="utf-8")
+            body = self._v3_body()
+            body = body.replace(
+                'ecosystem_routing="auto"', ""
+            ).replace("\n\n[[nodes]]", "\n[[nodes]]")
+            path.write_text(body, encoding="utf-8")
             result = parse_manifest(path)
             self.assertEqual(
                 [(error.code, error.reference) for error in result.errors],
@@ -181,9 +194,7 @@ class ManifestTests(unittest.TestCase):
     def test_version_three_accepts_ecosystem_routing_policy(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "02-execution-graph.toml"
-            body = V2_BODY.replace("version = 2", "version = 3")
-            body = body.replace("max_fix_rounds=1", 'max_fix_rounds=1\necosystem_routing="auto"')
-            path.write_text(body, encoding="utf-8")
+            path.write_text(self._v3_body(), encoding="utf-8")
             result = parse_manifest(path)
             self.assertEqual(result.errors, ())
             self.assertEqual(result.manifest.version, 3)
@@ -192,13 +203,22 @@ class ManifestTests(unittest.TestCase):
     def test_version_three_rejects_invalid_ecosystem_routing_value(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "02-execution-graph.toml"
-            body = V2_BODY.replace("version = 2", "version = 3")
-            body = body.replace("max_fix_rounds=1", 'max_fix_rounds=1\necosystem_routing="sometimes"')
-            path.write_text(body, encoding="utf-8")
+            path.write_text(self._v3_body(policy_value="sometimes"), encoding="utf-8")
             result = parse_manifest(path)
             self.assertEqual(
                 [(error.code, error.reference) for error in result.errors],
                 [("TWV-SCHEMA-WRONG-SHAPE", "policies.ecosystem_routing")],
+            )
+
+    def test_version_three_requires_delegation_ids_on_every_node(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "02-execution-graph.toml"
+            body = self._v3_body().replace("delegation_ids=[]\n", "", 1)
+            path.write_text(body, encoding="utf-8")
+            result = parse_manifest(path)
+            self.assertEqual(
+                [(error.code, error.reference) for error in result.errors],
+                [("TWV-SCHEMA-MISSING-FIELD", "nodes[0].delegation_ids")],
             )
 
     def test_version_two_rejects_version_three_policy(self) -> None:

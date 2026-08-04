@@ -402,6 +402,15 @@ def parse_manifest(path: Path) -> ParseResult:
                     "version-3-only node field on a version-1 or version-2 manifest",
                 )
             )
+        if version == 3 and "delegation_ids" not in n:
+            errors.append(
+                _e(
+                    "TWV-SCHEMA-MISSING-FIELD",
+                    path,
+                    f"{ref}.delegation_ids",
+                    "required version-3 node field is missing",
+                )
+            )
         for key, allowed in (("revision", REVISION), ("review_scope", SCOPE)):
             if key in n:
                 _closed(n[key], allowed, path, f"{ref}.{key}", errors)

@@ -69,6 +69,7 @@ terminal_node_ids=["T01"]
 [[nodes]]
 id="F01"
 sequence=3
+delegation_ids=[]
 title="final"
 kind="final"
 risk="high"

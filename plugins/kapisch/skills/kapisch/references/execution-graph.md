@@ -47,7 +47,7 @@ Review/final and other referenced artifact locations are defined only in
 [handoffs.md](handoffs.md).
 
 ```toml
-version = 2
+version = 3
 task_id = "example"
 source_plan = "01-plan.md"
 base_revision = "abc1234"
@@ -64,6 +64,7 @@ commit = "manual"
 push = "manual"
 fix_policy = "manual"
 max_fix_rounds = 1
+ecosystem_routing = "auto"
 
 [[nodes]]
 id = "T01"
@@ -85,6 +86,7 @@ executor_class = "implementer"
 model_tier = "standard"
 batching = "off"
 verification_evidence = []
+delegation_ids = []
 
 [nodes.assignment]
 id = "A-T01-1"
@@ -123,6 +125,7 @@ executor_class = "reviewer"
 model_tier = "high"
 batching = "off"
 verification_evidence = []
+delegation_ids = []
 
 [nodes.review_scope]
 terminal_node_ids = ["T01"]
@@ -148,15 +151,20 @@ executor_class = "reviewer"
 model_tier = "high"
 batching = "off"
 verification_evidence = []
+delegation_ids = []
 ```
 
-This version-2 template is for a newly initialized general graph. Its `auto`
+This version-3 template is for a newly initialized general graph. Its `auto`
 policy values do not override a task's persisted policies. In particular, the
 active Change 2 graph remains scoped to its recorded `dispatch=single` and
 `batching=off` bootstrap, while the active Change 3 graph records
 `execution=sequential`, `dispatch=auto`, `batching=auto`, `parallelism=off`, and
 `max_parallel_agents=1`. A version-2 resume uses those exact recorded values; it
 never applies Change 1 compatibility defaults or another task's bootstrap policy.
+Version-2 manifests remain readable as compatibility input only (see
+"Version-3 delegated-step references" below); newly initialized graphs are
+version 3 and always record `ecosystem_routing` and `delegation_ids = []` on
+every node.
 
 Each node has a stable ID; changing a title does not change identity. Its
 non-negative integer `sequence` is the persisted approved-plan order; there is

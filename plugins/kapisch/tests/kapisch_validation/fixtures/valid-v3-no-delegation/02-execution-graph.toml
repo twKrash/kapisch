@@ -14,10 +14,10 @@ commit="manual"
 push="manual"
 fix_policy="manual"
 max_fix_rounds=1
-ecosystem_routing="auto"
+ecosystem_routing="off"
 [[nodes]]
 id="T01"
-delegation_ids=["D01"]
+delegation_ids=[]
 sequence=1
 title="implement"
 kind="behavioral"
@@ -41,8 +41,8 @@ base="base"
 head="head"
 [[nodes]]
 id="R01"
-sequence=2
 delegation_ids=[]
+sequence=2
 title="review"
 kind="review"
 risk="high"
@@ -68,8 +68,8 @@ head="head"
 terminal_node_ids=["T01"]
 [[nodes]]
 id="F01"
-sequence=3
 delegation_ids=[]
+sequence=3
 title="final"
 kind="final"
 risk="high"

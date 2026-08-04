@@ -5,7 +5,11 @@ import json
 from pathlib import Path
 
 from .errors import ValidationError, sorted_errors
-from .delegations import parse_route, validate_route_references
+from .delegations import (
+    parse_route,
+    validate_route_lifecycle,
+    validate_route_references,
+)
 from .manifest import parse_manifest
 from .references import parse_state, validate_references
 from .review_evidence import validate_review_evidence
@@ -20,17 +24,60 @@ def validate(
     scope: str = "durable",
 ) -> tuple[ValidationError, ...]:
     if scope == "delegations":
-        _, errors = parse_route(task_dir)
-        return errors
+        current_route, errors = parse_route(task_dir)
+        if current_route is None:
+            return errors
+        if previous_task_dir:
+            previous_route, previous_errors = parse_route(previous_task_dir)
+            errors.extend(previous_errors)
+            if previous_route is not None:
+                errors.extend(
+                    validate_route_lifecycle(
+                        current_route, previous_route, previous_task_dir
+                    )
+                )
+        return sorted_errors(errors)
     parsed = parse_manifest(task_dir / "02-execution-graph.toml")
     errors = list(parsed.errors)
     if parsed.manifest is None:
         return sorted_errors(errors)
     if parsed.manifest.version == 3:
-        route, route_errors = parse_route(task_dir)
-        errors.extend(route_errors)
-        if route is not None:
-            errors.extend(validate_route_references(parsed.manifest, task_dir))
+        route_path = task_dir / "delegations" / "00-route.toml"
+        route_exists = route_path.is_file()
+        routing = parsed.manifest.policies.get("ecosystem_routing")
+        has_delegation_ids = any(
+            node.raw.get("delegation_ids") for node in parsed.manifest.nodes
+        )
+        if routing == "off" and has_delegation_ids:
+            errors.append(
+                ValidationError(
+                    "TWV-DELEG-ROUTING-OFF-WITH-REFS",
+                    str(route_path),
+                    "policies.ecosystem_routing",
+                    "ecosystem_routing=off forbids delegation references",
+                )
+            )
+        if routing == "off" and route_exists:
+            errors.append(
+                ValidationError(
+                    "TWV-DELEG-ROUTE-WITH-ROUTING-OFF",
+                    str(route_path),
+                    "delegations/00-route.toml",
+                    "ecosystem_routing=off forbids a delegation route record",
+                )
+            )
+        if route_exists or has_delegation_ids:
+            route, route_errors = parse_route(task_dir)
+            errors.extend(route_errors)
+            if route is not None and has_delegation_ids:
+                errors.extend(validate_route_references(parsed.manifest, task_dir))
+            if route is not None and previous_task_dir:
+                previous_route, previous_errors = parse_route(previous_task_dir)
+                errors.extend(previous_errors)
+                if previous_route is not None:
+                    errors.extend(
+                        validate_route_lifecycle(route, previous_route, previous_task_dir)
+                    )
     state, state_errors = parse_state(task_dir / "03-state.toml")
     errors.extend(state_errors)
     if state is None:
