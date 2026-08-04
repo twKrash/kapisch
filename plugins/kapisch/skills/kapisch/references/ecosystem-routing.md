@@ -194,9 +194,12 @@ result_revision = "head"                  # or `unavailable` until completed
 ```
 
 A `planned` step leaves `evidence_path` and `evidence_sha256` as the literal
-`unavailable`; a started, completed, blocked, or failed step records real
-evidence paths and exact lowercase SHA-256 digests of the persisted UTF-8
-files. Every step records a context file and digest before invocation.
+`unavailable`. A `started` step records real evidence paths and digests once
+evidence is produced, and may leave the fields `unavailable` until the step
+resolves (a started step is unresolved by definition). A completed, blocked,
+or failed step always records real evidence paths and exact lowercase SHA-256
+digests of the persisted UTF-8 files. Every step records a context file and
+digest before invocation.
 `resolved_capability` is required (not `unavailable`) for any step that has
 started; `result_revision` is required once a step completes. External-write
 and destructive steps require `authority_mode = "explicit-step"` with a

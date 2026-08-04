@@ -39,7 +39,7 @@ The test suite also covers:
 | Presentation theme vocabulary and semantic firewall | `test_themes.py` |
 | Ecosystem routing contract, route schema, and evidence files | `test_delegations.py` |
 | Manifest version 3 policy and node fields; v1/v2 rejection | `test_manifest.py` |
-| Delegation CLI scope and v3 auto-validation | `test_delegations.py`, `test_cli.py` |
+| Delegation CLI scope and v3 auto-validation | `test_delegations.py` |
 | Portable graph-free delegation and version-3 durable validation | `scripts/test_portable_package.py` |
 | Read-only deterministic validator | `test_cli.py`, `test_hardening.py` |
 

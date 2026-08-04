@@ -383,6 +383,29 @@ class EvidenceFileTests(unittest.TestCase):
         step.update({"context_path": cpath, "context_sha256": csha, "evidence_path": epath, "evidence_sha256": esha})
         return step
 
+    def test_missing_context_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task = Path(temporary)
+            step = self._route_with_files(task)
+            step["context_path"] = "unavailable"
+            step["context_sha256"] = "unavailable"
+            write_route(task, "t", "r-1", [step])
+            _, errors = parse_route(task)
+            self.assertEqual(errors[0].code, "TWV-DELEG-MISSING-CONTEXT")
+
+    def test_unreadable_evidence_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task = Path(temporary)
+            step = self._route_with_files(task)
+            evidence = task / "delegations/D01/01-evidence.md"
+            evidence.chmod(0)
+            try:
+                write_route(task, "t", "r-1", [step])
+                _, errors = parse_route(task)
+                self.assertEqual(errors[0].code, "TWV-DELEG-UNREADABLE-EVIDENCE")
+            finally:
+                evidence.chmod(0o644)
+
     def test_path_escape_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             task = Path(temporary)

@@ -1,6 +1,8 @@
 # Change 7 execution plan — composable Codex ecosystem routing
 
-Status: execution plan only; implementation has not started.
+Status: implementation complete; review and final-readiness evidence in the
+`change7-ecosystem-routing-dogfood` run under the local `.kapisch/runs/`
+(originally "execution plan only; implementation has not started").
 
 ## Outcome
 

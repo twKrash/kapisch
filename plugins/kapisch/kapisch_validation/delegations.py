@@ -170,6 +170,16 @@ def _evidence_file(
         return
     try:
         candidate.read_text(encoding="utf-8")
+    except OSError:
+        errors.append(
+            _e(
+                "TWV-DELEG-UNREADABLE-EVIDENCE",
+                candidate,
+                f"{step_ref}.{field}",
+                "evidence file is unreadable",
+            )
+        )
+        return
     except UnicodeDecodeError:
         errors.append(
             _e(
