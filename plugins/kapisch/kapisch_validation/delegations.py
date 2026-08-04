@@ -614,9 +614,10 @@ def validate_route_lifecycle(
     """Reject lifecycle regressions of a delegated step across resume snapshots.
 
     A step that was started, completed, blocked, or failed in the previous route
-    must not regress to an earlier state in the current route; completed must
-    never regress at all. This prevents an unresolved external effect from being
-    rewritten to planned and silently retried.
+    must not regress to an earlier state in the current route; a completed step
+    must never regress, including to blocked or failed. This prevents an
+    unresolved external effect from being rewritten to planned and silently
+    retried.
     """
     errors: list[ValidationError] = []
     path = previous_task_dir / ROUTE_FILE
@@ -647,6 +648,15 @@ def validate_route_lifecycle(
                     path,
                     f"steps[{step_id}].status",
                     f"delegated step lifecycle regressed from {previous_status} to {current_status}",
+                )
+            )
+        elif previous_status == "completed" and current_status in {"blocked", "failed"}:
+            errors.append(
+                _e(
+                    "TWV-DELEG-LIFECYCLE-REGRESSION",
+                    path,
+                    f"steps[{step_id}].status",
+                    f"a completed delegated step must never regress to {current_status}",
                 )
             )
     return sorted_errors(errors)

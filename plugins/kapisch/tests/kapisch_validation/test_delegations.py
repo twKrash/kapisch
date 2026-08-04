@@ -765,6 +765,32 @@ class DelegationScopeCliTests(unittest.TestCase):
         self.assertTrue(
             any(error.code == "TWV-DELEG-ROUTING-OFF-WITH-REFS" for error in errors)
         )
+        self.assertTrue(
+            any(error.code == "TWV-DELEG-ROUTE-WITH-ROUTING-OFF" for error in errors)
+        )
+
+    def test_cli_scope_delegations_resume_rejects_lifecycle_regression(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            previous = root / "previous"
+            current = root / "current"
+            cpath, csha, epath, esha = write_step_files(previous, "D01", "# c\n", "# e\n")
+            previous_step = completed_step("D01", 1)
+            previous_step.update({"status": "started", "resolved_capability": "skill-a", "evidence_path": "unavailable", "evidence_sha256": "unavailable", "context_path": cpath, "context_sha256": csha, "result_revision": "unavailable"})
+            write_route(previous, "test-task", "r-1", [previous_step])
+            c2, s2, e2, se2 = write_step_files(current, "D01", "# c\n", "# e\n")
+            current_step = completed_step("D01", 1)
+            current_step.update({"status": "planned", "resolved_capability": "unavailable", "evidence_path": "unavailable", "evidence_sha256": "unavailable", "context_path": c2, "context_sha256": s2, "result_revision": "unavailable"})
+            write_route(current, "test-task", "r-1", [current_step])
+            errors = validate(
+                Path("contracts"),
+                current,
+                previous_task_dir=previous,
+                scope="delegations",
+            )
+            self.assertTrue(
+                any(error.code == "TWV-DELEG-LIFECYCLE-REGRESSION" for error in errors)
+            )
 
     def test_cli_durable_v3_rejects_bad_route(self) -> None:
         errors = validate(

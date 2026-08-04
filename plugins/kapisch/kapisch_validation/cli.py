@@ -24,9 +24,10 @@ def validate(
     scope: str = "durable",
 ) -> tuple[ValidationError, ...]:
     if scope == "delegations":
-        current_route, errors = parse_route(task_dir)
+        current_route, parse_errors = parse_route(task_dir)
+        errors = list(parse_errors)
         if current_route is None:
-            return errors
+            return sorted_errors(errors)
         if previous_task_dir:
             previous_route, previous_errors = parse_route(previous_task_dir)
             errors.extend(previous_errors)
