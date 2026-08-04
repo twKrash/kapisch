@@ -465,7 +465,7 @@ Negative scenarios:
      validation blocks it.
 179. A review/final delegation attempts a write or destructive effect: blocked;
      review/final nodes reference only read-only advisory steps.
-181. A delegated capability tries to delegate the KAPISCH route or invoke
+180. A delegated capability tries to delegate the KAPISCH route or invoke
      `$kapisch`: refused as recursive route ownership; the need is recorded as a
      new sibling step with its own context, authority, lifecycle, and evidence.
 182. An unavailable capability would be installed, enabled, signed in to, or
