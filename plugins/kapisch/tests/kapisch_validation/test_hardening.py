@@ -48,8 +48,9 @@ class ValidatorHardeningTests(unittest.TestCase):
                     self.assertIsNone(state)
                     self.assertEqual(errors[0].code, expected)
             path.write_text('task_id = "x"\n', encoding="utf-8")
-            with mock.patch.object(
-                Path, "read_bytes", side_effect=PermissionError("denied")
+            with mock.patch(
+                "kapisch_validation.artifact_io.os.open",
+                side_effect=PermissionError("denied"),
             ):
                 state, errors = parse_state(path)
         self.assertIsNone(state)

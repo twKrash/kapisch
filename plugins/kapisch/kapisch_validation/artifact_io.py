@@ -3,12 +3,15 @@ from __future__ import annotations
 import tomllib
 from dataclasses import dataclass
 from enum import Enum
+import os
 from pathlib import Path
+import stat
 
 
 class ArtifactFailureKind(str, Enum):
     MISSING = "missing"
     UNREADABLE = "unreadable"
+    NOT_REGULAR = "not_regular"
     INVALID_UTF8 = "invalid_utf8"
     MALFORMED_TOML = "malformed_toml"
 
@@ -30,11 +33,25 @@ def read_utf8_artifact(
 ) -> tuple[Utf8Artifact | None, ArtifactFailure | None]:
     """Read a user-controlled artifact without leaking expected I/O failures."""
     try:
-        data = path.read_bytes()
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
     except FileNotFoundError:
         return None, ArtifactFailure(ArtifactFailureKind.MISSING)
     except OSError:
         return None, ArtifactFailure(ArtifactFailureKind.UNREADABLE)
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            return None, ArtifactFailure(ArtifactFailureKind.NOT_REGULAR)
+        chunks: list[bytes] = []
+        while chunk := os.read(descriptor, 64 * 1024):
+            chunks.append(chunk)
+        data = b"".join(chunks)
+    except OSError:
+        return None, ArtifactFailure(ArtifactFailureKind.UNREADABLE)
+    finally:
+        try:
+            os.close(descriptor)
+        except OSError:
+            pass
     try:
         return Utf8Artifact(data, data.decode("utf-8")), None
     except UnicodeDecodeError:
@@ -50,5 +67,5 @@ def load_toml_artifact(
     assert artifact is not None
     try:
         return tomllib.loads(artifact.text), None
-    except tomllib.TOMLDecodeError as exc:
+    except (tomllib.TOMLDecodeError, ValueError, RecursionError) as exc:
         return None, ArtifactFailure(ArtifactFailureKind.MALFORMED_TOML, str(exc))

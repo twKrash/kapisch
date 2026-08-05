@@ -82,8 +82,9 @@ class ManifestTests(unittest.TestCase):
                     result = parse_manifest(path)
                     self.assertEqual(result.errors[0].code, expected)
             path.write_text(V2_BODY, encoding="utf-8")
-            with mock.patch.object(
-                Path, "read_bytes", side_effect=PermissionError("denied")
+            with mock.patch(
+                "kapisch_validation.artifact_io.os.open",
+                side_effect=PermissionError("denied"),
             ):
                 result = parse_manifest(path)
         self.assertEqual(result.errors[0].code, "TWV-PARSE-UNREADABLE-ARTIFACT")

@@ -101,6 +101,13 @@ def _toml_load_error(
             "toml",
             f"{artifact_name} is unreadable",
         )
+    if failure.kind is ArtifactFailureKind.NOT_REGULAR:
+        return _e(
+            "TWV-PARSE-UNREADABLE-ARTIFACT",
+            path,
+            "toml",
+            f"{artifact_name} must be a regular file",
+        )
     if failure.kind is ArtifactFailureKind.INVALID_UTF8:
         return _e(
             "TWV-PARSE-INVALID-UTF8",
@@ -493,6 +500,15 @@ def _validate_result(
                     result_path,
                     invocation_id,
                     "reviewer result is unreadable",
+                )
+            ]
+        if failure.kind is ArtifactFailureKind.NOT_REGULAR:
+            return errors + [
+                _e(
+                    "TWV-REVIEW-UNREADABLE-RESULT",
+                    result_path,
+                    invocation_id,
+                    "reviewer result must be a regular file",
                 )
             ]
         assert failure.kind is ArtifactFailureKind.INVALID_UTF8

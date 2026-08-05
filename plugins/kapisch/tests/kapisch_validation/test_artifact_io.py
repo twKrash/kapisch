@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from kapisch_validation.artifact_io import (
@@ -35,22 +36,56 @@ class ArtifactIoTests(unittest.TestCase):
 
     def test_read_utf8_classifies_os_errors_without_catching_unexpected_ones(self) -> None:
         path = Path("artifact.toml")
-        with mock.patch.object(Path, "read_bytes", side_effect=PermissionError("denied")):
+        with mock.patch(
+            "kapisch_validation.artifact_io.os.open", side_effect=PermissionError("denied")
+        ):
             artifact, failure = read_utf8_artifact(path)
         self.assertIsNone(artifact)
         self.assertEqual(failure.kind, ArtifactFailureKind.UNREADABLE)
 
-        with mock.patch.object(Path, "read_bytes", side_effect=RuntimeError("bug")):
+        with (
+            mock.patch("kapisch_validation.artifact_io.os.open", return_value=3),
+            mock.patch(
+                "kapisch_validation.artifact_io.os.fstat",
+                return_value=SimpleNamespace(st_mode=0o100000),
+            ),
+            mock.patch(
+                "kapisch_validation.artifact_io.os.read", side_effect=RuntimeError("bug")
+            ),
+            mock.patch("kapisch_validation.artifact_io.os.close"),
+        ):
             with self.assertRaisesRegex(RuntimeError, "bug"):
                 read_utf8_artifact(path)
 
-    def test_load_toml_classifies_malformed_toml(self) -> None:
+    def test_read_utf8_rejects_non_regular_files_before_reading(self) -> None:
+        with (
+            mock.patch("kapisch_validation.artifact_io.os.open", return_value=3),
+            mock.patch(
+                "kapisch_validation.artifact_io.os.fstat",
+                return_value=SimpleNamespace(st_mode=0o010000),
+            ),
+            mock.patch("kapisch_validation.artifact_io.os.read") as read,
+            mock.patch("kapisch_validation.artifact_io.os.close") as close,
+        ):
+            artifact, failure = read_utf8_artifact(Path("artifact.toml"))
+        self.assertIsNone(artifact)
+        self.assertEqual(failure.kind, ArtifactFailureKind.NOT_REGULAR)
+        read.assert_not_called()
+        close.assert_called_once_with(3)
+
+    def test_load_toml_classifies_parser_failures(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "artifact.toml"
-            path.write_text("value = [", encoding="utf-8")
-            raw, failure = load_toml_artifact(path)
-        self.assertIsNone(raw)
-        self.assertEqual(failure.kind, ArtifactFailureKind.MALFORMED_TOML)
+            for content in (
+                "value = [",
+                "value = " + "9" * 5_000,
+                "value = " + "[" * 1_500 + "]" * 1_500,
+            ):
+                with self.subTest(content_prefix=content[:10]):
+                    path.write_text(content, encoding="utf-8")
+                    raw, failure = load_toml_artifact(path)
+                    self.assertIsNone(raw)
+                    self.assertEqual(failure.kind, ArtifactFailureKind.MALFORMED_TOML)
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -32,6 +33,36 @@ class CliTests(unittest.TestCase):
                 ]
             )
         return code, output.getvalue().splitlines()
+
+    def _run_subprocess(self, task_dir: Path) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                sys.executable,
+                str(PLUGIN_ROOT / "scripts/validate_kapisch.py"),
+                "--contract-dir",
+                str(PLUGIN_ROOT / CONTRACT),
+                "--task-dir",
+                str(task_dir),
+                "--format",
+                "json",
+            ],
+            capture_output=True,
+            cwd=PLUGIN_ROOT,
+            text=True,
+            check=False,
+        )
+
+    def assert_subprocess_failure(
+        self, task_dir: Path, expected_code: str
+    ) -> None:
+        completed = self._run_subprocess(task_dir)
+        findings = json.loads(completed.stdout)
+        self.assertEqual(completed.returncode, 2)
+        self.assertTrue(
+            any(finding["code"] == expected_code for finding in findings), findings
+        )
+        self.assertNotIn("Traceback", completed.stdout)
+        self.assertNotIn("Traceback", completed.stderr)
 
     def test_missing_required_arguments_is_usage_error(self) -> None:
         with self.assertRaises(SystemExit) as raised:
@@ -107,30 +138,29 @@ class CliTests(unittest.TestCase):
                 task_dir = Path(temporary) / "task"
                 shutil.copytree(FIXTURES / "valid-sequential-v2", task_dir)
                 (task_dir / relative_path).write_bytes(b"\xff")
-                completed = subprocess.run(
-                    [
-                        sys.executable,
-                        str(PLUGIN_ROOT / "scripts/validate_kapisch.py"),
-                        "--contract-dir",
-                        str(PLUGIN_ROOT / CONTRACT),
-                        "--task-dir",
-                        str(task_dir),
-                        "--format",
-                        "json",
-                    ],
-                    capture_output=True,
-                    cwd=PLUGIN_ROOT,
-                    text=True,
-                    check=False,
-                )
-                findings = json.loads(completed.stdout)
-                self.assertEqual(completed.returncode, 2)
-                self.assertTrue(
-                    any(finding["code"] == expected_code for finding in findings),
-                    findings,
-                )
-                self.assertNotIn("Traceback", completed.stdout)
-                self.assertNotIn("Traceback", completed.stderr)
+                self.assert_subprocess_failure(task_dir, expected_code)
+
+    def test_parser_overflows_exit_two_without_traceback(self) -> None:
+        cases = (
+            b"version = " + b"9" * 5_000,
+            b"version = " + b"[" * 1_500 + b"]" * 1_500,
+        )
+        for content in cases:
+            with self.subTest(content_prefix=content[:10]), tempfile.TemporaryDirectory() as temporary:
+                task_dir = Path(temporary) / "task"
+                shutil.copytree(FIXTURES / "valid-sequential-v2", task_dir)
+                (task_dir / "02-execution-graph.toml").write_bytes(content)
+                self.assert_subprocess_failure(task_dir, "TWV-PARSE-MALFORMED-TOML")
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "requires POSIX FIFO support")
+    def test_fifo_artifact_exits_two_without_blocking(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task_dir = Path(temporary) / "task"
+            manifest = task_dir / "02-execution-graph.toml"
+            shutil.copytree(FIXTURES / "valid-sequential-v2", task_dir)
+            manifest.unlink()
+            os.mkfifo(manifest)
+            self.assert_subprocess_failure(task_dir, "TWV-PARSE-UNREADABLE-ARTIFACT")
 
 
 if __name__ == "__main__":
