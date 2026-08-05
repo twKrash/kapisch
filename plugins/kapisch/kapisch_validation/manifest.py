@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import re
-import tomllib
 from pathlib import Path
 
+from .artifact_io import ArtifactFailure, ArtifactFailureKind, load_toml_artifact
 from .errors import ValidationError, sorted_errors
 from .helpers import is_integer, non_empty_string, string_list
 from .models import Manifest, Node, ParseResult
@@ -112,6 +112,27 @@ def _e(c: str, p: Path, r: str, m: str) -> ValidationError:
     return ValidationError(c, str(p), r, m)
 
 
+def _toml_load_error(
+    path: Path, failure: ArtifactFailure, artifact_name: str
+) -> ValidationError:
+    if failure.kind is ArtifactFailureKind.UNREADABLE:
+        return _e(
+            "TWV-PARSE-UNREADABLE-ARTIFACT",
+            path,
+            "toml",
+            f"{artifact_name} is unreadable",
+        )
+    if failure.kind is ArtifactFailureKind.INVALID_UTF8:
+        return _e(
+            "TWV-PARSE-INVALID-UTF8",
+            path,
+            "toml",
+            f"{artifact_name} must be valid UTF-8",
+        )
+    assert failure.kind is ArtifactFailureKind.MALFORMED_TOML
+    return _e("TWV-PARSE-MALFORMED-TOML", path, "toml", failure.detail)
+
+
 def _closed(
     data: object, allowed: set[str], p: Path, r: str, errors: list[ValidationError]
 ) -> None:
@@ -146,7 +167,13 @@ def _extensions(
 
 def parse_manifest(path: Path) -> ParseResult:
     errors: list[ValidationError] = []
-    if not path.is_file():
+    raw, failure = load_toml_artifact(path)
+    if failure is not None:
+        if failure.kind is not ArtifactFailureKind.MISSING:
+            return ParseResult(
+                None,
+                sorted_errors([_toml_load_error(path, failure, "task manifest")]),
+            )
         legacy = path.with_suffix(".yaml")
         code = (
             "TWV-PARSE-UNSUPPORTED-LEGACY-YAML"
@@ -162,14 +189,7 @@ def parse_manifest(path: Path) -> ParseResult:
         return ParseResult(
             None, sorted_errors([_e(code, target, target.name, message)])
         )
-    try:
-        with path.open("rb") as f:
-            raw = tomllib.load(f)
-    except tomllib.TOMLDecodeError as exc:
-        return ParseResult(
-            None,
-            sorted_errors([_e("TWV-PARSE-MALFORMED-TOML", path, "toml", str(exc))]),
-        )
+    assert raw is not None
     _closed(raw, ROOT, path, "root", errors)
     _extensions(raw.get("extensions"), path, "extensions", errors)
     _closed(raw.get("policies"), POLICIES, path, "policies", errors)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from kapisch_validation.manifest import parse_manifest
 
@@ -68,6 +69,24 @@ class ManifestTests(unittest.TestCase):
             FIXTURES / "unsupported-legacy-yaml" / "02-execution-graph.toml"
         )
         self.assertEqual(result.errors[0].code, "TWV-PARSE-UNSUPPORTED-LEGACY-YAML")
+
+    def test_toml_load_failures_are_structured(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "02-execution-graph.toml"
+            for content, expected in (
+                (b"\xff", "TWV-PARSE-INVALID-UTF8"),
+                (b"version = [", "TWV-PARSE-MALFORMED-TOML"),
+            ):
+                with self.subTest(expected=expected):
+                    path.write_bytes(content)
+                    result = parse_manifest(path)
+                    self.assertEqual(result.errors[0].code, expected)
+            path.write_text(V2_BODY, encoding="utf-8")
+            with mock.patch.object(
+                Path, "read_bytes", side_effect=PermissionError("denied")
+            ):
+                result = parse_manifest(path)
+        self.assertEqual(result.errors[0].code, "TWV-PARSE-UNREADABLE-ARTIFACT")
 
     def test_version_one_defaults_to_sequential_policy(self) -> None:
         result = parse_manifest(

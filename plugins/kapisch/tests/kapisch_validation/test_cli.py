@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
+import shutil
+import subprocess
+import sys
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -10,6 +15,7 @@ from kapisch_validation.cli import main
 
 FIXTURES = Path(__file__).parent / "fixtures"
 CONTRACT = Path("skills/kapisch")
+PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 
 
 class CliTests(unittest.TestCase):
@@ -83,6 +89,48 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(lines, ["[]"])
         self.assertEqual(before, after)
+
+    def test_corrupt_artifacts_exit_two_without_traceback(self) -> None:
+        cases = (
+            ("02-execution-graph.toml", "TWV-PARSE-INVALID-UTF8"),
+            ("03-state.toml", "TWV-PARSE-INVALID-UTF8"),
+            (
+                "reviews/round-0/00-review-invocation.toml",
+                "TWV-PARSE-INVALID-UTF8",
+            ),
+            ("reviews/round-0/03-review.md", "TWV-REVIEW-RESULT-ENCODING"),
+        )
+        for relative_path, expected_code in cases:
+            with self.subTest(
+                artifact=relative_path
+            ), tempfile.TemporaryDirectory() as temporary:
+                task_dir = Path(temporary) / "task"
+                shutil.copytree(FIXTURES / "valid-sequential-v2", task_dir)
+                (task_dir / relative_path).write_bytes(b"\xff")
+                completed = subprocess.run(
+                    [
+                        sys.executable,
+                        str(PLUGIN_ROOT / "scripts/validate_kapisch.py"),
+                        "--contract-dir",
+                        str(PLUGIN_ROOT / CONTRACT),
+                        "--task-dir",
+                        str(task_dir),
+                        "--format",
+                        "json",
+                    ],
+                    capture_output=True,
+                    cwd=PLUGIN_ROOT,
+                    text=True,
+                    check=False,
+                )
+                findings = json.loads(completed.stdout)
+                self.assertEqual(completed.returncode, 2)
+                self.assertTrue(
+                    any(finding["code"] == expected_code for finding in findings),
+                    findings,
+                )
+                self.assertNotIn("Traceback", completed.stdout)
+                self.assertNotIn("Traceback", completed.stderr)
 
 
 if __name__ == "__main__":

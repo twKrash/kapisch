@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import hashlib
 import re
-import tomllib
 from collections import Counter
 from pathlib import Path
 
+from .artifact_io import (
+    ArtifactFailure,
+    ArtifactFailureKind,
+    load_toml_artifact,
+    read_utf8_artifact,
+)
 from .errors import ValidationError
 from .helpers import non_empty_string
 from .models import Manifest, Node, State
@@ -86,8 +91,32 @@ def _e(c: str, p: Path, r: str, m: str) -> ValidationError:
     return ValidationError(c, str(p), r, m)
 
 
+def _toml_load_error(
+    path: Path, failure: ArtifactFailure, artifact_name: str
+) -> ValidationError:
+    if failure.kind is ArtifactFailureKind.UNREADABLE:
+        return _e(
+            "TWV-PARSE-UNREADABLE-ARTIFACT",
+            path,
+            "toml",
+            f"{artifact_name} is unreadable",
+        )
+    if failure.kind is ArtifactFailureKind.INVALID_UTF8:
+        return _e(
+            "TWV-PARSE-INVALID-UTF8",
+            path,
+            "toml",
+            f"{artifact_name} must be valid UTF-8",
+        )
+    assert failure.kind is ArtifactFailureKind.MALFORMED_TOML
+    return _e("TWV-PARSE-MALFORMED-TOML", path, "toml", failure.detail)
+
+
 def _load(path: Path) -> tuple[dict[str, object] | None, list[ValidationError]]:
-    if not path.is_file():
+    raw, failure = load_toml_artifact(path)
+    if failure is not None:
+        if failure.kind is not ArtifactFailureKind.MISSING:
+            return None, [_toml_load_error(path, failure, "review invocation")]
         return None, [
             _e(
                 "TWV-REVIEW-MISSING-INVOCATION",
@@ -96,11 +125,7 @@ def _load(path: Path) -> tuple[dict[str, object] | None, list[ValidationError]]:
                 "canonical invocation is missing",
             )
         ]
-    try:
-        with path.open("rb") as f:
-            raw = tomllib.load(f)
-    except tomllib.TOMLDecodeError as exc:
-        return None, [_e("TWV-PARSE-MALFORMED-TOML", path, "toml", str(exc))]
+    assert raw is not None
     errors = [
         _e("TWV-SCHEMA-UNKNOWN-FIELD", path, key, "unknown normative field")
         for key in sorted(set(raw) - ENVELOPE)
@@ -450,19 +475,27 @@ def _validate_result(
                 "result path escapes the task directory",
             )
         ]
-    if not result_path.is_file():
-        return errors + [
-            _e(
-                "TWV-REVIEW-MISSING-RESULT",
-                invocation_path,
-                invocation_id,
-                "referenced result is missing",
-            )
-        ]
-    result_bytes = result_path.read_bytes()
-    try:
-        text = result_bytes.decode("utf-8")
-    except UnicodeDecodeError:
+    result, failure = read_utf8_artifact(result_path)
+    if failure is not None:
+        if failure.kind is ArtifactFailureKind.MISSING:
+            return errors + [
+                _e(
+                    "TWV-REVIEW-MISSING-RESULT",
+                    invocation_path,
+                    invocation_id,
+                    "referenced result is missing",
+                )
+            ]
+        if failure.kind is ArtifactFailureKind.UNREADABLE:
+            return errors + [
+                _e(
+                    "TWV-REVIEW-UNREADABLE-RESULT",
+                    result_path,
+                    invocation_id,
+                    "reviewer result is unreadable",
+                )
+            ]
+        assert failure.kind is ArtifactFailureKind.INVALID_UTF8
         errors.append(
             _e(
                 "TWV-REVIEW-RESULT-ENCODING",
@@ -472,6 +505,9 @@ def _validate_result(
             )
         )
         return errors
+    assert result is not None
+    result_bytes = result.data
+    text = result.text
     result_sha256 = raw["result_sha256"]
     if not isinstance(result_sha256, str) or SHA256_RE.fullmatch(result_sha256) is None:
         errors.append(

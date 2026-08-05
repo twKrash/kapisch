@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import re
-import tomllib
 from pathlib import Path
 
+from .artifact_io import ArtifactFailure, ArtifactFailureKind, load_toml_artifact
 from .errors import ValidationError
 from .helpers import is_integer, non_empty_string, string_list
 from .models import Manifest, State
@@ -32,8 +32,32 @@ def _e(c: str, p: Path, r: str, m: str) -> ValidationError:
     return ValidationError(c, str(p), r, m)
 
 
+def _toml_load_error(
+    path: Path, failure: ArtifactFailure, artifact_name: str
+) -> ValidationError:
+    if failure.kind is ArtifactFailureKind.UNREADABLE:
+        return _e(
+            "TWV-PARSE-UNREADABLE-ARTIFACT",
+            path,
+            "toml",
+            f"{artifact_name} is unreadable",
+        )
+    if failure.kind is ArtifactFailureKind.INVALID_UTF8:
+        return _e(
+            "TWV-PARSE-INVALID-UTF8",
+            path,
+            "toml",
+            f"{artifact_name} must be valid UTF-8",
+        )
+    assert failure.kind is ArtifactFailureKind.MALFORMED_TOML
+    return _e("TWV-PARSE-MALFORMED-TOML", path, "toml", failure.detail)
+
+
 def parse_state(path: Path) -> tuple[State | None, list[ValidationError]]:
-    if not path.is_file():
+    raw, failure = load_toml_artifact(path)
+    if failure is not None:
+        if failure.kind is not ArtifactFailureKind.MISSING:
+            return None, [_toml_load_error(path, failure, "persisted state")]
         return None, [
             _e(
                 "TWV-PARSE-MISSING-ARTIFACT",
@@ -42,11 +66,7 @@ def parse_state(path: Path) -> tuple[State | None, list[ValidationError]]:
                 "required state is missing",
             )
         ]
-    try:
-        with path.open("rb") as f:
-            raw = tomllib.load(f)
-    except tomllib.TOMLDecodeError as exc:
-        return None, [_e("TWV-PARSE-MALFORMED-TOML", path, "toml", str(exc))]
+    assert raw is not None
     errors = [
         _e("TWV-SCHEMA-UNKNOWN-FIELD", path, key, "unknown normative field")
         for key in sorted(set(raw) - STATE)

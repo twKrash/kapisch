@@ -7,6 +7,7 @@ import subprocess
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest import mock
 
 from kapisch_validation.manifest import parse_manifest
 from kapisch_validation.models import Manifest, Node, State
@@ -168,6 +169,51 @@ class ReviewEvidenceTests(unittest.TestCase):
             any(error.code == code for error in findings),
             [error.code for error in findings],
         )
+
+    def test_invocation_toml_load_failures_are_structured(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for content, expected in (
+                (b"\xff", "TWV-PARSE-INVALID-UTF8"),
+                (b"invocation_id = [", "TWV-PARSE-MALFORMED-TOML"),
+            ):
+                with self.subTest(expected=expected):
+                    manifest, state, invocation = self.write_invocation(root)
+                    invocation.write_bytes(content)
+                    findings = validate_review_evidence(manifest, state, root)
+                    self.assert_code(findings, expected)
+            manifest, state, invocation = self.write_invocation(root)
+            original_read_bytes = Path.read_bytes
+
+            def denied(path: Path) -> bytes:
+                if path == invocation:
+                    raise PermissionError("denied")
+                return original_read_bytes(path)
+
+            with mock.patch.object(Path, "read_bytes", autospec=True, side_effect=denied):
+                findings = validate_review_evidence(manifest, state, root)
+        self.assert_code(findings, "TWV-PARSE-UNREADABLE-ARTIFACT")
+
+    def test_result_encoding_and_unreadability_are_structured(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest, state, _ = self.write_invocation(root)
+            result = root / "result.md"
+            result.write_bytes(b"\xff")
+            findings = validate_review_evidence(manifest, state, root)
+            self.assert_code(findings, "TWV-REVIEW-RESULT-ENCODING")
+
+            manifest, state, _ = self.write_invocation(root)
+            original_read_bytes = Path.read_bytes
+
+            def denied(path: Path) -> bytes:
+                if path == result:
+                    raise PermissionError("denied")
+                return original_read_bytes(path)
+
+            with mock.patch.object(Path, "read_bytes", autospec=True, side_effect=denied):
+                findings = validate_review_evidence(manifest, state, root)
+        self.assert_code(findings, "TWV-REVIEW-UNREADABLE-RESULT")
 
     def test_missing_dispatching_controller_is_rejected(self) -> None:
         with TemporaryDirectory() as temporary:

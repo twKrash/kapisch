@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Hardened validator artifact loading: malformed, non-UTF-8, and unreadable
+  manifest, state, and review evidence now fail closed with structured findings.
+
 - Packaged the repository as the Git-backed `kapisch-local` marketplace with a
   single canonical plugin bundle under `plugins/kapisch`.
 - Documented separate marketplace configuration and later plugin installation;
