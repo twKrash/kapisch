@@ -267,8 +267,16 @@ def validate_references(
                     )
                 )
         for rel in filter(None, n.paths[:3]):
-            target = (task_dir / rel).resolve()
-            if task_dir.resolve() not in target.parents or not target.is_file():
+            if "\0" in rel:
+                valid = False
+            else:
+                try:
+                    root = task_dir.resolve()
+                    target = (root / rel).resolve()
+                    valid = root in target.parents and target.is_file()
+                except (OSError, ValueError, RuntimeError):
+                    valid = False
+            if not valid:
                 errors.append(
                     _e(
                         "TWV-REF-ARTIFACT",

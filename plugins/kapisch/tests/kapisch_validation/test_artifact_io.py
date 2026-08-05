@@ -73,19 +73,39 @@ class ArtifactIoTests(unittest.TestCase):
         read.assert_not_called()
         close.assert_called_once_with(3)
 
+    def test_read_utf8_requests_binary_mode_when_available(self) -> None:
+        with (
+            mock.patch("kapisch_validation.artifact_io.os.O_BINARY", 0x8000, create=True),
+            mock.patch("kapisch_validation.artifact_io.os.open", return_value=3) as open,
+            mock.patch(
+                "kapisch_validation.artifact_io.os.fstat",
+                return_value=SimpleNamespace(st_mode=0o100000),
+            ),
+            mock.patch(
+                "kapisch_validation.artifact_io.os.read", side_effect=(b"a\r\nb\r\n", b"")
+            ),
+            mock.patch("kapisch_validation.artifact_io.os.close"),
+        ):
+            artifact, failure = read_utf8_artifact(Path("artifact.toml"))
+        self.assertIsNone(failure)
+        self.assertEqual(artifact.data, b"a\r\nb\r\n")
+        self.assertEqual(open.call_args.args[1] & 0x8000, 0x8000)
+
     def test_load_toml_classifies_parser_failures(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "artifact.toml"
-            for content in (
-                "value = [",
-                "value = " + "9" * 5_000,
-                "value = " + "[" * 1_500 + "]" * 1_500,
+            for content, detail in (
+                ("value = [", None),
+                ("value = " + "9" * 5_000, "TOML input is malformed"),
+                ("value = " + "[" * 1_500 + "]" * 1_500, "TOML input is malformed"),
             ):
                 with self.subTest(content_prefix=content[:10]):
                     path.write_text(content, encoding="utf-8")
                     raw, failure = load_toml_artifact(path)
                     self.assertIsNone(raw)
                     self.assertEqual(failure.kind, ArtifactFailureKind.MALFORMED_TOML)
+                    if detail is not None:
+                        self.assertEqual(failure.detail, detail)
 
 
 if __name__ == "__main__":

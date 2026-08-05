@@ -182,10 +182,13 @@ def _load(path: Path) -> tuple[dict[str, object] | None, list[ValidationError]]:
 
 def _contained(task_dir: Path, relative_path: str) -> Path | None:
     """Resolve a referenced evidence path only when it stays inside task_dir."""
-    candidate = (task_dir / relative_path).resolve()
+    if "\0" in relative_path:
+        return None
     try:
-        candidate.relative_to(task_dir.resolve())
-    except ValueError:
+        root = task_dir.resolve()
+        candidate = (root / relative_path).resolve()
+        candidate.relative_to(root)
+    except (OSError, ValueError, RuntimeError):
         return None
     return candidate
 
@@ -842,8 +845,8 @@ def validate_review_evidence(
                     "review and final nodes require reviewer/high/off",
                 )
             )
-        invocation_ref = next((p for p in node.paths if p.endswith(".toml")), "")
-        invocation_path = _contained(task_dir, invocation_ref)
+        invocation_ref = node.paths[3] if len(node.paths) > 3 else ""
+        invocation_path = _contained(task_dir, invocation_ref) if invocation_ref else None
         if invocation_path is None:
             errors.append(
                 _e(

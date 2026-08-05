@@ -33,7 +33,10 @@ def read_utf8_artifact(
 ) -> tuple[Utf8Artifact | None, ArtifactFailure | None]:
     """Read a user-controlled artifact without leaking expected I/O failures."""
     try:
-        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
+        flags = (
+            os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
+        )
+        descriptor = os.open(path, flags)
     except FileNotFoundError:
         return None, ArtifactFailure(ArtifactFailureKind.MISSING)
     except OSError:
@@ -67,5 +70,9 @@ def load_toml_artifact(
     assert artifact is not None
     try:
         return tomllib.loads(artifact.text), None
-    except (tomllib.TOMLDecodeError, ValueError, RecursionError) as exc:
+    except tomllib.TOMLDecodeError as exc:
         return None, ArtifactFailure(ArtifactFailureKind.MALFORMED_TOML, str(exc))
+    except (ValueError, RecursionError):
+        return None, ArtifactFailure(
+            ArtifactFailureKind.MALFORMED_TOML, "TOML input is malformed"
+        )

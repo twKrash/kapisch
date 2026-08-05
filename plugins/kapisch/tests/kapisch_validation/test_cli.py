@@ -50,6 +50,7 @@ class CliTests(unittest.TestCase):
             cwd=PLUGIN_ROOT,
             text=True,
             check=False,
+            timeout=5,
         )
 
     def assert_subprocess_failure(
@@ -161,6 +162,35 @@ class CliTests(unittest.TestCase):
             manifest.unlink()
             os.mkfifo(manifest)
             self.assert_subprocess_failure(task_dir, "TWV-PARSE-UNREADABLE-ARTIFACT")
+
+    def test_invalid_containment_paths_exit_two_without_traceback(self) -> None:
+        cases = (
+            ('report="tasks/T01-report.md"', 'report="\\u0000"'),
+            (
+                'reviewer_invocation="reviews/round-0/00-review-invocation.toml"',
+                'reviewer_invocation="\\u0000"',
+            ),
+        )
+        for old, new in cases:
+            with self.subTest(replacement=new), tempfile.TemporaryDirectory() as temporary:
+                task_dir = Path(temporary) / "task"
+                manifest = task_dir / "02-execution-graph.toml"
+                shutil.copytree(FIXTURES / "valid-sequential-v2", task_dir)
+                manifest.write_text(manifest.read_text().replace(old, new, 1))
+                self.assert_subprocess_failure(task_dir, "TWV-REF-ARTIFACT")
+
+    @unittest.skipIf(os.name == "nt", "symlink creation requires extra privileges")
+    def test_symlink_loop_artifact_exits_two_without_traceback(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task_dir = Path(temporary) / "task"
+            manifest = task_dir / "02-execution-graph.toml"
+            loop = task_dir / "loop"
+            shutil.copytree(FIXTURES / "valid-sequential-v2", task_dir)
+            loop.symlink_to(loop)
+            manifest.write_text(
+                manifest.read_text().replace('brief="tasks/T01-brief.md"', 'brief="loop"', 1)
+            )
+            self.assert_subprocess_failure(task_dir, "TWV-REF-ARTIFACT")
 
 
 if __name__ == "__main__":
