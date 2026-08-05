@@ -179,6 +179,21 @@ class CliTests(unittest.TestCase):
                 manifest.write_text(manifest.read_text().replace(old, new, 1))
                 self.assert_subprocess_failure(task_dir, "TWV-REF-ARTIFACT")
 
+    def test_invalid_delegation_context_path_exits_two_without_traceback(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task_dir = Path(temporary) / "task"
+            route = task_dir / "delegations/00-route.toml"
+            shutil.copytree(FIXTURES / "valid-v3-durable", task_dir)
+            route.write_text(
+                route.read_text(encoding="utf-8").replace(
+                    'context_path="delegations/D01/00-context.md"',
+                    'context_path="\\u0000"',
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            self.assert_subprocess_failure(task_dir, "TWV-DELEG-PATH-ESCAPE")
+
     @unittest.skipIf(os.name == "nt", "symlink creation requires extra privileges")
     def test_symlink_loop_artifact_exits_two_without_traceback(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
