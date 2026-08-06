@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Hardened validator artifact loading: malformed, non-UTF-8, and unreadable
+  manifest, state, and review evidence now fail closed with structured findings.
+
 These entries describe implemented repository changes on mutable `main`. They
 are not a runtime-accepted or released artifact: the manifest remains `0.1.0`,
 and clean Codex installation, fresh-session discovery, reviewer invocation, and

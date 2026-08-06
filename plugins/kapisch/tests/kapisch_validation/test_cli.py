@@ -2,6 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -10,6 +16,7 @@ from kapisch_validation.cli import main
 
 FIXTURES = Path(__file__).parent / "fixtures"
 CONTRACT = Path("skills/kapisch")
+PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 
 
 class CliTests(unittest.TestCase):
@@ -26,6 +33,37 @@ class CliTests(unittest.TestCase):
                 ]
             )
         return code, output.getvalue().splitlines()
+
+    def _run_subprocess(self, task_dir: Path) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                sys.executable,
+                str(PLUGIN_ROOT / "scripts/validate_kapisch.py"),
+                "--contract-dir",
+                str(PLUGIN_ROOT / CONTRACT),
+                "--task-dir",
+                str(task_dir),
+                "--format",
+                "json",
+            ],
+            capture_output=True,
+            cwd=PLUGIN_ROOT,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+
+    def assert_subprocess_failure(
+        self, task_dir: Path, expected_code: str
+    ) -> None:
+        completed = self._run_subprocess(task_dir)
+        findings = json.loads(completed.stdout)
+        self.assertEqual(completed.returncode, 2)
+        self.assertTrue(
+            any(finding["code"] == expected_code for finding in findings), findings
+        )
+        self.assertNotIn("Traceback", completed.stdout)
+        self.assertNotIn("Traceback", completed.stderr)
 
     def test_missing_required_arguments_is_usage_error(self) -> None:
         with self.assertRaises(SystemExit) as raised:
@@ -83,6 +121,91 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(lines, ["[]"])
         self.assertEqual(before, after)
+
+    def test_corrupt_artifacts_exit_two_without_traceback(self) -> None:
+        cases = (
+            ("02-execution-graph.toml", "TWV-PARSE-INVALID-UTF8"),
+            ("03-state.toml", "TWV-PARSE-INVALID-UTF8"),
+            (
+                "reviews/round-0/00-review-invocation.toml",
+                "TWV-PARSE-INVALID-UTF8",
+            ),
+            ("reviews/round-0/03-review.md", "TWV-REVIEW-RESULT-ENCODING"),
+        )
+        for relative_path, expected_code in cases:
+            with self.subTest(
+                artifact=relative_path
+            ), tempfile.TemporaryDirectory() as temporary:
+                task_dir = Path(temporary) / "task"
+                shutil.copytree(FIXTURES / "valid-sequential-v2", task_dir)
+                (task_dir / relative_path).write_bytes(b"\xff")
+                self.assert_subprocess_failure(task_dir, expected_code)
+
+    def test_parser_overflows_exit_two_without_traceback(self) -> None:
+        cases = (
+            b"version = " + b"9" * 5_000,
+            b"version = " + b"[" * 1_500 + b"]" * 1_500,
+        )
+        for content in cases:
+            with self.subTest(content_prefix=content[:10]), tempfile.TemporaryDirectory() as temporary:
+                task_dir = Path(temporary) / "task"
+                shutil.copytree(FIXTURES / "valid-sequential-v2", task_dir)
+                (task_dir / "02-execution-graph.toml").write_bytes(content)
+                self.assert_subprocess_failure(task_dir, "TWV-PARSE-MALFORMED-TOML")
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "requires POSIX FIFO support")
+    def test_fifo_artifact_exits_two_without_blocking(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task_dir = Path(temporary) / "task"
+            manifest = task_dir / "02-execution-graph.toml"
+            shutil.copytree(FIXTURES / "valid-sequential-v2", task_dir)
+            manifest.unlink()
+            os.mkfifo(manifest)
+            self.assert_subprocess_failure(task_dir, "TWV-PARSE-UNREADABLE-ARTIFACT")
+
+    def test_invalid_containment_paths_exit_two_without_traceback(self) -> None:
+        cases = (
+            ('report="tasks/T01-report.md"', 'report="\\u0000"'),
+            (
+                'reviewer_invocation="reviews/round-0/00-review-invocation.toml"',
+                'reviewer_invocation="\\u0000"',
+            ),
+        )
+        for old, new in cases:
+            with self.subTest(replacement=new), tempfile.TemporaryDirectory() as temporary:
+                task_dir = Path(temporary) / "task"
+                manifest = task_dir / "02-execution-graph.toml"
+                shutil.copytree(FIXTURES / "valid-sequential-v2", task_dir)
+                manifest.write_text(manifest.read_text().replace(old, new, 1))
+                self.assert_subprocess_failure(task_dir, "TWV-REF-ARTIFACT")
+
+    def test_invalid_delegation_context_path_exits_two_without_traceback(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task_dir = Path(temporary) / "task"
+            route = task_dir / "delegations/00-route.toml"
+            shutil.copytree(FIXTURES / "valid-v3-durable", task_dir)
+            route.write_text(
+                route.read_text(encoding="utf-8").replace(
+                    'context_path="delegations/D01/00-context.md"',
+                    'context_path="\\u0000"',
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            self.assert_subprocess_failure(task_dir, "TWV-DELEG-PATH-ESCAPE")
+
+    @unittest.skipIf(os.name == "nt", "symlink creation requires extra privileges")
+    def test_symlink_loop_artifact_exits_two_without_traceback(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task_dir = Path(temporary) / "task"
+            manifest = task_dir / "02-execution-graph.toml"
+            loop = task_dir / "loop"
+            shutil.copytree(FIXTURES / "valid-sequential-v2", task_dir)
+            loop.symlink_to(loop)
+            manifest.write_text(
+                manifest.read_text().replace('brief="tasks/T01-brief.md"', 'brief="loop"', 1)
+            )
+            self.assert_subprocess_failure(task_dir, "TWV-REF-ARTIFACT")
 
 
 if __name__ == "__main__":

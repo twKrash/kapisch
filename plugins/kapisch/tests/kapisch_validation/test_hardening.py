@@ -8,6 +8,7 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest import mock
 
 from kapisch_validation.cli import main, validate
 from kapisch_validation.manifest import parse_manifest
@@ -33,6 +34,27 @@ class ValidatorHardeningTests(unittest.TestCase):
         content = path.read_text()
         self.assertIn(old, content)
         path.write_text(content.replace(old, new, 1))
+
+    def test_state_toml_load_failures_are_structured(self) -> None:
+        with TemporaryDirectory() as temporary:
+            path = Path(temporary) / "03-state.toml"
+            for content, expected in (
+                (b"\xff", "TWV-PARSE-INVALID-UTF8"),
+                (b"task_id = [", "TWV-PARSE-MALFORMED-TOML"),
+            ):
+                with self.subTest(expected=expected):
+                    path.write_bytes(content)
+                    state, errors = parse_state(path)
+                    self.assertIsNone(state)
+                    self.assertEqual(errors[0].code, expected)
+            path.write_text('task_id = "x"\n', encoding="utf-8")
+            with mock.patch(
+                "kapisch_validation.artifact_io.os.open",
+                side_effect=PermissionError("denied"),
+            ):
+                state, errors = parse_state(path)
+        self.assertIsNone(state)
+        self.assertEqual(errors[0].code, "TWV-PARSE-UNREADABLE-ARTIFACT")
 
     def historical_identity_findings(
         self,
