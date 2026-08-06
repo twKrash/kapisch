@@ -29,9 +29,10 @@ class ArtifactIoTests(unittest.TestCase):
             self.assertEqual(failure.kind, ArtifactFailureKind.INVALID_UTF8)
 
             readable = root / "readable.toml"
-            readable.write_text('key = "value"\n', encoding="utf-8")
+            readable.write_bytes(b'key = "value"\n')
             artifact, failure = read_utf8_artifact(readable)
             self.assertIsNone(failure)
+            self.assertEqual(artifact.data, b'key = "value"\n')
             self.assertEqual(artifact.text, 'key = "value"\n')
 
     def test_read_utf8_classifies_os_errors_without_catching_unexpected_ones(self) -> None:

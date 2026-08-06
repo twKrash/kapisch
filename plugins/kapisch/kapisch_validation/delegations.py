@@ -103,6 +103,8 @@ def _contained(task_dir: Path, relative: str) -> Path | None:
     component under task_dir is a symlink; otherwise returns None (callers add
     the specific error).
     """
+    if "\0" in relative:
+        return None
     try:
         root = task_dir.resolve()
         candidate = (root / relative).resolve()
