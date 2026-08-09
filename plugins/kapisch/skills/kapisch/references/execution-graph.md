@@ -166,6 +166,40 @@ Version-2 manifests remain readable as compatibility input only (see
 version 3 and always record `ecosystem_routing` and `delegation_ids = []` on
 every node.
 
+### Closed persisted vocabularies
+
+The validator and controller accept only the following durable string values.
+They reject unknown values without case folding, aliases, or typo normalization.
+
+| Persisted field | Accepted values |
+| --- | --- |
+| `policies.execution` | `sequential` |
+| `policies.executor` | `implementer` |
+| `policies.dispatch` | `auto`, `single` |
+| `policies.model_tier` | `cheap`, `standard`, `high` |
+| `policies.batching` | `auto`, `off` |
+| `policies.parallelism` | `off` |
+| `policies.commit` | `manual` |
+| `policies.push` | `manual` |
+| `policies.fix_policy` | `manual`, `blocking` |
+| `policies.ecosystem_routing` | `auto`, `off` |
+| `nodes[].executor_class` | `mechanic`, `implementer-lite`, `implementer`, `architect`, `researcher`, `reviewer` |
+| `nodes[].model_tier` | `cheap`, `standard`, `high` |
+| `nodes[].batching` | `auto`, `off` |
+| `workflow_status` | `running`, `complete` |
+
+`max_parallel_agents` remains the integer sentinel `1`, and `max_fix_rounds`
+remains a non-negative integer. `ecosystem_routing` remains version-3-only;
+version-1 and version-2 manifests reject the field even when its scalar appears
+in the table above. Version-1 omitted defaults are validated against the same
+vocabulary after they are filled.
+
+A persisted `workflow_status` is `complete` if and only if `next_action` is
+`complete`. Every select, resolve, resume, or `block:*` action uses
+`workflow_status = "running"`; a blocker does not invent another workflow
+status. Across observed snapshots, the only legal workflow-status transitions
+are `running -> running`, `running -> complete`, and `complete -> complete`.
+
 Each node has a stable ID; changing a title does not change identity. Its
 non-negative integer `sequence` is the persisted approved-plan order; there is
 no separate implicit plan-order input. Nodes also

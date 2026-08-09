@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Closed durable policy, node-routing, and workflow-status vocabularies; unknown
+  values now fail with structured supported alternatives, and completed
+  workflows cannot carry a non-terminal next action or reopen as running.
 - Hardened validator artifact loading: malformed, non-UTF-8, and unreadable
   manifest, state, and review evidence now fail closed with structured findings.
 

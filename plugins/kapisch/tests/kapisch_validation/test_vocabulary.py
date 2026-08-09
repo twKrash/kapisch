@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import io
+import json
 import re
 import shutil
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from kapisch_validation.cli import main
 from kapisch_validation.manifest import POLICIES, parse_manifest
 from kapisch_validation.references import parse_state
 from kapisch_validation.vocabulary import (
@@ -16,9 +20,26 @@ from kapisch_validation.vocabulary import (
 
 FIXTURES = Path(__file__).parent / "fixtures"
 NUMERIC_POLICY_FIELDS = {"max_parallel_agents", "max_fix_rounds"}
+PLUGIN_ROOT = Path(__file__).resolve().parents[2]
+CONTRACT = Path("skills/kapisch")
 
 
 class VocabularyTests(unittest.TestCase):
+    def run_cli(self, task_dir: Path) -> tuple[int, list[dict[str, str]]]:
+        output = io.StringIO()
+        with redirect_stdout(output):
+            code = main(
+                [
+                    "--contract-dir",
+                    str(CONTRACT),
+                    "--task-dir",
+                    str(task_dir),
+                    "--format",
+                    "json",
+                ]
+            )
+        return code, json.loads(output.getvalue())
+
     def copy_fixture(self, temporary: str, fixture: str) -> Path:
         target = Path(temporary) / "task"
         shutil.copytree(FIXTURES / fixture, target)
@@ -174,6 +195,86 @@ class VocabularyTests(unittest.TestCase):
                 "banana",
                 WORKFLOW_STATUS_VALUES,
             )
+
+    def test_required_unknown_values_exit_two(self) -> None:
+        cases = (
+            ("02-execution-graph.toml", "execution", "parallel"),
+            ("02-execution-graph.toml", "dispatch", "banana"),
+            ("02-execution-graph.toml", "push", "automatic"),
+            ("02-execution-graph.toml", "fix_policy", "unlimited"),
+            ("03-state.toml", "workflow_status", "banana"),
+        )
+        for relative_path, field, invalid in cases:
+            with self.subTest(field=field), TemporaryDirectory() as temporary:
+                root = self.copy_fixture(temporary, "valid-sequential-v2")
+                self.replace_first_string(root / relative_path, field, invalid)
+                code, findings = self.run_cli(root)
+                self.assertEqual(code, 2)
+                reference = (
+                    field if relative_path == "03-state.toml" else f"policies.{field}"
+                )
+                matching = [
+                    finding
+                    for finding in findings
+                    if finding["reference"] == reference
+                ]
+                self.assertEqual(len(matching), 1, findings)
+                self.assertIn(repr(invalid), matching[0]["message"])
+
+    def test_inconsistent_terminal_pairs_exit_two(self) -> None:
+        cases = (
+            ("running", "complete"),
+            ("complete", "block:no-ready-node"),
+        )
+        for workflow_status, next_action in cases:
+            with self.subTest(
+                workflow_status=workflow_status, next_action=next_action
+            ), TemporaryDirectory() as temporary:
+                root = self.copy_fixture(temporary, "valid-sequential-v2")
+                state_path = root / "03-state.toml"
+                self.replace_first_string(
+                    state_path, "workflow_status", workflow_status
+                )
+                self.replace_first_string(state_path, "next_action", next_action)
+                code, findings = self.run_cli(root)
+                self.assertEqual(code, 2)
+                self.assertTrue(
+                    any(
+                        finding["code"] == "TWV-LIFECYCLE-WORKFLOW-STATUS"
+                        for finding in findings
+                    ),
+                    findings,
+                )
+
+    def test_normative_vocabulary_table_matches_code(self) -> None:
+        contract = (
+            PLUGIN_ROOT / "skills/kapisch/references/execution-graph.md"
+        ).read_text(encoding="utf-8")
+        normalized_contract = " ".join(contract.split())
+        documented: dict[str, tuple[str, ...]] = {
+            f"policies.{field}": values
+            for field, values in POLICY_VALUES.items()
+        }
+        documented.update(
+            {
+                f"nodes[].{field}": values
+                for field, values in NODE_ROUTING_VALUES.items()
+            }
+        )
+        documented["workflow_status"] = WORKFLOW_STATUS_VALUES
+        for field, values in documented.items():
+            row = f"| `{field}` | {', '.join(f'`{value}`' for value in values)} |"
+            with self.subTest(field=field):
+                self.assertEqual(contract.count(row), 1)
+        self.assertIn(
+            "A persisted `workflow_status` is `complete` if and only if "
+            "`next_action` is `complete`.",
+            normalized_contract,
+        )
+        self.assertIn(
+            "`running -> running`, `running -> complete`, and `complete -> complete`",
+            normalized_contract,
+        )
 
 
 if __name__ == "__main__":
