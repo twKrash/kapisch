@@ -7,6 +7,7 @@ from .artifact_io import ArtifactFailure, ArtifactFailureKind, load_toml_artifac
 from .errors import ValidationError, sorted_errors
 from .helpers import is_integer, non_empty_string, string_list
 from .models import Manifest, Node, ParseResult
+from .vocabulary import NODE_ROUTING_VALUES, POLICY_VALUES, closed_string_error
 
 ROOT = {
     "version",
@@ -259,39 +260,66 @@ def parse_manifest(path: Path) -> ParseResult:
                 "version-3-only policy on a version-1 or version-2 manifest",
             )
         )
-    if version == 3 and "ecosystem_routing" in policies and policies[
-        "ecosystem_routing"
-    ] not in ("auto", "off"):
-        errors.append(
-            _e(
-                "TWV-SCHEMA-WRONG-SHAPE",
-                path,
-                "policies.ecosystem_routing",
-                "must be 'auto' or 'off'",
-            )
-        )
     for key, value in policies.items():
         reference = f"policies.{key}"
         if key == "max_parallel_agents":
-            valid, message = is_integer(value), "must be an integer"
+            if not is_integer(value):
+                errors.append(
+                    _e("TWV-SCHEMA-WRONG-SHAPE", path, reference, "must be an integer")
+                )
         elif key == "max_fix_rounds":
-            valid, message = (
-                is_integer(value) and value >= 0,
-                "must be a non-negative integer",
+            if not is_integer(value) or value < 0:
+                errors.append(
+                    _e(
+                        "TWV-SCHEMA-WRONG-SHAPE",
+                        path,
+                        reference,
+                        "must be a non-negative integer",
+                    )
+                )
+        elif key == "parallelism":
+            if not isinstance(value, str):
+                error = closed_string_error(
+                    value,
+                    POLICY_VALUES[key],
+                    path=str(path),
+                    reference=reference,
+                )
+                assert error is not None
+                errors.append(error)
+        elif key == "ecosystem_routing" and version in (1, 2):
+            pass
+        elif key in POLICY_VALUES:
+            error = closed_string_error(
+                value,
+                POLICY_VALUES[key],
+                path=str(path),
+                reference=reference,
             )
-        else:
-            valid, message = (
-                isinstance(value, str) and bool(value),
-                "must be a non-empty string",
-            )
-        if not valid:
-            errors.append(_e("TWV-SCHEMA-WRONG-SHAPE", path, reference, message))
+            if error is not None:
+                errors.append(error)
+    parallelism = policies.get("parallelism")
+    max_parallel_agents = policies.get("max_parallel_agents")
     unsupported_wave_fields = (
-        ("policies.parallelism", policies.get("parallelism") != "off"),
-        ("policies.max_parallel_agents", policies.get("max_parallel_agents") != 1),
-        ("root.waves", "waves" in raw),
+        (
+            "policies.parallelism",
+            parallelism not in POLICY_VALUES["parallelism"],
+            f"unsupported value {parallelism!r}; supported values: 'off'; "
+            "operational waves are unsupported",
+        ),
+        (
+            "policies.max_parallel_agents",
+            max_parallel_agents != 1,
+            f"unsupported value {max_parallel_agents!r}; supported value: 1; "
+            "operational waves are unsupported",
+        ),
+        (
+            "root.waves",
+            "waves" in raw,
+            "operational waves are unsupported",
+        ),
     )
-    for reference, unsupported in unsupported_wave_fields:
+    for reference, unsupported, message in unsupported_wave_fields:
         if not unsupported:
             continue
         errors.append(
@@ -299,7 +327,7 @@ def parse_manifest(path: Path) -> ParseResult:
                 "TWV-SCHEMA-UNSUPPORTED-OPERATIONAL-WAVE",
                 path,
                 reference,
-                "operational waves are unsupported",
+                message,
             )
         )
     validated_nodes: list[dict[str, object]] = []
@@ -333,6 +361,17 @@ def parse_manifest(path: Path) -> ParseResult:
                         "required node field is missing",
                     )
                 )
+        for key, supported in NODE_ROUTING_VALUES.items():
+            if key not in n:
+                continue
+            error = closed_string_error(
+                n[key],
+                supported,
+                path=str(path),
+                reference=f"{ref}.{key}",
+            )
+            if error is not None:
+                errors.append(error)
         for key in (
             "id",
             "kind",

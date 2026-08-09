@@ -7,6 +7,7 @@ from .artifact_io import ArtifactFailure, ArtifactFailureKind, load_toml_artifac
 from .errors import ValidationError
 from .helpers import is_integer, non_empty_string, string_list
 from .models import Manifest, State
+from .vocabulary import WORKFLOW_STATUS_VALUES, closed_string_error
 
 STATE = {
     "task_id",
@@ -128,7 +129,6 @@ def parse_state(path: Path) -> tuple[State | None, list[ValidationError]]:
         "source_plan",
         "base_revision",
         "current_revision",
-        "workflow_status",
         "next_action",
     ):
         non_empty_string(
@@ -136,6 +136,14 @@ def parse_state(path: Path) -> tuple[State | None, list[ValidationError]]:
             errors,
             _e("TWV-SCHEMA-WRONG-SHAPE", path, key, "must be a non-empty string"),
         )
+    workflow_status_error = closed_string_error(
+        raw["workflow_status"],
+        WORKFLOW_STATUS_VALUES,
+        path=str(path),
+        reference="workflow_status",
+    )
+    if workflow_status_error is not None:
+        errors.append(workflow_status_error)
     for key in ("latest_approving_review_path", "latest_approving_invocation_id"):
         non_empty_string(
             raw.get(key),

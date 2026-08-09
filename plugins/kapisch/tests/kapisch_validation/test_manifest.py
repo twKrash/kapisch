@@ -227,7 +227,7 @@ class ManifestTests(unittest.TestCase):
             result = parse_manifest(path)
             self.assertEqual(
                 [(error.code, error.reference) for error in result.errors],
-                [("TWV-SCHEMA-WRONG-SHAPE", "policies.ecosystem_routing")],
+                [("TWV-SCHEMA-INVALID-VALUE", "policies.ecosystem_routing")],
             )
 
     def test_version_three_requires_delegation_ids_on_every_node(self) -> None:
