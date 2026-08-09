@@ -173,6 +173,7 @@ def parse_state(path: Path) -> tuple[State | None, list[ValidationError]]:
         tuple(raw["failed_node_ids"]),
         str(raw["next_action"]),
         raw,
+        str(path),
     ), []
 
 

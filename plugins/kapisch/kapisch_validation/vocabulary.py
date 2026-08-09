@@ -12,6 +12,7 @@ EXECUTOR_CLASS_VALUES = (
 )
 MODEL_TIER_VALUES = ("cheap", "standard", "high")
 BATCHING_VALUES = ("auto", "off")
+EXECUTION_CLASS_VALUES = ("mechanical", "prescriptive", "bounded", "design")
 
 POLICY_VALUES: dict[str, tuple[str, ...]] = {
     "execution": ("sequential",),
@@ -30,6 +31,9 @@ NODE_ROUTING_VALUES: dict[str, tuple[str, ...]] = {
     "executor_class": EXECUTOR_CLASS_VALUES,
     "model_tier": MODEL_TIER_VALUES,
     "batching": BATCHING_VALUES,
+}
+ASSIGNMENT_VALUES: dict[str, tuple[str, ...]] = {
+    "execution_class": EXECUTION_CLASS_VALUES,
 }
 
 WORKFLOW_STATUS_VALUES = ("running", "complete")

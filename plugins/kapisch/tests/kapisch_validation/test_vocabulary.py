@@ -13,8 +13,10 @@ from kapisch_validation.cli import main
 from kapisch_validation.manifest import POLICIES, parse_manifest
 from kapisch_validation.references import parse_state
 from kapisch_validation.vocabulary import (
+    ASSIGNMENT_VALUES,
     NODE_ROUTING_VALUES,
     POLICY_VALUES,
+    WORKFLOW_STATUS_TRANSITIONS,
     WORKFLOW_STATUS_VALUES,
 )
 
@@ -112,14 +114,24 @@ class VocabularyTests(unittest.TestCase):
                     self.assertEqual(parsed.errors, (), (field, value, parsed.errors))
 
     def test_every_supported_node_routing_value_parses(self) -> None:
-        for field, supported in NODE_ROUTING_VALUES.items():
-            for value in supported:
-                with self.subTest(field=field, value=value), TemporaryDirectory() as temporary:
-                    root = self.copy_fixture(temporary, "valid-sequential-v2")
-                    manifest_path = root / "02-execution-graph.toml"
-                    self.replace_first_node_string(manifest_path, field, value)
-                    parsed = parse_manifest(manifest_path)
-                    self.assertEqual(parsed.errors, (), (field, value, parsed.errors))
+        cases = (
+            ("mechanic", "cheap", "behavioral"),
+            ("implementer-lite", "cheap", "behavioral"),
+            ("implementer", "standard", "behavioral"),
+            ("architect", "high", "behavioral"),
+            ("researcher", "cheap", "research"),
+            ("reviewer", "high", "review"),
+        )
+        for executor_class, model_tier, kind in cases:
+            with self.subTest(executor_class=executor_class), TemporaryDirectory() as temporary:
+                root = self.copy_fixture(temporary, "valid-v3-no-delegation")
+                manifest_path = root / "02-execution-graph.toml"
+                self.replace_first_string(manifest_path, "dispatch", "auto")
+                self.replace_first_node_string(manifest_path, "executor_class", executor_class)
+                self.replace_first_node_string(manifest_path, "model_tier", model_tier)
+                self.replace_first_node_string(manifest_path, "kind", kind)
+                parsed = parse_manifest(manifest_path)
+                self.assertEqual(parsed.errors, (), parsed.errors)
 
     def test_unknown_policy_values_are_structured_findings(self) -> None:
         invalid_values = {
@@ -246,6 +258,50 @@ class VocabularyTests(unittest.TestCase):
                     findings,
                 )
 
+    def test_context_invalid_routing_exits_two(self) -> None:
+        cases = (
+            ("executor_class", "architect"),
+            ("executor_class", "reviewer"),
+            ("executor_class", "researcher"),
+            ("model_tier", "cheap"),
+        )
+        for field, value in cases:
+            with self.subTest(field=field, value=value), TemporaryDirectory() as temporary:
+                root = self.copy_fixture(temporary, "valid-sequential-v2")
+                self.replace_first_node_string(root / "02-execution-graph.toml", field, value)
+                code, findings = self.run_cli(root)
+                self.assertEqual(code, 2)
+                self.assertTrue(
+                    any(finding["code"] == "TWV-SCHEMA-INVALID-ROUTING" for finding in findings),
+                    findings,
+                )
+
+    def test_unknown_assignment_execution_class_exits_two(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = self.copy_fixture(temporary, "valid-sequential-v2")
+            manifest_path = root / "02-execution-graph.toml"
+            content = manifest_path.read_text(encoding="utf-8")
+            manifest_path.write_text(
+                content.replace(
+                    'head="head"\n[[nodes]]',
+                    'head="head"\n[nodes.assignment]\nid="A-T01-1"\n'
+                    'schema_version=1\nexecution_class="banana"\n'
+                    'reason_codes=[]\nsource_revision="base"\ncontext_refs=[]\n'
+                    'escalations=[]\n[[nodes]]',
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            code, findings = self.run_cli(root)
+        self.assertEqual(code, 2)
+        self.assertTrue(
+            any(
+                finding["reference"] == "nodes[0].assignment.execution_class"
+                and finding["code"] == "TWV-SCHEMA-INVALID-VALUE"
+                for finding in findings
+            ),
+            findings,
+        )
     def test_normative_vocabulary_table_matches_code(self) -> None:
         contract = (
             PLUGIN_ROOT / "skills/kapisch/references/execution-graph.md"
@@ -261,16 +317,42 @@ class VocabularyTests(unittest.TestCase):
                 for field, values in NODE_ROUTING_VALUES.items()
             }
         )
+        documented.update(
+            {
+                f"nodes[].assignment.{field}": values
+                for field, values in ASSIGNMENT_VALUES.items()
+            }
+        )
         documented["workflow_status"] = WORKFLOW_STATUS_VALUES
-        for field, values in documented.items():
-            row = f"| `{field}` | {', '.join(f'`{value}`' for value in values)} |"
-            with self.subTest(field=field):
-                self.assertEqual(contract.count(row), 1)
+        table = re.search(
+            r"### Closed persisted vocabularies\n\n.*?\n\n(?P<table>(?:\|[^\n]*\n)+)",
+            contract,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(table)
+        rows = table.group("table").splitlines()[2:]
+        actual = {
+            cells[0].strip().strip("`"): tuple(
+                value.strip().strip("`") for value in cells[1].split(",")
+            )
+            for row in rows
+            if len(cells := row.strip("|").split("|")) == 2
+        }
+        self.assertEqual(actual, documented)
         self.assertIn(
             "A persisted `workflow_status` is `complete` if and only if "
             "`next_action` is `complete`.",
             normalized_contract,
         )
+        documented_transitions = set(
+            re.findall(r"`(running|complete) -> (running|complete)`", contract)
+        )
+        expected_transitions = {
+            (source, target)
+            for source, targets in WORKFLOW_STATUS_TRANSITIONS.items()
+            for target in targets
+        }
+        self.assertEqual(documented_transitions, expected_transitions)
         self.assertIn(
             "`running -> running`, `running -> complete`, and `complete -> complete`",
             normalized_contract,

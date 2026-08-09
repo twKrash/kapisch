@@ -7,7 +7,12 @@ from .artifact_io import ArtifactFailure, ArtifactFailureKind, load_toml_artifac
 from .errors import ValidationError, sorted_errors
 from .helpers import is_integer, non_empty_string, string_list
 from .models import Manifest, Node, ParseResult
-from .vocabulary import NODE_ROUTING_VALUES, POLICY_VALUES, closed_string_error
+from .vocabulary import (
+    ASSIGNMENT_VALUES,
+    NODE_ROUTING_VALUES,
+    POLICY_VALUES,
+    closed_string_error,
+)
 
 ROOT = {
     "version",
@@ -372,6 +377,53 @@ def parse_manifest(path: Path) -> ParseResult:
             )
             if error is not None:
                 errors.append(error)
+        executor_class = n.get("executor_class")
+        model_tier = n.get("model_tier")
+        is_implementation = n.get("kind") not in {"review", "final", "research"}
+        if executor_class == "reviewer" and is_implementation:
+            errors.append(
+                _e(
+                    "TWV-SCHEMA-INVALID-ROUTING",
+                    path,
+                    f"{ref}.executor_class",
+                    "reviewer is valid only for review or final nodes",
+                )
+            )
+        if executor_class == "reviewer" and model_tier != "high":
+            errors.append(
+                _e(
+                    "TWV-SCHEMA-INVALID-ROUTING",
+                    path,
+                    f"{ref}.model_tier",
+                    "reviewer requires model_tier='high'",
+                )
+            )
+        if executor_class == "researcher" and is_implementation:
+            errors.append(
+                _e(
+                    "TWV-SCHEMA-INVALID-ROUTING",
+                    path,
+                    f"{ref}.executor_class",
+                    "researcher is advisory and cannot be an implementation node",
+                )
+            )
+        if (
+            is_implementation
+            and policies.get("dispatch") == "single"
+            and (executor_class is not None or model_tier is not None)
+            and (
+            executor_class != "implementer" or model_tier != "standard"
+            )
+        ):
+            errors.append(
+                _e(
+                    "TWV-SCHEMA-INVALID-ROUTING",
+                    path,
+                    ref,
+                    "single dispatch requires implementation nodes to use "
+                    "executor_class='implementer' and model_tier='standard'",
+                )
+            )
         for key in (
             "id",
             "kind",
@@ -527,6 +579,15 @@ def parse_manifest(path: Path) -> ParseResult:
                                     "must be an integer",
                                 )
                             )
+                    elif field in ASSIGNMENT_VALUES:
+                        error = closed_string_error(
+                            value,
+                            ASSIGNMENT_VALUES[field],
+                            path=str(path),
+                            reference=nested_ref,
+                        )
+                        if error is not None:
+                            errors.append(error)
                     elif field in {
                         "reason_codes",
                         "context_refs",

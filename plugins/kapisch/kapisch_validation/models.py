@@ -40,6 +40,7 @@ class State:
     failed: tuple[str, ...]
     next_action: str
     raw: dict[str, object]
+    path: str = ""
 
 
 @dataclass(frozen=True)

@@ -255,7 +255,7 @@ class ValidatorHardeningTests(unittest.TestCase):
 [nodes.assignment]
 id="A-T01-1"
 schema_version=1
-execution_class="implementer"
+execution_class="bounded"
 reason_codes=["behavioral"]
 source_revision="base"
 context_refs=[]

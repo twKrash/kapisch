@@ -186,6 +186,7 @@ They reject unknown values without case folding, aliases, or typo normalization.
 | `nodes[].executor_class` | `mechanic`, `implementer-lite`, `implementer`, `architect`, `researcher`, `reviewer` |
 | `nodes[].model_tier` | `cheap`, `standard`, `high` |
 | `nodes[].batching` | `auto`, `off` |
+| `nodes[].assignment.execution_class` | `mechanical`, `prescriptive`, `bounded`, `design` |
 | `workflow_status` | `running`, `complete` |
 
 `max_parallel_agents` remains the integer sentinel `1`, and `max_fix_rounds`

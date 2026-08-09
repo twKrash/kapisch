@@ -74,8 +74,6 @@ def determine_next_action(manifest: Manifest, state: State) -> str:
 def validate_lifecycle(
     manifest: Manifest,
     state: State,
-    previous: Manifest | None = None,
-    previous_state: State | None = None,
 ) -> list[ValidationError]:
     errors: list[ValidationError] = []
     node_ids = {node.id for node in manifest.nodes}
@@ -90,7 +88,7 @@ def validate_lifecycle(
             errors.append(
                 ValidationError(
                     "TWV-LIFECYCLE-INVALID-NEXT-ACTION",
-                    manifest.path,
+                    state.path or manifest.path,
                     "next_action",
                     "next_action must use a documented action token and known node ID",
                 )
@@ -101,27 +99,13 @@ def validate_lifecycle(
         errors.append(
             ValidationError(
                 "TWV-LIFECYCLE-WORKFLOW-STATUS",
-                manifest.path,
+                state.path or manifest.path,
                 "workflow_status",
                 f"workflow_status={state.workflow_status!r} and "
                 f"next_action={state.next_action!r} disagree; 'complete' is "
                 "required on both or neither",
             )
         )
-    if previous_state is not None:
-        allowed_statuses = WORKFLOW_STATUS_TRANSITIONS.get(
-            previous_state.workflow_status, frozenset()
-        )
-        if state.workflow_status not in allowed_statuses:
-            errors.append(
-                ValidationError(
-                    "TWV-LIFECYCLE-ILLEGAL-WORKFLOW-TRANSITION",
-                    manifest.path,
-                    "workflow_status",
-                    f"{previous_state.workflow_status!r} cannot transition to "
-                    f"{state.workflow_status!r}",
-                )
-            )
     for node in manifest.nodes:
         if node.status not in ALLOWED:
             errors.append(
@@ -153,22 +137,6 @@ def validate_lifecycle(
                         "active or completed nodes require completed dependencies",
                     )
                 )
-    if previous:
-        old = {n.id: n for n in previous.nodes}
-        for node in manifest.nodes:
-            if (
-                node.id in old
-                and node.status != old[node.id].status
-                and node.status not in ALLOWED.get(old[node.id].status, set())
-            ):
-                errors.append(
-                    ValidationError(
-                        "TWV-LIFECYCLE-ILLEGAL-TRANSITION",
-                        manifest.path,
-                        node.id,
-                        f"{old[node.id].status} cannot transition to {node.status}",
-                    )
-                )
     expected = determine_next_action(manifest, state)
     if state.next_action != expected:
         errors.append(
@@ -179,4 +147,60 @@ def validate_lifecycle(
                 f"expected {expected}",
             )
         )
+    return errors
+
+
+def validate_transition(
+    manifest: Manifest,
+    state: State,
+    previous: Manifest,
+    previous_state: State,
+) -> list[ValidationError]:
+    errors: list[ValidationError] = []
+    identities = (
+        ("task_id", manifest.task_id, previous.task_id),
+        ("base_revision", manifest.base_revision, previous.base_revision),
+        ("source_plan", manifest.source_plan, previous.source_plan),
+    )
+    for reference, current, prior in identities:
+        if current != prior:
+            errors.append(
+                ValidationError(
+                    "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT",
+                    state.path or manifest.path,
+                    reference,
+                    f"current {reference}={current!r} does not match "
+                    f"previous {reference}={prior!r}",
+                )
+            )
+    if errors:
+        return errors
+    allowed_statuses = WORKFLOW_STATUS_TRANSITIONS.get(
+        previous_state.workflow_status, frozenset()
+    )
+    if state.workflow_status not in allowed_statuses:
+        errors.append(
+            ValidationError(
+                "TWV-LIFECYCLE-ILLEGAL-WORKFLOW-TRANSITION",
+                state.path or manifest.path,
+                "workflow_status",
+                f"{previous_state.workflow_status!r} cannot transition to "
+                f"{state.workflow_status!r}",
+            )
+        )
+    old = {node.id: node for node in previous.nodes}
+    for node in manifest.nodes:
+        if (
+            node.id in old
+            and node.status != old[node.id].status
+            and node.status not in ALLOWED.get(old[node.id].status, set())
+        ):
+            errors.append(
+                ValidationError(
+                    "TWV-LIFECYCLE-ILLEGAL-TRANSITION",
+                    manifest.path,
+                    node.id,
+                    f"{old[node.id].status} cannot transition to {node.status}",
+                )
+            )
     return errors

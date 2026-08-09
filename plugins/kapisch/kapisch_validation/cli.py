@@ -9,7 +9,17 @@ from .delegations import parse_route, validate_route_references
 from .manifest import parse_manifest
 from .references import parse_state, validate_references
 from .review_evidence import validate_review_evidence
-from .transitions import validate_lifecycle
+from .transitions import validate_lifecycle, validate_transition
+
+
+def validate_snapshot(
+    manifest, state, task_dir: Path, contract_dir: Path
+) -> list[ValidationError]:
+    errors: list[ValidationError] = []
+    errors.extend(validate_references(manifest, state, task_dir, contract_dir))
+    errors.extend(validate_lifecycle(manifest, state))
+    errors.extend(validate_review_evidence(manifest, state, task_dir))
+    return errors
 
 
 def validate(
@@ -65,16 +75,21 @@ def validate(
             previous_task_dir / "03-state.toml"
         )
         errors.extend(previous_state_errors)
-    errors.extend(validate_references(parsed.manifest, state, task_dir, contract_dir))
-    errors.extend(
-        validate_lifecycle(
-            parsed.manifest,
-            state,
-            previous_manifest,
-            previous_state,
+    errors.extend(validate_snapshot(parsed.manifest, state, task_dir, contract_dir))
+    if previous_manifest is not None and previous_state is not None:
+        previous_errors = validate_snapshot(
+            previous_manifest, previous_state, previous_task_dir, contract_dir
         )
-    )
-    errors.extend(validate_review_evidence(parsed.manifest, state, task_dir))
+        errors.extend(previous_errors)
+        if not previous_errors:
+            errors.extend(
+                validate_transition(
+                    parsed.manifest,
+                    state,
+                    previous_manifest,
+                    previous_state,
+                )
+            )
     return sorted_errors(errors)
 
 

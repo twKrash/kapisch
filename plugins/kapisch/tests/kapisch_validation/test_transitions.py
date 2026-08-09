@@ -6,6 +6,7 @@ from kapisch_validation.models import Manifest, Node, State
 from kapisch_validation.transitions import (
     determine_next_action,
     validate_lifecycle,
+    validate_transition,
 )
 
 
@@ -36,8 +37,8 @@ class TransitionTests(unittest.TestCase):
         )
 
     def test_rejects_illegal_observed_transition(self) -> None:
-        errors = validate_lifecycle(
-            manifest("running"), state("resolve:T01"), manifest("complete")
+        errors = validate_transition(
+            manifest("running"), state("resolve:T01"), manifest("complete"), state("complete")
         )
         self.assertEqual(errors[0].code, "TWV-LIFECYCLE-ILLEGAL-TRANSITION")
 
@@ -82,9 +83,10 @@ class TransitionTests(unittest.TestCase):
             )
 
     def test_complete_workflow_cannot_transition_back_to_running(self) -> None:
-        errors = validate_lifecycle(
+        errors = validate_transition(
             manifest("ready"),
             state("select:T01", "running"),
+            manifest("ready"),
             previous_state=state("complete", "complete"),
         )
         self.assertTrue(
@@ -100,9 +102,10 @@ class TransitionTests(unittest.TestCase):
         complete_state = State(
             "x", "head", "complete", (), (), (), (), (), "complete", {}
         )
-        errors = validate_lifecycle(
+        errors = validate_transition(
             empty_v1,
             complete_state,
+            empty_v1,
             previous_state=state("block:no-ready-node", "running"),
         )
         self.assertFalse(
