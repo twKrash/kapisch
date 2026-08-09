@@ -104,6 +104,12 @@ class CliTests(unittest.TestCase):
         self.assertTrue(
             any(line.startswith("TWV-LIFECYCLE-ILLEGAL-TRANSITION") for line in lines)
         )
+        self.assertTrue(
+            any(
+                line.startswith("TWV-LIFECYCLE-ILLEGAL-WORKFLOW-TRANSITION")
+                for line in lines
+            )
+        )
 
     def test_valid_fixture_is_read_only_and_has_deterministic_json(self) -> None:
         root = FIXTURES / "valid-sequential-v2"

@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from .errors import ValidationError
 from .models import Manifest, State
+from .vocabulary import (
+    TERMINAL_NEXT_ACTIONS,
+    TERMINAL_WORKFLOW_STATUSES,
+    WORKFLOW_STATUS_TRANSITIONS,
+)
 
 ALLOWED = {
     "pending": {"ready", "cancelled"},
@@ -67,7 +72,10 @@ def determine_next_action(manifest: Manifest, state: State) -> str:
 
 
 def validate_lifecycle(
-    manifest: Manifest, state: State, previous: Manifest | None = None
+    manifest: Manifest,
+    state: State,
+    previous: Manifest | None = None,
+    previous_state: State | None = None,
 ) -> list[ValidationError]:
     errors: list[ValidationError] = []
     node_ids = {node.id for node in manifest.nodes}
@@ -85,6 +93,33 @@ def validate_lifecycle(
                     manifest.path,
                     "next_action",
                     "next_action must use a documented action token and known node ID",
+                )
+            )
+    status_is_terminal = state.workflow_status in TERMINAL_WORKFLOW_STATUSES
+    action_is_terminal = state.next_action in TERMINAL_NEXT_ACTIONS
+    if status_is_terminal != action_is_terminal:
+        errors.append(
+            ValidationError(
+                "TWV-LIFECYCLE-WORKFLOW-STATUS",
+                manifest.path,
+                "workflow_status",
+                f"workflow_status={state.workflow_status!r} and "
+                f"next_action={state.next_action!r} disagree; 'complete' is "
+                "required on both or neither",
+            )
+        )
+    if previous_state is not None:
+        allowed_statuses = WORKFLOW_STATUS_TRANSITIONS.get(
+            previous_state.workflow_status, frozenset()
+        )
+        if state.workflow_status not in allowed_statuses:
+            errors.append(
+                ValidationError(
+                    "TWV-LIFECYCLE-ILLEGAL-WORKFLOW-TRANSITION",
+                    manifest.path,
+                    "workflow_status",
+                    f"{previous_state.workflow_status!r} cannot transition to "
+                    f"{state.workflow_status!r}",
                 )
             )
     for node in manifest.nodes:

@@ -55,13 +55,25 @@ def validate(
     errors.extend(state_errors)
     if state is None:
         return sorted_errors(errors)
-    previous = None
+    previous_manifest = None
+    previous_state = None
     if previous_task_dir:
         previous_result = parse_manifest(previous_task_dir / "02-execution-graph.toml")
         errors.extend(previous_result.errors)
-        previous = previous_result.manifest
+        previous_manifest = previous_result.manifest
+        previous_state, previous_state_errors = parse_state(
+            previous_task_dir / "03-state.toml"
+        )
+        errors.extend(previous_state_errors)
     errors.extend(validate_references(parsed.manifest, state, task_dir, contract_dir))
-    errors.extend(validate_lifecycle(parsed.manifest, state, previous))
+    errors.extend(
+        validate_lifecycle(
+            parsed.manifest,
+            state,
+            previous_manifest,
+            previous_state,
+        )
+    )
     errors.extend(validate_review_evidence(parsed.manifest, state, task_dir))
     return sorted_errors(errors)
 
