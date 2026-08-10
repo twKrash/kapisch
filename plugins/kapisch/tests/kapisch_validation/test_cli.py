@@ -53,6 +53,24 @@ class CliTests(unittest.TestCase):
             timeout=5,
         )
 
+    def _run_paths(
+        self, task_dir: Path, previous_task_dir: Path | None = None
+    ) -> tuple[int, list[dict[str, str]]]:
+        output = io.StringIO()
+        args = [
+            "--contract-dir",
+            str(CONTRACT),
+            "--task-dir",
+            str(task_dir),
+            "--format",
+            "json",
+        ]
+        if previous_task_dir is not None:
+            args.extend(["--previous-task-dir", str(previous_task_dir)])
+        with redirect_stdout(output):
+            code = main(args)
+        return code, json.loads(output.getvalue())
+
     def assert_subprocess_failure(
         self, task_dir: Path, expected_code: str
     ) -> None:
@@ -95,14 +113,118 @@ class CliTests(unittest.TestCase):
                     self.assertTrue(any(line.startswith(primary) for line in lines))
 
     def test_illegal_transition_uses_a_valid_previous_tree(self) -> None:
-        code, lines = self._run(
-            "illegal-transition",
-            "--previous-task-dir",
-            str(FIXTURES / "illegal-transition-previous"),
-        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            current = root / "current"
+            previous = root / "previous"
+            shutil.copytree(FIXTURES / "valid-sequential-v2", current)
+            shutil.copytree(FIXTURES / "valid-sequential-v2", previous)
+            manifest = current / "02-execution-graph.toml"
+            manifest.write_text(
+                manifest.read_text(encoding="utf-8")
+                .replace('status="complete"', 'status="ready"', 1)
+                .replace('status="complete"', 'status="pending"'),
+                encoding="utf-8",
+            )
+            state = current / "03-state.toml"
+            state.write_text(
+                state.read_text(encoding="utf-8")
+                .replace('workflow_status="complete"', 'workflow_status="running"')
+                .replace('completed_node_ids=["F01","R01","T01"]', 'completed_node_ids=[]')
+                .replace('ready_node_ids=[]', 'ready_node_ids=["T01"]')
+                .replace('next_action="complete"', 'next_action="select:T01"'),
+                encoding="utf-8",
+            )
+            code, findings = self._run_paths(current, previous)
         self.assertEqual(code, 2)
         self.assertTrue(
-            any(line.startswith("TWV-LIFECYCLE-ILLEGAL-TRANSITION") for line in lines)
+            any(
+                finding["code"] == "TWV-LIFECYCLE-ILLEGAL-TRANSITION"
+                for finding in findings
+            ),
+            findings,
+        )
+        self.assertTrue(
+            any(
+                finding["code"] == "TWV-LIFECYCLE-ILLEGAL-WORKFLOW-TRANSITION"
+                for finding in findings
+            ),
+            findings,
+        )
+
+    def test_invalid_previous_snapshot_is_not_used_for_transitions(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            current = root / "current"
+            previous = root / "previous"
+            shutil.copytree(FIXTURES / "valid-sequential-v2", current)
+            shutil.copytree(FIXTURES / "valid-sequential-v2", previous)
+            state_path = previous / "03-state.toml"
+            state_path.write_text(
+                state_path.read_text(encoding="utf-8").replace(
+                    'workflow_status="complete"', 'workflow_status="running"'
+                ),
+                encoding="utf-8",
+            )
+            code, findings = self._run_paths(current, previous)
+        self.assertEqual(code, 2)
+        status_findings = [
+            finding
+            for finding in findings
+            if finding["code"] == "TWV-LIFECYCLE-WORKFLOW-STATUS"
+        ]
+        self.assertEqual(len(status_findings), 1, findings)
+        self.assertEqual(status_findings[0]["path"], str(previous / "03-state.toml"))
+
+    def test_previous_snapshot_must_match_its_manifest_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            current = root / "current"
+            previous = root / "previous"
+            shutil.copytree(FIXTURES / "valid-sequential-v2", current)
+            shutil.copytree(FIXTURES / "valid-sequential-v2", previous)
+            state_path = previous / "03-state.toml"
+            state_path.write_text(
+                state_path.read_text(encoding="utf-8").replace(
+                    'task_id="valid"', 'task_id="other"'
+                ),
+                encoding="utf-8",
+            )
+            code, findings = self._run_paths(current, previous)
+        self.assertEqual(code, 2)
+        self.assertTrue(
+            any(
+                finding["code"] == "TWV-REF-STATE-MANIFEST-MISMATCH"
+                and finding["reference"] == "task_id"
+                and finding["path"] == str(previous / "03-state.toml")
+                for finding in findings
+            ),
+            findings,
+        )
+
+    def test_previous_v3_route_must_be_valid(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            current = root / "current"
+            previous = root / "previous"
+            shutil.copytree(FIXTURES / "valid-v3-durable", current)
+            shutil.copytree(FIXTURES / "valid-v3-durable", previous)
+            route_path = previous / "delegations" / "00-route.toml"
+            route_path.write_text(
+                route_path.read_text(encoding="utf-8").replace(
+                    'task_id = "valid"', 'task_id = "wrong"'
+                ),
+                encoding="utf-8",
+            )
+            code, findings = self._run_paths(current, previous)
+        self.assertEqual(code, 2)
+        self.assertTrue(
+            any(
+                finding["code"] == "TWV-DELEG-TASK-MISMATCH"
+                and finding["path"] == str(route_path)
+                for finding in findings
+            ),
+            findings,
         )
 
     def test_valid_fixture_is_read_only_and_has_deterministic_json(self) -> None:

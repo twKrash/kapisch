@@ -7,6 +7,12 @@ from .artifact_io import ArtifactFailure, ArtifactFailureKind, load_toml_artifac
 from .errors import ValidationError, sorted_errors
 from .helpers import is_integer, non_empty_string, string_list
 from .models import Manifest, Node, ParseResult
+from .vocabulary import (
+    ASSIGNMENT_VALUES,
+    NODE_ROUTING_VALUES,
+    POLICY_VALUES,
+    closed_string_error,
+)
 
 ROOT = {
     "version",
@@ -259,39 +265,66 @@ def parse_manifest(path: Path) -> ParseResult:
                 "version-3-only policy on a version-1 or version-2 manifest",
             )
         )
-    if version == 3 and "ecosystem_routing" in policies and policies[
-        "ecosystem_routing"
-    ] not in ("auto", "off"):
-        errors.append(
-            _e(
-                "TWV-SCHEMA-WRONG-SHAPE",
-                path,
-                "policies.ecosystem_routing",
-                "must be 'auto' or 'off'",
-            )
-        )
     for key, value in policies.items():
         reference = f"policies.{key}"
         if key == "max_parallel_agents":
-            valid, message = is_integer(value), "must be an integer"
+            if not is_integer(value):
+                errors.append(
+                    _e("TWV-SCHEMA-WRONG-SHAPE", path, reference, "must be an integer")
+                )
         elif key == "max_fix_rounds":
-            valid, message = (
-                is_integer(value) and value >= 0,
-                "must be a non-negative integer",
+            if not is_integer(value) or value < 0:
+                errors.append(
+                    _e(
+                        "TWV-SCHEMA-WRONG-SHAPE",
+                        path,
+                        reference,
+                        "must be a non-negative integer",
+                    )
+                )
+        elif key == "parallelism":
+            if not isinstance(value, str):
+                error = closed_string_error(
+                    value,
+                    POLICY_VALUES[key],
+                    path=str(path),
+                    reference=reference,
+                )
+                assert error is not None
+                errors.append(error)
+        elif key == "ecosystem_routing" and version in (1, 2):
+            pass
+        elif key in POLICY_VALUES:
+            error = closed_string_error(
+                value,
+                POLICY_VALUES[key],
+                path=str(path),
+                reference=reference,
             )
-        else:
-            valid, message = (
-                isinstance(value, str) and bool(value),
-                "must be a non-empty string",
-            )
-        if not valid:
-            errors.append(_e("TWV-SCHEMA-WRONG-SHAPE", path, reference, message))
+            if error is not None:
+                errors.append(error)
+    parallelism = policies.get("parallelism")
+    max_parallel_agents = policies.get("max_parallel_agents")
     unsupported_wave_fields = (
-        ("policies.parallelism", policies.get("parallelism") != "off"),
-        ("policies.max_parallel_agents", policies.get("max_parallel_agents") != 1),
-        ("root.waves", "waves" in raw),
+        (
+            "policies.parallelism",
+            parallelism not in POLICY_VALUES["parallelism"],
+            f"unsupported value {parallelism!r}; supported values: 'off'; "
+            "operational waves are unsupported",
+        ),
+        (
+            "policies.max_parallel_agents",
+            max_parallel_agents != 1,
+            f"unsupported value {max_parallel_agents!r}; supported value: 1; "
+            "operational waves are unsupported",
+        ),
+        (
+            "root.waves",
+            "waves" in raw,
+            "operational waves are unsupported",
+        ),
     )
-    for reference, unsupported in unsupported_wave_fields:
+    for reference, unsupported, message in unsupported_wave_fields:
         if not unsupported:
             continue
         errors.append(
@@ -299,7 +332,7 @@ def parse_manifest(path: Path) -> ParseResult:
                 "TWV-SCHEMA-UNSUPPORTED-OPERATIONAL-WAVE",
                 path,
                 reference,
-                "operational waves are unsupported",
+                message,
             )
         )
     validated_nodes: list[dict[str, object]] = []
@@ -333,6 +366,82 @@ def parse_manifest(path: Path) -> ParseResult:
                         "required node field is missing",
                     )
                 )
+        for key, supported in NODE_ROUTING_VALUES.items():
+            if key not in n:
+                continue
+            error = closed_string_error(
+                n[key],
+                supported,
+                path=str(path),
+                reference=f"{ref}.{key}",
+            )
+            if error is not None:
+                errors.append(error)
+        executor_class = n.get("executor_class")
+        model_tier = n.get("model_tier")
+        is_implementation = n.get("kind") not in {"review", "final", "research"}
+        if executor_class == "reviewer" and is_implementation:
+            errors.append(
+                _e(
+                    "TWV-SCHEMA-INVALID-ROUTING",
+                    path,
+                    f"{ref}.executor_class",
+                    "reviewer is valid only for review or final nodes",
+                )
+            )
+        if executor_class == "reviewer" and model_tier != "high":
+            errors.append(
+                _e(
+                    "TWV-SCHEMA-INVALID-ROUTING",
+                    path,
+                    f"{ref}.model_tier",
+                    "reviewer requires model_tier='high'",
+                )
+            )
+        if executor_class == "researcher" and is_implementation:
+            errors.append(
+                _e(
+                    "TWV-SCHEMA-INVALID-ROUTING",
+                    path,
+                    f"{ref}.executor_class",
+                    "researcher is advisory and cannot be an implementation node",
+                )
+            )
+        is_review_or_final = n.get("kind") in {"review", "final"}
+        review_routing_fields = ("executor_class", "model_tier", "batching")
+        if is_review_or_final and any(field in n for field in review_routing_fields):
+            expected_routing = {
+                "executor_class": "reviewer",
+                "model_tier": "high",
+                "batching": "off",
+            }
+            if any(n.get(field) != value for field, value in expected_routing.items()):
+                errors.append(
+                    _e(
+                        "TWV-SCHEMA-INVALID-ROUTING",
+                        path,
+                        ref,
+                        "review and final nodes require executor_class='reviewer', "
+                        "model_tier='high', and batching='off'",
+                    )
+                )
+        if (
+            is_implementation
+            and policies.get("dispatch") == "single"
+            and (executor_class is not None or model_tier is not None)
+            and (
+            executor_class != "implementer" or model_tier != "standard"
+            )
+        ):
+            errors.append(
+                _e(
+                    "TWV-SCHEMA-INVALID-ROUTING",
+                    path,
+                    ref,
+                    "single dispatch requires implementation nodes to use "
+                    "executor_class='implementer' and model_tier='standard'",
+                )
+            )
         for key in (
             "id",
             "kind",
@@ -488,6 +597,15 @@ def parse_manifest(path: Path) -> ParseResult:
                                     "must be an integer",
                                 )
                             )
+                    elif field in ASSIGNMENT_VALUES:
+                        error = closed_string_error(
+                            value,
+                            ASSIGNMENT_VALUES[field],
+                            path=str(path),
+                            reference=nested_ref,
+                        )
+                        if error is not None:
+                            errors.append(error)
                     elif field in {
                         "reason_codes",
                         "context_refs",

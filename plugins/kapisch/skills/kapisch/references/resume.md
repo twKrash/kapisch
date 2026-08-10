@@ -37,8 +37,9 @@ observed revision and every reconciliation result in state/report artifacts.
 
 Durable artifacts win over conversation context. Git and repository evidence win
 over durable artifacts. On disagreement, record the mismatch and recover only
-when the next action is deterministic; otherwise mark the workflow blocked. Do
-not guess, silently repair history, or mark a node complete from a report alone.
+when the next action is deterministic; otherwise persist the applicable
+`block:*` next action while `workflow_status` remains `running`. Do not guess,
+silently repair history, or mark a node complete from a report alone.
 
 For an interrupted running node, inspect its report, expected write scope,
 current diff, verification evidence, and recorded revision. Resume only if that

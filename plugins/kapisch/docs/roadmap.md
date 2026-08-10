@@ -259,15 +259,17 @@ deliver this stabilization slice.
 
 ## Stabilization S2 — implemented, partially complete
 
-- The validator and its existing structural coverage are implemented. Its
-  completion is blocked by [#5](https://github.com/twKrash/kapisch/issues/5),
-  [#6](https://github.com/twKrash/kapisch/issues/6), and
-  [#7](https://github.com/twKrash/kapisch/issues/7): deterministic unreadable
-  artifact handling, closed policy/state vocabularies, and immutable resume
-  snapshots remain unresolved.
-- Existing coverage validates sequential durable manifests, state,
-  node references, dependency ordering, legal transitions, review scopes,
-  review/final ordering, and canonical reviewer invocation envelopes.
+- The validator and its structural coverage are implemented. Deterministic
+  unreadable-artifact handling ([#5](https://github.com/twKrash/kapisch/issues/5))
+  and closed policy/state vocabularies
+  ([#6](https://github.com/twKrash/kapisch/issues/6)) are implemented; immutable
+  resume snapshots remain unresolved under
+  [#7](https://github.com/twKrash/kapisch/issues/7).
+- Existing coverage validates closed durable policy/state vocabularies,
+  workflow-status transitions and next-action consistency, sequential durable
+  manifests, node references, dependency ordering, legal node transitions,
+  review scopes, review/final ordering, and canonical reviewer invocation
+  envelopes.
 - It does not establish complete resume or idempotency safety.
 - Provide valid and invalid fixtures reproducing missing `review_scope`, stale
   review evidence, malformed invocation envelopes, and illegal transitions.
