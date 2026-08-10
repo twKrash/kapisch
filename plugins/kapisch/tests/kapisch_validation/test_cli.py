@@ -202,6 +202,31 @@ class CliTests(unittest.TestCase):
             findings,
         )
 
+    def test_previous_v3_route_must_be_valid(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            current = root / "current"
+            previous = root / "previous"
+            shutil.copytree(FIXTURES / "valid-v3-durable", current)
+            shutil.copytree(FIXTURES / "valid-v3-durable", previous)
+            route_path = previous / "delegations" / "00-route.toml"
+            route_path.write_text(
+                route_path.read_text(encoding="utf-8").replace(
+                    'task_id = "valid"', 'task_id = "wrong"'
+                ),
+                encoding="utf-8",
+            )
+            code, findings = self._run_paths(current, previous)
+        self.assertEqual(code, 2)
+        self.assertTrue(
+            any(
+                finding["code"] == "TWV-DELEG-TASK-MISMATCH"
+                and finding["path"] == str(route_path)
+                for finding in findings
+            ),
+            findings,
+        )
+
     def test_valid_fixture_is_read_only_and_has_deterministic_json(self) -> None:
         root = FIXTURES / "valid-sequential-v2"
         before = {

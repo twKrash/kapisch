@@ -276,6 +276,42 @@ class VocabularyTests(unittest.TestCase):
                     findings,
                 )
 
+    def test_ready_review_and_final_require_reviewer_routing(self) -> None:
+        for node_id, completed, ready in (
+            ("R01", '["T01"]', '["R01"]'),
+            ("F01", '["R01","T01"]', '["F01"]'),
+        ):
+            with self.subTest(node_id=node_id), TemporaryDirectory() as temporary:
+                root = self.copy_fixture(temporary, "valid-sequential-v2")
+                manifest_path = root / "02-execution-graph.toml"
+                content = manifest_path.read_text(encoding="utf-8")
+                before, node = content.split(f'[[nodes]]\nid="{node_id}"', 1)
+                node, after = node.split("[[nodes]]", 1) if "[[nodes]]" in node else (node, "")
+                node = node.replace('status="complete"', 'status="ready"', 1)
+                node = node.replace('executor_class="reviewer"', 'executor_class="implementer"')
+                node = node.replace('model_tier="high"', 'model_tier="standard"')
+                manifest_path.write_text(
+                    before + f'[[nodes]]\nid="{node_id}"' + node + "[[nodes]]" + after,
+                    encoding="utf-8",
+                )
+                state_path = root / "03-state.toml"
+                state = state_path.read_text(encoding="utf-8")
+                state = state.replace('workflow_status="complete"', 'workflow_status="running"')
+                state = state.replace('completed_node_ids=["F01","R01","T01"]', f"completed_node_ids={completed}")
+                state = state.replace('ready_node_ids=[]', f"ready_node_ids={ready}")
+                state = state.replace('next_action="complete"', f'next_action="select:{node_id}"')
+                state_path.write_text(state, encoding="utf-8")
+                code, findings = self.run_cli(root)
+                self.assertEqual(code, 2)
+                self.assertTrue(
+                    any(
+                        finding["code"] == "TWV-SCHEMA-INVALID-ROUTING"
+                        and finding["reference"] == f"nodes[{1 if node_id == 'R01' else 2}]"
+                        for finding in findings
+                    ),
+                    findings,
+                )
+
     def test_unknown_assignment_execution_class_exits_two(self) -> None:
         with TemporaryDirectory() as temporary:
             root = self.copy_fixture(temporary, "valid-sequential-v2")

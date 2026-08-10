@@ -407,6 +407,24 @@ def parse_manifest(path: Path) -> ParseResult:
                     "researcher is advisory and cannot be an implementation node",
                 )
             )
+        is_review_or_final = n.get("kind") in {"review", "final"}
+        review_routing_fields = ("executor_class", "model_tier", "batching")
+        if is_review_or_final and any(field in n for field in review_routing_fields):
+            expected_routing = {
+                "executor_class": "reviewer",
+                "model_tier": "high",
+                "batching": "off",
+            }
+            if any(n.get(field) != value for field, value in expected_routing.items()):
+                errors.append(
+                    _e(
+                        "TWV-SCHEMA-INVALID-ROUTING",
+                        path,
+                        ref,
+                        "review and final nodes require executor_class='reviewer', "
+                        "model_tier='high', and batching='off'",
+                    )
+                )
         if (
             is_implementation
             and policies.get("dispatch") == "single"
