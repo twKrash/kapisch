@@ -32,7 +32,7 @@ The test suite also covers:
 | Git-backed local marketplace metadata and source resolution | repository-level `tests/test_marketplace.py` |
 | Routing and version-3 durable contracts | `test_manifest.py`, `test_transitions.py`, contract references |
 | Closed policy/node-routing/workflow vocabularies and workflow state/action consistency | `test_vocabulary.py`, `test_transitions.py`, `test_cli.py` |
-| Resume and lifecycle | `test_cli.py`, `test_transitions.py`, `test_hardening.py` |
+| Resume, lifecycle, and previous-snapshot history compatibility | `test_cli.py`, `test_transitions.py`, `test_hardening.py` |
 | Reviewer invocation and final readiness | `test_review_evidence.py`, `test_hardening.py` |
 | Migration and no-new-legacy-write | `test_extraction_acceptance.py` |
 | User-scoped profile identity, revision, and drift | `test_extraction_acceptance.py` |
@@ -43,6 +43,12 @@ The test suite also covers:
 | Delegation route gating and v3 auto-validation | `test_delegations.py` |
 | Portable version-3 durable validation (with route record) | `scripts/test_portable_package.py` |
 | Read-only deterministic validator | `test_cli.py`, `test_hardening.py` |
+
+`test_transitions.py` covers stable task identity, missing/renamed nodes,
+immutable graph fields, terminal artifact/assignment/evidence bindings,
+append-only non-terminal graph growth, unchanged idempotent resume, and legal
+status progression. `test_cli.py` proves that the same compatibility boundary is
+enforced when `--previous-task-dir` is supplied.
 
 `python -m unittest discover -s tests/kapisch_validation` is the focused suite
 when portable-package isolation is not required.
