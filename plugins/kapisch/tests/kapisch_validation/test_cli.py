@@ -152,6 +152,43 @@ class CliTests(unittest.TestCase):
             findings,
         )
 
+    def test_previous_snapshot_rejects_immutable_node_change(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            current = root / "current"
+            previous = root / "previous"
+            shutil.copytree(FIXTURES / "valid-sequential-v2", current)
+            shutil.copytree(FIXTURES / "valid-sequential-v2", previous)
+            manifest_path = current / "02-execution-graph.toml"
+            manifest_path.write_text(
+                manifest_path.read_text(encoding="utf-8").replace(
+                    "sequence=1", "sequence=10", 1
+                ),
+                encoding="utf-8",
+            )
+            code, findings = self._run_paths(current, previous)
+        self.assertEqual(code, 2)
+        self.assertTrue(
+            any(
+                finding["code"] == "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT"
+                and finding["reference"] == "nodes[T01].sequence"
+                and finding["path"] == str(manifest_path)
+                for finding in findings
+            ),
+            findings,
+        )
+
+    def test_unchanged_previous_snapshot_is_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            current = root / "current"
+            previous = root / "previous"
+            shutil.copytree(FIXTURES / "valid-sequential-v2", current)
+            shutil.copytree(FIXTURES / "valid-sequential-v2", previous)
+            code, findings = self._run_paths(current, previous)
+        self.assertEqual(code, 0)
+        self.assertEqual(findings, [])
+
     def test_invalid_previous_snapshot_is_not_used_for_transitions(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
