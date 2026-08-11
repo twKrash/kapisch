@@ -283,6 +283,212 @@ class TransitionTests(unittest.TestCase):
                     errors,
                 )
 
+    def test_rejects_terminal_node_evidence_replacement_or_detachment(self) -> None:
+        evidence = [
+            {
+                "id": "V01",
+                "check": "tests",
+                "result": "pass",
+                "evidence_ref": "tasks/T01-report.md",
+                "output_sha256": "abc",
+                "revision": "head",
+            }
+        ]
+        previous_node = snapshot_node(
+            status="complete",
+            revision={"base": "base", "head": "head"},
+            assignment={"id": "A-T01-1", "schema_version": 1},
+            verification_evidence=evidence,
+        )
+        cases = (
+            (
+                "assignment",
+                snapshot_node(
+                    status="complete",
+                    revision={"base": "base", "head": "head"},
+                    assignment={"id": "A-T01-2", "schema_version": 1},
+                    verification_evidence=evidence,
+                ),
+            ),
+            (
+                "verification_evidence",
+                snapshot_node(
+                    status="complete",
+                    revision={"base": "base", "head": "head"},
+                    assignment={"id": "A-T01-1", "schema_version": 1},
+                    verification_evidence=[],
+                ),
+            ),
+        )
+        for field, current_node in cases:
+            with self.subTest(field=field):
+                errors = validate_transition(
+                    snapshot_manifest(current_node),
+                    state("complete", "complete"),
+                    snapshot_manifest(previous_node),
+                    state("complete", "complete"),
+                )
+                self.assertTrue(
+                    any(
+                        error.code == "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT"
+                        and error.reference == f"nodes[T01].{field}"
+                        for error in errors
+                    ),
+                    errors,
+                )
+
+    def test_rejects_rebinding_completed_workflow_state(self) -> None:
+        graph = snapshot_manifest(snapshot_node(status="complete"))
+        previous_state = state(
+            "complete",
+            "complete",
+            latest_approving_review_path="reviews/round-0/03-review.md",
+            latest_approving_invocation_id="I-REVIEW-1",
+        )
+        cases = (
+            ("current_revision", {"current_revision": "other-head"}),
+            (
+                "latest_approving_review_path",
+                {"latest_approving_review_path": "reviews/round-1/03-review.md"},
+            ),
+            (
+                "latest_approving_invocation_id",
+                {"latest_approving_invocation_id": "I-REVIEW-2"},
+            ),
+            ("current_fix_round", {"current_fix_round": 1}),
+        )
+        for reference, changed in cases:
+            with self.subTest(reference=reference):
+                state_values = {
+                    "latest_approving_review_path": "reviews/round-0/03-review.md",
+                    "latest_approving_invocation_id": "I-REVIEW-1",
+                }
+                state_values.update(changed)
+                current_state = state(
+                    "complete",
+                    "complete",
+                    **state_values,
+                )
+                errors = validate_transition(
+                    graph, current_state, graph, previous_state
+                )
+                self.assertTrue(
+                    any(
+                        error.code == "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT"
+                        and error.reference == reference
+                        for error in errors
+                    ),
+                    errors,
+                )
+
+    def test_rejects_new_node_that_claims_started_or_terminal_history(self) -> None:
+        previous_node = snapshot_node("T01", sequence=1, status="ready")
+        forbidden_statuses = (
+            "running",
+            "implemented",
+            "reviewing",
+            "complete",
+            "blocked",
+            "failed",
+            "cancelled",
+        )
+        for forbidden_status in forbidden_statuses:
+            with self.subTest(status=forbidden_status):
+                current = snapshot_manifest(
+                    previous_node,
+                    snapshot_node("T02", sequence=2, status=forbidden_status),
+                )
+                errors = validate_transition(
+                    current,
+                    state("select:T01"),
+                    snapshot_manifest(previous_node),
+                    state("select:T01"),
+                )
+                self.assertTrue(
+                    any(
+                        error.code == "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT"
+                        and error.reference == "nodes[T02].status"
+                        for error in errors
+                    ),
+                    errors,
+                )
+
+    def test_rejects_new_node_inserted_before_persisted_sequence(self) -> None:
+        previous_node = snapshot_node("T01", sequence=2, status="ready")
+        current = snapshot_manifest(
+            snapshot_node("T02", sequence=1, status="pending"),
+            previous_node,
+        )
+        errors = validate_transition(
+            current,
+            state("select:T01"),
+            snapshot_manifest(previous_node),
+            state("select:T01"),
+        )
+        self.assertTrue(
+            any(
+                error.code == "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT"
+                and error.reference == "nodes[T02].sequence"
+                for error in errors
+            ),
+            errors,
+        )
+
+    def test_allows_append_only_pending_or_ready_graph_growth(self) -> None:
+        previous_node = snapshot_node("T01", sequence=1, status="ready")
+        for initial_status in ("pending", "ready"):
+            with self.subTest(status=initial_status):
+                current = snapshot_manifest(
+                    previous_node,
+                    snapshot_node("T02", sequence=2, status=initial_status),
+                )
+                self.assertEqual(
+                    validate_transition(
+                        current,
+                        state("select:T01"),
+                        snapshot_manifest(previous_node),
+                        state("select:T01"),
+                    ),
+                    [],
+                )
+
+    def test_unchanged_completed_snapshot_is_idempotent(self) -> None:
+        graph = snapshot_manifest(
+            snapshot_node(
+                status="complete",
+                revision={"base": "base", "head": "head"},
+                verification_evidence=[{"id": "V01", "result": "pass"}],
+            )
+        )
+        completed_state = state(
+            "complete",
+            "complete",
+            latest_approving_review_path="reviews/round-0/03-review.md",
+            latest_approving_invocation_id="I-REVIEW-1",
+        )
+        self.assertEqual(
+            validate_transition(graph, completed_state, graph, completed_state), []
+        )
+
+    def test_allows_legal_status_progression_with_structure_preserved(self) -> None:
+        previous = snapshot_manifest(snapshot_node(status="ready"))
+        current = snapshot_manifest(
+            snapshot_node(
+                status="running",
+                assignment={"id": "A-T01-1", "schema_version": 1},
+                verification_evidence=[],
+            )
+        )
+        self.assertEqual(
+            validate_transition(
+                current,
+                state("resolve:T01", current_revision="work-head"),
+                previous,
+                state("select:T01"),
+            ),
+            [],
+        )
+
     def test_rejects_invalid_next_action_grammar(self) -> None:
         errors = validate_lifecycle(manifest("ready"), state("launch:T01"))
         self.assertEqual(errors[0].code, "TWV-LIFECYCLE-INVALID-NEXT-ACTION")

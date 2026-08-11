@@ -62,6 +62,24 @@ NODE_PATH_INDEX = {
     "report": 2,
     "reviewer_invocation": 3,
 }
+NEW_NODE_STATUSES = frozenset({"pending", "ready"})
+TERMINAL_NODE_STATUSES = frozenset(
+    status for status, allowed in ALLOWED.items() if not allowed
+)
+TERMINAL_NODE_BINDING_FIELDS = (
+    "revision",
+    "assignment",
+    "batch",
+    "verification_evidence",
+    "blocker",
+)
+TERMINAL_STATE_BINDING_FIELDS = (
+    "current_revision",
+    "latest_approving_review_path",
+    "latest_approving_invocation_id",
+    "current_fix_round",
+    "max_fix_rounds",
+)
 
 
 def determine_next_action(manifest: Manifest, state: State) -> str:
@@ -241,6 +259,65 @@ def validate_snapshot_compatibility(
                     f"nodes[{previous_node.id}].{field}",
                     f"current value {current_value!r} does not match "
                     f"previous value {previous_value!r}",
+                )
+            )
+        if previous_node.status in TERMINAL_NODE_STATUSES:
+            for field in TERMINAL_NODE_BINDING_FIELDS:
+                current_value = current_node.raw.get(field)
+                previous_value = previous_node.raw.get(field)
+                if current_value == previous_value:
+                    continue
+                errors.append(
+                    ValidationError(
+                        "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT",
+                        manifest.path,
+                        f"nodes[{previous_node.id}].{field}",
+                        f"terminal node binding changed from {previous_value!r} "
+                        f"to {current_value!r}",
+                    )
+                )
+
+    previous_ids = {node.id for node in previous.nodes}
+    previous_max_sequence = max(
+        (node.sequence for node in previous.nodes), default=-1
+    )
+    for node in manifest.nodes:
+        if node.id in previous_ids:
+            continue
+        if node.status not in NEW_NODE_STATUSES:
+            errors.append(
+                ValidationError(
+                    "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT",
+                    manifest.path,
+                    f"nodes[{node.id}].status",
+                    "new nodes must begin in status 'pending' or 'ready'; "
+                    f"got {node.status!r}",
+                )
+            )
+        if node.sequence <= previous_max_sequence:
+            errors.append(
+                ValidationError(
+                    "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT",
+                    manifest.path,
+                    f"nodes[{node.id}].sequence",
+                    "new nodes must append after every previously persisted sequence; "
+                    f"got {node.sequence} after {previous_max_sequence}",
+                )
+            )
+
+    if previous_state.workflow_status == "complete":
+        for field in TERMINAL_STATE_BINDING_FIELDS:
+            current_value = state.raw.get(field)
+            previous_value = previous_state.raw.get(field)
+            if current_value == previous_value:
+                continue
+            errors.append(
+                ValidationError(
+                    "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT",
+                    state.path or manifest.path,
+                    field,
+                    f"completed workflow binding changed from {previous_value!r} "
+                    f"to {current_value!r}",
                 )
             )
     return errors
