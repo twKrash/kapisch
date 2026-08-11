@@ -10,23 +10,111 @@ from kapisch_validation.transitions import (
 )
 
 
+def snapshot_node(
+    node_id: str = "T01",
+    *,
+    sequence: int = 1,
+    kind: str = "behavioral",
+    status: str = "pending",
+    depends_on: tuple[str, ...] = (),
+    **raw_overrides: object,
+) -> Node:
+    raw: dict[str, object] = {
+        "id": node_id,
+        "sequence": sequence,
+        "title": f"{node_id} title",
+        "kind": kind,
+        "risk": "low",
+        "status": status,
+        "depends_on": list(depends_on),
+        "brief": f"tasks/{node_id}-brief.md",
+        "context": f"tasks/{node_id}-context.md",
+        "report": f"tasks/{node_id}-report.md",
+        "reads": [],
+        "writes": [],
+        "shared_resources": [],
+        "verification": [],
+        "context_refs": [],
+        "executor_class": "implementer",
+        "model_tier": "standard",
+        "batching": "off",
+        "delegation_ids": [],
+    }
+    raw.update(raw_overrides)
+    paths = tuple(
+        str(raw.get(field, ""))
+        for field in ("brief", "context", "report", "reviewer_invocation")
+    )
+    review_scope = raw.get("review_scope")
+    return Node(
+        str(raw["id"]),
+        int(raw["sequence"]),
+        str(raw["kind"]),
+        str(raw["status"]),
+        tuple(raw["depends_on"]),
+        paths,
+        review_scope if isinstance(review_scope, dict) else None,
+        raw,
+    )
+
+
+def snapshot_manifest(
+    *nodes: Node,
+    version: int = 3,
+    task_id: str = "x",
+    base_revision: str = "base",
+    source_plan: str = "01-plan.md",
+    policies: dict[str, object] | None = None,
+) -> Manifest:
+    return Manifest(
+        version,
+        task_id,
+        base_revision,
+        {"execution": "sequential"} if policies is None else policies,
+        tuple(nodes),
+        "graph.toml",
+        source_plan,
+    )
+
+
 def manifest(status: str) -> Manifest:
-    node = Node("T01", 1, "behavioral", status, (), (), None, {})
-    return Manifest(2, "x", "base", {}, (node,), "graph.toml")
+    return snapshot_manifest(snapshot_node(status=status), version=2, policies={})
 
 
-def state(action: str, workflow_status: str = "running") -> State:
+def state(
+    action: str,
+    workflow_status: str = "running",
+    **raw_overrides: object,
+) -> State:
+    raw: dict[str, object] = {
+        "task_id": "x",
+        "source_plan": "01-plan.md",
+        "base_revision": "base",
+        "current_revision": "head",
+        "workflow_status": workflow_status,
+        "completed_node_ids": [],
+        "running_node_ids": [],
+        "ready_node_ids": ["T01"],
+        "blocked_node_ids": [],
+        "failed_node_ids": [],
+        "latest_approving_review_path": "unavailable",
+        "latest_approving_invocation_id": "unavailable",
+        "current_fix_round": 0,
+        "max_fix_rounds": 1,
+        "next_action": action,
+    }
+    raw.update(raw_overrides)
     return State(
-        "x",
-        "head",
-        workflow_status,
-        (),
-        (),
-        ("T01",),
-        (),
-        (),
-        action,
-        {},
+        str(raw["task_id"]),
+        str(raw["current_revision"]),
+        str(raw["workflow_status"]),
+        tuple(raw["completed_node_ids"]),
+        tuple(raw["running_node_ids"]),
+        tuple(raw["ready_node_ids"]),
+        tuple(raw["blocked_node_ids"]),
+        tuple(raw["failed_node_ids"]),
+        str(raw["next_action"]),
+        raw,
     )
 
 
@@ -41,6 +129,75 @@ class TransitionTests(unittest.TestCase):
             manifest("running"), state("resolve:T01"), manifest("complete"), state("complete")
         )
         self.assertEqual(errors[0].code, "TWV-LIFECYCLE-ILLEGAL-TRANSITION")
+
+    def test_rejects_manifest_contract_changes(self) -> None:
+        previous = snapshot_manifest(snapshot_node())
+        cases = (
+            ("version", snapshot_manifest(snapshot_node(), version=2)),
+            ("task_id", snapshot_manifest(snapshot_node(), task_id="other")),
+            (
+                "base_revision",
+                snapshot_manifest(snapshot_node(), base_revision="other"),
+            ),
+            (
+                "source_plan",
+                snapshot_manifest(snapshot_node(), source_plan="other-plan.md"),
+            ),
+            (
+                "policies",
+                snapshot_manifest(
+                    snapshot_node(), policies={"execution": "sequential", "dispatch": "auto"}
+                ),
+            ),
+        )
+        for reference, current in cases:
+            with self.subTest(reference=reference):
+                errors = validate_transition(
+                    current,
+                    state("select:T01"),
+                    previous,
+                    state("select:T01"),
+                )
+                self.assertTrue(
+                    any(
+                        error.code == "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT"
+                        and error.reference == reference
+                        for error in errors
+                    ),
+                    errors,
+                )
+
+    def test_rejects_removed_previous_node(self) -> None:
+        errors = validate_transition(
+            snapshot_manifest(),
+            state("block:no-ready-node"),
+            snapshot_manifest(snapshot_node()),
+            state("select:T01"),
+        )
+        self.assertEqual(
+            [
+                (error.code, error.reference)
+                for error in errors
+                if error.code == "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT"
+            ],
+            [("TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT", "nodes[T01]")],
+        )
+
+    def test_rejects_renamed_completed_node(self) -> None:
+        errors = validate_transition(
+            snapshot_manifest(snapshot_node("T02", status="pending")),
+            state("select:T02"),
+            snapshot_manifest(snapshot_node("T01", status="complete")),
+            state("complete", "complete"),
+        )
+        self.assertTrue(
+            any(
+                error.code == "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT"
+                and error.reference == "nodes[T01]"
+                for error in errors
+            ),
+            errors,
+        )
 
     def test_rejects_invalid_next_action_grammar(self) -> None:
         errors = validate_lifecycle(manifest("ready"), state("launch:T01"))

@@ -150,7 +150,7 @@ def validate_lifecycle(
     return errors
 
 
-def validate_transition(
+def validate_snapshot_compatibility(
     manifest: Manifest,
     state: State,
     previous: Manifest,
@@ -158,21 +158,49 @@ def validate_transition(
 ) -> list[ValidationError]:
     errors: list[ValidationError] = []
     identities = (
+        ("version", manifest.version, previous.version),
         ("task_id", manifest.task_id, previous.task_id),
         ("base_revision", manifest.base_revision, previous.base_revision),
         ("source_plan", manifest.source_plan, previous.source_plan),
+        ("policies", manifest.policies, previous.policies),
     )
     for reference, current, prior in identities:
         if current != prior:
             errors.append(
                 ValidationError(
                     "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT",
-                    state.path or manifest.path,
+                    manifest.path,
                     reference,
                     f"current {reference}={current!r} does not match "
                     f"previous {reference}={prior!r}",
                 )
             )
+    if errors:
+        return errors
+
+    current_nodes = {node.id: node for node in manifest.nodes}
+    for previous_node in previous.nodes:
+        if previous_node.id not in current_nodes:
+            errors.append(
+                ValidationError(
+                    "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT",
+                    manifest.path,
+                    f"nodes[{previous_node.id}]",
+                    "previously persisted node is missing from current snapshot",
+                )
+            )
+    return errors
+
+
+def validate_transition(
+    manifest: Manifest,
+    state: State,
+    previous: Manifest,
+    previous_state: State,
+) -> list[ValidationError]:
+    errors = validate_snapshot_compatibility(
+        manifest, state, previous, previous_state
+    )
     if errors:
         return errors
     allowed_statuses = WORKFLOW_STATUS_TRANSITIONS.get(
