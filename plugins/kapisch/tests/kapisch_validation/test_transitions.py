@@ -199,6 +199,90 @@ class TransitionTests(unittest.TestCase):
             errors,
         )
 
+    def test_rejects_graph_field_changes_with_node_and_field_reference(self) -> None:
+        previous = snapshot_manifest(snapshot_node(depends_on=("T00",)))
+        cases = (
+            ("sequence", snapshot_node(sequence=2, depends_on=("T00",))),
+            ("kind", snapshot_node(kind="fix", depends_on=("T00",))),
+            ("depends_on", snapshot_node(depends_on=("T00", "T99"))),
+        )
+        for field, changed_node in cases:
+            with self.subTest(field=field):
+                errors = validate_transition(
+                    snapshot_manifest(changed_node),
+                    state("select:T01"),
+                    previous,
+                    state("select:T01"),
+                )
+                self.assertTrue(
+                    any(
+                        error.code == "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT"
+                        and error.reference == f"nodes[T01].{field}"
+                        for error in errors
+                    ),
+                    errors,
+                )
+
+    def test_dependency_order_is_not_a_semantic_change(self) -> None:
+        previous = snapshot_manifest(snapshot_node(depends_on=("T00", "T99")))
+        current = snapshot_manifest(snapshot_node(depends_on=("T99", "T00")))
+        self.assertEqual(
+            validate_transition(
+                current,
+                state("select:T01"),
+                previous,
+                state("select:T01"),
+            ),
+            [],
+        )
+
+    def test_rejects_completed_node_artifact_and_reviewer_rebinding(self) -> None:
+        previous_node = snapshot_node(
+            "R01",
+            kind="review",
+            status="complete",
+            report="reviews/round-0/03-review.md",
+            reviewer_invocation="reviews/round-0/00-review-invocation.toml",
+        )
+        cases = (
+            (
+                "report",
+                snapshot_node(
+                    "R01",
+                    kind="review",
+                    status="complete",
+                    report="reviews/round-1/03-review.md",
+                    reviewer_invocation="reviews/round-0/00-review-invocation.toml",
+                ),
+            ),
+            (
+                "reviewer_invocation",
+                snapshot_node(
+                    "R01",
+                    kind="review",
+                    status="complete",
+                    report="reviews/round-0/03-review.md",
+                    reviewer_invocation="reviews/round-1/00-review-invocation.toml",
+                ),
+            ),
+        )
+        for field, current_node in cases:
+            with self.subTest(field=field):
+                errors = validate_transition(
+                    snapshot_manifest(current_node),
+                    state("complete", "complete"),
+                    snapshot_manifest(previous_node),
+                    state("complete", "complete"),
+                )
+                self.assertTrue(
+                    any(
+                        error.code == "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT"
+                        and error.reference == f"nodes[R01].{field}"
+                        for error in errors
+                    ),
+                    errors,
+                )
+
     def test_rejects_invalid_next_action_grammar(self) -> None:
         errors = validate_lifecycle(manifest("ready"), state("launch:T01"))
         self.assertEqual(errors[0].code, "TWV-LIFECYCLE-INVALID-NEXT-ACTION")

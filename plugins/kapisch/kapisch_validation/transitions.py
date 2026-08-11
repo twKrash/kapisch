@@ -24,6 +24,44 @@ BLOCK_ACTIONS = {
     "block:missing-review-final",
     "block:no-ready-node",
 }
+IMMUTABLE_NODE_FIELDS = (
+    "sequence",
+    "title",
+    "kind",
+    "risk",
+    "depends_on",
+    "brief",
+    "context",
+    "report",
+    "reviewer_invocation",
+    "reads",
+    "writes",
+    "shared_resources",
+    "verification",
+    "context_refs",
+    "executor_class",
+    "model_tier",
+    "batching",
+    "review_scope",
+    "delegation_ids",
+    "extensions",
+)
+LIST_NODE_FIELDS = frozenset(
+    {
+        "reads",
+        "writes",
+        "shared_resources",
+        "verification",
+        "context_refs",
+        "delegation_ids",
+    }
+)
+NODE_PATH_INDEX = {
+    "brief": 0,
+    "context": 1,
+    "report": 2,
+    "reviewer_invocation": 3,
+}
 
 
 def determine_next_action(manifest: Manifest, state: State) -> str:
@@ -180,7 +218,8 @@ def validate_snapshot_compatibility(
 
     current_nodes = {node.id: node for node in manifest.nodes}
     for previous_node in previous.nodes:
-        if previous_node.id not in current_nodes:
+        current_node = current_nodes.get(previous_node.id)
+        if current_node is None:
             errors.append(
                 ValidationError(
                     "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT",
@@ -189,7 +228,35 @@ def validate_snapshot_compatibility(
                     "previously persisted node is missing from current snapshot",
                 )
             )
+            continue
+        for field in IMMUTABLE_NODE_FIELDS:
+            current_value = _normalized_node_field(current_node, field)
+            previous_value = _normalized_node_field(previous_node, field)
+            if current_value == previous_value:
+                continue
+            errors.append(
+                ValidationError(
+                    "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT",
+                    manifest.path,
+                    f"nodes[{previous_node.id}].{field}",
+                    f"current value {current_value!r} does not match "
+                    f"previous value {previous_value!r}",
+                )
+            )
     return errors
+
+
+def _normalized_node_field(node, field: str) -> object:
+    if field == "depends_on":
+        return tuple(sorted(node.depends_on))
+    if field in NODE_PATH_INDEX:
+        return node.paths[NODE_PATH_INDEX[field]]
+    if field == "review_scope":
+        return node.review_scope or {}
+    if field in LIST_NODE_FIELDS:
+        value = node.raw.get(field, ())
+        return tuple(value) if isinstance(value, list) else value
+    return node.raw.get(field)
 
 
 def validate_transition(
