@@ -215,7 +215,10 @@ semantic, but adding, removing, or replacing a dependency is incompatible.
 
 While an existing node is non-terminal, only its legal lifecycle `status` and
 its runtime `revision`, `assignment`, `batch`, `verification_evidence`, and
-`blocker` records may advance. After the node reaches `complete`, `blocked`,
+`blocker` records may advance. A persisted assignment keeps its ID and stable
+fields; attempts may advance their `status` and verification, while attempts,
+escalations, and verification evidence retain every existing stable ID and may
+only gain new records. After the node reaches `complete`, `blocked`,
 `failed`, or `cancelled`, those runtime bindings are frozen too; they cannot be
 removed, detached, replaced, or rebound. Once the workflow is `complete`, its
 `current_revision`, latest approving review path and invocation ID, and fix-round

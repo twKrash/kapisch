@@ -292,20 +292,11 @@ def validate_snapshot_compatibility(
                     )
                 )
         else:
-            for field in RUNTIME_BINDING_FIELDS:
-                current_value = current_node.raw.get(field)
-                previous_value = previous_node.raw.get(field)
-                if previous_value is None or _semantic_equal(current_value, previous_value):
-                    continue
-                errors.append(
-                    ValidationError(
-                        "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT",
-                        manifest.path,
-                        f"nodes[{previous_node.id}].{field}",
-                        "persisted runtime binding may not be replaced before "
-                        "the node becomes terminal",
-                    )
+            errors.extend(
+                _validate_nonterminal_runtime_bindings(
+                    manifest, previous_node.id, current_node.raw, previous_node.raw
                 )
+            )
 
     previous_ids = {node.id for node in previous.nodes}
     for node in manifest.nodes:
@@ -383,6 +374,135 @@ def _semantic_value(value: object) -> object:
 
 def _semantic_equal(current: object, previous: object) -> bool:
     return _semantic_value(current) == _semantic_value(previous)
+
+
+def _runtime_error(manifest: Manifest, node_id: str, field: str, message: str) -> ValidationError:
+    return ValidationError(
+        "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT",
+        manifest.path,
+        f"nodes[{node_id}].{field}",
+        message,
+    )
+
+
+def _records_by_id(value: object) -> dict[str, dict[str, object]] | None:
+    if not isinstance(value, list):
+        return None
+    records: dict[str, dict[str, object]] = {}
+    for record in value:
+        if not isinstance(record, dict) or not isinstance(record.get("id"), str):
+            return None
+        records[record["id"]] = record
+    return records
+
+
+def _validate_append_only_records(
+    manifest: Manifest,
+    node_id: str,
+    field: str,
+    current: object,
+    previous: object,
+    *,
+    mutable_fields: frozenset[str] = frozenset(),
+) -> list[ValidationError]:
+    if previous is None:
+        return []
+    current_records = _records_by_id(current)
+    previous_records = _records_by_id(previous)
+    if current_records is None or previous_records is None:
+        return [_runtime_error(manifest, node_id, field, "runtime record shape changed")]
+    errors: list[ValidationError] = []
+    for record_id, previous_record in previous_records.items():
+        current_record = current_records.get(record_id)
+        if current_record is None:
+            errors.append(
+                _runtime_error(
+                    manifest, node_id, field, "persisted runtime record is missing"
+                )
+            )
+            continue
+        for key, previous_value in previous_record.items():
+            if key in mutable_fields:
+                continue
+            if _semantic_equal(current_record.get(key), previous_value):
+                continue
+            errors.append(
+                _runtime_error(
+                    manifest,
+                    node_id,
+                    field,
+                    "persisted runtime record was replaced or rebound",
+                )
+            )
+            break
+    return errors
+
+
+def _validate_nonterminal_runtime_bindings(
+    manifest: Manifest,
+    node_id: str,
+    current: dict[str, object],
+    previous: dict[str, object],
+) -> list[ValidationError]:
+    errors: list[ValidationError] = []
+    previous_assignment = previous.get("assignment")
+    current_assignment = current.get("assignment")
+    if previous_assignment is not None:
+        if not isinstance(previous_assignment, dict) or not isinstance(current_assignment, dict):
+            errors.append(
+                _runtime_error(manifest, node_id, "assignment", "persisted assignment is missing")
+            )
+        elif current_assignment.get("id") != previous_assignment.get("id"):
+            errors.append(
+                _runtime_error(manifest, node_id, "assignment", "assignment identity changed")
+            )
+        else:
+            for key, previous_value in previous_assignment.items():
+                if key in {"attempts", "escalations"}:
+                    continue
+                if _semantic_equal(current_assignment.get(key), previous_value):
+                    continue
+                errors.append(
+                    _runtime_error(
+                        manifest, node_id, "assignment", "persisted assignment was replaced or rebound"
+                    )
+                )
+                break
+            errors.extend(
+                _validate_append_only_records(
+                    manifest,
+                    node_id,
+                    "assignment.attempts",
+                    current_assignment.get("attempts", []),
+                    previous_assignment.get("attempts", []),
+                    mutable_fields=frozenset({"status", "verification"}),
+                )
+            )
+            errors.extend(
+                _validate_append_only_records(
+                    manifest,
+                    node_id,
+                    "assignment.escalations",
+                    current_assignment.get("escalations", []),
+                    previous_assignment.get("escalations", []),
+                )
+            )
+    for field in ("verification_evidence",):
+        errors.extend(
+            _validate_append_only_records(
+                manifest, node_id, field, current.get(field, []), previous.get(field, [])
+            )
+        )
+    for field in ("revision", "batch", "blocker"):
+        previous_value = previous.get(field)
+        if previous_value is None or _semantic_equal(current.get(field), previous_value):
+            continue
+        errors.append(
+            _runtime_error(
+                manifest, node_id, field, "persisted runtime binding was replaced or removed"
+            )
+        )
+    return errors
 
 
 def _artifact_digest(task_dir: Path, relative_path: str) -> str | None:
