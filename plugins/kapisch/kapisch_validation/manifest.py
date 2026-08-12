@@ -11,6 +11,7 @@ from .vocabulary import (
     ASSIGNMENT_VALUES,
     NODE_ROUTING_VALUES,
     POLICY_VALUES,
+    RUNTIME_RECORD_STATUS_VALUES,
     closed_string_error,
 )
 
@@ -82,6 +83,7 @@ ASSIGNMENT = {
     "attempts",
     "escalations",
 }
+ASSIGNMENT_REQUIRED = ASSIGNMENT - {"context_fingerprint", "scope_fingerprint"}
 BATCH = {"id", "member_node_ids", "member_assignment_ids", "member_outcomes", "outcome"}
 ATTEMPT = {"id", "source_revision", "context_scope_ref", "status", "verification"}
 ESCALATION = {
@@ -604,6 +606,18 @@ def parse_manifest(path: Path) -> ParseResult:
         for key, allowed in (("assignment", ASSIGNMENT), ("batch", BATCH)):
             if key in n:
                 _closed(n[key], allowed, path, f"{ref}.{key}", errors)
+                if isinstance(n[key], dict):
+                    required_fields = ASSIGNMENT_REQUIRED if key == "assignment" else allowed
+                    for required in required_fields:
+                        if required not in n[key]:
+                            errors.append(
+                                _e(
+                                    "TWV-SCHEMA-MISSING-FIELD",
+                                    path,
+                                    f"{ref}.{key}.{required}",
+                                    "required runtime binding field is missing",
+                                )
+                            )
         for key in ("assignment", "batch"):
             nested = n.get(key)
             if isinstance(nested, dict):
@@ -645,6 +659,16 @@ def parse_manifest(path: Path) -> ParseResult:
                                 "must be an array of non-empty strings",
                             ),
                         )
+                        if field == "member_outcomes" and isinstance(value, list):
+                            for outcome_index, outcome in enumerate(value):
+                                outcome_error = closed_string_error(
+                                    outcome,
+                                    RUNTIME_RECORD_STATUS_VALUES,
+                                    path=str(path),
+                                    reference=f"{nested_ref}[{outcome_index}]",
+                                )
+                                if outcome_error is not None:
+                                    errors.append(outcome_error)
                     elif field not in {"attempts", "escalations"}:
                         non_empty_string(
                             value,
@@ -656,6 +680,15 @@ def parse_manifest(path: Path) -> ParseResult:
                                 "must be a non-empty string",
                             ),
                         )
+                    if field == "outcome":
+                        outcome_error = closed_string_error(
+                            value,
+                            RUNTIME_RECORD_STATUS_VALUES,
+                            path=str(path),
+                            reference=nested_ref,
+                        )
+                        if outcome_error is not None:
+                            errors.append(outcome_error)
         for key, allowed in (
             ("attempts", ATTEMPT),
             ("escalations", ESCALATION),
@@ -694,6 +727,16 @@ def parse_manifest(path: Path) -> ParseResult:
                 for value_index, value in enumerate(values):
                     _closed(value, allowed, path, f"{ref}.{key}[{value_index}]", errors)
                     if isinstance(value, dict):
+                        for required in allowed:
+                            if required not in value:
+                                errors.append(
+                                    _e(
+                                        "TWV-SCHEMA-MISSING-FIELD",
+                                        path,
+                                        f"{ref}.{key}[{value_index}].{required}",
+                                        "required runtime record field is missing",
+                                    )
+                                )
                         for field, nested_value in value.items():
                             nested_ref = f"{ref}.{key}[{value_index}].{field}"
                             if field == "context_refs" or (
@@ -719,6 +762,26 @@ def parse_manifest(path: Path) -> ParseResult:
                                         nested_ref,
                                         "must be a non-empty string",
                                     ),
+                                )
+                        if key == "attempts" and "status" in value:
+                            status_error = closed_string_error(
+                                value["status"],
+                                RUNTIME_RECORD_STATUS_VALUES,
+                                path=str(path),
+                                reference=f"{ref}.{key}[{value_index}].status",
+                            )
+                            if status_error is not None:
+                                errors.append(status_error)
+                        if key == "verification_evidence" and "output_sha256" in value:
+                            digest = value["output_sha256"]
+                            if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+                                errors.append(
+                                    _e(
+                                        "TWV-SCHEMA-INVALID-DIGEST",
+                                        path,
+                                        f"{ref}.{key}[{value_index}].output_sha256",
+                                        "must be 64 lowercase hexadecimal characters",
+                                    )
                                 )
         _extensions(n.get("extensions"), path, f"{ref}.extensions", errors)
         scope = (

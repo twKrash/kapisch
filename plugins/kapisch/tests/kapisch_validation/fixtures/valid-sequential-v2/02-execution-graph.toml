@@ -33,7 +33,7 @@ context_refs=[]
 executor_class="implementer"
 model_tier="standard"
 batching="off"
-verification_evidence=[{id="V01",check="tests",result="pass",evidence_ref="tasks/T01-report.md",output_sha256="evidence",revision="head"}]
+verification_evidence=[{id="V01",check="tests",result="pass",evidence_ref="tasks/T01-report.md",output_sha256="331d26d6d8f862e46ba900811be8a7a1e4dbaa229b14c99becfd5e5151490d95",revision="head"}]
 [nodes.revision]
 base="base"
 head="head"
@@ -57,7 +57,7 @@ context_refs=[]
 executor_class="reviewer"
 model_tier="high"
 batching="off"
-verification_evidence=[{id="V02",check="review",result="pass",evidence_ref="reviews/round-0/03-review.md",output_sha256="evidence",revision="head"}]
+verification_evidence=[{id="V02",check="review",result="pass",evidence_ref="reviews/round-0/03-review.md",output_sha256="7ca5080409fcb44e4e39af86bf963399db66108f37fbe1ce9d50fdc3842884d6",revision="head"}]
 [nodes.revision]
 base="base"
 head="head"
@@ -83,7 +83,7 @@ context_refs=[]
 executor_class="reviewer"
 model_tier="high"
 batching="off"
-verification_evidence=[{id="V03",check="final",result="pass",evidence_ref="reviews/final/05-final.md",output_sha256="evidence",revision="head"}]
+verification_evidence=[{id="V03",check="final",result="pass",evidence_ref="reviews/final/05-final.md",output_sha256="43f3c8df517a2435467fe95332214d943d9ea77f1a4542f61d531c171b84b787",revision="head"}]
 [nodes.revision]
 base="base"
 head="head"

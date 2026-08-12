@@ -4,7 +4,7 @@ import hashlib
 import math
 from pathlib import Path
 
-from .artifact_io import load_toml_artifact
+from .artifact_io import load_toml_artifact, read_contained_utf8_artifact
 from .delegations import ROUTE_FILE, parse_route
 from .errors import ValidationError
 from .models import Manifest, State
@@ -352,7 +352,8 @@ def validate_snapshot_compatibility(
                 manifest, previous, task_dir, previous_task_dir
             )
         )
-        errors.extend(_validate_route_compatibility(task_dir, previous_task_dir))
+        if manifest.version == 3 or previous.version == 3:
+            errors.extend(_validate_route_compatibility(task_dir, previous_task_dir))
     return errors
 
 
@@ -422,6 +423,10 @@ def _validate_append_only_records(
     if current_records is None or previous_records is None:
         return [_runtime_error(manifest, node_id, field, "runtime record shape changed")]
     errors: list[ValidationError] = []
+    if not _is_record_prefix(current, previous):
+        errors.append(
+            _runtime_error(manifest, node_id, field, "persisted runtime record chronology changed")
+        )
     for record_id, previous_record in previous_records.items():
         current_record = current_records.get(record_id)
         if current_record is None:
@@ -445,6 +450,10 @@ def _validate_append_only_records(
                 )
             )
             break
+        if set(current_record) != set(previous_record):
+            errors.append(
+                _runtime_error(manifest, node_id, field, "persisted runtime record shape changed")
+            )
     return errors
 
 
@@ -454,6 +463,20 @@ def _is_prefix(current: object, previous: object) -> bool:
         and isinstance(previous, list)
         and len(current) >= len(previous)
         and all(_semantic_equal(new, old) for new, old in zip(current, previous))
+    )
+
+
+def _is_record_prefix(current: object, previous: object) -> bool:
+    return (
+        isinstance(current, list)
+        and isinstance(previous, list)
+        and len(current) >= len(previous)
+        and all(
+            isinstance(new, dict)
+            and isinstance(old, dict)
+            and new.get("id") == old.get("id")
+            for new, old in zip(current, previous)
+        )
     )
 
 
@@ -542,6 +565,15 @@ def _validate_nonterminal_runtime_bindings(
                 _runtime_error(manifest, node_id, "assignment", "assignment identity changed")
             )
         else:
+            if set(current_assignment) != set(previous_assignment):
+                errors.append(
+                    _runtime_error(
+                        manifest,
+                        node_id,
+                        "assignment",
+                        "persisted assignment shape changed",
+                    )
+                )
             for key, previous_value in previous_assignment.items():
                 if key in {"attempts", "escalations"}:
                     continue
@@ -630,40 +662,49 @@ def _validate_artifact_compatibility(
     errors: list[ValidationError] = []
     current_nodes = {node.id: node for node in manifest.nodes}
     for previous_node in previous.nodes:
-        if previous_node.status not in TERMINAL_NODE_STATUSES:
-            continue
         current_node = current_nodes.get(previous_node.id)
         if current_node is None:
             continue
-        for field, index in (("report", 2), ("reviewer_invocation", 3)):
-            previous_path = previous_node.paths[index]
-            current_path = current_node.paths[index]
-            if not previous_path:
-                continue
-            if field == "reviewer_invocation":
-                unchanged = _semantic_equal(
-                    _toml_value(task_dir / current_path),
-                    _toml_value(previous_task_dir / previous_path),
-                )
-            else:
-                unchanged = _artifact_digest(task_dir, current_path) == _artifact_digest(
-                    previous_task_dir, previous_path
-                )
-            if not unchanged:
-                errors.append(
-                    _artifact_error(
-                        manifest,
-                        f"nodes[{previous_node.id}].{field}",
-                        "terminal artifact content does not match the persisted snapshot",
+        if previous_node.status in TERMINAL_NODE_STATUSES:
+            for field, index in (("report", 2), ("reviewer_invocation", 3)):
+                previous_path = previous_node.paths[index]
+                current_path = current_node.paths[index]
+                if not previous_path:
+                    continue
+                if field == "reviewer_invocation":
+                    unchanged = _semantic_equal(
+                        _toml_value(task_dir / current_path),
+                        _toml_value(previous_task_dir / previous_path),
                     )
-                )
+                else:
+                    unchanged = _artifact_digest(task_dir, current_path) == _artifact_digest(
+                        previous_task_dir, previous_path
+                    )
+                if not unchanged:
+                    errors.append(
+                        _artifact_error(
+                            manifest,
+                            f"nodes[{previous_node.id}].{field}",
+                            "terminal artifact content does not match the persisted snapshot",
+                        )
+                    )
         for evidence in previous_node.raw.get("verification_evidence", []):
             if not isinstance(evidence, dict):
                 continue
             path = evidence.get("evidence_ref")
             if not isinstance(path, str) or not path:
                 continue
-            if _artifact_digest(task_dir, path) != _artifact_digest(previous_task_dir, path):
+            current_artifact, current_failure = read_contained_utf8_artifact(task_dir, path)
+            previous_artifact, previous_failure = read_contained_utf8_artifact(
+                previous_task_dir, path
+            )
+            if (
+                current_failure is not None
+                or previous_failure is not None
+                or current_artifact is None
+                or previous_artifact is None
+                or current_artifact.data != previous_artifact.data
+            ):
                 errors.append(
                     _artifact_error(
                         manifest,

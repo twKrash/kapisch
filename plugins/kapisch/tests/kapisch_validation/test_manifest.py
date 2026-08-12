@@ -137,7 +137,11 @@ class ManifestTests(unittest.TestCase):
             result = parse_manifest(path)
         self.assertEqual(
             [(error.code, error.reference) for error in result.errors],
-            [("TWV-SCHEMA-DUPLICATE-RUNTIME-ID", "nodes[0].verification_evidence")],
+            [
+                ("TWV-SCHEMA-DUPLICATE-RUNTIME-ID", "nodes[0].verification_evidence"),
+                ("TWV-SCHEMA-INVALID-DIGEST", "nodes[0].verification_evidence[0].output_sha256"),
+                ("TWV-SCHEMA-INVALID-DIGEST", "nodes[0].verification_evidence[1].output_sha256"),
+            ],
         )
 
     def test_operational_wave_fixture_fails_closed(self) -> None:

@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from pathlib import Path
 
-from .artifact_io import ArtifactFailure, ArtifactFailureKind, load_toml_artifact
+from .artifact_io import (
+    ArtifactFailure,
+    ArtifactFailureKind,
+    load_toml_artifact,
+    read_contained_utf8_artifact,
+)
 from .errors import ValidationError
 from .helpers import is_integer, non_empty_string, nonfinite_float_references, string_list
 from .models import Manifest, State
@@ -301,6 +307,41 @@ def validate_references(
                         Path(manifest.path),
                         f"{n.id}:{rel}",
                         "artifact must exist beneath task directory",
+                    )
+                )
+        for evidence in n.raw.get("verification_evidence", []):
+            if not isinstance(evidence, dict):
+                continue
+            evidence_ref = evidence.get("evidence_ref")
+            if not isinstance(evidence_ref, str):
+                continue
+            artifact, failure = read_contained_utf8_artifact(task_dir, evidence_ref)
+            reference = (
+                f"nodes[{n.id}].verification_evidence[{evidence.get('id', '?')}]"
+            )
+            if failure is not None:
+                code = (
+                    "TWV-REF-EVIDENCE-PATH"
+                    if failure.kind is ArtifactFailureKind.PATH_ESCAPE
+                    else "TWV-REF-EVIDENCE-ARTIFACT"
+                )
+                errors.append(
+                    _e(
+                        code,
+                        task_dir / "02-execution-graph.toml",
+                        reference,
+                        "evidence artifact must be a contained regular UTF-8 file",
+                    )
+                )
+                continue
+            assert artifact is not None
+            if hashlib.sha256(artifact.data).hexdigest() != evidence.get("output_sha256"):
+                errors.append(
+                    _e(
+                        "TWV-REF-EVIDENCE-DIGEST",
+                        task_dir / "02-execution-graph.toml",
+                        reference,
+                        "evidence digest does not match exact referenced bytes",
                     )
                 )
     for ids, status in (

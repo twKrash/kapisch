@@ -14,6 +14,7 @@ class ArtifactFailureKind(str, Enum):
     NOT_REGULAR = "not_regular"
     INVALID_UTF8 = "invalid_utf8"
     MALFORMED_TOML = "malformed_toml"
+    PATH_ESCAPE = "path_escape"
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,12 @@ def read_utf8_artifact(
         return None, ArtifactFailure(ArtifactFailureKind.MISSING)
     except OSError:
         return None, ArtifactFailure(ArtifactFailureKind.UNREADABLE)
+    return _read_utf8_descriptor(descriptor)
+
+
+def _read_utf8_descriptor(
+    descriptor: int,
+) -> tuple[Utf8Artifact | None, ArtifactFailure | None]:
     try:
         if not stat.S_ISREG(os.fstat(descriptor).st_mode):
             return None, ArtifactFailure(ArtifactFailureKind.NOT_REGULAR)
@@ -59,6 +66,47 @@ def read_utf8_artifact(
         return Utf8Artifact(data, data.decode("utf-8")), None
     except UnicodeDecodeError:
         return None, ArtifactFailure(ArtifactFailureKind.INVALID_UTF8)
+
+
+def read_contained_utf8_artifact(
+    task_dir: Path, relative_path: str
+) -> tuple[Utf8Artifact | None, ArtifactFailure | None]:
+    """Read a task-relative regular file without following task symlinks."""
+    if "\0" in relative_path:
+        return None, ArtifactFailure(ArtifactFailureKind.PATH_ESCAPE)
+    relative = Path(relative_path)
+    if relative.is_absolute() or ".." in relative.parts:
+        return None, ArtifactFailure(ArtifactFailureKind.PATH_ESCAPE)
+    descriptor: int | None = None
+    try:
+        root = task_dir.resolve()
+        flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
+        nofollow = getattr(os, "O_NOFOLLOW", 0)
+        directory = getattr(os, "O_DIRECTORY", 0)
+        descriptor = os.open(root, flags | directory)
+        for index, component in enumerate(relative.parts):
+            child_flags = flags | nofollow
+            if index + 1 < len(relative.parts):
+                child_flags |= directory
+            child = os.open(component, child_flags, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = child
+    except FileNotFoundError:
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+        return None, ArtifactFailure(ArtifactFailureKind.MISSING)
+    except (OSError, ValueError, RuntimeError):
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+        return None, ArtifactFailure(ArtifactFailureKind.PATH_ESCAPE)
+    assert descriptor is not None
+    return _read_utf8_descriptor(descriptor)
 
 
 def load_toml_artifact(
