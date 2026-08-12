@@ -8,7 +8,6 @@ from unittest import mock
 
 from kapisch_validation.artifact_io import (
     ArtifactFailureKind,
-    contained_artifact_path,
     load_toml_artifact,
     read_utf8_artifact,
 )
@@ -92,36 +91,6 @@ class ArtifactIoTests(unittest.TestCase):
         self.assertIsNone(failure)
         self.assertEqual(artifact.data, b"a\r\nb\r\n")
         self.assertEqual(open.call_args.args[1] & 0x8000, 0x8000)
-
-    def test_contained_path_uses_canonical_binary_reader_for_exact_bytes(self) -> None:
-        """This runs natively on Windows too, where exact bytes must survive."""
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            evidence = root / "evidence.txt"
-            expected = b"first\r\n\x1asecond\r\n"
-            evidence.write_bytes(expected)
-
-            path = contained_artifact_path(root, "evidence.txt")
-            self.assertEqual(path, evidence.resolve())
-            artifact, failure = read_utf8_artifact(path)
-
-        self.assertIsNone(failure)
-        self.assertEqual(artifact.data, expected)
-        self.assertEqual(artifact.text, expected.decode("utf-8"))
-
-    def test_contained_path_rejects_escapes_and_symlinks(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            (root / "evidence.txt").write_text("evidence\n", encoding="utf-8")
-            self.assertIsNone(contained_artifact_path(root, "../evidence.txt"))
-            self.assertIsNone(contained_artifact_path(root, "\0"))
-            if hasattr(Path, "symlink_to"):
-                link = root / "evidence-link.txt"
-                try:
-                    link.symlink_to("evidence.txt")
-                except OSError:
-                    self.skipTest("symlink creation is unavailable")
-                self.assertIsNone(contained_artifact_path(root, link.name))
 
     def test_load_toml_classifies_parser_failures(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

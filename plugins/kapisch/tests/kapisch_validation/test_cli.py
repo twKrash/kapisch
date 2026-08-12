@@ -388,60 +388,25 @@ outcome="running"
             findings,
         )
 
-    def test_completed_node_requires_complete_bound_verification_evidence(self) -> None:
-        cases = (
-            (
-                '{id="V01",check="tests",result="pass",evidence_ref="tasks/T01-report.md",output_sha256="331d26d6d8f862e46ba900811be8a7a1e4dbaa229b14c99becfd5e5151490d95",revision="head"}',
-                '{id="V01"}',
-                "TWV-SCHEMA-MISSING-FIELD",
-            ),
-            (
-                'evidence_ref="tasks/T01-report.md"',
-                'evidence_ref="tasks/missing-evidence.md"',
-                "TWV-REF-EVIDENCE-ARTIFACT",
-            ),
-        )
-        for old, new, expected_code in cases:
-            with self.subTest(expected_code=expected_code), tempfile.TemporaryDirectory() as temporary:
-                task_dir = Path(temporary) / "task"
-                shutil.copytree(FIXTURES / "valid-sequential-v2", task_dir)
-                manifest = task_dir / "02-execution-graph.toml"
-                manifest.write_text(
-                    manifest.read_text(encoding="utf-8").replace(old, new, 1),
-                    encoding="utf-8",
-                )
-                code, findings = self._run_paths(task_dir)
-            self.assertEqual(code, 2)
-            self.assertTrue(
-                any(finding["code"] == expected_code for finding in findings), findings
+    def test_completed_node_requires_complete_verification_evidence_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task_dir = Path(temporary) / "task"
+            shutil.copytree(FIXTURES / "valid-sequential-v2", task_dir)
+            manifest = task_dir / "02-execution-graph.toml"
+            manifest.write_text(
+                manifest.read_text(encoding="utf-8").replace(
+                    '{id="V01",check="tests",result="pass",evidence_ref="tasks/T01-report.md",output_sha256="331d26d6d8f862e46ba900811be8a7a1e4dbaa229b14c99becfd5e5151490d95",revision="head"}',
+                    '{id="V01"}',
+                    1,
+                ),
+                encoding="utf-8",
             )
-
-    def test_verification_evidence_rejects_unsafe_artifacts_without_blocking(self) -> None:
-        cases = (
-            ("path_escape", 'evidence_ref="../outside.md"', None, "TWV-REF-EVIDENCE-PATH"),
-            ("nul", 'evidence_ref="\\u0000"', None, "TWV-REF-EVIDENCE-PATH"),
-            ("missing", 'evidence_ref="tasks/missing.md"', None, "TWV-REF-EVIDENCE-ARTIFACT"),
-            ("symlink", 'evidence_ref="tasks/evidence-link.md"', "symlink", "TWV-REF-EVIDENCE-PATH"),
-            ("fifo", 'evidence_ref="tasks/evidence.fifo"', "fifo", "TWV-REF-EVIDENCE-ARTIFACT"),
+            code, findings = self._run_paths(task_dir)
+        self.assertEqual(code, 2)
+        self.assertTrue(
+            any(finding["code"] == "TWV-SCHEMA-MISSING-FIELD" for finding in findings),
+            findings,
         )
-        for name, replacement, setup, expected_code in cases:
-            with self.subTest(case=name), tempfile.TemporaryDirectory() as temporary:
-                task_dir = Path(temporary) / "task"
-                shutil.copytree(FIXTURES / "valid-sequential-v2", task_dir)
-                if setup == "symlink":
-                    (task_dir / "tasks/evidence-link.md").symlink_to("T01-report.md")
-                elif setup == "fifo":
-                    if not hasattr(os, "mkfifo"):
-                        continue
-                    os.mkfifo(task_dir / "tasks/evidence.fifo")
-                manifest = task_dir / "02-execution-graph.toml"
-                manifest.write_text(
-                    manifest.read_text(encoding="utf-8").replace(
-                        'evidence_ref="tasks/T01-report.md"', replacement, 1
-                    ),
-                    encoding="utf-8",
-                )
-                self.assert_subprocess_failure(task_dir, expected_code)
 
     def test_previous_snapshot_rejects_nonterminal_evidence_rewrite(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

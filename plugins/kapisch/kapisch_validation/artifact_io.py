@@ -14,7 +14,6 @@ class ArtifactFailureKind(str, Enum):
     NOT_REGULAR = "not_regular"
     INVALID_UTF8 = "invalid_utf8"
     MALFORMED_TOML = "malformed_toml"
-    PATH_ESCAPE = "path_escape"
 
 
 @dataclass(frozen=True)
@@ -66,27 +65,6 @@ def _read_utf8_descriptor(
         return Utf8Artifact(data, data.decode("utf-8")), None
     except UnicodeDecodeError:
         return None, ArtifactFailure(ArtifactFailureKind.INVALID_UTF8)
-
-
-def contained_artifact_path(task_dir: Path, relative_path: str) -> Path | None:
-    """Resolve a task-relative path only when it is contained and symlink-free."""
-    if "\0" in relative_path:
-        return None
-    relative = Path(relative_path)
-    if relative.is_absolute() or ".." in relative.parts:
-        return None
-    try:
-        root = task_dir.resolve()
-        candidate = (root / relative).resolve()
-        candidate.relative_to(root)
-    except (OSError, ValueError, RuntimeError):
-        return None
-    current = root
-    for component in relative.parts:
-        current = current / component
-        if current.is_symlink():
-            return None
-    return candidate
 
 
 def load_toml_artifact(
