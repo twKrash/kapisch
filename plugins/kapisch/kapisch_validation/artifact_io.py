@@ -68,45 +68,25 @@ def _read_utf8_descriptor(
         return None, ArtifactFailure(ArtifactFailureKind.INVALID_UTF8)
 
 
-def read_contained_utf8_artifact(
-    task_dir: Path, relative_path: str
-) -> tuple[Utf8Artifact | None, ArtifactFailure | None]:
-    """Read a task-relative regular file without following task symlinks."""
+def contained_artifact_path(task_dir: Path, relative_path: str) -> Path | None:
+    """Resolve a task-relative path only when it is contained and symlink-free."""
     if "\0" in relative_path:
-        return None, ArtifactFailure(ArtifactFailureKind.PATH_ESCAPE)
+        return None
     relative = Path(relative_path)
     if relative.is_absolute() or ".." in relative.parts:
-        return None, ArtifactFailure(ArtifactFailureKind.PATH_ESCAPE)
-    descriptor: int | None = None
+        return None
     try:
         root = task_dir.resolve()
-        flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
-        nofollow = getattr(os, "O_NOFOLLOW", 0)
-        directory = getattr(os, "O_DIRECTORY", 0)
-        descriptor = os.open(root, flags | directory)
-        for index, component in enumerate(relative.parts):
-            child_flags = flags | nofollow
-            if index + 1 < len(relative.parts):
-                child_flags |= directory
-            child = os.open(component, child_flags, dir_fd=descriptor)
-            os.close(descriptor)
-            descriptor = child
-    except FileNotFoundError:
-        if descriptor is not None:
-            try:
-                os.close(descriptor)
-            except OSError:
-                pass
-        return None, ArtifactFailure(ArtifactFailureKind.MISSING)
+        candidate = (root / relative).resolve()
+        candidate.relative_to(root)
     except (OSError, ValueError, RuntimeError):
-        if descriptor is not None:
-            try:
-                os.close(descriptor)
-            except OSError:
-                pass
-        return None, ArtifactFailure(ArtifactFailureKind.PATH_ESCAPE)
-    assert descriptor is not None
-    return _read_utf8_descriptor(descriptor)
+        return None
+    current = root
+    for component in relative.parts:
+        current = current / component
+        if current.is_symlink():
+            return None
+    return candidate
 
 
 def load_toml_artifact(

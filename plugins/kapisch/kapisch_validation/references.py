@@ -7,8 +7,9 @@ from pathlib import Path
 from .artifact_io import (
     ArtifactFailure,
     ArtifactFailureKind,
+    contained_artifact_path,
     load_toml_artifact,
-    read_contained_utf8_artifact,
+    read_utf8_artifact,
 )
 from .errors import ValidationError
 from .helpers import is_integer, non_empty_string, nonfinite_float_references, string_list
@@ -315,19 +316,25 @@ def validate_references(
             evidence_ref = evidence.get("evidence_ref")
             if not isinstance(evidence_ref, str):
                 continue
-            artifact, failure = read_contained_utf8_artifact(task_dir, evidence_ref)
             reference = (
                 f"nodes[{n.id}].verification_evidence[{evidence.get('id', '?')}]"
             )
-            if failure is not None:
-                code = (
-                    "TWV-REF-EVIDENCE-PATH"
-                    if failure.kind is ArtifactFailureKind.PATH_ESCAPE
-                    else "TWV-REF-EVIDENCE-ARTIFACT"
-                )
+            evidence_path = contained_artifact_path(task_dir, evidence_ref)
+            if evidence_path is None:
                 errors.append(
                     _e(
-                        code,
+                        "TWV-REF-EVIDENCE-PATH",
+                        task_dir / "02-execution-graph.toml",
+                        reference,
+                        "evidence artifact must be a contained regular UTF-8 file",
+                    )
+                )
+                continue
+            artifact, failure = read_utf8_artifact(evidence_path)
+            if failure is not None:
+                errors.append(
+                    _e(
+                        "TWV-REF-EVIDENCE-ARTIFACT",
                         task_dir / "02-execution-graph.toml",
                         reference,
                         "evidence artifact must be a contained regular UTF-8 file",

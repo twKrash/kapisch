@@ -4,7 +4,11 @@ import hashlib
 import math
 from pathlib import Path
 
-from .artifact_io import load_toml_artifact, read_contained_utf8_artifact
+from .artifact_io import (
+    contained_artifact_path,
+    load_toml_artifact,
+    read_utf8_artifact,
+)
 from .delegations import ROUTE_FILE, parse_route
 from .errors import ValidationError
 from .models import Manifest, State
@@ -694,12 +698,18 @@ def _validate_artifact_compatibility(
             path = evidence.get("evidence_ref")
             if not isinstance(path, str) or not path:
                 continue
-            current_artifact, current_failure = read_contained_utf8_artifact(task_dir, path)
-            previous_artifact, previous_failure = read_contained_utf8_artifact(
-                previous_task_dir, path
-            )
+            current_path = contained_artifact_path(task_dir, path)
+            previous_path = contained_artifact_path(previous_task_dir, path)
+            current_artifact = current_failure = None
+            previous_artifact = previous_failure = None
+            if current_path is not None:
+                current_artifact, current_failure = read_utf8_artifact(current_path)
+            if previous_path is not None:
+                previous_artifact, previous_failure = read_utf8_artifact(previous_path)
             if (
-                current_failure is not None
+                current_path is None
+                or previous_path is None
+                or current_failure is not None
                 or previous_failure is not None
                 or current_artifact is None
                 or previous_artifact is None
