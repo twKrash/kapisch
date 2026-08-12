@@ -614,6 +614,88 @@ class TransitionTests(unittest.TestCase):
             {"nodes[T01].assignment.attempts", "nodes[T01].verification_evidence"},
         )
 
+    def test_rejects_attempt_rollback_and_duplicate_runtime_id(self) -> None:
+        attempt = {
+            "id": "AT-T01-1",
+            "source_revision": "base",
+            "context_scope_ref": "A-T01-1",
+            "status": "complete",
+            "verification": ["tests"],
+        }
+        assignment = {
+            "id": "A-T01-1",
+            "schema_version": 1,
+            "attempts": [attempt],
+            "escalations": [],
+        }
+        previous = snapshot_manifest(
+            snapshot_node(
+                status="running",
+                assignment=assignment,
+                verification_evidence=[{"id": "V01", "result": "pass"}],
+            )
+        )
+        rollback = snapshot_manifest(
+            snapshot_node(
+                status="implemented",
+                assignment={
+                    **assignment,
+                    "attempts": [{**attempt, "status": "running", "verification": []}],
+                },
+                verification_evidence=[{"id": "V01", "result": "pass"}],
+            )
+        )
+        duplicate = snapshot_manifest(
+            snapshot_node(
+                status="implemented",
+                assignment=assignment,
+                verification_evidence=[
+                    {"id": "V01", "result": "fail"},
+                    {"id": "V01", "result": "pass"},
+                ],
+            )
+        )
+        for current in (rollback, duplicate):
+            with self.subTest(current=current):
+                errors = validate_transition(
+                    current,
+                    state("resolve:T01"),
+                    previous,
+                    state("resolve:T01"),
+                )
+                self.assertTrue(
+                    any(
+                        error.code == "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT"
+                        for error in errors
+                    ),
+                    errors,
+                )
+
+    def test_allows_monotonic_batch_outcome_advancement(self) -> None:
+        batch = {
+            "id": "B-T01-1",
+            "member_node_ids": ["T01"],
+            "member_assignment_ids": ["A-T01-1"],
+            "member_outcomes": ["pending"],
+            "outcome": "pending",
+        }
+        previous = snapshot_manifest(snapshot_node(status="running", batch=batch))
+        current = snapshot_manifest(
+            snapshot_node(
+                status="implemented",
+                batch={**batch, "member_outcomes": ["complete"], "outcome": "complete"},
+            )
+        )
+        self.assertEqual(
+            validate_transition(
+                current,
+                state("resolve:T01"),
+                previous,
+                state("resolve:T01"),
+            ),
+            [],
+        )
+
     def test_rejects_fix_round_rollback_while_running(self) -> None:
         graph = snapshot_manifest(snapshot_node(status="ready"))
         errors = validate_transition(

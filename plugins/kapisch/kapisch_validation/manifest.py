@@ -677,6 +677,20 @@ def parse_manifest(path: Path) -> ParseResult:
                     )
                 )
             elif isinstance(values, list):
+                record_ids = [
+                    value.get("id")
+                    for value in values
+                    if isinstance(value, dict) and isinstance(value.get("id"), str)
+                ]
+                if len(record_ids) != len(set(record_ids)):
+                    errors.append(
+                        _e(
+                            "TWV-SCHEMA-DUPLICATE-RUNTIME-ID",
+                            path,
+                            f"{ref}.{key}",
+                            "runtime record IDs must be unique",
+                        )
+                    )
                 for value_index, value in enumerate(values):
                     _closed(value, allowed, path, f"{ref}.{key}[{value_index}]", errors)
                     if isinstance(value, dict):

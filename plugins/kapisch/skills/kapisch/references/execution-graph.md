@@ -218,7 +218,9 @@ its runtime `revision`, `assignment`, `batch`, `verification_evidence`, and
 `blocker` records may advance. A persisted assignment keeps its ID and stable
 fields; attempts may advance their `status` and verification, while attempts,
 escalations, and verification evidence retain every existing stable ID and may
-only gain new records. After the node reaches `complete`, `blocked`,
+only gain new records. Attempt and batch outcomes may progress `pending ->
+running -> complete|blocked|failed`, but terminal outcomes and recorded
+verification cannot regress, disappear, or be rewritten. After the node reaches `complete`, `blocked`,
 `failed`, or `cancelled`, those runtime bindings are frozen too; they cannot be
 removed, detached, replaced, or rebound. Once the workflow is `complete`, its
 `current_revision`, latest approving review path and invocation ID, and fix-round

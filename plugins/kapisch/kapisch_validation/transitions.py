@@ -92,6 +92,14 @@ RUNTIME_BINDING_FIELDS = (
     "verification_evidence",
     "blocker",
 )
+RUNTIME_STATUS_TRANSITIONS = {
+    "pending": frozenset({"pending", "running", "complete", "blocked", "failed"}),
+    "running": frozenset({"running", "complete", "blocked", "failed"}),
+    "complete": frozenset({"complete"}),
+    "blocked": frozenset({"blocked"}),
+    "failed": frozenset({"failed"}),
+    "cancelled": frozenset({"cancelled"}),
+}
 
 
 def determine_next_action(manifest: Manifest, state: State) -> str:
@@ -392,6 +400,8 @@ def _records_by_id(value: object) -> dict[str, dict[str, object]] | None:
     for record in value:
         if not isinstance(record, dict) or not isinstance(record.get("id"), str):
             return None
+        if record["id"] in records:
+            return None
         records[record["id"]] = record
     return records
 
@@ -438,6 +448,81 @@ def _validate_append_only_records(
     return errors
 
 
+def _is_prefix(current: object, previous: object) -> bool:
+    return (
+        isinstance(current, list)
+        and isinstance(previous, list)
+        and len(current) >= len(previous)
+        and all(_semantic_equal(new, old) for new, old in zip(current, previous))
+    )
+
+
+def _monotonic_status(current: object, previous: object) -> bool:
+    return isinstance(current, str) and current in RUNTIME_STATUS_TRANSITIONS.get(
+        previous, frozenset()
+    )
+
+
+def _validate_attempt_advancement(
+    manifest: Manifest,
+    node_id: str,
+    current: dict[str, object],
+    previous: dict[str, object],
+) -> list[ValidationError]:
+    if not _monotonic_status(current.get("status"), previous.get("status")):
+        return [
+            _runtime_error(
+                manifest,
+                node_id,
+                "assignment.attempts",
+                "persisted attempt status cannot regress",
+            )
+        ]
+    if not _is_prefix(current.get("verification"), previous.get("verification")):
+        return [
+            _runtime_error(
+                manifest,
+                node_id,
+                "assignment.attempts",
+                "persisted attempt verification cannot be removed or rewritten",
+            )
+        ]
+    return []
+
+
+def _validate_batch_advancement(
+    manifest: Manifest,
+    node_id: str,
+    current: object,
+    previous: object,
+) -> list[ValidationError]:
+    if previous is None:
+        return []
+    if not isinstance(current, dict) or not isinstance(previous, dict):
+        return [_runtime_error(manifest, node_id, "batch", "persisted batch is missing")]
+    if current.get("id") != previous.get("id"):
+        return [_runtime_error(manifest, node_id, "batch", "batch identity changed")]
+    errors: list[ValidationError] = []
+    for field in ("member_node_ids", "member_assignment_ids"):
+        if _semantic_equal(current.get(field), previous.get(field)):
+            continue
+        errors.append(
+            _runtime_error(manifest, node_id, "batch", "batch membership changed")
+        )
+    previous_outcomes = previous.get("member_outcomes")
+    current_outcomes = current.get("member_outcomes")
+    if not isinstance(previous_outcomes, list) or not isinstance(current_outcomes, list):
+        errors.append(_runtime_error(manifest, node_id, "batch", "batch outcomes changed shape"))
+    elif len(current_outcomes) != len(previous_outcomes) or any(
+        not _monotonic_status(new, old)
+        for new, old in zip(current_outcomes, previous_outcomes)
+    ):
+        errors.append(_runtime_error(manifest, node_id, "batch", "batch member outcome cannot regress"))
+    if not _monotonic_status(current.get("outcome"), previous.get("outcome")):
+        errors.append(_runtime_error(manifest, node_id, "batch", "batch composite outcome cannot regress"))
+    return errors
+
+
 def _validate_nonterminal_runtime_bindings(
     manifest: Manifest,
     node_id: str,
@@ -478,6 +563,17 @@ def _validate_nonterminal_runtime_bindings(
                     mutable_fields=frozenset({"status", "verification"}),
                 )
             )
+            current_attempts = _records_by_id(current_assignment.get("attempts", []))
+            previous_attempts = _records_by_id(previous_assignment.get("attempts", []))
+            if current_attempts is not None and previous_attempts is not None:
+                for attempt_id, previous_attempt in previous_attempts.items():
+                    current_attempt = current_attempts.get(attempt_id)
+                    if current_attempt is not None:
+                        errors.extend(
+                            _validate_attempt_advancement(
+                                manifest, node_id, current_attempt, previous_attempt
+                            )
+                        )
             errors.extend(
                 _validate_append_only_records(
                     manifest,
@@ -493,7 +589,12 @@ def _validate_nonterminal_runtime_bindings(
                 manifest, node_id, field, current.get(field, []), previous.get(field, [])
             )
         )
-    for field in ("revision", "batch", "blocker"):
+    errors.extend(
+        _validate_batch_advancement(
+            manifest, node_id, current.get("batch"), previous.get("batch")
+        )
+    )
+    for field in ("revision", "blocker"):
         previous_value = previous.get(field)
         if previous_value is None or _semantic_equal(current.get(field), previous_value):
             continue

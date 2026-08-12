@@ -124,6 +124,22 @@ class ManifestTests(unittest.TestCase):
             [("TWV-SCHEMA-NONFINITE-FLOAT", "extensions.org.example.value")],
         )
 
+    def test_rejects_duplicate_runtime_record_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "02-execution-graph.toml"
+            path.write_text(
+                V2_BODY.replace(
+                    '[nodes.revision]',
+                    'verification_evidence=[{id="V01",check="tests",result="pass",evidence_ref="r.md",output_sha256="digest",revision="head"},{id="V01",check="tests",result="pass",evidence_ref="r.md",output_sha256="digest",revision="head"}]\n[nodes.revision]',
+                ),
+                encoding="utf-8",
+            )
+            result = parse_manifest(path)
+        self.assertEqual(
+            [(error.code, error.reference) for error in result.errors],
+            [("TWV-SCHEMA-DUPLICATE-RUNTIME-ID", "nodes[0].verification_evidence")],
+        )
+
     def test_operational_wave_fixture_fails_closed(self) -> None:
         result = parse_manifest(
             FIXTURES / "unsupported-operational-wave" / "02-execution-graph.toml"
