@@ -189,6 +189,51 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(findings, [])
 
+    def test_previous_snapshot_rejects_terminal_report_rewrite(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            current = root / "current"
+            previous = root / "previous"
+            shutil.copytree(FIXTURES / "valid-sequential-v2", current)
+            shutil.copytree(FIXTURES / "valid-sequential-v2", previous)
+            report = current / "tasks" / "T01-report.md"
+            report.write_text("rewritten report\n", encoding="utf-8")
+            code, findings = self._run_paths(current, previous)
+        self.assertEqual(code, 2)
+        self.assertTrue(
+            any(
+                finding["code"] == "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT"
+                and finding["reference"] == "nodes[T01].report"
+                for finding in findings
+            ),
+            findings,
+        )
+
+    def test_previous_snapshot_rejects_delegation_route_rewrite(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            current = root / "current"
+            previous = root / "previous"
+            shutil.copytree(FIXTURES / "valid-v3-durable", current)
+            shutil.copytree(FIXTURES / "valid-v3-durable", previous)
+            route = current / "delegations" / "00-route.toml"
+            route.write_text(
+                route.read_text(encoding="utf-8").replace(
+                    'route_id = "valid-route"', 'route_id = "rewritten-route"'
+                ),
+                encoding="utf-8",
+            )
+            code, findings = self._run_paths(current, previous)
+        self.assertEqual(code, 2)
+        self.assertTrue(
+            any(
+                finding["code"] == "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT"
+                and finding["reference"] == "delegations.route_id"
+                for finding in findings
+            ),
+            findings,
+        )
+
     def test_invalid_previous_snapshot_is_not_used_for_transitions(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from .artifact_io import ArtifactFailure, ArtifactFailureKind, load_toml_artifact
 from .errors import ValidationError, sorted_errors
-from .helpers import is_integer, non_empty_string, string_list
+from .helpers import is_integer, non_empty_string, nonfinite_float_references, string_list
 from .models import Manifest, Node, ParseResult
 from .vocabulary import (
     ASSIGNMENT_VALUES,
@@ -111,6 +111,7 @@ V1 = {
     "batching": "off",
     "parallelism": "off",
     "max_parallel_agents": 1,
+    "max_fix_rounds": 1,
 }
 
 
@@ -203,6 +204,15 @@ def parse_manifest(path: Path) -> ParseResult:
             None, sorted_errors([_e(code, target, target.name, message)])
         )
     assert raw is not None
+    for reference in nonfinite_float_references(raw):
+        errors.append(
+            _e(
+                "TWV-SCHEMA-NONFINITE-FLOAT",
+                path,
+                reference,
+                "non-finite floats are not supported in durable snapshots",
+            )
+        )
     _closed(raw, ROOT, path, "root", errors)
     _extensions(raw.get("extensions"), path, "extensions", errors)
     _closed(raw.get("policies"), POLICIES, path, "policies", errors)
@@ -221,7 +231,7 @@ def parse_manifest(path: Path) -> ParseResult:
             errors.append(
                 _e("TWV-SCHEMA-MISSING-FIELD", path, key, "required field is missing")
             )
-    for key in ("task_id", "source_plan", "base_revision"):
+    for key in ("task_id", "source_plan", "base_revision", "roadmap_item"):
         if key in raw:
             non_empty_string(
                 raw[key],
@@ -377,6 +387,18 @@ def parse_manifest(path: Path) -> ParseResult:
             )
             if error is not None:
                 errors.append(error)
+        for key in ("title", "risk"):
+            if key in n:
+                non_empty_string(
+                    n[key],
+                    errors,
+                    _e(
+                        "TWV-SCHEMA-WRONG-SHAPE",
+                        path,
+                        f"{ref}.{key}",
+                        "must be a non-empty string",
+                    ),
+                )
         executor_class = n.get("executor_class")
         model_tier = n.get("model_tier")
         is_implementation = n.get("kind") not in {"review", "final", "research"}
@@ -728,6 +750,7 @@ def parse_manifest(path: Path) -> ParseResult:
             nodes,
             str(path),
             raw["source_plan"],
+            raw.get("roadmap_item"),
         ),
         (),
     )

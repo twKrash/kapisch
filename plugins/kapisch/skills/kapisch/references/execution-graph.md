@@ -221,13 +221,12 @@ removed, detached, replaced, or rebound. Once the workflow is `complete`, its
 `current_revision`, latest approving review path and invocation ID, and fix-round
 bounds are likewise frozen.
 
-Graph growth is append-only. A new node must use a new ID, a sequence greater
-than every sequence in the previous snapshot, and initial status `pending` or
-`ready`. It cannot first appear as `running`, `implemented`, `reviewing`,
-`complete`, `blocked`, `failed`, or `cancelled`. The current schema has no graph
-amendment protocol. Dynamic replanning requires a separate, versioned,
-evidence-bearing amendment design; it must not be inferred by weakening resume
-compatibility.
+Graph growth is incompatible with an existing persisted snapshot. The current
+schema has no graph-amendment protocol, so a new node, delegation step, or
+artifact binding blocks resume rather than claiming append-only history.
+Dynamic replanning requires a separate, versioned, evidence-bearing amendment
+design that also establishes fresh review/final coverage; it must not be
+inferred by weakening resume compatibility.
 
 Each node has a stable ID; changing a title does not change identity. Its
 non-negative integer `sequence` is the persisted approved-plan order; there is

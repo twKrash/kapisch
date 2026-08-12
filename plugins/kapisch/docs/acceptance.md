@@ -46,7 +46,7 @@ The test suite also covers:
 
 `test_transitions.py` covers stable task identity, missing/renamed nodes,
 immutable graph fields, terminal artifact/assignment/evidence bindings,
-append-only non-terminal graph growth, unchanged idempotent resume, and legal
+rejected graph growth without an amendment protocol, unchanged idempotent resume, and legal
 status progression. `test_cli.py` proves that the same compatibility boundary is
 enforced when `--previous-task-dir` is supplied.
 

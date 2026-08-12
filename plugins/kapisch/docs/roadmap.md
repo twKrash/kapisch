@@ -267,7 +267,7 @@ deliver this stabilization slice.
   ([#7](https://github.com/twKrash/kapisch/issues/7)) are implemented.
 - Existing coverage validates closed durable policy/state vocabularies,
   workflow-status transitions and next-action consistency, immutable task and
-  graph identity, append-only non-terminal graph growth, terminal evidence
+  graph identity, rejected graph growth without an amendment protocol, terminal evidence
   bindings, sequential durable manifests, node references, dependency ordering,
   legal node transitions, review scopes, review/final ordering, and canonical
   reviewer invocation envelopes.

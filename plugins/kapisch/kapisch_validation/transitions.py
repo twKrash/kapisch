@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+import hashlib
+import math
+from pathlib import Path
+
+from .artifact_io import load_toml_artifact
+from .delegations import ROUTE_FILE, parse_route
 from .errors import ValidationError
 from .models import Manifest, State
 from .vocabulary import (
@@ -62,7 +68,6 @@ NODE_PATH_INDEX = {
     "report": 2,
     "reviewer_invocation": 3,
 }
-NEW_NODE_STATUSES = frozenset({"pending", "ready"})
 TERMINAL_NODE_STATUSES = frozenset(
     status for status, allowed in ALLOWED.items() if not allowed
 )
@@ -79,6 +84,13 @@ TERMINAL_STATE_BINDING_FIELDS = (
     "latest_approving_invocation_id",
     "current_fix_round",
     "max_fix_rounds",
+)
+RUNTIME_BINDING_FIELDS = (
+    "revision",
+    "assignment",
+    "batch",
+    "verification_evidence",
+    "blocker",
 )
 
 
@@ -211,6 +223,8 @@ def validate_snapshot_compatibility(
     state: State,
     previous: Manifest,
     previous_state: State,
+    task_dir: Path | None = None,
+    previous_task_dir: Path | None = None,
 ) -> list[ValidationError]:
     errors: list[ValidationError] = []
     identities = (
@@ -218,10 +232,11 @@ def validate_snapshot_compatibility(
         ("task_id", manifest.task_id, previous.task_id),
         ("base_revision", manifest.base_revision, previous.base_revision),
         ("source_plan", manifest.source_plan, previous.source_plan),
+        ("roadmap_item", manifest.roadmap_item, previous.roadmap_item),
         ("policies", manifest.policies, previous.policies),
     )
     for reference, current, prior in identities:
-        if current != prior:
+        if not _semantic_equal(current, prior):
             errors.append(
                 ValidationError(
                     "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT",
@@ -250,7 +265,7 @@ def validate_snapshot_compatibility(
         for field in IMMUTABLE_NODE_FIELDS:
             current_value = _normalized_node_field(current_node, field)
             previous_value = _normalized_node_field(previous_node, field)
-            if current_value == previous_value:
+            if _semantic_equal(current_value, previous_value):
                 continue
             errors.append(
                 ValidationError(
@@ -265,7 +280,7 @@ def validate_snapshot_compatibility(
             for field in TERMINAL_NODE_BINDING_FIELDS:
                 current_value = current_node.raw.get(field)
                 previous_value = previous_node.raw.get(field)
-                if current_value == previous_value:
+                if _semantic_equal(current_value, previous_value):
                     continue
                 errors.append(
                     ValidationError(
@@ -276,40 +291,52 @@ def validate_snapshot_compatibility(
                         f"to {current_value!r}",
                     )
                 )
+        else:
+            for field in RUNTIME_BINDING_FIELDS:
+                current_value = current_node.raw.get(field)
+                previous_value = previous_node.raw.get(field)
+                if previous_value is None or _semantic_equal(current_value, previous_value):
+                    continue
+                errors.append(
+                    ValidationError(
+                        "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT",
+                        manifest.path,
+                        f"nodes[{previous_node.id}].{field}",
+                        "persisted runtime binding may not be replaced before "
+                        "the node becomes terminal",
+                    )
+                )
 
     previous_ids = {node.id for node in previous.nodes}
-    previous_max_sequence = max(
-        (node.sequence for node in previous.nodes), default=-1
-    )
     for node in manifest.nodes:
         if node.id in previous_ids:
             continue
-        if node.status not in NEW_NODE_STATUSES:
-            errors.append(
-                ValidationError(
-                    "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT",
-                    manifest.path,
-                    f"nodes[{node.id}].status",
-                    "new nodes must begin in status 'pending' or 'ready'; "
-                    f"got {node.status!r}",
-                )
+        errors.append(
+            ValidationError(
+                "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT",
+                manifest.path,
+                f"nodes[{node.id}]",
+                "new nodes require a versioned graph-amendment protocol",
             )
-        if node.sequence <= previous_max_sequence:
-            errors.append(
-                ValidationError(
-                    "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT",
-                    manifest.path,
-                    f"nodes[{node.id}].sequence",
-                    "new nodes must append after every previously persisted sequence; "
-                    f"got {node.sequence} after {previous_max_sequence}",
-                )
+        )
+
+    if state.raw.get("current_fix_round", 0) < previous_state.raw.get(
+        "current_fix_round", 0
+    ):
+        errors.append(
+            ValidationError(
+                "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT",
+                state.path or manifest.path,
+                "current_fix_round",
+                "current fix round cannot decrease across persisted snapshots",
             )
+        )
 
     if previous_state.workflow_status == "complete":
         for field in TERMINAL_STATE_BINDING_FIELDS:
             current_value = state.raw.get(field)
             previous_value = previous_state.raw.get(field)
-            if current_value == previous_value:
+            if _semantic_equal(current_value, previous_value):
                 continue
             errors.append(
                 ValidationError(
@@ -320,6 +347,189 @@ def validate_snapshot_compatibility(
                     f"to {current_value!r}",
                 )
             )
+    if task_dir is not None and previous_task_dir is not None:
+        errors.extend(
+            _validate_artifact_compatibility(
+                manifest, previous, task_dir, previous_task_dir
+            )
+        )
+        errors.extend(_validate_route_compatibility(task_dir, previous_task_dir))
+    return errors
+
+
+def _semantic_value(value: object) -> object:
+    if value is None or isinstance(value, (str, bytes, bool, int)):
+        return (type(value).__name__, value)
+    if isinstance(value, float):
+        if math.isnan(value):
+            return ("float", "nan")
+        if math.isinf(value):
+            return ("float", "infinity" if value > 0 else "-infinity")
+        return ("float", value)
+    if isinstance(value, list):
+        return ("list", tuple(_semantic_value(item) for item in value))
+    if isinstance(value, tuple):
+        return ("tuple", tuple(_semantic_value(item) for item in value))
+    if isinstance(value, dict):
+        return (
+            "dict",
+            tuple(
+                (str(key), _semantic_value(item))
+                for key, item in sorted(value.items(), key=lambda item: str(item[0]))
+            ),
+        )
+    return (type(value).__name__, repr(value))
+
+
+def _semantic_equal(current: object, previous: object) -> bool:
+    return _semantic_value(current) == _semantic_value(previous)
+
+
+def _artifact_digest(task_dir: Path, relative_path: str) -> str | None:
+    if not relative_path:
+        return None
+    try:
+        return hashlib.sha256((task_dir / relative_path).read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
+def _artifact_error(manifest: Manifest, reference: str, message: str) -> ValidationError:
+    return ValidationError(
+        "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT", manifest.path, reference, message
+    )
+
+
+def _validate_artifact_compatibility(
+    manifest: Manifest,
+    previous: Manifest,
+    task_dir: Path,
+    previous_task_dir: Path,
+) -> list[ValidationError]:
+    errors: list[ValidationError] = []
+    current_nodes = {node.id: node for node in manifest.nodes}
+    for previous_node in previous.nodes:
+        if previous_node.status not in TERMINAL_NODE_STATUSES:
+            continue
+        current_node = current_nodes.get(previous_node.id)
+        if current_node is None:
+            continue
+        for field, index in (("report", 2), ("reviewer_invocation", 3)):
+            previous_path = previous_node.paths[index]
+            current_path = current_node.paths[index]
+            if not previous_path:
+                continue
+            if field == "reviewer_invocation":
+                unchanged = _semantic_equal(
+                    _toml_value(task_dir / current_path),
+                    _toml_value(previous_task_dir / previous_path),
+                )
+            else:
+                unchanged = _artifact_digest(task_dir, current_path) == _artifact_digest(
+                    previous_task_dir, previous_path
+                )
+            if not unchanged:
+                errors.append(
+                    _artifact_error(
+                        manifest,
+                        f"nodes[{previous_node.id}].{field}",
+                        "terminal artifact content does not match the persisted snapshot",
+                    )
+                )
+        for evidence in previous_node.raw.get("verification_evidence", []):
+            if not isinstance(evidence, dict):
+                continue
+            path = evidence.get("evidence_ref")
+            if not isinstance(path, str) or not path:
+                continue
+            if _artifact_digest(task_dir, path) != _artifact_digest(previous_task_dir, path):
+                errors.append(
+                    _artifact_error(
+                        manifest,
+                        f"nodes[{previous_node.id}].verification_evidence",
+                        "terminal verification evidence content does not match the "
+                        "persisted snapshot",
+                    )
+                )
+    return errors
+
+
+def _toml_value(path: Path) -> dict[str, object] | None:
+    value, failure = load_toml_artifact(path)
+    return value if failure is None else None
+
+
+def _validate_route_compatibility(
+    task_dir: Path, previous_task_dir: Path
+) -> list[ValidationError]:
+    current_path = task_dir / ROUTE_FILE
+    previous_path = previous_task_dir / ROUTE_FILE
+    if not current_path.is_file() and not previous_path.is_file():
+        return []
+    current, _ = parse_route(task_dir)
+    previous, _ = parse_route(previous_task_dir)
+    if current is None or previous is None:
+        return [
+            ValidationError(
+                "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT",
+                str(current_path),
+                "delegations",
+                "delegation route presence does not match the persisted snapshot",
+            )
+        ]
+    errors: list[ValidationError] = []
+    for field in ("version", "task_id", "route_id", "source_revision", "extensions"):
+        if _semantic_equal(current.get(field), previous.get(field)):
+            continue
+        errors.append(
+            ValidationError(
+                "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT",
+                str(current_path),
+                f"delegations.{field}",
+                "delegation route value does not match the persisted snapshot",
+            )
+        )
+    current_steps = {
+        step.get("id"): step
+        for step in current.get("steps", [])
+        if isinstance(step, dict) and isinstance(step.get("id"), str)
+    }
+    for previous_step in previous.get("steps", []):
+        if not isinstance(previous_step, dict):
+            continue
+        step_id = previous_step.get("id")
+        if not isinstance(step_id, str):
+            continue
+        current_step = current_steps.get(step_id)
+        if current_step is None:
+            errors.append(
+                ValidationError(
+                    "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT",
+                    str(current_path),
+                    f"delegations.steps[{step_id}]",
+                    "persisted delegation step is missing",
+                )
+            )
+            continue
+        if _semantic_equal(current_step, previous_step):
+            continue
+        errors.append(
+            ValidationError(
+                "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT",
+                str(current_path),
+                f"delegations.steps[{step_id}]",
+                "delegation step does not match the persisted snapshot",
+            )
+        )
+    if len(current_steps) != len(previous.get("steps", [])):
+        errors.append(
+            ValidationError(
+                "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT",
+                str(current_path),
+                "delegations.steps",
+                "new delegation steps require a versioned graph-amendment protocol",
+            )
+        )
     return errors
 
 
@@ -341,9 +551,11 @@ def validate_transition(
     state: State,
     previous: Manifest,
     previous_state: State,
+    task_dir: Path | None = None,
+    previous_task_dir: Path | None = None,
 ) -> list[ValidationError]:
     errors = validate_snapshot_compatibility(
-        manifest, state, previous, previous_state
+        manifest, state, previous, previous_state, task_dir, previous_task_dir
     )
     if errors:
         return errors

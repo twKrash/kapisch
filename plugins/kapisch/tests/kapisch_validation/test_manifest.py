@@ -95,6 +95,34 @@ class ManifestTests(unittest.TestCase):
         )
         self.assertEqual(result.errors, ())
         self.assertEqual(result.manifest.policies["parallelism"], "off")
+        self.assertEqual(result.manifest.policies["max_fix_rounds"], 1)
+
+    def test_preserves_optional_roadmap_item(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "02-execution-graph.toml"
+            path.write_text(
+                V2_BODY.replace(
+                    'source_plan = "01-plan.md"',
+                    'source_plan = "01-plan.md"\nroadmap_item = "milestone-old"',
+                ),
+                encoding="utf-8",
+            )
+            result = parse_manifest(path)
+        self.assertEqual(result.errors, ())
+        self.assertEqual(result.manifest.roadmap_item, "milestone-old")
+
+    def test_rejects_nonfinite_extension_float(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "02-execution-graph.toml"
+            path.write_text(
+                V2_BODY + '\n[extensions."org.example"]\nvalue = nan\n',
+                encoding="utf-8",
+            )
+            result = parse_manifest(path)
+        self.assertEqual(
+            [(error.code, error.reference) for error in result.errors],
+            [("TWV-SCHEMA-NONFINITE-FLOAT", "extensions.org.example.value")],
+        )
 
     def test_operational_wave_fixture_fails_closed(self) -> None:
         result = parse_manifest(
