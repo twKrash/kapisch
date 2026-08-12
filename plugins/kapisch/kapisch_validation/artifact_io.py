@@ -41,6 +41,12 @@ def read_utf8_artifact(
         return None, ArtifactFailure(ArtifactFailureKind.MISSING)
     except OSError:
         return None, ArtifactFailure(ArtifactFailureKind.UNREADABLE)
+    return _read_utf8_descriptor(descriptor)
+
+
+def _read_utf8_descriptor(
+    descriptor: int,
+) -> tuple[Utf8Artifact | None, ArtifactFailure | None]:
     try:
         if not stat.S_ISREG(os.fstat(descriptor).st_mode):
             return None, ArtifactFailure(ArtifactFailureKind.NOT_REGULAR)

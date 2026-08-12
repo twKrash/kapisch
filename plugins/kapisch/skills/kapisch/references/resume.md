@@ -35,6 +35,16 @@ lifecycle transition before considering ready nodes. Only when no active node
 remains may the controller select the first valid ready node. Record the
 observed revision and every reconciliation result in state/report artifacts.
 
+When a prior persisted snapshot is available, validate current/prior snapshot
+compatibility before using current lifecycle or evidence claims. Reject a
+changed task contract, missing prior node, changed immutable node field,
+terminal evidence or artifact rebinding, backdated graph insertion, or new node
+that already claims started/terminal work. Findings name the affected node and
+field and block reconciliation without mutating either snapshot. Re-validating
+the same semantic snapshot is idempotent; TOML formatting and table-key order are
+not history. No amendment record exists in the current schema, so an incompatible
+graph blocks rather than being repaired or accepted as replanning.
+
 Durable artifacts win over conversation context. Git and repository evidence win
 over durable artifacts. On disagreement, record the mismatch and recover only
 when the next action is deterministic; otherwise persist the applicable

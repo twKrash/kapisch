@@ -201,6 +201,38 @@ A persisted `workflow_status` is `complete` if and only if `next_action` is
 status. Across observed snapshots, the only legal workflow-status transitions
 are `running -> running`, `running -> complete`, and `complete -> complete`.
 
+### Previous-snapshot compatibility
+
+When a previous persisted snapshot is supplied, compatibility validation runs
+before lifecycle transition validation. Manifest `version`, `task_id`,
+`source_plan`, `base_revision`, and normalized `policies` are immutable. Every
+previously persisted node ID must remain present. For an existing node, `id`,
+`sequence`, `title`, `kind`, `risk`, `depends_on`, `brief`, `context`, `report`,
+`reviewer_invocation`, `reads`, `writes`, `shared_resources`, `verification`,
+`context_refs`, `executor_class`, `model_tier`, `batching`, `review_scope`,
+`delegation_ids`, and `extensions` are immutable. Dependency order is not
+semantic, but adding, removing, or replacing a dependency is incompatible.
+
+While an existing node is non-terminal, only its legal lifecycle `status` and
+its runtime `revision`, `assignment`, `batch`, `verification_evidence`, and
+`blocker` records may advance. A persisted assignment keeps its ID and stable
+fields; attempts may advance their `status` and verification, while attempts,
+escalations, and verification evidence retain every existing stable ID and may
+only gain new records. Attempt and batch outcomes may progress `pending ->
+running -> complete|blocked|failed`, but terminal outcomes and recorded
+verification cannot regress, disappear, or be rewritten. After the node reaches `complete`, `blocked`,
+`failed`, or `cancelled`, those runtime bindings are frozen too; they cannot be
+removed, detached, replaced, or rebound. Once the workflow is `complete`, its
+`current_revision`, latest approving review path and invocation ID, and fix-round
+bounds are likewise frozen.
+
+Graph growth is incompatible with an existing persisted snapshot. The current
+schema has no graph-amendment protocol, so a new node, delegation step, or
+artifact binding blocks resume rather than claiming append-only history.
+Dynamic replanning requires a separate, versioned, evidence-bearing amendment
+design that also establishes fresh review/final coverage; it must not be
+inferred by weakening resume compatibility.
+
 Each node has a stable ID; changing a title does not change identity. Its
 non-negative integer `sequence` is the persisted approved-plan order; there is
 no separate implicit plan-order input. Nodes also

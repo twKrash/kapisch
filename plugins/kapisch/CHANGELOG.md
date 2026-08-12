@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Protected persisted workflow history across resume snapshots: task and graph
+  identity are immutable, prior nodes cannot disappear, terminal artifact and
+  evidence bindings cannot be rewritten, and graph growth blocks until a
+  versioned amendment protocol exists.
 - Closed durable policy, node-routing, and workflow-status vocabularies; unknown
   values now fail with structured supported alternatives, and completed
   workflows cannot carry a non-terminal next action or reopen as running when a

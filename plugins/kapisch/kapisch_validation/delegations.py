@@ -6,7 +6,7 @@ import tomllib
 from pathlib import Path
 
 from .errors import ValidationError, sorted_errors
-from .helpers import is_integer, non_empty_string
+from .helpers import is_integer, non_empty_string, nonfinite_float_references
 from .models import Manifest
 
 ROUTE_FILE = "delegations/00-route.toml"
@@ -235,6 +235,15 @@ def parse_route(task_dir: Path) -> tuple[dict[str, object] | None, tuple[Validat
     except (tomllib.TOMLDecodeError, ValueError) as exc:
         return None, sorted_errors(
             [_e("TWV-DELEG-MALFORMED-TOML", path, "toml", str(exc))]
+        )
+    for reference in nonfinite_float_references(raw):
+        errors.append(
+            _e(
+                "TWV-DELEG-NONFINITE-FLOAT",
+                path,
+                reference,
+                "non-finite floats are not supported in durable routes",
+            )
         )
     _closed(raw, ROUTE, path, "root", errors)
     _extensions(raw.get("extensions"), path, "extensions", errors)

@@ -95,6 +95,8 @@ def validate(
                     state,
                     previous_manifest,
                     previous_state,
+                    task_dir,
+                    previous_task_dir,
                 )
             )
     return sorted_errors(errors)

@@ -3,9 +3,13 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .artifact_io import ArtifactFailure, ArtifactFailureKind, load_toml_artifact
+from .artifact_io import (
+    ArtifactFailure,
+    ArtifactFailureKind,
+    load_toml_artifact,
+)
 from .errors import ValidationError
-from .helpers import is_integer, non_empty_string, string_list
+from .helpers import is_integer, non_empty_string, nonfinite_float_references, string_list
 from .models import Manifest, State
 from .vocabulary import WORKFLOW_STATUS_VALUES, closed_string_error
 
@@ -79,6 +83,15 @@ def parse_state(path: Path) -> tuple[State | None, list[ValidationError]]:
         _e("TWV-SCHEMA-UNKNOWN-FIELD", path, key, "unknown normative field")
         for key in sorted(set(raw) - STATE)
     ]
+    errors.extend(
+        _e(
+            "TWV-SCHEMA-NONFINITE-FLOAT",
+            path,
+            reference,
+            "non-finite floats are not supported in durable snapshots",
+        )
+        for reference in nonfinite_float_references(raw)
+    )
     extensions = raw.get("extensions")
     if extensions is not None and not isinstance(extensions, dict):
         errors.append(

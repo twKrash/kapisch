@@ -95,6 +95,54 @@ class ManifestTests(unittest.TestCase):
         )
         self.assertEqual(result.errors, ())
         self.assertEqual(result.manifest.policies["parallelism"], "off")
+        self.assertEqual(result.manifest.policies["max_fix_rounds"], 1)
+
+    def test_preserves_optional_roadmap_item(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "02-execution-graph.toml"
+            path.write_text(
+                V2_BODY.replace(
+                    'source_plan = "01-plan.md"',
+                    'source_plan = "01-plan.md"\nroadmap_item = "milestone-old"',
+                ),
+                encoding="utf-8",
+            )
+            result = parse_manifest(path)
+        self.assertEqual(result.errors, ())
+        self.assertEqual(result.manifest.roadmap_item, "milestone-old")
+
+    def test_rejects_nonfinite_extension_float(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "02-execution-graph.toml"
+            path.write_text(
+                V2_BODY + '\n[extensions."org.example"]\nvalue = nan\n',
+                encoding="utf-8",
+            )
+            result = parse_manifest(path)
+        self.assertEqual(
+            [(error.code, error.reference) for error in result.errors],
+            [("TWV-SCHEMA-NONFINITE-FLOAT", "extensions.org.example.value")],
+        )
+
+    def test_rejects_duplicate_runtime_record_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "02-execution-graph.toml"
+            path.write_text(
+                V2_BODY.replace(
+                    '[nodes.revision]',
+                    'verification_evidence=[{id="V01",check="tests",result="pass",evidence_ref="r.md",output_sha256="digest",revision="head"},{id="V01",check="tests",result="pass",evidence_ref="r.md",output_sha256="digest",revision="head"}]\n[nodes.revision]',
+                ),
+                encoding="utf-8",
+            )
+            result = parse_manifest(path)
+        self.assertEqual(
+            [(error.code, error.reference) for error in result.errors],
+            [
+                ("TWV-SCHEMA-DUPLICATE-RUNTIME-ID", "nodes[0].verification_evidence"),
+                ("TWV-SCHEMA-INVALID-DIGEST", "nodes[0].verification_evidence[0].output_sha256"),
+                ("TWV-SCHEMA-INVALID-DIGEST", "nodes[0].verification_evidence[1].output_sha256"),
+            ],
+        )
 
     def test_operational_wave_fixture_fails_closed(self) -> None:
         result = parse_manifest(

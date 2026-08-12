@@ -33,7 +33,7 @@ context_refs=[]
 executor_class="implementer"
 model_tier="standard"
 batching="off"
-verification_evidence=[{id="V01",check="test",result="pass",evidence_ref="tasks/T01-report.md",output_sha256="evidence",revision="head"}]
+verification_evidence=[{id="V01",check="test",result="pass",evidence_ref="tasks/T01-report.md",output_sha256="331d26d6d8f862e46ba900811be8a7a1e4dbaa229b14c99becfd5e5151490d95",revision="head"}]
 [nodes.revision]
 base="base"
 head="head"

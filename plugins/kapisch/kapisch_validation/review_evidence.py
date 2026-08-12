@@ -12,7 +12,7 @@ from .artifact_io import (
     read_utf8_artifact,
 )
 from .errors import ValidationError
-from .helpers import non_empty_string
+from .helpers import non_empty_string, nonfinite_float_references
 from .models import Manifest, Node, State
 
 ENVELOPE = {
@@ -137,6 +137,15 @@ def _load(path: Path) -> tuple[dict[str, object] | None, list[ValidationError]]:
         _e("TWV-SCHEMA-UNKNOWN-FIELD", path, key, "unknown normative field")
         for key in sorted(set(raw) - ENVELOPE)
     ]
+    errors.extend(
+        _e(
+            "TWV-SCHEMA-NONFINITE-FLOAT",
+            path,
+            reference,
+            "non-finite floats are not supported in durable snapshots",
+        )
+        for reference in nonfinite_float_references(raw)
+    )
     extensions = raw.get("extensions")
     if extensions is not None and not isinstance(extensions, dict):
         errors.append(

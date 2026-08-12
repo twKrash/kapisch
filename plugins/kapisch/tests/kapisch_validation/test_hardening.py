@@ -496,7 +496,7 @@ context_refs=[]
 executor_class="implementer"
 model_tier="standard"
 batching="off"
-verification_evidence=[{id="V04",check="tests",result="pass",evidence_ref="tasks/T01-report.md",output_sha256="evidence",revision="head"}]
+verification_evidence=[{id="V04",check="tests",result="pass",evidence_ref="tasks/T01-report.md",output_sha256="331d26d6d8f862e46ba900811be8a7a1e4dbaa229b14c99becfd5e5151490d95",revision="head"}]
 [nodes.revision]
 base="base"
 head="head"
@@ -533,6 +533,11 @@ head="head"
                 f'result_sha256="{result_digest}"',
             )
             current_invocation.write_text(invocation)
+            self.replace(
+                manifest,
+                'output_sha256="7ca5080409fcb44e4e39af86bf963399db66108f37fbe1ce9d50fdc3842884d6"',
+                f'output_sha256="{result_digest}"',
+            )
             invocation = invocation.replace(
                 'invocation_id="I-REVIEW"', 'invocation_id="I-HISTORICAL"'
             )

@@ -26,6 +26,7 @@ class Manifest:
     nodes: tuple[Node, ...]
     path: str
     source_plan: str = ""
+    roadmap_item: str | None = None
 
 
 @dataclass(frozen=True)

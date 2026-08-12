@@ -37,6 +37,7 @@ ASSIGNMENT_VALUES: dict[str, tuple[str, ...]] = {
 }
 
 WORKFLOW_STATUS_VALUES = ("running", "complete")
+RUNTIME_RECORD_STATUS_VALUES = ("pending", "running", "complete", "blocked", "failed")
 WORKFLOW_STATUS_TRANSITIONS: dict[str, frozenset[str]] = {
     "running": frozenset({"running", "complete"}),
     "complete": frozenset({"complete"}),
