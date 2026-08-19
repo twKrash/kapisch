@@ -91,22 +91,25 @@ Delegation evidence is validated the same way: a version-3 durable run with
 `delegations/00-route.toml` record and its digest-bound context/evidence files.
 Findings use `TWV-DELEG-*` error codes.
 
-From the plugin directory (development), the validator runs directly:
+Install the validation package, then run the validator from any working
+directory. Its contracts are bundled and discovered automatically:
 
 ```text
-python scripts/validate_kapisch.py --contract-dir skills/kapisch --task-dir <consumer-repository>/.kapisch/runs/example
+python -m pip install <plugin-root>
+kapisch-validate --task-dir <consumer-repository>/.kapisch/runs/example
 python -m unittest discover -s tests/kapisch_validation
 ```
 
-After marketplace installation, `$kapisch` runs from the consumer repository,
-which does not contain the plugin's `scripts/` or `skills/` paths. Resolve the
-script and `--contract-dir` from the installed plugin root (the directory
-containing `skills/kapisch/SKILL.md`) and keep only `--task-dir` rooted in the
-consumer:
+Use `--contract-dir PATH` only to validate against an explicit contract
+override. The compatibility wrapper remains available for source checkouts and
+uses the same automatic discovery:
 
 ```text
-python <plugin-root>/scripts/validate_kapisch.py --contract-dir <plugin-root>/skills/kapisch --task-dir <consumer-repository>/.kapisch/runs/example
+python <plugin-root>/scripts/validate_kapisch.py --task-dir <consumer-repository>/.kapisch/runs/example
 ```
+
+Codex marketplace installation and Python package installation are separate
+operations. Full marketplace runtime acceptance remains tracked under #11.
 
 ## Project understanding
 

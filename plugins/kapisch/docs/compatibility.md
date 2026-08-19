@@ -8,6 +8,16 @@ not scheduled for removal; a separate product decision is required before that
 changes. Their presence does not establish Codex runtime acceptance or a
 release.
 
+## Validator command compatibility
+
+`kapisch-validate --task-dir PATH` is the primary validator interface after
+installing the `kapisch-validation` Python package. It discovers the bundled
+contracts without relying on the current working directory. The source-tree
+`scripts/validate_kapisch.py` wrapper remains supported and delegates to the
+same entry point; callers may remove their old `--contract-dir
+<plugin-root>/skills/kapisch` argument. An explicit `--contract-dir PATH`
+override remains supported for expert and compatibility use.
+
 ## Compatibility version 1
 
 Only `.planning/task-workflow/<task-id>/` is a supported legacy input namespace.

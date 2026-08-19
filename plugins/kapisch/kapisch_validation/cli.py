@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
+from importlib import resources
 import json
 from pathlib import Path
+import sys
 
 from .errors import ValidationError, sorted_errors
 from .delegations import parse_route, validate_route_references
@@ -10,6 +13,41 @@ from .manifest import parse_manifest
 from .references import parse_state, validate_references
 from .review_evidence import validate_review_evidence
 from .transitions import validate_lifecycle, validate_transition
+
+
+BUNDLED_CONTRACT_ERROR = (
+    "kapisch-validate: bundled contract resources are missing or corrupt. "
+    "Reinstall kapisch-validation or pass --contract-dir PATH."
+)
+REQUIRED_CONTRACT_FILES = (
+    "SKILL.md",
+    "references/execution-graph.md",
+    "references/resume.md",
+    "references/review.md",
+    "references/handoffs.md",
+    "references/pressure-scenarios.md",
+)
+
+
+def _bundled_contract_resource():
+    try:
+        return resources.files("kapisch_validation.contracts")
+    except ModuleNotFoundError:
+        # The mapped contracts package exists only after a build. This fallback
+        # keeps direct source-checkout execution working before installation.
+        return Path(__file__).resolve().parents[1] / "skills" / "kapisch"
+
+
+def _contract_is_usable(contract_dir: Path) -> bool:
+    try:
+        for relative_path in REQUIRED_CONTRACT_FILES:
+            path = contract_dir / relative_path
+            if not path.is_file():
+                return False
+            path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return False
+    return True
 
 
 def validate_delegation_snapshot(manifest, task_dir: Path) -> list[ValidationError]:
@@ -103,13 +141,30 @@ def validate(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="validate_kapisch.py")
-    parser.add_argument("--contract-dir", required=True, type=Path)
+    parser = argparse.ArgumentParser(prog="kapisch-validate")
+    parser.add_argument(
+        "--contract-dir",
+        type=Path,
+        help="contract directory override (defaults to bundled contracts)",
+    )
     parser.add_argument("--task-dir", required=True, type=Path)
     parser.add_argument("--previous-task-dir", type=Path)
     parser.add_argument("--format", choices=("text", "json"), default="text")
     args = parser.parse_args(argv)
-    errors = validate(args.contract_dir, args.task_dir, args.previous_task_dir)
+    with ExitStack() as stack:
+        contract_dir = args.contract_dir
+        if contract_dir is None:
+            try:
+                contract_dir = stack.enter_context(
+                    resources.as_file(_bundled_contract_resource())
+                )
+            except (FileNotFoundError, ModuleNotFoundError, OSError, TypeError):
+                print(BUNDLED_CONTRACT_ERROR, file=sys.stderr)
+                return 2
+            if not _contract_is_usable(contract_dir):
+                print(BUNDLED_CONTRACT_ERROR, file=sys.stderr)
+                return 2
+        errors = validate(contract_dir, args.task_dir, args.previous_task_dir)
     if args.format == "json":
         print(
             json.dumps(
