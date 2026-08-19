@@ -156,7 +156,7 @@ def _adjacent_errors(
     if not agent_dir.is_dir():
         return [(agent_dir, "agent destination is not a directory")]
     try:
-        paths = sorted(agent_dir.glob("*.toml"))
+        paths = sorted(path for path in agent_dir.iterdir() if path.suffix == ".toml")
     except OSError as exc:
         return [(agent_dir, f"agent directory is unreadable: {exc}")]
     failures: list[tuple[Path, str]] = []

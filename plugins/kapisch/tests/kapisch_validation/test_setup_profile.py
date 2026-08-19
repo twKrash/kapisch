@@ -52,6 +52,32 @@ class SetupProfileSafetyTests(unittest.TestCase):
             self.assertEqual(adjacent.read_bytes(), before)
             self.assertFalse((adjacent.parent / "kapisch-reviewer.toml").exists())
 
+    def test_adjacent_directory_enumeration_failure_blocks_install(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            agent_dir = (project / ".codex/agents").resolve()
+            agent_dir.mkdir(parents=True)
+            original_iterdir = Path.iterdir
+
+            def unreadable_directory(path: Path):
+                if path == agent_dir:
+                    raise OSError("simulated enumeration failure")
+                return original_iterdir(path)
+
+            output = io.StringIO()
+            with (
+                mock.patch.object(Path, "iterdir", autospec=True, side_effect=unreadable_directory),
+                redirect_stdout(output),
+            ):
+                result = setup_profile.main(
+                    ["--role", "reviewer", "--project-dir", str(project), "--install"]
+                )
+
+            self.assertEqual(result, 2)
+            self.assertIn("error=adjacent profile safety check failed", output.getvalue())
+            self.assertIn("agent directory is unreadable", output.getvalue())
+            self.assertFalse((agent_dir / "kapisch-reviewer.toml").exists())
+
     def test_template_filename_with_wrong_internal_name_is_rejected(self) -> None:
         with TemporaryDirectory() as temporary:
             source = Path(temporary) / "agents"
