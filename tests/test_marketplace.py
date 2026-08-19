@@ -15,6 +15,20 @@ PLUGIN = ROOT / "plugins/kapisch"
 
 
 class MarketplaceTests(unittest.TestCase):
+    def test_digest_sensitive_fixtures_are_checked_out_with_lf(self) -> None:
+        fixture = (
+            "plugins/kapisch/tests/kapisch_validation/fixtures/"
+            "valid-sequential-v2/reviews/final/05-final.md"
+        )
+        result = subprocess.run(
+            ["git", "check-attr", "eol", "--", fixture],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        self.assertEqual(result.stdout.strip(), f"{fixture}: eol: lf")
+
     def test_github_marketplace_resolves_the_canonical_plugin(self) -> None:
         catalog = json.loads(MARKETPLACE.read_text(encoding="utf-8"))
         self.assertEqual(

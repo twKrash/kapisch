@@ -1,0 +1,2 @@
+# Review evidence digests cover exact bytes; keep fixtures stable on Windows.
+plugins/kapisch/tests/kapisch_validation/fixtures/** text eol=lf
