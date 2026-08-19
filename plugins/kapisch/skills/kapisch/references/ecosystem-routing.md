@@ -287,9 +287,10 @@ not modify shared KAPISCH state merely to record its own result.
 Delegated-step lifecycle states, revision chains, replacement records, and
 resume reconciliation are deferred to a later change. The current route is
 implemented structural metadata, not a recovery state machine or external-effect
-runtime acceptance. Delegated execution is therefore restricted to
-`repository-read` and `external-read`. The validator rejects `external-write`
-and `destructive` even with `authority_mode = explicit-step`: authority does not
+runtime acceptance. Delegated execution therefore keeps the read-only classes
+(`repository-read`, `external-read`) and `repository-write` supported, while
+the validator rejects `external-write` and `destructive` even with
+`authority_mode = explicit-step`: authority does not
 provide effect reconciliation, and an interrupted effect cannot be classified
 as safely retryable. Repeated resume must preserve that fail-closed result.
 
