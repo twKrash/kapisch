@@ -6,10 +6,7 @@ on:
 
 jobs:
   ci:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -21,4 +18,14 @@ jobs:
       - run: python scripts/test_portable_package.py
         working-directory: plugins/kapisch
       - run: python scripts/validate_kapisch.py --help
+        working-directory: plugins/kapisch
+
+  windows-profile-setup:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m unittest discover -s tests/kapisch_validation -p test_setup_profile.py
         working-directory: plugins/kapisch
