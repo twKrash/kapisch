@@ -88,7 +88,7 @@ class SetupProfileSafetyTests(unittest.TestCase):
                 ),
                 0,
             )
-            target = project / ".codex/agents/kapisch-reviewer.toml"
+            target = (project / ".codex/agents/kapisch-reviewer.toml").resolve()
             actual = target.read_bytes()
             wrong_identity = b'name = "someone-else"\n'
             original_read_bytes = Path.read_bytes
@@ -117,7 +117,7 @@ class SetupProfileSafetyTests(unittest.TestCase):
     def test_unreadable_existing_destination_is_not_changed(self) -> None:
         with TemporaryDirectory() as temporary:
             project = Path(temporary)
-            target = project / ".codex/agents/kapisch-reviewer.toml"
+            target = (project / ".codex/agents/kapisch-reviewer.toml").resolve()
             target.parent.mkdir(parents=True)
             target.write_text('name = "kapisch-reviewer"\n', encoding="utf-8")
             original_read_bytes = Path.read_bytes
