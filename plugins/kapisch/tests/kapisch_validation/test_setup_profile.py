@@ -24,6 +24,34 @@ class SetupProfileSafetyTests(unittest.TestCase):
         encoded = setup_profile.toml_basic_string(path)
         self.assertEqual(tomllib.loads(f"installed_profile={encoded}")["installed_profile"], path)
 
+    def test_unpaired_surrogate_path_fails_before_installation(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary) / "project-\udcff"
+            output = io.StringIO()
+            with redirect_stdout(output):
+                result = setup_profile.main(
+                    ["--role", "reviewer", "--project-dir", str(project), "--install"]
+                )
+            self.assertEqual(result, 2)
+            self.assertIn("error=state record cannot be encoded safely", output.getvalue())
+            self.assertFalse(project.exists())
+
+    def test_non_selected_canonical_profile_with_wrong_identity_blocks_install(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            adjacent = project / ".codex/agents/kapisch-architect.toml"
+            adjacent.parent.mkdir(parents=True)
+            adjacent.write_text('name = "wrong"\n', encoding="utf-8")
+            before = adjacent.read_bytes()
+
+            result = setup_profile.main(
+                ["--role", "reviewer", "--project-dir", str(project), "--install"]
+            )
+
+            self.assertEqual(result, 2)
+            self.assertEqual(adjacent.read_bytes(), before)
+            self.assertFalse((adjacent.parent / "kapisch-reviewer.toml").exists())
+
     def test_template_filename_with_wrong_internal_name_is_rejected(self) -> None:
         with TemporaryDirectory() as temporary:
             source = Path(temporary) / "agents"

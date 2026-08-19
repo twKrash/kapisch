@@ -74,7 +74,7 @@ def toml_basic_string(value: str | Path) -> str:
         elif ord(character) < 0x20 or ord(character) == 0x7F:
             result.append(f"\\u{ord(character):04x}")
         elif 0xD800 <= ord(character) <= 0xDFFF:
-            result.append(f"\\u{ord(character):04x}")
+            raise ValueError("TOML strings cannot contain unpaired Unicode surrogates")
         else:
             result.append(character)
     result.append('"')
@@ -171,7 +171,7 @@ def _adjacent_errors(
         except ProfileReadError as exc:
             failures.append((path, f"unreadable or malformed TOML: {exc}"))
             continue
-        if path in targets and values.get("name") not in expected_names:
+        if path.stem in expected_names and values.get("name") != path.stem:
             failures.append((path, f"unexpected profile identity: {values.get('name')!r}"))
     return failures
 
@@ -275,6 +275,18 @@ def _prepare_role(
     if record.exists() or record.is_symlink():
         plan.update(status="collision", error="state record exists without an installed profile")
         return plan
+    try:
+        plan["record_bytes"] = _record_text(
+            template=template,
+            template_digest=template_digest,
+            target=target,
+            scope=scope,
+            role=role,
+            installed_digest=template_digest,
+        ).encode("utf-8")
+    except (UnicodeError, ValueError) as exc:
+        plan.update(status="collision", error=f"state record cannot be encoded safely: {exc}")
+        return plan
     plan["status"] = "install-pending" if install else "not-installed"
     return plan
 
@@ -334,16 +346,7 @@ def _commit(plans: list[dict[str, Any]]) -> tuple[bool, str | None]:
             stream = record.open("xb")
             created.append(record)
             with stream:
-                stream.write(
-                    _record_text(
-                        template=plan["template"],
-                        template_digest=plan["template_digest"],
-                        target=target,
-                        scope=plan["scope"],
-                        role=plan["role"],
-                        installed_digest=digest(target),
-                    ).encode("utf-8")
-                )
+                stream.write(plan["record_bytes"])
     except (OSError, ValueError) as exc:
         for path in reversed(created):
             try:
@@ -376,7 +379,7 @@ def main(argv: list[str] | None = None) -> int:
     targets = {agent_dir / f"kapisch-{role}.toml" for role in roles}
     adjacent_failures = _adjacent_errors(
         agent_dir,
-        expected_names={f"kapisch-{role}" for role in roles},
+        expected_names={f"kapisch-{role}" for role in ROLE_CATALOG},
         targets=targets,
     )
     plans = [
