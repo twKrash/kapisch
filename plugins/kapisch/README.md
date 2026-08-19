@@ -41,12 +41,27 @@ python scripts/setup_profile.py --role reviewer --project-dir <consumer-reposito
 python scripts/setup_profile.py --role reviewer --project-dir <consumer-repository> --install
 ```
 
+To install the complete six-role catalog as one preflighted operation, use
+`--all`:
+
+```text
+python scripts/setup_profile.py --all --project-dir <consumer-repository> --install
+```
+
 For a user-scoped target, use `--scope user` (use `--user-dir` only for a
 controlled alternate home). The script refuses filename and profile-identity
 collisions, never overwrites, renames, or deletes profiles, records template and
 installed SHA-256 revisions under the matching `.kapisch/local-state/`, and
-reports installed-profile and template drift. See
-[compatibility.md](docs/compatibility.md) for removal and rollback.
+reports installed-profile and template drift. It supports native Windows,
+macOS, and Linux paths, including drive letters, backslashes, spaces, and
+non-ASCII characters; generated state is escaped as TOML basic strings. Every
+source template and adjacent destination profile is parsed and its internal
+identity checked before any installation. Unreadable, malformed, or
+unexpected-identity profiles fail closed, and `--all` leaves no new profiles
+when any catalog member fails preflight. Existing profiles are never repaired
+or overwritten when their identity, state record, or content cannot be
+verified. See [compatibility.md](docs/compatibility.md) for removal and
+rollback.
 
 ## Durable artifacts and migration
 
