@@ -75,8 +75,6 @@ def main() -> int:
             [
                 sys.executable,
                 str(installed / "scripts/validate_kapisch.py"),
-                "--contract-dir",
-                str(installed / "skills/kapisch"),
                 "--task-dir",
                 str(run),
             ],
@@ -94,8 +92,6 @@ def main() -> int:
             [
                 sys.executable,
                 str(installed / "scripts/validate_kapisch.py"),
-                "--contract-dir",
-                str(installed / "skills/kapisch"),
                 "--task-dir",
                 str(durable),
             ],

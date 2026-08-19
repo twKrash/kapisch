@@ -43,6 +43,7 @@ The test suite also covers:
 | Delegation route gating and v3 auto-validation | `test_delegations.py` |
 | Portable version-3 durable validation (with route record) | `scripts/test_portable_package.py` |
 | Read-only deterministic validator | `test_cli.py`, `test_hardening.py` |
+| Installed `kapisch-validate`, bundled contract discovery, explicit override, and legacy wrapper | `test_console_command.py` |
 
 `test_transitions.py` covers stable task identity, missing/renamed nodes,
 immutable graph fields, terminal artifact/assignment/evidence bindings,
