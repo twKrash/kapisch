@@ -151,8 +151,9 @@ per-step repository revision chains are deferred to later changes backed by
 demonstrated needs; the graph node lifecycle and revision evidence already
 exist on the execution graph. The same applies to sophisticated
 resume/external-effect reconciliation. Because that machinery is deferred, the
-validator accepts only read-only delegated effect classes and rejects
-external-write or destructive routes regardless of their authority metadata.
+validator rejects `external-write` and `destructive` routes regardless of their
+authority metadata, while read-only (`repository-read`, `external-read`) and
+`repository-write` delegated effect classes remain accepted.
 
 The effect classes are:
 
@@ -312,7 +313,9 @@ parent ownership, unique graph references, and route/manifest identity; and
 read-only effect classes for review/final delegations. Step lifecycle states
 and per-step repository revisions are deferred to a later change and are not
 validated here. Structural acceptance is not execution acceptance: only
-read-only delegated routes are currently executable.
+`external-write` and `destructive` routes are rejected; read-only
+(`repository-read`, `external-read`) and `repository-write` routes remain
+executable.
 
 Python does not implement capability discovery or installation; description
 matching or semantic selection; request parsing or route planning;

@@ -81,8 +81,9 @@ effect class, authority, and digest-bound context/evidence); step lifecycle
 states and the resume reconciliation machinery (planned/started/completed
 recovery, external-effect deduplication) are deferred. Structural route
 validation does not make an external effect safe to resume. Default validation
-therefore admits only `repository-read` and `external-read` delegated routes and
-rejects `external-write` and `destructive` even when explicit authority is
+therefore admits read-only delegated routes (`repository-read` and
+`external-read`) and `repository-write` while rejecting `external-write` and
+`destructive` even when explicit authority is
 recorded. An interrupted external effect has no supported safely-retryable
 classification; resume must fail closed rather than infer success, failure, or
 permission to retry.
