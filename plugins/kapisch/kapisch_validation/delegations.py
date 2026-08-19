@@ -461,6 +461,16 @@ def parse_route(task_dir: Path) -> tuple[dict[str, object] | None, tuple[Validat
                 )
             )
         effect_class = step.get("effect_class")
+        if isinstance(effect_class, str) and effect_class in EXTERNAL_WRITE_CLASSES:
+            errors.append(
+                _e(
+                    "TWV-DELEG-UNSUPPORTED-EXTERNAL-EFFECT",
+                    path,
+                    f"{ref}.effect_class",
+                    "delegated external-write and destructive effects are unsupported "
+                    "until effect reconciliation is implemented",
+                )
+            )
         if (
             isinstance(effect_class, str)
             and effect_class in EXTERNAL_WRITE_CLASSES

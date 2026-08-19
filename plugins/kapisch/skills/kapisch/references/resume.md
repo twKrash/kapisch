@@ -79,15 +79,19 @@ The controller applies the delegated-step rules owned by
 delegated step is declarative minimum metadata (selected capability, maximum
 effect class, authority, and digest-bound context/evidence); step lifecycle
 states and the resume reconciliation machinery (planned/started/completed
-recovery, external-effect deduplication) are deferred/archived pending
-[issue #10](https://github.com/twKrash/kapisch/issues/10). Structural route
-validation does not make an external effect safe to resume. Two rules still apply today:
+recovery, external-effect deduplication) are deferred. Structural route
+validation does not make an external effect safe to resume. Default validation
+therefore admits only `repository-read` and `external-read` delegated routes and
+rejects `external-write` and `destructive` even when explicit authority is
+recorded. An interrupted external effect has no supported safely-retryable
+classification; resume must fail closed rather than infer success, failure, or
+permission to retry.
 
-- an external-write or destructive delegated step is never blindly retried on
-  resume: reconcile read-only against the external system when already
-  authorized and possible, otherwise block for user direction;
-- repeated resume may preserve the same local recovery decision, but it does
-  not prove idempotency and must not issue or retry an external effect.
+External writes remain deferred until durable intent/result lifecycle records,
+stable provider operation identifiers, read-only outcome reconciliation,
+provider idempotency contracts, and interruption tests jointly demonstrate that
+ambiguous outcomes block without duplicate effects. These criteria do not imply
+exactly-once semantics.
 
 ## Reviewer invocation recovery
 

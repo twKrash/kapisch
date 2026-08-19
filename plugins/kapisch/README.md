@@ -170,15 +170,14 @@ back to native execution only when the same approved outcome remains achievable
 without changing methodology, data boundary, or authority — and discloses the
 fallback.
 
-### Example: external-write gate
+### External-write delegation is deferred
 
 Preparation for an external write (for example posting a pull-request comment)
-stops at the gate after preview. The controller presents the exact target and
-payload and waits for explicit approval; only then does it execute with
-`authority_mode=explicit-step` and a valid in-context `authority_ref`, and it
-persists the external result (operation ID or URL when exposed) in the step's
-evidence. Authority cannot be laundered through a delegate, and an
-external-write or destructive step is never blindly retried on resume.
+may produce a preview, but the delegated route must stop there. Default
+validation rejects `external-write` and `destructive` delegated steps even when
+they record explicit authority. Authority is necessary but cannot make these
+routes safe while no effect-reconciliation protocol exists. Perform the effect
+outside delegated routing or keep the delegated step read-only.
 
 ### Example: unavailable capability
 

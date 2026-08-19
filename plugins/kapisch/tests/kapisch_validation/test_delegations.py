@@ -371,16 +371,80 @@ class RouteSchemaTests(unittest.TestCase):
                 any(error.code == "TWV-DELEG-WRONG-SHAPE" for error in errors)
             )
 
-    def test_external_write_requires_explicit_authority(self) -> None:
+    def test_read_only_effect_classes_are_accepted(self) -> None:
+        for effect_class in ("repository-read", "external-read"):
+            with (
+                self.subTest(effect_class=effect_class),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                task = Path(temporary)
+                step = materialize(
+                    task, minimal_step("D01", 1, effect_class=effect_class)
+                )
+                write_route(task, "test-task", "r-1", [step])
+                _, errors = parse_route(task)
+                self.assertEqual(errors, ())
+
+    def test_external_effect_classes_are_rejected_even_with_authority(self) -> None:
+        for effect_class in ("external-write", "destructive"):
+            with (
+                self.subTest(effect_class=effect_class),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                task = Path(temporary)
+                step = materialize(
+                    task,
+                    minimal_step(
+                        "D01",
+                        1,
+                        effect_class=effect_class,
+                        authority_mode="explicit-step",
+                        authority_ref="gate:test",
+                    ),
+                )
+                write_route(task, "test-task", "r-1", [step])
+                _, errors = parse_route(task)
+                self.assertEqual(
+                    [error.code for error in errors],
+                    ["TWV-DELEG-UNSUPPORTED-EXTERNAL-EFFECT"],
+                )
+
+    def test_unsupported_interrupted_external_write_is_not_safely_retryable(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            task = Path(temporary)
-            step = materialize(
-                task,
-                minimal_step("D01", 1, effect_class="external-write", authority_mode="request-scoped"),
+            root = Path(temporary)
+            current = root / "current"
+            previous = root / "previous"
+            for task in (current, previous):
+                shutil.copytree(FIXTURES / "valid-v3-durable", task)
+                route = task / "delegations/00-route.toml"
+                route.write_text(
+                    route.read_text(encoding="utf-8")
+                    .replace(
+                        'effect_class="repository-read"',
+                        'effect_class="external-write"',
+                        1,
+                    )
+                    .replace(
+                        'authority_mode="request-scoped"',
+                        'authority_mode="explicit-step"',
+                        1,
+                    ),
+                    encoding="utf-8",
+                )
+
+            errors = validate(
+                FIXTURES.parents[2] / "skills/kapisch",
+                current,
+                previous,
             )
-            write_route(task, "test-task", "r-1", [step])
-            _, errors = parse_route(task)
-            self.assertEqual(errors[0].code, "TWV-DELEG-MISSING-EXPLICIT-AUTHORITY")
+
+            self.assertTrue(
+                any(
+                    error.code == "TWV-DELEG-UNSUPPORTED-EXTERNAL-EFFECT"
+                    for error in errors
+                ),
+                errors,
+            )
 
     def test_explicit_authority_requires_reference(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -618,7 +682,7 @@ class RouteReferenceTests(unittest.TestCase):
             task = Path(temporary)
             step = materialize(
                 task,
-                minimal_step("D01", 1, parent="R01", effect_class="external-write", authority_mode="explicit-step", authority_ref="gate:test"),
+                minimal_step("D01", 1, parent="R01", effect_class="repository-write"),
             )
             write_route(task, "test-task", "r-1", [step])
             errors = validate_route_references(manifest, task)
