@@ -38,7 +38,7 @@ The test suite also covers:
 | User-scoped profile identity, revision, and drift | `test_extraction_acceptance.py` |
 | Project-understanding procedures, role boundaries, handoffs, review policy, and local links | `test_extraction_acceptance.py` |
 | Presentation theme vocabulary and semantic firewall | `test_themes.py` |
-| Ecosystem routing contract, route schema, and evidence files | `test_delegations.py` |
+| Ecosystem routing contract, route schema, read-only execution boundary, and evidence files | `test_delegations.py` |
 | Manifest version 3 policy and node fields; v1/v2 rejection | `test_manifest.py` |
 | Delegation route gating and v3 auto-validation | `test_delegations.py` |
 | Portable version-3 durable validation (with route record) | `scripts/test_portable_package.py` |
@@ -71,9 +71,9 @@ for independent approval or milestone final readiness.
 - `tests/kapisch_validation/test_delegations.py` covers the closed route schema
   (unknown fields, allowed enums, step-ID grammar, duplicate IDs and
   sequences), evidence-file integrity (path containment, symlink rejection,
-  UTF-8, lowercase SHA-256 digests), authority rules (external-write and
-  destructive steps require `authority_mode=explicit-step` with a valid
-  reference), graph parent ownership and unique references, review/final
+  UTF-8, lowercase SHA-256 digests), acceptance of `repository-read` and
+  `external-read`, fail-closed rejection of `external-write` and `destructive`
+  even with declared authority, graph parent ownership and unique references, review/final
   read-only delegation, route/manifest identity, and the version-3 durable CLI
   path (including `ecosystem_routing=off` gating and missing-route-with-refs
   rejection).
@@ -92,16 +92,15 @@ acceptance; it has not been executed in this environment. Acceptance checklist:
 1. Explicitly invoke an installed instruction-only skill through KAPISCH.
 2. Automatically select a plugin-bundled read-only skill.
 3. Use an external-read connector with only the focused context.
-4. Prepare an external write, stop at the gate, approve the exact target and
-   payload, execute it, and persist the external result.
+4. Prepare an external-write preview and verify the delegated route is rejected
+   even when the exact target, payload, and explicit authority are recorded.
 5. Name an unavailable plugin and verify fail-closed behavior.
 6. Run on a surface without plugin support and verify disclosed native
    fallback or a precise blocker.
 7. Install a plugin and verify its capability only in a fresh session when the
    runtime requires that refresh.
-8. Do not treat an interrupted delegated external-write step as safely
-   resumable. Recovery reconciliation, idempotency, and duplicate-effect safety
-   remain unresolved under [#10](https://github.com/twKrash/kapisch/issues/10).
+8. Verify resume cannot classify an unsupported interrupted delegated
+   external-write step as safely retryable.
 9. Use a specialist review capability and verify that it remains advisory
    until the configured KAPISCH reviewer produces canonical evidence.
 10. Verify that KAPISCH never installs, authenticates, commits, pushes,
@@ -112,6 +111,13 @@ Each scenario records exposed capability identifiers, surface, plugin/skill
 availability, context and evidence paths, human gates, exact checks, and
 outcomes. Unexposed runtime receipts are recorded as `unavailable`; they are
 never inferred.
+
+Structural routing validation and read-only delegated execution are implemented;
+external-effect reconciliation is not. Lifting the write restriction requires a
+versioned intent/start/result/completion lifecycle, stable provider operation
+identifiers, read-only reconciliation of ambiguous outcomes, documented provider
+idempotency support, and crash/interruption acceptance proving no blind retry.
+No criterion establishes exactly-once delivery.
 
 ### Approved deviation (2026-08-04)
 

@@ -405,7 +405,15 @@ minimum delegation metadata (selected capability, maximum effect class,
 authority, digest-bound context/evidence); the parallel route lifecycle/revision
 engine, graph-free delegation, and resume/external-effect reconciliation
 machinery are deferred/archived pending demonstrated needs and
-[#10](https://github.com/twKrash/kapisch/issues/10). The change-7
+future reconciliation work. Structural route validation is implemented, and
+read-only delegated execution (`repository-read` and `external-read`) remains
+supported. Default validation rejects delegated `external-write` and
+`destructive` routes even with explicit authority because resume cannot
+reconcile an interrupted external effect. The restriction can be lifted only
+with versioned intent/start/result/completion records, stable provider operation
+identifiers, read-only ambiguous-outcome reconciliation, provider idempotency
+contracts, and crash/interruption tests that prove fail-closed recovery without
+blind retry; this makes no exactly-once claim. The change-7
 dogfood run (`change7-ecosystem-routing-dogfood` under the local
 `.kapisch/runs/`) recorded the review history: the research handoff assessed
 the definition of done and flagged the evidence gaps; Round 0 approved the

@@ -150,9 +150,10 @@ Step lifecycle tracking (planned/started/completed/blocked/failed states) and
 per-step repository revision chains are deferred to later changes backed by
 demonstrated needs; the graph node lifecycle and revision evidence already
 exist on the execution graph. The same applies to sophisticated
-resume/external-effect reconciliation: this contract requires the evidence,
-the authority gate, and that an external-write or destructive step is never
-blindly retried, but the recovery machinery itself is deferred.
+resume/external-effect reconciliation. Because that machinery is deferred, the
+validator rejects `external-write` and `destructive` routes regardless of their
+authority metadata, while read-only (`repository-read`, `external-read`) and
+`repository-write` delegated effect classes remain accepted.
 
 The effect classes are:
 
@@ -218,8 +219,9 @@ deferred to a later change: the graph node lifecycle and revision evidence
 already cover them, and the route record identifies the selected capability and
 its maximum effect class. `resolved_capability` is required (not
 `unavailable`). Every authority mode requires a non-empty in-context
-`authority_ref`; external-write and destructive steps additionally require
-`authority_mode = "explicit-step"`.
+`authority_ref`. `external-write` and `destructive` remain schema enum values so
+their intent can be diagnosed precisely, but default validation rejects them;
+`authority_mode = "explicit-step"` does not override that restriction.
 
 ### `Dnn/00-context.md`
 
@@ -285,15 +287,19 @@ not modify shared KAPISCH state merely to record its own result.
 Delegated-step lifecycle states, revision chains, replacement records, and
 resume reconciliation are deferred to a later change. The current route is
 implemented structural metadata, not a recovery state machine or external-effect
-runtime acceptance. Only these two rules apply
-to a delegated external effect today:
+runtime acceptance. Delegated execution therefore keeps the read-only classes
+(`repository-read`, `external-read`) and `repository-write` supported, while
+the validator rejects `external-write` and `destructive` even with
+`authority_mode = explicit-step`: authority does not
+provide effect reconciliation, and an interrupted effect cannot be classified
+as safely retryable. Repeated resume must preserve that fail-closed result.
 
-1. An external-write or destructive delegated step is never blindly retried on
-   resume: reconcile read-only against the external system when already
-   authorized and possible, otherwise block for user direction.
-2. Repeated resume against unchanged evidence may return the same local decision,
-   but it must not claim idempotency or issue/retry an external effect. Full
-   reconciliation remains deferred under [issue #10](https://github.com/twKrash/kapisch/issues/10).
+The restriction may be lifted only after a versioned lifecycle records intent,
+start, provider result, and completion; resume can reconcile ambiguous outcomes
+read-only against stable provider operation identifiers; retries require a
+provider-supported idempotency contract; and interruption/crash tests prove that
+unknown outcomes block without duplicating effects. This does not promise
+exactly-once delivery.
 
 ## Validator boundary
 
@@ -302,12 +308,15 @@ supported route version and closed root/step schemas; required fields, scalar
 and list types, and allowed enums; stable delegation-ID grammar; unique step
 IDs and sequence values; task-directory path containment; rejection of
 symlinked evidence; required UTF-8 context and evidence files; lowercase
-SHA-256 format and exact byte-digest matches; external-write/destructive steps
-having `authority_mode = explicit-step` and a valid authority reference; graph
+SHA-256 format and exact byte-digest matches; fail-closed rejection of
+external-write/destructive steps even with explicit authority; graph
 parent ownership, unique graph references, and route/manifest identity; and
 read-only effect classes for review/final delegations. Step lifecycle states
 and per-step repository revisions are deferred to a later change and are not
-validated here.
+validated here. Structural acceptance is not execution acceptance: only
+`external-write` and `destructive` routes are rejected; read-only
+(`repository-read`, `external-read`) and `repository-write` routes remain
+executable.
 
 Python does not implement capability discovery or installation; description
 matching or semantic selection; request parsing or route planning;
