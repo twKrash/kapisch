@@ -118,6 +118,112 @@ substitute.
 
 ---
 
+## Linux clean immutable acceptance at `f92b996` (findings 2-4)
+
+**Status:** immutable remote install and installed-validator acceptance passed;
+fresh authenticated `$kapisch` model invocation passed; reviewer-profile
+installation passed but reviewer-profile resolution/execution is **blocked** on
+this Linux Codex CLI build and is not claimed as successful.
+
+- Date/time: 2026-08-20T23:26:43+02:00
+- OS/arch: Linux 7.1.8-arch1-3, x86_64
+- Codex surface/version: authenticated standalone `codex-cli 0.148.0`
+- Immutable remote revision:
+  `f92b996f763f462f2e145ef19cbe5e01e2a51359`
+- Fresh install-only `CODEX_HOME`:
+  `/home/agent/kapisch-accept-f92b996-8qoBLQ`
+- Python path/version: `/home/agent/.hermes/hermes-agent/venv/bin/python`,
+  Python 3.11.16
+- Authenticated user home used only for live model/profile execution:
+  `/home/agent` (`CODEX_HOME=/home/agent/.codex`); no credential material was
+  copied into the fresh install-only home.
+
+### Immutable remote install and installed validator
+
+The fresh install-only home did not exist before `mktemp` created it. It had no
+marketplace configuration, plugin cache, or KAPISCH profile. The marketplace
+was fetched from GitHub by full commit SHA, not from the source checkout. Exact
+commands and observed results:
+
+```text
+accept_home=$(mktemp -d /home/agent/kapisch-accept-f92b996-XXXXXX)
+# printed /home/agent/kapisch-accept-f92b996-8qoBLQ
+CODEX_HOME="$accept_home" codex plugin marketplace add twKrash/kapisch --ref f92b996f763f462f2e145ef19cbe5e01e2a51359
+# Added marketplace `kapisch-local` from
+# https://github.com/twKrash/kapisch.git#f92b996f763f462f2e145ef19cbe5e01e2a51359
+CODEX_HOME="$accept_home" codex plugin add kapisch@kapisch-local
+# Added plugin `kapisch`; installed root:
+# /home/agent/kapisch-accept-f92b996-8qoBLQ/plugins/cache/kapisch-local/kapisch/0.1.0
+git -C "$accept_home/.tmp/marketplaces/kapisch-local" rev-parse HEAD
+# f92b996f763f462f2e145ef19cbe5e01e2a51359
+python "$accept_home/plugins/cache/kapisch-local/kapisch/0.1.0/scripts/validate_kapisch.py" \
+  --task-dir "$accept_home/.tmp/marketplaces/kapisch-local/plugins/kapisch/tests/kapisch_validation/fixtures/valid-v3-no-delegation" \
+  --format json
+# []
+# exit 0
+```
+
+This proves a clean immutable GitHub marketplace install at the reviewed head
+and successful execution of its installed validator. The fresh install-only
+home was unauthenticated (`CODEX_HOME="$accept_home" codex login status` printed
+`Not logged in`, exit 1), so it was not used to overclaim a live model run.
+
+### Fresh authenticated `$kapisch` model invocation
+
+For the required live model invocation, the same immutable SHA was installed in
+the authenticated real user home with the two marketplace commands above, then
+a new ephemeral Codex session was started. Exact invocation:
+
+```text
+codex exec --json --ephemeral -s read-only \
+  -C /home/agent/projects/kapisch-issue-11 \
+  -o /home/agent/kapisch-live-invocation-f92b996.txt \
+  'Use $kapisch for this read-only acceptance task: analyze how to add one sentence to README.md, but do not edit files or run commands. In your final response, state whether the kapisch skill was invoked and name the selected role.'
+```
+
+Result: exit 0. The fresh session emitted `I’m invoking the kapisch skill because
+you explicitly requested it` and its final response began `Kapisch skill
+invoked: Yes` and `Selected role: Acceptance`. It returned a five-point
+read-only acceptance analysis and confirmed that it neither inspected/edited
+files nor ran commands. This is live model invocation evidence, not merely
+offline prompt composition or skill discovery.
+
+### Reviewer-profile execution attempt (blocked, not fabricated)
+
+The installed setup command executed successfully against the real user home:
+
+```text
+python /home/agent/kapisch-accept-f92b996-8qoBLQ/plugins/cache/kapisch-local/kapisch/0.1.0/scripts/setup_profile.py \
+  --role reviewer --scope user --user-dir /home/agent --install
+# profile=/home/agent/.codex/agents/kapisch-reviewer.toml
+# status=installed
+# installed_sha256=921c403e6679657bca6e5702192d62992c3a6292d058d59f4ddd9f3920e9f4e8
+# exit 0
+```
+
+A separate fresh session then attempted to resolve and execute that exact named
+role against `README.md`:
+
+```text
+codex exec --json --ephemeral -s read-only \
+  -C /home/agent/projects/kapisch-issue-11 \
+  -o /home/agent/kapisch-reviewer-execution-f92b996.txt \
+  'Run the installed kapisch-reviewer agent role from /home/agent/.codex/agents/kapisch-reviewer.toml to review README.md. This is an execution acceptance check: do not substitute your own generic review if that named role cannot resolve. Do not edit files.'
+```
+
+Codex rejected the installed role during fresh-session composition, twice
+emitting: `Ignoring malformed agent role definition: agent role file at
+/home/agent/.codex/agents/kapisch-reviewer.toml must define
+developer_instructions`. The session confirmed that the available dispatch API
+had no named installed-role selector and that CLI `--profile` targets
+`$CODEX_HOME/<name>.config.toml`, not `.codex/agents/*.toml`; it therefore did
+not substitute a generic reviewer. Consequently, profile installation and its
+exact digest are proven, but actual `kapisch-reviewer` execution is **not**
+proven on this Linux `codex-cli 0.148.0` surface. Approval/readiness remains
+blocked; no reviewer result is claimed.
+
+---
+
 ## Linux local packaging/validator smoke test (NOT the clean runtime acceptance)
 
 **Status: local smoke test only.** This is NOT issue #11's clean-runtime
