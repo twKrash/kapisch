@@ -149,9 +149,12 @@ Required work:
    durable sequential execution, resume, reviewer invocation evidence, and final
    readiness against the extracted plugin.
 11. Treat the GitHub repository as locally distributable only after
-   `codex plugin marketplace add twKrash/kapisch --ref main` and installation of
-   `kapisch@kapisch-local` work in a clean Codex environment and the bundled
-   validator test suite passes without application-repository imports.
+   `codex plugin marketplace add twKrash/kapisch --ref <release-tag>` (using the
+   immutable `>=0.2.0` tag selected by the human release step) and installation
+   of `kapisch@kapisch-local` work in a clean Codex environment and the bundled
+   validator test suite passes without application-repository imports. Record
+   the exact accepted commit and tag in `acceptance-runtime.md`; mutable `main`
+   is not a release reference.
 12. Define the compatibility removal boundary and rollback path from active
     KAPISCH profiles to prior user-owned configuration.
 13. Convert newly created task-local knowledge records to canonical TOML during
@@ -399,7 +402,9 @@ measurement work.
 Status: implemented and reviewed. Clean Codex installation, fresh-session
 discovery, reviewer invocation, and `$kapisch` runtime acceptance remain
 planned under [issue #11](https://github.com/twKrash/kapisch/issues/11); this
-is not runtime accepted or released. The maintainer's scope-reduction
+is not runtime accepted or released. Issue #10 is complete: delegated
+`external-write` and `destructive` effects now fail closed. Issue #11 is the
+final P1 and owns clean-runtime evidence and release readiness. The maintainer's scope-reduction
 decision (2026-08-04, PR #4) is implemented: the route record carries the
 minimum delegation metadata (selected capability, maximum effect class,
 authority, digest-bound context/evidence); the parallel route lifecycle/revision

@@ -9,8 +9,14 @@ snapshot locally; users choose if and when to install or enable the plugin.
 Configure the marketplace without installing KAPISCH:
 
 ```text
-codex plugin marketplace add twKrash/kapisch --ref main
+codex plugin marketplace add twKrash/kapisch --ref <release-tag>
 ```
+
+Replace `<release-tag>` with the published immutable `>=0.2.0` release tag
+recorded in
+[`plugins/kapisch/docs/acceptance-runtime.md`](plugins/kapisch/docs/acceptance-runtime.md).
+The exact version and tag are chosen by the human release step; do not use
+mutable `main` for a released installation.
 
 Confirm that Codex knows the marketplace:
 
@@ -30,9 +36,9 @@ Alternatively, open `/plugins` in Codex CLI, choose **KAPISCH Local**, and
 install or enable KAPISCH there. Start a new Codex session after installation so
 the bundled skill is loaded.
 
-This is the documented installation path, not proof of runtime acceptance:
-clean installation, discovery, reviewer invocation, and `$kapisch` acceptance
-remain planned under [issue #11](https://github.com/twKrash/kapisch/issues/11).
+This is the documented installation path, not proof of runtime acceptance. The
+issue #11 acceptance record remains a placeholder until the real clean-runtime
+process records discovery, invocation, review, and validation evidence.
 
 Refresh the local marketplace snapshot after repository updates:
 

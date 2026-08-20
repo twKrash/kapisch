@@ -82,6 +82,10 @@ class MarketplaceTests(unittest.TestCase):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         normalized = " ".join(readme.split())
         self.assertIn(
+            "codex plugin marketplace add twKrash/kapisch --ref <release-tag>",
+            normalized,
+        )
+        self.assertNotIn(
             "codex plugin marketplace add twKrash/kapisch --ref main",
             normalized,
         )

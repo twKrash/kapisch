@@ -9,11 +9,18 @@ sandboxing.
 ## Install
 
 This plugin is distributed through the Git-backed `kapisch-local` marketplace,
-not OpenAI's public Plugin Directory. Configure the marketplace first:
+not OpenAI's public Plugin Directory. Configure the marketplace first, pinning
+it to the immutable release tag chosen by the human release step (the planned
+release is `>=0.2.0`):
 
 ```text
-codex plugin marketplace add twKrash/kapisch --ref main
+codex plugin marketplace add twKrash/kapisch --ref <release-tag>
 ```
+
+Replace `<release-tag>` with the published tag recorded in
+[`docs/acceptance-runtime.md`](docs/acceptance-runtime.md). Do not substitute
+`main`: it is mutable and is suitable only for development, not the released
+installation path.
 
 Install KAPISCH later when it should become active:
 
@@ -26,9 +33,10 @@ plugin works without custom agent profiles, but that degraded mode is advisory
 only: independent review and final-readiness approval require an explicitly
 installed, successfully invoked reviewer profile.
 
-This is the documented path, not runtime-acceptance evidence. Clean Codex
-installation, fresh-session discovery, reviewer invocation, and `$kapisch`
-acceptance remain planned under [issue #11](https://github.com/twKrash/kapisch/issues/11).
+This is the documented release path, not runtime-acceptance evidence. The
+clean-environment run must fill the checked-in
+[`acceptance-runtime.md`](docs/acceptance-runtime.md) record before a release is
+claimed.
 
 ## Optional profiles
 
@@ -170,10 +178,11 @@ back to native execution only when the same approved outcome remains achievable
 without changing methodology, data boundary, or authority — and discloses the
 fallback.
 
-### External-write delegation is deferred
+### External-write delegation fails closed
 
-Preparation for an external write (for example posting a pull-request comment)
-may produce a preview, but the delegated route must stop there. Default
+Issue #10's fail-closed boundary is implemented. Preparation for an external
+write (for example posting a pull-request comment) may produce a preview, but
+the delegated route must stop there. Default
 validation rejects `external-write` and `destructive` delegated steps even when
 they record explicit authority. Authority is necessary but cannot make these
 routes safe while no effect-reconciliation protocol exists. Perform the effect

@@ -82,9 +82,12 @@ Its local run evidence belongs under its own ignored `.kapisch/`.
 Dogfood sequence:
 
 1. Before claiming Codex-installation acceptance, run
-   `codex plugin marketplace add twKrash/kapisch --ref main` in a clean Codex
-   environment, then install `kapisch@kapisch-local` and verify `$kapisch` is
-   discoverable without profiles.
+   `codex plugin marketplace add twKrash/kapisch --ref <release-tag>` in a clean
+   Codex environment, using the immutable `>=0.2.0` release tag selected by the
+   human release step. Then install `kapisch@kapisch-local` and verify
+   `$kapisch` is discoverable without profiles. Record the exact tag in
+   [`acceptance-runtime.md`](acceptance-runtime.md); never use mutable `main` as
+   the released path.
 2. Run graph-free advisory work without profiles; do not claim approval.
 3. Explicitly install `kapisch-reviewer` with `setup_profile.py`, then record a
    fresh canonical reviewer invocation before an approving review.
