@@ -109,7 +109,6 @@ class WheelInstallationTests(unittest.TestCase):
                     "wheel",
                     ".",
                     "--no-deps",
-                    "--no-build-isolation",
                     "--wheel-dir",
                     str(wheelhouse),
                 ],
