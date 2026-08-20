@@ -435,7 +435,15 @@ class ExtractionAcceptanceTests(unittest.TestCase):
             source = project / ".planning/task-workflow/valid"
             shutil.copytree(FIXTURES / "valid-sequential-v2", source)
             link = source / "linked-report.md"
-            os.symlink("tasks/T01-report.md", link)
+            try:
+                os.symlink("tasks/T01-report.md", link)
+            except OSError as error:
+                if os.name == "nt" and (
+                    isinstance(error, PermissionError)
+                    or getattr(error, "winerror", None) == 1314
+                ):
+                    self.skipTest("Windows account cannot create symbolic links")
+                raise
             self.assertTrue(link.is_symlink())
             self.assertEqual(migrate(["--project-dir", str(project), "--task-id", "valid", "--approve"]), 2)
             self.assertTrue(link.is_symlink())
