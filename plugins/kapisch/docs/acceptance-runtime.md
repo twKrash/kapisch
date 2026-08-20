@@ -104,38 +104,42 @@ listed separately but are not runtime validator evidence.
 
 ## Accepted revision and release tag
 
-- Accepted commit SHA: **TEMPLATE-PLACEHOLDER — to be recorded by the acceptance run**
+- Accepted candidate commit SHA: `c519cedd86a08fd1323b3d800575506e934c7fb3`
 - Stage-1 acceptance revision exercised (exact SHA or pre-release tag):
-  **TEMPLATE-PLACEHOLDER — to be recorded by the acceptance/release run**
+  `c519cedd86a08fd1323b3d800575506e934c7fb3` for the Linux candidate checks
+  recorded below; the clean isolated-auth live flow remains outstanding.
 - Stage-2 immutable release tag (`>=0.2.0`, exact value chosen by the human
   release step): **TEMPLATE-PLACEHOLDER — to be recorded by the release run**
 - Evidence reviewer decision and date: **TEMPLATE-PLACEHOLDER — to be recorded by the acceptance run**
 
-The accepted commit must be the commit actually exercised in Stage 1. The
-Stage-2 tag must resolve to that same accepted commit. A branch name, `main`,
-an anticipated version, or this template's preparation commit is not a
-substitute.
+The release tag, when cut by the human, must point to exactly the tested
+candidate SHA `c519cedd86a08fd1323b3d800575506e934c7fb3`. The accepted commit
+must be the commit actually exercised in Stage 1. A branch name, `main`, an
+anticipated version, or a different preparation commit is not a substitute.
 
 ---
 
-## Linux clean immutable acceptance at `f92b996` (findings 2-4)
+## Linux runtime evidence for candidate `c519ced` (findings 1-4)
 
-**Status:** immutable remote install and installed-validator acceptance passed;
-fresh authenticated `$kapisch` model invocation passed; reviewer-profile
-installation passed but reviewer-profile resolution/execution is **blocked** on
-this Linux Codex CLI build and is not claimed as successful.
+**Status:** earlier immutable remote install and installed-validator acceptance
+passed at `f92b996`; fresh authenticated `$kapisch` model invocation passed from
+the real user home. The candidate revision for the fixes in this record is
+`c519cedd86a08fd1323b3d800575506e934c7fb3`. The isolated-auth clean live flow
+required by finding 2 is not satisfied by this evidence.
 
 - Date/time: 2026-08-20T23:26:43+02:00
 - OS/arch: Linux 7.1.8-arch1-3, x86_64
 - Codex surface/version: authenticated standalone `codex-cli 0.148.0`
-- Immutable remote revision:
+- Candidate/accepted revision:
+  `c519cedd86a08fd1323b3d800575506e934c7fb3`
+- Earlier immutable remote revision exercised by the install evidence below:
   `f92b996f763f462f2e145ef19cbe5e01e2a51359`
 - Fresh install-only `CODEX_HOME`:
-  `/home/agent/kapisch-accept-f92b996-8qoBLQ`
-- Python path/version: `/home/agent/.hermes/hermes-agent/venv/bin/python`,
+  `$HOME/kapisch-accept-f92b996-8qoBLQ`
+- Python path/version: `$HOME/.hermes/hermes-agent/venv/bin/python`,
   Python 3.11.16
 - Authenticated user home used only for live model/profile execution:
-  `/home/agent` (`CODEX_HOME=/home/agent/.codex`); no credential material was
+  `$HOME` (`CODEX_HOME=$HOME/.codex`); no credential material was
   copied into the fresh install-only home.
 
 ### Immutable remote install and installed validator
@@ -146,14 +150,14 @@ was fetched from GitHub by full commit SHA, not from the source checkout. Exact
 commands and observed results:
 
 ```text
-accept_home=$(mktemp -d /home/agent/kapisch-accept-f92b996-XXXXXX)
-# printed /home/agent/kapisch-accept-f92b996-8qoBLQ
+accept_home=$(mktemp -d "$HOME/kapisch-accept-f92b996-XXXXXX")
+# printed $HOME/kapisch-accept-f92b996-8qoBLQ
 CODEX_HOME="$accept_home" codex plugin marketplace add twKrash/kapisch --ref f92b996f763f462f2e145ef19cbe5e01e2a51359
 # Added marketplace `kapisch-local` from
 # https://github.com/twKrash/kapisch.git#f92b996f763f462f2e145ef19cbe5e01e2a51359
 CODEX_HOME="$accept_home" codex plugin add kapisch@kapisch-local
 # Added plugin `kapisch`; installed root:
-# /home/agent/kapisch-accept-f92b996-8qoBLQ/plugins/cache/kapisch-local/kapisch/0.1.0
+# $HOME/kapisch-accept-f92b996-8qoBLQ/plugins/cache/kapisch-local/kapisch/0.1.0
 git -C "$accept_home/.tmp/marketplaces/kapisch-local" rev-parse HEAD
 # f92b996f763f462f2e145ef19cbe5e01e2a51359
 python "$accept_home/plugins/cache/kapisch-local/kapisch/0.1.0/scripts/validate_kapisch.py" \
@@ -176,8 +180,8 @@ a new ephemeral Codex session was started. Exact invocation:
 
 ```text
 codex exec --json --ephemeral -s read-only \
-  -C /home/agent/projects/kapisch-issue-11 \
-  -o /home/agent/kapisch-live-invocation-f92b996.txt \
+  -C "$HOME/projects/kapisch-issue-11" \
+  -o "$HOME/kapisch-live-invocation-f92b996.txt" \
   'Use $kapisch for this read-only acceptance task: analyze how to add one sentence to README.md, but do not edit files or run commands. In your final response, state whether the kapisch skill was invoked and name the selected role.'
 ```
 
@@ -188,14 +192,14 @@ read-only acceptance analysis and confirmed that it neither inspected/edited
 files nor ran commands. This is live model invocation evidence, not merely
 offline prompt composition or skill discovery.
 
-### Reviewer-profile execution attempt (blocked, not fabricated)
+### Earlier reviewer-profile execution attempt (blocked, not fabricated)
 
 The installed setup command executed successfully against the real user home:
 
 ```text
-python /home/agent/kapisch-accept-f92b996-8qoBLQ/plugins/cache/kapisch-local/kapisch/0.1.0/scripts/setup_profile.py \
-  --role reviewer --scope user --user-dir /home/agent --install
-# profile=/home/agent/.codex/agents/kapisch-reviewer.toml
+python "$HOME/kapisch-accept-f92b996-8qoBLQ/plugins/cache/kapisch-local/kapisch/0.1.0/scripts/setup_profile.py" \
+  --role reviewer --scope user --user-dir "$HOME" --install
+# profile=$HOME/.codex/agents/kapisch-reviewer.toml
 # status=installed
 # installed_sha256=921c403e6679657bca6e5702192d62992c3a6292d058d59f4ddd9f3920e9f4e8
 # exit 0
@@ -206,14 +210,14 @@ role against `README.md`:
 
 ```text
 codex exec --json --ephemeral -s read-only \
-  -C /home/agent/projects/kapisch-issue-11 \
-  -o /home/agent/kapisch-reviewer-execution-f92b996.txt \
-  'Run the installed kapisch-reviewer agent role from /home/agent/.codex/agents/kapisch-reviewer.toml to review README.md. This is an execution acceptance check: do not substitute your own generic review if that named role cannot resolve. Do not edit files.'
+  -C "$HOME/projects/kapisch-issue-11" \
+  -o "$HOME/kapisch-reviewer-execution-f92b996.txt" \
+  'Run the installed kapisch-reviewer agent role from $HOME/.codex/agents/kapisch-reviewer.toml to review README.md. This is an execution acceptance check: do not substitute your own generic review if that named role cannot resolve. Do not edit files.'
 ```
 
 Codex rejected the installed role during fresh-session composition, twice
 emitting: `Ignoring malformed agent role definition: agent role file at
-/home/agent/.codex/agents/kapisch-reviewer.toml must define
+$HOME/.codex/agents/kapisch-reviewer.toml must define
 developer_instructions`. The session confirmed that the available dispatch API
 had no named installed-role selector and that CLI `--profile` targets
 `$CODEX_HOME/<name>.config.toml`, not `.codex/agents/*.toml`; it therefore did
@@ -221,6 +225,63 @@ not substitute a generic reviewer. Consequently, profile installation and its
 exact digest are proven, but actual `kapisch-reviewer` execution is **not**
 proven on this Linux `codex-cli 0.148.0` surface. Approval/readiness remains
 blocked; no reviewer result is claimed.
+
+### Candidate reviewer-profile execution (completed, advisory)
+
+After adding `developer_instructions` to the shipped candidate profile, a
+project-scoped copy of that exact `kapisch-reviewer` TOML was placed under
+`.codex/agents/` only for runtime resolution, then removed after the attempt.
+The existing user-scoped profile was not overwritten: `setup_profile.py`
+reported `status=collision`, `action=review; profile was not changed`, exit 2.
+The authenticated ephemeral execution used the required unrestricted sandbox:
+
+```text
+codex exec --json --ephemeral --sandbox danger-full-access \
+  -C "$HOME/projects/kapisch-issue-11" \
+  -o /tmp/kapisch-reviewer-execution-c519ced.txt \
+  'Spawn exactly one kapisch-reviewer custom agent to review README.md for concrete correctness or documentation defects. Wait for that named agent and return its exact decision and a concise summary. This is an execution acceptance check: do not substitute the parent agent or a built-in generic agent if kapisch-reviewer cannot resolve. Do not edit files.'
+```
+
+Result: exit 0. Before project-profile dispatch, the session emitted two
+warnings that the stale user-scoped `$HOME/.codex/agents/kapisch-reviewer.toml`
+was malformed because it lacked `developer_instructions`. It nevertheless
+resolved the project-scoped candidate profile and reported: `The named
+kapisch-reviewer is running now.` The terminal response recorded exact decision
+`approve`, found no concrete correctness or documentation defects in
+`README.md`, and stated that no files were edited. It also explicitly classified
+the result as advisory because the no-edit acceptance prompt prevented creation
+of canonical KAPISCH invocation artifacts. This proves actual named reviewer
+profile resolution and execution on the authenticated Linux CLI surface; it
+does not establish canonical workflow approval or finding 2's isolated-auth
+clean flow.
+
+### Linux portable-package wheel-build rerun
+
+With `build-system.requires = ["setuptools>=70.4"]` and no `wheel` dependency,
+the isolated PEP 517 wheel-build path remained green. From `plugins/kapisch`:
+
+```text
+python scripts/test_portable_package.py
+# Ran 245 tests in 5.491s
+# OK
+# portable-package=passed
+# exit 0
+```
+
+The first attempt from the repository root failed with exit 2 because that
+directory has no `scripts/test_portable_package.py`; rerunning the exact command
+from its documented package directory above exercised the intended gate.
+
+### Finding 2 limitation: isolated authenticated live flow unavailable
+
+Finding 2 is **not satisfiable on this Linux-only, CLI-only host**. Authentication
+lives in the real user Codex home, while a newly created isolated `CODEX_HOME`
+has no live OAuth state. Copying credentials or reusing pre-existing state would
+invalidate the requested clean isolation, and no supported mechanism on this
+host can seed the isolated home with the live authenticated session. Therefore
+no authenticated isolated-home + clean-consumer live flow is claimed or
+fabricated. That evidence requires human execution on a real Codex Desktop/WSL2
+surface (or another supported surface that can authenticate the isolated home).
 
 ---
 
@@ -235,7 +296,7 @@ packaging + validator behavior. The real Stage-1 acceptance must rerun these
 steps from an immutable remote revision (commit SHA / pre-release tag).
 
 - Date/time: 2026-08-20 (~12:00 CEST)
-- Operator/reviewer: Hermes agent on the operator's Linux host
+- Operator/reviewer: automated agent on the operator's Linux host
 - OS/arch: Arch Linux, x86_64
 - Codex surface/version: standalone `codex-cli` (`codex-cli 0.148.0`), Git-backed marketplace
 - Python version: 3.11+ (host interpreter)
@@ -243,14 +304,14 @@ steps from an immutable remote revision (commit SHA / pre-release tag).
 Clean-state preconditions: isolated `CODEX_HOME=/tmp/kapisch-accept-clean`
 (fresh directory; no pre-existing marketplace, plugin cache, or KAPISCH
 profiles). NOTE: marketplace source was the developer checkout
-`/home/agent/projects/kapisch-issue-11` — a mutable local path, not an immutable
+`$HOME/projects/kapisch-issue-11` — a mutable local path, not an immutable
 remote ref — so this does not meet the clean-env no-source-checkout gate.
 
 Commands/actions (exact, as executed):
-1. `codex plugin marketplace add /home/agent/projects/kapisch-issue-11`
+1. `codex plugin marketplace add "$HOME/projects/kapisch-issue-11"`
    → `Added marketplace kapsch-local` (installed root: the repo)
 2. `codex plugin marketplace list`
-   → `kapisch-local  /home/agent/projects/kapisch-issue-11`
+   → `kapisch-local  $HOME/projects/kapisch-issue-11`
 3. `codex plugin add kapisch@kapisch-local`
    → `Added plugin kapisch from marketplace kapisch-local` (root `.../plugins/cache/kapisch-local/kapisch/0.1.0`)
 4. `codex plugin list`
@@ -306,5 +367,8 @@ Known limitations:
 
 ## Blockers left for human / twKrash decision
 - Native Windows surface evidence (required for #11 acceptance).
+- Authenticated isolated-home + clean-consumer live execution (finding 2),
+  which cannot be produced on this Linux-only CLI host without invalidating the
+  isolation requirement.
 - The actual immutable release tag + version bump + release record (explicitly a
   human-confirmed action per the issue; not done here).
