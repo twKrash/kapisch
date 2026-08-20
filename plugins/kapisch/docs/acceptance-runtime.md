@@ -128,27 +128,42 @@ Commands/actions (exact, as executed):
    → `Added plugin kapisch from marketplace kapisch-local` (root `.../plugins/cache/kapisch-local/kapisch/0.1.0`)
 4. `codex plugin list`
    → `kapisch@kapisch-local  installed, enabled  0.1.0`
-5. `python <installed-root>/scripts/validate_kapisch.py --help` (from cwd `/tmp`, outside the source checkout)
-   → prints the `kapisch-validate` usage (bundled contract discovery works; no `--contract-dir` needed)
+5. From cwd `/tmp` (outside the source checkout), run the installed validator
+   against a real task directory and record its exit status/findings:
+   `python <installed-root>/scripts/validate_kapisch.py --task-dir <fixture>/task --format json`
+   → resolved a structured finding `TWV-PARSE-MISSING-ARTIFACT` for the missing
+   `02-execution-graph.toml` at the required path, exit status `2`. This exercises
+   contract resolution (default `--contract-dir`), task-dir parsing, finding
+   formatting, and non-zero exit handling from the installed plugin — not just
+   `--help`.
 
-Plugin discovery result: marketplace recognized; the single `kapisch` plugin was
-discovered and installed + enabled from the clean env. Fresh-session discovery of
-skills (`skills/kapisch/SKILL.md`, references, themes) and all six roles
-(`roles/*.md`) present in the installed bundle.
+Installation/discovery result (installation and packaging, NOT fresh-session
+runtime discovery): the marketplace was recognized and the single `kapisch`
+plugin was installed + enabled from a clean env. The installed bundle contains
+`skills/kapisch/SKILL.md`, its references and themes, and all six roles
+(`roles/*.md`) plus the reviewer agent file. This establishes packaging and
+install-time visibility. It is NOT evidence that a fresh interactive Codex
+session resolves `$kapisch` or the profiles at runtime — no such session was
+started here, so no runtime-discovery claim is made.
 
-`$kapisch` / validator invocation: **blocked on the PATH-alias step on this box**.
-Codex refused to create PATH helper binaries under `/tmp` (the isolated
-CODEX_HOME) with the warning: "Refusing to create helper binaries under temporary
-dir `/tmp`". This is a clean-env path-hygiene guard of the local `CODEX_HOME`,
-not a plugin defect; with a real user home it would create the `kapisch-validate`
-alias. The validator itself was invoked successfully via the installed script
-from outside the repo (see commands). In-object validator exit and output were
-verified.
+`$kapisch` / fresh-session invocation: **not exercised.** A fresh Codex session
+was not started and `$kapisch` was not invoked. The PATH-alias creation step was
+blocked because the isolated `CODEX_HOME` sits under `/tmp`, which Codex refuses
+for helper binaries ("Refusing to create helper binaries under temporary dir
+`/tmp`") — a host-path hygiene guard of this local test CODEX_HOME, not a plugin
+defect. The installed validator was invoked directly via its script (see step 5)
+and ran correctly; that is validator invocation, not a fresh-session `$kapisch`.
+
+Validator contract source: this installed bundle has **no
+`kapisch_validation/contracts` package** (it is a plugin-bundle copy, not a
+pip-installed wheel), so the validator resolved contracts via the documented
+`skills/kapisch` fallback path in `_bundled_contract_resource()`. The
+`importlib.resources` bundled-contracts path is only exercised after an actual
+wheel install and was NOT exercised here. Exact, uncontradicted.
 
 Reviewer invocation: reviewer profile exists in the bundle
 (`agents/kapisch-reviewer.toml`); a reviewer *execution* (a fresh session
-resolving the reviewer role) was NOT run here — that needs an interactive Codex
-session with the plugin active and is recorded as a remaining acceptance item.
+resolving the reviewer role) was NOT run here and is not claimed.
 
 Known limitations:
 - Windows native surface not exercised (this is a Linux host); must be recorded
