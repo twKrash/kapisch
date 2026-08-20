@@ -43,13 +43,21 @@ Record how each condition was checked and its observed result:
 ## Commands and actions performed
 
 Record exact commands/actions in order, including exit status where exposed.
-The marketplace command must use the immutable human-confirmed `>=0.2.0`
-release tag, never mutable `main`.
+Use a **two-stage, revision-bound** flow so acceptance does not require a tag to
+exist yet:
+
+- **Stage 1 — acceptance (no tag required):** exercise the exact commit SHA that
+  will become the release, using an immutable remote revision (a commit SHA or a
+  pre-release tag) — never a mutable branch/`main`. For the clean-env gate this
+  means installing from an immutable remote ref of the exact candidate commit,
+  not a source checkout.
+- **Stage 2 — release (after acceptance):** the human release step chooses the
+  version and tags that same accepted commit; only then does the released
+  install path reference the tag.
 
 ```text
-TEMPLATE-PLACEHOLDER — to be recorded by the acceptance run
-codex plugin marketplace add twKrash/kapisch --ref <release-tag>
-codex plugin add kapisch@kapisch-local
+TEMPLATE-PLACEHOLDER — record Stage-1 acceptance: codex plugin marketplace add twKrash/kapisch --ref <accepted-commit-SHA|pre-release-tag>
+TEMPLATE-PLACEHOLDER — record codex plugin add kapisch@kapisch-local
 TEMPLATE-PLACEHOLDER — record session restart/new-session action
 TEMPLATE-PLACEHOLDER — record profile setup and validator commands
 ```
@@ -97,27 +105,40 @@ listed separately but are not runtime validator evidence.
 ## Accepted revision and release tag
 
 - Accepted commit SHA: **TEMPLATE-PLACEHOLDER — to be recorded by the acceptance run**
-- Immutable release tag (`>=0.2.0`, exact value chosen by the human release
-  step): **TEMPLATE-PLACEHOLDER — to be recorded by the acceptance/release run**
+- Stage-1 acceptance revision exercised (exact SHA or pre-release tag):
+  **TEMPLATE-PLACEHOLDER — to be recorded by the acceptance/release run**
+- Stage-2 immutable release tag (`>=0.2.0`, exact value chosen by the human
+  release step): **TEMPLATE-PLACEHOLDER — to be recorded by the release run**
 - Evidence reviewer decision and date: **TEMPLATE-PLACEHOLDER — to be recorded by the acceptance run**
 
-The accepted commit must be the commit actually exercised. The tag must resolve
-to that accepted commit. A branch name, `main`, an anticipated version, or this
-template's preparation commit is not a substitute.
+The accepted commit must be the commit actually exercised in Stage 1. The
+Stage-2 tag must resolve to that same accepted commit. A branch name, `main`,
+an anticipated version, or this template's preparation commit is not a
+substitute.
 
 ---
 
-## Linux acceptance result (recorded from actual run)
+## Linux local packaging/validator smoke test (NOT the clean runtime acceptance)
+
+**Status: local smoke test only.** This is NOT issue #11's clean-runtime
+acceptance. It installs from the developer source checkout (a mutable, local
+path), not from an immutable remote revision, so it does not exercise the
+documented GitHub install path or satisfy the no-source-checkout precondition
+of the real acceptance. It is recorded as disposable local evidence of
+packaging + validator behavior. The real Stage-1 acceptance must rerun these
+steps from an immutable remote revision (commit SHA / pre-release tag).
 
 - Date/time: 2026-08-20 (~12:00 CEST)
-- Operator/reviewer: Hermes agent on the operator's Linux host (twKrash-workspace)
+- Operator/reviewer: Hermes agent on the operator's Linux host
 - OS/arch: Arch Linux, x86_64
 - Codex surface/version: standalone `codex-cli` (`codex-cli 0.148.0`), Git-backed marketplace
 - Python version: 3.11+ (host interpreter)
 
-Clean-state preconditions: ran with an isolated `CODEX_HOME=/tmp/kapisch-accept-clean`
-(fresh directory; no pre-existing marketplace, plugin cache, or KAPISCH profiles).
-No developer checkout was on the repo path at test time beyond the source itself.
+Clean-state preconditions: isolated `CODEX_HOME=/tmp/kapisch-accept-clean`
+(fresh directory; no pre-existing marketplace, plugin cache, or KAPISCH
+profiles). NOTE: marketplace source was the developer checkout
+`/home/agent/projects/kapisch-issue-11` — a mutable local path, not an immutable
+remote ref — so this does not meet the clean-env no-source-checkout gate.
 
 Commands/actions (exact, as executed):
 1. `codex plugin marketplace add /home/agent/projects/kapisch-issue-11`
@@ -128,14 +149,16 @@ Commands/actions (exact, as executed):
    → `Added plugin kapisch from marketplace kapisch-local` (root `.../plugins/cache/kapisch-local/kapisch/0.1.0`)
 4. `codex plugin list`
    → `kapisch@kapisch-local  installed, enabled  0.1.0`
-5. From cwd `/tmp` (outside the source checkout), run the installed validator
-   against a real task directory and record its exit status/findings:
-   `python <installed-root>/scripts/validate_kapisch.py --task-dir <fixture>/task --format json`
-   → resolved a structured finding `TWV-PARSE-MISSING-ARTIFACT` for the missing
-   `02-execution-graph.toml` at the required path, exit status `2`. This exercises
-   contract resolution (default `--contract-dir`), task-dir parsing, finding
-   formatting, and non-zero exit handling from the installed plugin — not just
-   `--help`.
+5. Successful installed-validator run (from cwd `/tmp`, outside the source
+   checkout) against a valid task directory:
+   `python <installed-root>/scripts/validate_kapisch.py --task-dir <fixtures>/valid-v3-no-delegation --format json`
+   → output `[]` (no findings), exit status `0`. This is the positive case:
+   installed validation succeeds through the public command + bundled (fallback)
+   resources.
+6. Error-path installed-validator run (same command, incomplete task dir):
+   → structured finding `TWV-PARSE-MISSING-ARTIFACT` (missing
+   `02-execution-graph.toml`), exit status `2`. Proves the error path, not the
+   acceptance success criterion.
 
 Installation/discovery result (installation and packaging, NOT fresh-session
 runtime discovery): the marketplace was recognized and the single `kapisch`
@@ -151,8 +174,9 @@ was not started and `$kapisch` was not invoked. The PATH-alias creation step was
 blocked because the isolated `CODEX_HOME` sits under `/tmp`, which Codex refuses
 for helper binaries ("Refusing to create helper binaries under temporary dir
 `/tmp`") — a host-path hygiene guard of this local test CODEX_HOME, not a plugin
-defect. The installed validator was invoked directly via its script (see step 5)
-and ran correctly; that is validator invocation, not a fresh-session `$kapisch`.
+defect. The installed validator was invoked directly via its script (steps
+5-6) and ran correctly; that is validator invocation, not a fresh-session
+`$kapisch`.
 
 Validator contract source: this installed bundle has **no
 `kapisch_validation/contracts` package** (it is a plugin-bundle copy, not a

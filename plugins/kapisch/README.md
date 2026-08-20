@@ -9,24 +9,36 @@ sandboxing.
 ## Install
 
 This plugin is distributed through the Git-backed `kapisch-local` marketplace,
-not OpenAI's public Plugin Directory. Configure the marketplace first, pinning
-it to the immutable release tag chosen by the human release step (the planned
+not OpenAI's public Plugin Directory.
+
+### Development path (works today, no release tag required)
+
+Against a source checkout or the live branch:
+
+```text
+codex plugin marketplace add ./path/to/kapisch           # local source checkout
+codex plugin marketplace add twKrash/kapisch --ref main  # or the live repo branch
+codex plugin add kapisch@kapisch-local
+```
+
+This is the runnable development path. `main` / a local checkout is mutable and
+is suitable for development, not a released install.
+
+### Released path (once the immutable tag exists)
+
+Pin to the immutable release tag chosen by the human release step (the planned
 release is `>=0.2.0`):
 
 ```text
 codex plugin marketplace add twKrash/kapisch --ref <release-tag>
+codex plugin add kapisch@kapisch-local
 ```
 
 Replace `<release-tag>` with the published tag recorded in
 [`docs/acceptance-runtime.md`](docs/acceptance-runtime.md). Do not substitute
-`main`: it is mutable and is suitable only for development, not the released
-installation path.
+`main` for the released installation path.
 
-Install KAPISCH later when it should become active:
-
-```text
-codex plugin add kapisch@kapisch-local
-```
+Install KAPISCH later when it should become active (either path):
 
 Start a new Codex session, then invoke `$kapisch` in a repository task. The
 plugin works without custom agent profiles, but that degraded mode is advisory
