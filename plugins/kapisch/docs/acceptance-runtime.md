@@ -104,34 +104,43 @@ listed separately but are not runtime validator evidence.
 
 ## Accepted revision and release tag
 
-- Accepted candidate commit SHA: `c519cedd86a08fd1323b3d800575506e934c7fb3`
+- Current candidate/head commit SHA (contains all required fixes: shipped agent
+  `developer_instructions`, `wheel` removal, CI/build metadata):
+  `b61442564d82aef1fd21f6b7a83071829fac8858`
 - Stage-1 acceptance revision exercised (exact SHA or pre-release tag):
-  `c519cedd86a08fd1323b3d800575506e934c7fb3` for the Linux candidate checks
-  recorded below; the clean isolated-auth live flow remains outstanding.
+  `b61442564d82aef1fd21f6b7a83071829fac8858` is the head whose shipped artifacts
+  (six parseable agent profiles, portable package, CI) were verified; the clean
+  isolated-auth live flow remains outstanding (see limitation below).
 - Stage-2 immutable release tag (`>=0.2.0`, exact value chosen by the human
   release step): **TEMPLATE-PLACEHOLDER — to be recorded by the release run**
 - Evidence reviewer decision and date: **TEMPLATE-PLACEHOLDER — to be recorded by the acceptance run**
 
-The release tag, when cut by the human, must point to exactly the tested
-candidate SHA `c519cedd86a08fd1323b3d800575506e934c7fb3`. The accepted commit
-must be the commit actually exercised in Stage 1. A branch name, `main`, an
-anticipated version, or a different preparation commit is not a substitute.
+The release tag, when cut by the human, must point to exactly the **final
+accepted candidate SHA** — the commit that passes both the clean Unix-like and
+native Windows acceptance reruns at the end. Prior intermediate commits
+(the earlier `c519ced`, where the wheel-removal and agent fixes were NOT yet
+both present) must **not** be tagged. As of this record, the final clean
+Unix/Windows reruns have not yet completed, so no commit is yet a valid
+release-tag target; the tag must bind to the exact SHA exercised in those final
+runs and recorded above.
 
 ---
 
-## Linux runtime evidence for candidate `c519ced` (findings 1-4)
+## Linux runtime evidence (findings 1-4) at the current candidate head `b614425`
 
 **Status:** earlier immutable remote install and installed-validator acceptance
 passed at `f92b996`; fresh authenticated `$kapisch` model invocation passed from
-the real user home. The candidate revision for the fixes in this record is
-`c519cedd86a08fd1323b3d800575506e934c7fb3`. The isolated-auth clean live flow
-required by finding 2 is not satisfied by this evidence.
+the real user home. The candidate revision for the fixes in this record is the
+current head `b61442564d82aef1fd21f6b7a83071829fac8858` (the first revision
+containing all six `developer_instructions` profiles and the `wheel` removal).
+The isolated-auth clean live flow required by finding 2 is not satisfied by
+this evidence.
 
 - Date/time: 2026-08-20T23:26:43+02:00
 - OS/arch: Linux 7.1.8-arch1-3, x86_64
 - Codex surface/version: authenticated standalone `codex-cli 0.148.0`
-- Candidate/accepted revision:
-  `c519cedd86a08fd1323b3d800575506e934c7fb3`
+- Current candidate head revision:
+  `b61442564d82aef1fd21f6b7a83071829fac8858`
 - Earlier immutable remote revision exercised by the install evidence below:
   `f92b996f763f462f2e145ef19cbe5e01e2a51359`
 - Fresh install-only `CODEX_HOME`:
@@ -233,7 +242,7 @@ project-scoped copy of that exact `kapisch-reviewer` TOML was placed under
 `.codex/agents/` only for runtime resolution, then removed after the attempt.
 The existing user-scoped profile was not overwritten: `setup_profile.py`
 reported `status=collision`, `action=review; profile was not changed`, exit 2.
-The authenticated ephemeral execution used the required unrestricted sandbox:
+The authenticated ephemeral execution used `--sandbox danger-full-access`:
 
 ```text
 codex exec --json --ephemeral --sandbox danger-full-access \
@@ -250,10 +259,27 @@ kapisch-reviewer is running now.` The terminal response recorded exact decision
 `approve`, found no concrete correctness or documentation defects in
 `README.md`, and stated that no files were edited. It also explicitly classified
 the result as advisory because the no-edit acceptance prompt prevented creation
-of canonical KAPISCH invocation artifacts. This proves actual named reviewer
-profile resolution and execution on the authenticated Linux CLI surface; it
-does not establish canonical workflow approval or finding 2's isolated-auth
-clean flow.
+of canonical KAPISCH invocation artifacts. This proves named reviewer profile
+resolution and execution on the authenticated Linux CLI surface.
+
+**Least-privilege caveat (twKrash finding #4):** the shipped `kapisch-reviewer`
+profile declares `sandbox_mode = "read-only"`, but this probe dispatched it
+under the parent `--sandbox danger-full-access` override. Per current OpenAI
+documentation, parent runtime sandbox overrides are reapplied to spawned agents,
+so a `danger-full-access` parent does not preserve the profile's declared
+read-only boundary. The broader override was required here only because the
+acceptance prompt authorized no writes and the earlier `read-only`-scoped probe
+could not resolve the named role; this means the run proves **named profile
+resolution/execution**, but does **not** prove the shipped reviewer's read-only
+boundary enforcement. A least-privilege re-run (parent `--sandbox read-only`
+with the profile's own boundary) is required to close this and is currently
+**pending**: it cannot be executed while `codex-cli` is rate-limited on this
+host (usage-limit error, retry after 2026-08-22). This does not affect finding
+3 (the profiles now parse and resolve) or the release gates, but the read-only
+boundary evidence remains to be re-verified with least privilege.
+
+This evidence does not establish canonical workflow approval or finding 2's
+isolated-auth clean flow.
 
 ### Linux portable-package wheel-build rerun
 
