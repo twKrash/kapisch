@@ -53,8 +53,11 @@ install or enable KAPISCH there. Start a new Codex session after installation so
 the bundled skill is loaded.
 
 This is the documented installation path, not proof of runtime acceptance. The
-issue #11 acceptance record remains a placeholder until the real clean-runtime
-process records discovery, invocation, review, and validation evidence.
+issue #11 acceptance record accumulates evidence in `plugins/kapisch/docs/acceptance-runtime.md`;
+Linux immutable-install, installed-validator, live `$kapisch` invocation, and
+shipped-agent-profile evidence are recorded there, while the native-Windows
+runtime observation, isolated-auth clean flow, and the release sequence remain
+outstanding and must be recorded before the issue can close.
 
 Refresh the local marketplace snapshot after repository updates:
 

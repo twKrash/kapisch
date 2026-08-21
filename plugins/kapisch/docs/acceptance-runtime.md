@@ -1,6 +1,7 @@
 # Clean-runtime acceptance record
 
-Status: **TEMPLATE-PLACEHOLDER — to be recorded by the acceptance run**
+Status: **PARTIAL — Linux runtime evidence recorded below; native-Windows,
+isolated-auth clean flow, and release-sequence evidence remain outstanding.**
 
 This checked-in record is the evidence accumulator for issue #11. Repository
 preparation, automated tests, and this template do not establish Codex runtime
@@ -10,12 +11,13 @@ results from source inspection or automated tests.
 
 ## Environment and Codex surface
 
-- Date/time: **TEMPLATE-PLACEHOLDER — to be recorded by the acceptance run**
-- Operator/reviewer: **TEMPLATE-PLACEHOLDER — to be recorded by the acceptance run**
-- OS and architecture: **TEMPLATE-PLACEHOLDER — to be recorded by the acceptance run**
-- Codex product/surface: **TEMPLATE-PLACEHOLDER — to be recorded by the acceptance run**
-- Codex version/build: **TEMPLATE-PLACEHOLDER — to be recorded by the acceptance run**
-- Python version: **TEMPLATE-PLACEHOLDER — to be recorded by the acceptance run**
+- Date/time: 2026-08-20T23:26:43+02:00 (Linux evidence)
+- Operator/reviewer: Hermes agent on the operator's Linux host (preparation
+  evidence; final clean run is a separate human/Windows step)
+- OS and architecture: Linux 7.1.8-arch1-3, x86_64
+- Codex product/surface: authenticated standalone `codex-cli 0.148.0`
+- Codex version/build: 0.148.0
+- Python version: 3.11.16
 
 ### Native Windows surface
 
@@ -126,20 +128,25 @@ runs and recorded above.
 
 ---
 
-## Linux runtime evidence (findings 1-4) at the current candidate head `b614425`
+## Linux runtime evidence (findings 1-4) — artifact revision `b614425`
 
 **Status:** earlier immutable remote install and installed-validator acceptance
 passed at `f92b996`; fresh authenticated `$kapisch` model invocation passed from
-the real user home. The candidate revision for the fixes in this record is the
-current head `b61442564d82aef1fd21f6b7a83071829fac8858` (the first revision
-containing all six `developer_instructions` profiles and the `wheel` removal).
-The isolated-auth clean live flow required by finding 2 is not satisfied by
-this evidence.
+the real user home; the shipped agent profiles and portable-package gate were
+verified green at the artifact revision `b61442564d82aef1fd21f6b7a83071829fac8858`
+(the first revision containing all six `developer_instructions` profiles and the
+`wheel` removal; this is also the revision twKrash's exact-head Windows probe
+verified). Subsequent commits on this prep branch (e.g. `c45d219`) are
+documentation-only and do not alter the verified release artifacts. The release
+tag, when cut, must still bind to the **exact SHA exercised in the final clean
+Unix/Windows reruns** — not to this artifact revision automatically. The
+isolated-auth clean live flow required by finding 2 is not satisfied by this
+evidence.
 
 - Date/time: 2026-08-20T23:26:43+02:00
 - OS/arch: Linux 7.1.8-arch1-3, x86_64
 - Codex surface/version: authenticated standalone `codex-cli 0.148.0`
-- Current candidate head revision:
+- Artifact revision (all required fixes, verified at this SHA):
   `b61442564d82aef1fd21f6b7a83071829fac8858`
 - Earlier immutable remote revision exercised by the install evidence below:
   `f92b996f763f462f2e145ef19cbe5e01e2a51359`
@@ -263,20 +270,23 @@ of canonical KAPISCH invocation artifacts. This proves named reviewer profile
 resolution and execution on the authenticated Linux CLI surface.
 
 **Least-privilege caveat (twKrash finding #4):** the shipped `kapisch-reviewer`
-profile declares `sandbox_mode = "read-only"`, but this probe dispatched it
-under the parent `--sandbox danger-full-access` override. Per current OpenAI
-documentation, parent runtime sandbox overrides are reapplied to spawned agents,
-so a `danger-full-access` parent does not preserve the profile's declared
-read-only boundary. The broader override was required here only because the
-acceptance prompt authorized no writes and the earlier `read-only`-scoped probe
-could not resolve the named role; this means the run proves **named profile
-resolution/execution**, but does **not** prove the shipped reviewer's read-only
-boundary enforcement. A least-privilege re-run (parent `--sandbox read-only`
-with the profile's own boundary) is required to close this and is currently
-**pending**: it cannot be executed while `codex-cli` is rate-limited on this
-host (usage-limit error, retry after 2026-08-22). This does not affect finding
-3 (the profiles now parse and resolve) or the release gates, but the read-only
-boundary evidence remains to be re-verified with least privilege.
+profile declares `sandbox_mode = "read-only"`. An earlier probe dispatched it
+under a parent `--sandbox danger-full-access` override, which (per current
+OpenAI documentation) does not preserve the profile's declared read-only
+boundary. A least-privilege re-run was then executed with a **`read-only`
+parent sandbox** (via the `deepseek` Codex profile to work around the primary
+OpenAI profile's usage limit). Result: the named `kapisch-reviewer` custom agent
+**did resolve and run under the read-only boundary**, confirming named profile
+resolution and execution without needing `danger-full-access`. However, a
+runtime message-delivery limitation meant the concrete review task text never
+reached the spawned agent, so it executed a read-only review autonomously and
+produced no explicit `approve`/`do-not-approve` decision; no decision was
+fabricated. The read-only agent's own verification pass flagged three
+documentation drifts (head-binding staleness, template placeholders at the top,
+and README wording) — see the fixes below. This demonstrates least-privilege
+execution is achievable, but a clean decision-bearing least-privilege run still
+needs to be re-attempted once the primary profile's usage limit clears
+(2026-08-22) and/or on the Windows surface.
 
 This evidence does not establish canonical workflow approval or finding 2's
 isolated-auth clean flow.
