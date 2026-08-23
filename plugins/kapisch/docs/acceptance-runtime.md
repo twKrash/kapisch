@@ -82,16 +82,15 @@ codex exec --json --ephemeral --sandbox workspace-write -C $CONSUMER \
   `.kapisch/runs/<task_id>/reviews/round-0/00-review-invocation.toml` and
   `reviews/final/00-final-invocation.toml`.
 
-> **Open item (not resolved in this record) — see issue #21 / re-review:**
-> The decision-bearing reviewer runs above were produced inside a
-> **`workspace-write`-parent** durable run. A **read-only-parent**
-> decision-bearing `kapisch-reviewer` run is required to prove the shipped
-> profile's read-only boundary (parent runtime sandbox overrides are reapplied
-> to spawned agents per the official subagent docs). On this `codex-cli
-> 0.148.0` host the read-only-parent dispatch returned
-> **`resolution-failure`** (the named profile did not resolve under read-only;
-> the agent correctly refused a generic substitute). A decision-bearing
-> read-only-parent run is being obtained on another surface.
+> **Read-only-parent reviewer evidence — RESOLVED (2026-08-23).** A
+> decision-bearing `kapisch-reviewer` run under a **read-only parent** was
+> produced on an interactive `codex-cli 0.148.0` surface. The named
+> `kapisch-reviewer` resolved (`/root/review_readme_commit`), received the
+> concrete task, returned an explicit decision (**`do-not-approve`** with a
+> README finding), and changed no files; the parent was read-only so the spawned
+> reviewer ran read-only. Full transcript/metadata:
+> [`reviewer-readonly-evidence.md`](reviewer-readonly-evidence.md). This proves
+> the shipped reviewer's read-only boundary is honored under a read-only parent.
 
 ### Public validator
 
@@ -129,4 +128,7 @@ the `scripts/validate_kapisch.py` compatibility wrapper).
   reconciliation protocol or exactly-once guarantee is claimed.
 - Native-Windows Codex runtime acceptance is **deferred to issue #21**; this
   release's runtime acceptance is Unix-like only.
-- The read-only-parent decision-bearing reviewer claim is open (see above).
+- The decision-bearing read-only-parent reviewer run was **captured** (see the
+  "Reviewer result" note and `reviewer-readonly-evidence.md`); it returned
+  `do-not-approve` on the README acceptance task, which is honest decision
+  evidence for the reviewer's read-only boundary.
