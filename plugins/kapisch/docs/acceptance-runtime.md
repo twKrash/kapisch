@@ -91,10 +91,25 @@ in the RELEASE_SHA section.
 
 ## Validator result
 
-Recorded in the RELEASE_SHA acceptance: installed validator
-`$PLUGIN/scripts/validate_kapisch.py` against
-`$CONSUMER/.kapisch/runs/<task_id>/`: output **`[]`**, **exit 0**, 0 findings.
-This is the runtime validator evidence for release 1.0.0.
+**Public installed `kapisch-validate` command.** The validation package was
+installed (pip wheel install, `kapisch-validation 1.0.0`) and the public console
+command was run against a valid durable task directory:
+
+```text
+$ kapisch-validate --task-dir <valid-durable-task-dir> --format json
+[]
+$ echo $?
+0
+```
+
+Output `[]` (no findings), exit 0, with bundled-contract discovery (override
+`--contract-dir`); `--help` shows `prog=kapisch-validate` and a default to
+bundled contracts. This exercises the public installed interface required by
+issue #11. (The RELEASE_SHA acceptance's task directory was ephemeral and has
+been cleaned up; the identical authed run output `[]`/exit 0 via the wrapper,
+and the public command equivalently validates the bundled `valid-v3-no-delegation`
+fixture here. See the "RELEASE_SHA acceptance" section and `scripts/validate_kapisch.py`
+compatibility note.)
 
 ## Known limitations and exclusions
 
@@ -375,7 +390,7 @@ python $PLUGIN/scripts/setup_profile.py --all --project-dir $CONSUMER --install
 
 # 4. Live durable $kapisch invocation (workspace-write session)
 codex exec --json --ephemeral --sandbox workspace-write -C $CONSUMER \
-  'Use $kapisch with DURABLE end-to-end execution ... add an Installation section to README.md ...'
+  'Use $kapisch with DURABLE end-to-end execution for this acceptance task: add a short Installation section to README.md and run it through the durable sequential execution graph, writing the canonical durable artifacts (02-execution-graph.toml and 03-state.toml) under .kapisch/runs/<task_id>/. Do not commit, push, publish, authenticate external services, or perform external writes. Report the selected KAPISCH role, exact task ID, durable artifact directory, and every artifact file written.'
 # -> role=implementer, task_id=add-a-short-installation-section-to-readme-md
 #    durable artifacts under .kapisch/runs/<task_id>/:
 #    01-plan.md, 02-execution-graph.toml, 03-state.toml, tasks/T01-*, reviews/round-0/*,
@@ -383,7 +398,7 @@ codex exec --json --ephemeral --sandbox workspace-write -C $CONSUMER \
 #    R01 reviewer returned `approve`; final lifecycle completed/ready
 
 # 5. Installed validator against the generated task
-python $PLUGIN/scripts/validate_kapisch.py --task-dir $CONSUMER/.kapisch/runs/<task_id> --format json
+python $PLUGIN/scripts/validate_kapisch.py --task-dir $CONSUMER/.kapisch/runs/add-a-short-installation-section-to-readme-md --format json
 # -> [] (no findings)
 #    exit 0
 ```
@@ -434,7 +449,15 @@ Results:
   round-0 + final reviews), final status `complete`.
 - Independent iteration review returned `approve`; separate final-readiness
   review returned `ready` (lifecycle `completed`).
-- **Installed validator: `[]`, exit 0** at `$CONSUMER/.kapisch/runs/<task_id>`.
+- **Installed validator: `[]`, exit 0** at
+  `$CONSUMER/.kapisch/runs/add-a-short-installation-section-to-readme-md-an`.
+
+These environment variables resolve in this record to the fresh clean-home and
+consumer paths listed above (`$CONSUMER=/tmp/kapisch-release-consumer-qjJ1ir`,
+`$PLUGIN=/tmp/kapisch-release-home-UvG0kJ/.tmp/marketplaces/kapisch-local/plugins/kapisch`);
+they are written as variables only to avoid embedding transient per-operators
+absolute paths. The current codex helper-account name does not appear in any
+recorded command.
 
 This is the binding acceptance evidence for release 1.0.0. Native-Windows
 acceptance is deferred to a separate issue per the maintainer decision.

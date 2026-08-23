@@ -24,17 +24,17 @@ codex plugin add kapisch@kapisch-local
 This is the runnable development path. `main` / a local checkout is mutable and
 is suitable for development, not a released install.
 
-### Released path (once the immutable tag exists)
+### Released path (immutable tag `v1.0.0`)
 
-Pin to the immutable release tag chosen by the human release step (the planned
-release is `>=0.2.0`):
+Pin to the immutable release tag:
 
 ```text
-codex plugin marketplace add twKrash/kapisch --ref <release-tag>
+codex plugin marketplace add twKrash/kapisch --ref v1.0.0
 codex plugin add kapisch@kapisch-local
 ```
 
-Replace `<release-tag>` with the published tag recorded in
+This is the published immutable tag `v1.0.0`; use it (or any later release tag)
+for a released installation. The exact accepted revision is recorded in
 [`docs/acceptance-runtime.md`](docs/acceptance-runtime.md). Do not substitute
 `main` for the released installation path.
 
@@ -213,8 +213,9 @@ unchanged.
 
 Run `python scripts/test_portable_package.py` and the validator tests before
 release. This verifies isolated portability, not installation through Codex or
-external-effect recovery safety. `main` is mutable, manifest version `0.1.0`
-is not an immutable release tag, and `Unreleased` changes are not released. See [CONTRIBUTING.md](CONTRIBUTING.md),
+external-effect recovery safety. `main` is mutable. The current released
+version is **1.0.0** (immutable tag `v1.0.0`); changes after this release live
+under `Unreleased` until the next release. See [CONTRIBUTING.md](CONTRIBUTING.md),
 [acceptance.md](docs/acceptance.md), and [CHANGELOG.md](CHANGELOG.md).
 
 ## License
