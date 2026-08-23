@@ -106,13 +106,17 @@ listed separately but are not runtime validator evidence.
 
 ## Accepted revision and release tag
 
-- Current candidate/head commit SHA (contains all required fixes: shipped agent
-  `developer_instructions`, `wheel` removal, CI/build metadata):
-  `b61442564d82aef1fd21f6b7a83071829fac8858`
+- Intermediate artifact-verification revision (historical/intermediate
+  evidence, NOT the final accepted release candidate):
+  `b61442564d82aef1fd21f6b7a83071829fac8858` — the revision whose shipped
+  artifacts (six parseable agent profiles, portable package, CI) were verified.
+- Final accepted release candidate: **PENDING — set only after one exact
+  release SHA passes the complete Unix-like and Windows runs.**
 - Stage-1 acceptance revision exercised (exact SHA or pre-release tag):
-  `b61442564d82aef1fd21f6b7a83071829fac8858` is the head whose shipped artifacts
-  (six parseable agent profiles, portable package, CI) were verified; the clean
-  isolated-auth live flow remains outstanding (see limitation below).
+  not yet completed for the final candidate. Earlier immutable-remote
+  install/validator evidence exists at `f92b996...` and artifact verification at
+  `b614425...`; both are historical/intermediate evidence, not the accepted
+  candidate.
 - Stage-2 immutable release tag (`>=0.2.0`, exact value chosen by the human
   release step): **TEMPLATE-PLACEHOLDER — to be recorded by the release run**
 - Evidence reviewer decision and date: **TEMPLATE-PLACEHOLDER — to be recorded by the acceptance run**
@@ -242,7 +246,7 @@ exact digest are proven, but actual `kapisch-reviewer` execution is **not**
 proven on this Linux `codex-cli 0.148.0` surface. Approval/readiness remains
 blocked; no reviewer result is claimed.
 
-### Candidate reviewer-profile execution (completed, advisory)
+### Candidate reviewer-profile probe (named-agent resolution + read-only sandbox observation)
 
 After adding `developer_instructions` to the shipped candidate profile, a
 project-scoped copy of that exact `kapisch-reviewer` TOML was placed under
@@ -269,24 +273,23 @@ the result as advisory because the no-edit acceptance prompt prevented creation
 of canonical KAPISCH invocation artifacts. This proves named reviewer profile
 resolution and execution on the authenticated Linux CLI surface.
 
-**Least-privilege caveat (twKrash finding #4):** the shipped `kapisch-reviewer`
+**Least-privilege probe (twKrash finding #4):** the shipped `kapisch-reviewer`
 profile declares `sandbox_mode = "read-only"`. An earlier probe dispatched it
 under a parent `--sandbox danger-full-access` override, which (per current
 OpenAI documentation) does not preserve the profile's declared read-only
 boundary. A least-privilege re-run was then executed with a **`read-only`
 parent sandbox** (via the `deepseek` Codex profile to work around the primary
 OpenAI profile's usage limit). Result: the named `kapisch-reviewer` custom agent
-**did resolve and run under the read-only boundary**, confirming named profile
-resolution and execution without needing `danger-full-access`. However, a
-runtime message-delivery limitation meant the concrete review task text never
+**did resolve and run under the read-only boundary** — this is **named-agent
+resolution plus read-only sandbox observation only**, not reviewer acceptance:
+a runtime message-delivery limitation meant the concrete review task text never
 reached the spawned agent, so it executed a read-only review autonomously and
-produced no explicit `approve`/`do-not-approve` decision; no decision was
+no explicit `approve`/`do-not-approve` decision was returned; no decision was
 fabricated. The read-only agent's own verification pass flagged three
 documentation drifts (head-binding staleness, template placeholders at the top,
-and README wording) — see the fixes below. This demonstrates least-privilege
-execution is achievable, but a clean decision-bearing least-privilege run still
-needs to be re-attempted once the primary profile's usage limit clears
-(2026-08-22) and/or on the Windows surface.
+and README wording) — see the fixes below. A clean decision-bearing
+least-privilege run still needs to be re-attempted once the primary profile's
+usage limit clears (2026-08-22) and/or on the Windows surface.
 
 This evidence does not establish canonical workflow approval or finding 2's
 isolated-auth clean flow.
