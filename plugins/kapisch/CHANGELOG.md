@@ -1,12 +1,8 @@
 # Changelog
 
-## Unreleased
+## 1.0.0 - 2026-08-23
 
-### Pending `>=0.2.0` release (version and tag chosen during release)
-
-At release, replace this subheading with the human-confirmed version/date
-heading and retain an empty `Unreleased` section. Do not treat this grouping as
-a version declaration or release tag.
+The first immutable, runtime-accepted KAPISCH release (tag `v1.0.0`).
 
 - Protected persisted workflow history across resume snapshots: task and graph
   identity are immutable, prior nodes cannot disappear, terminal artifact and
@@ -48,11 +44,15 @@ a version declaration or release tag.
 - Added the installed `kapisch-validate` command with bundled contract
   discovery while retaining the source-checkout compatibility wrapper.
 
-These entries describe implemented repository changes on mutable `main`. They
-are not a runtime-accepted or released artifact: the manifest remains `0.1.0`,
-and clean Codex installation, fresh-session discovery, reviewer invocation, and
-`$kapisch` acceptance remain the final P1 under
-[#11](https://github.com/twKrash/kapisch/issues/11).
+This release is bound to the immutable commit tagged `v1.0.0`, which passed the
+clean Unix-like runtime acceptance recorded in
+[`plugins/kapisch/docs/acceptance-runtime.md`](plugins/kapisch/docs/acceptance-runtime.md)
+(installed `kapisch-validate` `[]`/exit 0). Native-Windows runtime acceptance is
+tracked in a separate issue.
+
+## Unreleased
+
+(No pending changes yet.)
 
 ## 0.1.0 - 2026-07-21
 

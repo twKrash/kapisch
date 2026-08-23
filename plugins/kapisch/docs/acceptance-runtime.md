@@ -111,8 +111,11 @@ listed separately but are not runtime validator evidence.
   evidence, NOT the final accepted release candidate):
   `b61442564d82aef1fd21f6b7a83071829fac8858` — the revision whose shipped
   artifacts (six parseable agent profiles, portable package, CI) were verified.
-- Final accepted release candidate: **PENDING — set only after one exact
-  release SHA passes the complete Unix-like and Windows runs.**
+- Final accepted release candidate: **COMPLETE on Unix-like** — clean Unix-like
+  runtime acceptance passed (see "Clean Unix-like acceptance" below) at release
+  version **1.0.0** (tag `v1.0.0`). Native-Windows runtime acceptance is
+  **deferred to a separate issue** (per maintainer decision), so the accepted
+  release candidate for this PR is the Unix-verified revision only.
 - Stage-1 acceptance revision exercised (exact SHA or pre-release tag):
   not yet completed for the final candidate. Earlier immutable-remote
   install/validator evidence exists at `f92b996...` and artifact verification at

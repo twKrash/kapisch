@@ -1,6 +1,6 @@
 {
   "name": "kapisch",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "A lightweight Codex-native workflow contract and validation plugin with optional bounded delegation to installed Codex skills and plugin capabilities.",
   "author": {
     "name": "twKrash",

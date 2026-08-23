@@ -16,23 +16,21 @@ codex plugin marketplace add ./path/to/kapisch          # local source checkout
 codex plugin marketplace add twKrash/kapisch --ref main # or the live repo branch
 ```
 
-This is the runnable development path. It intentionally does not use an
-immutable released tag (none exists yet), and `main` / a local checkout is
-mutable.
+This is the runnable development path against mutable code. For a released
+installation, use the published immutable tag `v1.0.0` instead (see "Released
+path" below).
 
-### Released path (once the immutable tag exists)
+### Released path (immutable tag `v1.0.0`)
 
-After the human release step publishes an immutable `>=0.2.0` tag, install from
-that released revision:
+Install from the released immutable revision:
 
 ```text
-codex plugin marketplace add twKrash/kapisch --ref <release-tag>
+codex plugin marketplace add twKrash/kapisch --ref v1.0.0
 ```
 
-Replace `<release-tag>` with the published immutable tag recorded in
-[`plugins/kapisch/docs/acceptance-runtime.md`](plugins/kapisch/docs/acceptance-runtime.md).
-The exact version/tag is chosen by the human release step; do not use mutable
-`main` for a released installation.
+This is the published immutable tag; use it (or any later release tag) rather
+than mutable `main` for a released installation. The exact accepted revision is
+recorded in [`plugins/kapisch/docs/acceptance-runtime.md`](plugins/kapisch/docs/acceptance-runtime.md).
 
 Confirm that Codex knows the marketplace (either path):
 
@@ -69,9 +67,9 @@ The installable bundle and its full documentation live in
 [`plugins/kapisch`](plugins/kapisch/README.md). The catalog is
 [`marketplace.json`](.agents/plugins/marketplace.json).
 
-`main` is mutable. The bundled manifest version is `0.1.0`, while current
-changes remain `Unreleased`; neither state is an immutable released tag. A
-release follows only after runtime acceptance records the accepted commit.
+`main` is mutable. The current released version is **1.0.0** (immutable tag
+`v1.0.0`); changes made after this release live under `Unreleased` until the
+next release. Use the immutable tag for released installations, not `main`.
 
 ## License
 

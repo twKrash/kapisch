@@ -81,20 +81,20 @@ class MarketplaceTests(unittest.TestCase):
     def test_documented_commands_use_the_github_marketplace(self) -> None:
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         normalized = " ".join(readme.split())
-        # Released path (once an immutable tag exists) is documented and uses
-        # the immutable tag, never main.
+        # Released path (immutable tag v1.0.0) is documented and uses the
+        # immutable tag, never main.
         self.assertIn(
-            "codex plugin marketplace add twKrash/kapisch --ref <release-tag>",
+            "codex plugin marketplace add twKrash/kapisch --ref v1.0.0",
             normalized,
         )
-        # A runnable development path is preserved (works before any release
-        # tag exists), but is explicitly labeled as mutable/development-only.
+        # A runnable development path is preserved (against mutable code) and is
+        # explicitly labeled as mutable/development-only.
         self.assertIn(
             "codex plugin marketplace add twKrash/kapisch --ref main",
             normalized,
         )
         self.assertIn(
-            "This is the runnable development path.",
+            "This is the runnable development path",
             normalized,
         )
         self.assertIn("codex plugin add kapisch@kapisch-local", normalized)
