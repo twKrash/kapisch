@@ -106,9 +106,10 @@ $ echo $?
 ```
 
 Output `[]` (no findings), exit `0`, using the public `kapisch-validate`
-`[project.scripts]` entry point with bundled-contract discovery (override
-`--contract-dir`). This is the installed public interface required by #11 (not
-the `scripts/validate_kapisch.py` compatibility wrapper).
+`[project.scripts]` entry point **without a `--contract-dir` override**, which
+exercises automatic bundled-contract discovery. This is the installed public
+interface required by #11 (not the `scripts/validate_kapisch.py` compatibility
+wrapper).
 
 ## Release sequence
 

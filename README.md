@@ -51,11 +51,13 @@ install or enable KAPISCH there. Start a new Codex session after installation so
 the bundled skill is loaded.
 
 This is the documented installation path, not proof of runtime acceptance. The
-issue #11 acceptance record accumulates evidence in `plugins/kapisch/docs/acceptance-runtime.md`;
-Linux immutable-install, installed-validator, live `$kapisch` invocation, and
-shipped-agent-profile evidence are recorded there, while the native-Windows
-runtime observation, isolated-auth clean flow, and the release sequence remain
-outstanding and must be recorded before the issue can close.
+issue #11 clean Unix-like runtime acceptance for release **1.0.0** (tag
+`v1.0.0`) is recorded in `plugins/kapisch/docs/acceptance-runtime.md`:
+immutable-install, installed-validator (`[]`/exit 0), live `$kapisch`
+invocation, and shipped-agent-profile evidence. Native-Windows Codex runtime
+acceptance is deferred to [issue #21](https://github.com/twKrash/kapisch/issues/21)
+(for the `v1.0.1` patch), so it is not a blocker for closing the Unix-facing
+release work in #11.
 
 Refresh the local marketplace snapshot after repository updates:
 
