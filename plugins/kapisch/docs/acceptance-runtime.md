@@ -1,7 +1,8 @@
 # Clean-runtime acceptance record
 
-Status: **PARTIAL — Linux runtime evidence recorded below; native-Windows,
-isolated-auth clean flow, and release-sequence evidence remain outstanding.**
+Status: **PARTIAL — clean Unix-like acceptance COMPLETE (see below);
+native-Windows surface, version/tag/release-sequence evidence, and the
+final-head re-run remain outstanding.**
 
 This checked-in record is the evidence accumulator for issue #11. Repository
 preparation, automated tests, and this template do not establish Codex runtime
@@ -311,18 +312,100 @@ The first attempt from the repository root failed with exit 2 because that
 directory has no `scripts/test_portable_package.py`; rerunning the exact command
 from its documented package directory above exercised the intended gate.
 
-### Finding 2 limitation: isolated authenticated live flow unavailable
+### Finding 2: isolated authenticated live flow — COMPLETED (2026-08-23)
 
-Finding 2 is **not satisfiable on this Linux-only, CLI-only host**. Authentication
-lives in the real user Codex home, while a newly created isolated `CODEX_HOME`
-has no live OAuth state. Copying credentials or reusing pre-existing state would
-invalidate the requested clean isolation, and no supported mechanism on this
-host can seed the isolated home with the live authenticated session. Therefore
-no authenticated isolated-home + clean-consumer live flow is claimed or
-fabricated. That evidence requires human execution on a real Codex Desktop/WSL2
-surface (or another supported surface that can authenticate the isolated home).
+Finding 2's clean authenticated live flow was executed successfully. A
+brand-new empty `CODEX_HOME` (`/tmp/kapisch-clean-home-TtcZ4t`) was authenticated
+**in place** with `codex login` (ChatGPT OAuth, not a copied `auth.json`), and a
+separate fresh consumer Git repository (`/tmp/kapisch-clean-consumer-GBohnk`)
+was created with no pre-existing marketplace, plugin, skill, profile, or KAPISCH
+source checkout. Details are recorded in the "Clean Unix-like acceptance"
+section below. This flow requires an interactive browser login in the fresh
+home, which a fully headless CLI cannot complete alone; it was performed with
+the operator's assistance. The native-Windows surface execution remains a
+separate outstanding item.
 
 ---
+
+## Clean Unix-like acceptance (COMPLETE, 2026-08-23)
+
+**Status: PASSED.** This is the issue #11 clean-runtime acceptance on a Unix-like
+surface, run from a clean authenticated home and a separate clean consumer,
+without any developer source checkout. Marketplace added at the exact immutable
+SHA; plugin installed/enabled; live `$kapisch` durable invocation succeeded;
+named reviewer approved; installed validator returned `[]`, exit 0.
+
+- Date/time: 2026-08-23
+- OS/arch: Linux 7.1.8-arch1-3, x86_64
+- Codex surface/version: authenticated standalone `codex-cli 0.148.0`
+  (ChatGPT OAuth, logged in inside the fresh home)
+- Python version: 3.11.16
+- Marketplace ref: exact commit SHA `09a29f25b31c0f72de17a4db7e23e7c70063be6c`
+  (= `5c609ea…`, the later commit is docs-only; release artifacts identical)
+- Fresh `CODEX_HOME`: `/tmp/kapisch-clean-home-TtcZ4t` (empty before `codex login`)
+- Fresh consumer repo: `/tmp/kapisch-clean-consumer-GBohnk` (git init, README only)
+
+### Clean-state preconditions (verified)
+
+- Fresh `CODEX_HOME` did not exist before `mktemp`; it was empty at creation.
+- Fresh consumer repo had only `README.md`; no marketplace, plugin, skill,
+  profile, or `$kapisch` cache in either starting environment.
+- Authentication was performed in-place with `codex login` inside the fresh
+  home; verified `Logged in using ChatGPT`. No `auth.json` was copied.
+
+### Commands executed and results
+
+```text
+# 1. Marketplace at exact SHA (never main)
+codex plugin marketplace add twKrash/kapisch --ref 09a29f25b31c0f72de17a4db7e23e7c70063be6c
+# -> Added marketplace `kapisch-local` from .../kapisch.git#09a29f2...
+#    Installed root: $CODEX_HOME/.tmp/marketplaces/kapisch-local
+
+# 2. Install/enable plugin
+codex plugin add kapisch@kapisch-local
+# -> Added plugin `kapisch`; version 0.1.0, installed, enabled
+
+# 3. Install all six profiles into consumer, verify no collision/drift
+python $PLUGIN/scripts/setup_profile.py --all --project-dir $CONSUMER --install
+# -> 6 profiles installed: status=installed, template_sha256 == installed_sha256
+
+# 4. Live durable $kapisch invocation (workspace-write session)
+codex exec --json --ephemeral --sandbox workspace-write -C $CONSUMER \
+  'Use $kapisch with DURABLE end-to-end execution ... add an Installation section to README.md ...'
+# -> role=implementer, task_id=add-a-short-installation-section-to-readme-md
+#    durable artifacts under .kapisch/runs/<task_id>/:
+#    01-plan.md, 02-execution-graph.toml, 03-state.toml, tasks/T01-*, reviews/round-0/*,
+#    reviews/final/00-final-invocation.toml, reviews/final/05-final.md
+#    R01 reviewer returned `approve`; final lifecycle completed/ready
+
+# 5. Installed validator against the generated task
+python $PLUGIN/scripts/validate_kapisch.py --task-dir $CONSUMER/.kapisch/runs/<task_id> --format json
+# -> [] (no findings)
+#    exit 0
+```
+
+### Result
+
+- Live `$kapisch` invocation: selected role `implementer`, produced a durable
+  task with the full canonical artifact set (graph + state + plan + tasks +
+  round-0 review + final review).
+- Named reviewer R01 returned explicit `approve`; F01 final review lifecycle
+  `completed` / returned decision `ready`.
+- Installed validator: output `[]`, exit code `0`.
+
+### Note on the graph-free pitfall
+
+The acceptance task as originally phrased ("add a short Installation section")
+is simple isolated work, which Kapisch routes to the **graph-free** flow and
+writes **no** `02-execution-graph.toml`; the installed validator rejects such a
+directory with `TWV-PARSE-MISSING-ARTIFACT`. Requesting **durable end-to-end
+execution** makes the controller emit the canonical graph/state artifacts and
+passes validation. This is documented here so the pre-release acceptance step
+uses the durable-execution phrasing.
+
+---
+
+
 
 ## Linux local packaging/validator smoke test (NOT the clean runtime acceptance)
 
