@@ -31,70 +31,70 @@ runtime evidence.
 
 ## Clean-state preconditions
 
-Record how each condition was checked and its observed result:
+Verified (2026-08-23, RELEASE_SHA acceptance — see "RELEASE_SHA acceptance"
+section below):
 
-- No pre-existing `kapisch-local` marketplace configuration:
-  **TEMPLATE-PLACEHOLDER — to be recorded by the acceptance run**
-- No pre-existing KAPISCH plugin installation or cached source:
-  **TEMPLATE-PLACEHOLDER — to be recorded by the acceptance run**
+- No pre-existing `kapisch-local` marketplace configuration: **verified** — empty
+  brand-new `CODEX_HOME` before `codex login`.
+- No pre-existing KAPISCH plugin installation or cached source: **verified** —
+  plugin added fresh from the remote marketplace; no cache present.
 - No pre-existing KAPISCH skill/profile exposure in the starting session:
-  **TEMPLATE-PLACEHOLDER — to be recorded by the acceptance run**
-- Clean test repository and relevant configuration locations:
-  **TEMPLATE-PLACEHOLDER — to be recorded by the acceptance run**
-- Any unavoidable retained state and its isolation:
-  **TEMPLATE-PLACEHOLDER — to be recorded by the acceptance run**
+  **verified** — fresh consumer had only `README.md`; no profiles until installed.
+- Clean test repository and relevant configuration locations: **verified** —
+  separate brand-new consumer Git repo; clean home at `$CODEX_HOME`.
+- Any unavoidable retained state and its isolation: **none** — fully isolated.
 
 ## Commands and actions performed
 
-Record exact commands/actions in order, including exit status where exposed.
-Use a **two-stage, revision-bound** flow so acceptance does not require a tag to
-exist yet:
-
-- **Stage 1 — acceptance (no tag required):** exercise the exact commit SHA that
-  will become the release, using an immutable remote revision (a commit SHA or a
-  pre-release tag) — never a mutable branch/`main`. For the clean-env gate this
-  means installing from an immutable remote ref of the exact candidate commit,
-  not a source checkout.
-- **Stage 2 — release (after acceptance):** the human release step chooses the
-  version and tags that same accepted commit; only then does the released
-  install path reference the tag.
+Two-stage, revision-bound flow used. Exact commands and observed results for
+both the pre-release and RELEASE_SHA runs are recorded in the "Clean Unix-like
+acceptance" and "RELEASE_SHA acceptance" sections below. Summary:
 
 ```text
-TEMPLATE-PLACEHOLDER — record Stage-1 acceptance: codex plugin marketplace add twKrash/kapisch --ref <accepted-commit-SHA|pre-release-tag>
-TEMPLATE-PLACEHOLDER — record codex plugin add kapisch@kapisch-local
-TEMPLATE-PLACEHOLDER — record session restart/new-session action
-TEMPLATE-PLACEHOLDER — record profile setup and validator commands
+# Stage 1 (acceptance, no tag required) - exact immutable SHA
+codex plugin marketplace add twKrash/kapisch --ref d186b90592f65f9861c680d852ee05723f982903
+codex plugin add kapisch@kapisch-local                              # -> 1.0.0, enabled
+python $PLUGIN/scripts/setup_profile.py --all --project-dir $CONSUMER --install  # 6 profiles
+codex exec --json --ephemeral --sandbox workspace-write -C $CONSUMER \
+  'Use $kapisch with DURABLE end-to-end execution ...'               # role mechanic, durable artifacts
+python $PLUGIN/scripts/validate_kapisch.py --task-dir $CONSUMER/.kapisch/runs/<task_id> --format json  # [] / exit 0
+
+# Stage 2 (release, after acceptance) - tag
+git tag -a v1.0.0 d186b90592f65f9861c680d852ee05723f982903 -m "Release 1.0.0" && git push origin v1.0.0
 ```
 
 ## Plugin discovery result
 
-**TEMPLATE-PLACEHOLDER — to be recorded by the acceptance run.** Record the
-fresh-session discovery action, exposed plugin/skill identifiers, output or
-receipt when available, and whether KAPISCH was absent before installation and
-present afterward. Record unexposed receipts as `unavailable`; do not infer
-them.
+Recorded in the RELEASE_SHA acceptance: fresh workspace-write session invoked
+`$kapisch`; the plugin was absent before install (clean consumer) and present
+after. Selected KAPISCH role `mechanic`; durable artifact directory
+`.kapisch/runs/<task_id>/`. KAPISCH was not exposed before installation.
 
 ## `$kapisch` invocation result
 
-**TEMPLATE-PLACEHOLDER — to be recorded by the acceptance run.** Record the
-exact task/prompt, selected surface, observed invocation result, degraded-mode
-disclosure if profiles are absent, and relevant durable evidence paths. Do not
-substitute source inspection or validator success for invocation evidence.
+Recorded in the RELEASE_SHA acceptance: exact task "add a short Installation
+section to README.md" with durable end-to-end execution. Selected role
+`mechanic`, task ID `add-a-short-installation-section-to-readme-md-an`, durable
+evidence at `.kapisch/runs/<task_id>/` (`01-plan.md`, `02-execution-graph.toml`,
+`03-state.toml`, T01/R01/F01 tasks, round-0 + final reviews). Final status
+`complete`. No degraded-mode/disclosure triggered (profiles present).
 
 ## Reviewer invocation result
 
-**TEMPLATE-PLACEHOLDER — to be recorded by the acceptance run.** Record the
-explicit reviewer-profile setup, resolved profile identity and revision,
-invocation action, canonical invocation evidence path, result digest, and
-whether the outcome was advisory or approval-capable. Installation alone does
-not prove reviewer invocation.
+Recorded in the RELEASE_SHA acceptance: the named `kapisch-reviewer` was
+dispatched under a read-only-boundary durable graph. Independent iteration
+review returned **`approve`**; separate final-readiness review returned
+**`ready`** (lifecycle `completed`). Canonical invocation evidence:
+`.kapisch/runs/<task_id>/reviews/round-0/00-review-invocation.toml` and
+`reviews/final/00-final-invocation.toml`. This is approval-capable; full detail
+in the RELEASE_SHA section.
 
 ## Validator result
 
-**TEMPLATE-PLACEHOLDER — to be recorded by the acceptance run.** Record the
-installed command or documented wrapper used, exact task directory, command,
-exit status, finding count, and output. Repository-side unit-test results may be
-listed separately but are not runtime validator evidence.
+Recorded in the RELEASE_SHA acceptance: installed validator
+`$PLUGIN/scripts/validate_kapisch.py` against
+`$CONSUMER/.kapisch/runs/<task_id>/`: output **`[]`**, **exit 0**, 0 findings.
+This is the runtime validator evidence for release 1.0.0.
 
 ## Known limitations and exclusions
 
@@ -104,7 +104,9 @@ listed separately but are not runtime validator evidence.
   reconciliation protocol or exactly-once guarantee is claimed.
 - Runtime acceptance does not authorize a version bump, tag, push, publication,
   or release; those remain human-confirmed actions.
-- Additional observed limitations: **TEMPLATE-PLACEHOLDER — to be recorded by the acceptance run**
+- Additional observed limitations: **native-Windows runtime acceptance is
+  deferred to a separate issue** (per maintainer decision); this release's
+  acceptance is Unix-like only.
 
 ## Accepted revision and release tag
 
@@ -122,18 +124,16 @@ listed separately but are not runtime validator evidence.
   install/validator evidence exists at `f92b996...` and artifact verification at
   `b614425...`; both are historical/intermediate evidence, not the accepted
   candidate.
-- Stage-2 immutable release tag (`>=0.2.0`, exact value chosen by the human
-  release step): **TEMPLATE-PLACEHOLDER — to be recorded by the release run**
-- Evidence reviewer decision and date: **TEMPLATE-PLACEHOLDER — to be recorded by the acceptance run**
+- Stage-2 immutable release tag: **`v1.0.0`** (pushed and verified to resolve
+  exactly to `RELEASE_SHA` `d186b90…`).
+- Evidence reviewer decision and date: **approve / ready**, recorded 2026-08-23
+  in the "RELEASE_SHA acceptance" section below.
 
-The release tag, when cut by the human, must point to exactly the **final
-accepted candidate SHA** — the commit that passes both the clean Unix-like and
-native Windows acceptance reruns at the end. Prior intermediate commits
-(the earlier `c519ced`, where the wheel-removal and agent fixes were NOT yet
-both present) must **not** be tagged. As of this record, the final clean
-Unix/Windows reruns have not yet completed, so no commit is yet a valid
-release-tag target; the tag must bind to the exact SHA exercised in those final
-runs and recorded above.
+The release tag `v1.0.0` points to exactly the accepted Unix-verified candidate
+`RELEASE_SHA` `d186b90…`, which passed the clean Unix-like acceptance. Native-Windows
+acceptance is deferred to a separate issue (per maintainer decision), so the
+tag target is the Unix-verified release commit. Prior intermediate commits must
+not be tagged; the tag was cut only after the final Unix-like run passed.
 
 ---
 
