@@ -7,6 +7,11 @@
 | `codex plugin marketplace add twKrash/kapisch`, installation, fresh-session discovery, reviewer invocation, and `$kapisch` invocation | planned runtime acceptance under [#11](https://github.com/twKrash/kapisch/issues/11) |
 | OpenAI public Plugin Directory submission | deferred/archived |
 
+Issue #11 runtime evidence belongs in the checked-in
+[`acceptance-runtime.md`](acceptance-runtime.md) accumulator. Its placeholders
+must be completed only from the real clean-environment run, including a separate
+actual native Windows Codex surface observation.
+
 The repository-level `tests/test_marketplace.py` verifies the implemented closed marketplace
 catalog, `AVAILABLE` installation policy, canonical `./plugins/kapisch` source,
 plugin identity, and documented GitHub import/install commands. It does not

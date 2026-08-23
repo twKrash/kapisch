@@ -708,7 +708,9 @@ head="head"
         )
 
     def test_scenario_112_uses_canonical_final_decision(self) -> None:
-        scenarios = (CONTRACT / "references/pressure-scenarios.md").read_text()
+        scenarios = (CONTRACT / "references/pressure-scenarios.md").read_text(
+            encoding="utf-8"
+        )
 
         def scenario(number: int) -> str:
             match = re.search(rf"(?ms)^{number}\. .*?(?=^\d+\. |\Z)", scenarios)

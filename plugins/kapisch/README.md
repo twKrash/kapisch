@@ -9,26 +9,46 @@ sandboxing.
 ## Install
 
 This plugin is distributed through the Git-backed `kapisch-local` marketplace,
-not OpenAI's public Plugin Directory. Configure the marketplace first:
+not OpenAI's public Plugin Directory.
+
+### Development path (works today, no release tag required)
+
+Against a source checkout or the live branch:
 
 ```text
-codex plugin marketplace add twKrash/kapisch --ref main
-```
-
-Install KAPISCH later when it should become active:
-
-```text
+codex plugin marketplace add ./path/to/kapisch           # local source checkout
+codex plugin marketplace add twKrash/kapisch --ref main  # or the live repo branch
 codex plugin add kapisch@kapisch-local
 ```
+
+This is the runnable development path. `main` / a local checkout is mutable and
+is suitable for development, not a released install.
+
+### Released path (immutable tag `v1.0.0`)
+
+Pin to the immutable release tag:
+
+```text
+codex plugin marketplace add twKrash/kapisch --ref v1.0.0
+codex plugin add kapisch@kapisch-local
+```
+
+This is the published immutable tag `v1.0.0`; use it (or any later release tag)
+for a released installation. The exact accepted revision is recorded in
+[`docs/acceptance-runtime.md`](docs/acceptance-runtime.md). Do not substitute
+`main` for the released installation path.
+
+Install KAPISCH later when it should become active (either path):
 
 Start a new Codex session, then invoke `$kapisch` in a repository task. The
 plugin works without custom agent profiles, but that degraded mode is advisory
 only: independent review and final-readiness approval require an explicitly
 installed, successfully invoked reviewer profile.
 
-This is the documented path, not runtime-acceptance evidence. Clean Codex
-installation, fresh-session discovery, reviewer invocation, and `$kapisch`
-acceptance remain planned under [issue #11](https://github.com/twKrash/kapisch/issues/11).
+This is the documented release path, not runtime-acceptance evidence. The
+clean-environment run must fill the checked-in
+[`acceptance-runtime.md`](docs/acceptance-runtime.md) record before a release is
+claimed.
 
 ## Optional profiles
 
@@ -170,10 +190,11 @@ back to native execution only when the same approved outcome remains achievable
 without changing methodology, data boundary, or authority — and discloses the
 fallback.
 
-### External-write delegation is deferred
+### External-write delegation fails closed
 
-Preparation for an external write (for example posting a pull-request comment)
-may produce a preview, but the delegated route must stop there. Default
+Issue #10's fail-closed boundary is implemented. Preparation for an external
+write (for example posting a pull-request comment) may produce a preview, but
+the delegated route must stop there. Default
 validation rejects `external-write` and `destructive` delegated steps even when
 they record explicit authority. Authority is necessary but cannot make these
 routes safe while no effect-reconciliation protocol exists. Perform the effect
@@ -192,8 +213,9 @@ unchanged.
 
 Run `python scripts/test_portable_package.py` and the validator tests before
 release. This verifies isolated portability, not installation through Codex or
-external-effect recovery safety. `main` is mutable, manifest version `0.1.0`
-is not an immutable release tag, and `Unreleased` changes are not released. See [CONTRIBUTING.md](CONTRIBUTING.md),
+external-effect recovery safety. `main` is mutable. The current released
+version is **1.0.0** (immutable tag `v1.0.0`); changes after this release live
+under `Unreleased` until the next release. See [CONTRIBUTING.md](CONTRIBUTING.md),
 [acceptance.md](docs/acceptance.md), and [CHANGELOG.md](CHANGELOG.md).
 
 ## License

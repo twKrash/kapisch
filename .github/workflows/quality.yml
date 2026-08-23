@@ -29,3 +29,5 @@ jobs:
           python-version: '3.11'
       - run: python -m unittest discover -s tests/kapisch_validation -p test_setup_profile.py
         working-directory: plugins/kapisch
+      - run: python scripts/test_portable_package.py
+        working-directory: plugins/kapisch

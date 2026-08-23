@@ -184,6 +184,7 @@ class ReviewEvidenceTests(unittest.TestCase):
                     findings = validate_review_evidence(manifest, state, root)
                     self.assert_code(findings, expected)
             manifest, state, invocation = self.write_invocation(root)
+            invocation = invocation.resolve()
             original_open = os.open
 
             def denied(path: str | bytes | Path, flags: int) -> int:
@@ -207,6 +208,7 @@ class ReviewEvidenceTests(unittest.TestCase):
             self.assert_code(findings, "TWV-REVIEW-RESULT-ENCODING")
 
             manifest, state, _ = self.write_invocation(root)
+            result = result.resolve()
             original_open = os.open
 
             def denied(path: str | bytes | Path, flags: int) -> int:

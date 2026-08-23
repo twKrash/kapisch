@@ -16,7 +16,9 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def sha256(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    platform_bytes = normalized.replace("\n", os.linesep).encode("utf-8")
+    return hashlib.sha256(platform_bytes).hexdigest()
 
 
 def route_toml(task_id: str, route_id: str, steps: list[dict[str, object]]) -> str:

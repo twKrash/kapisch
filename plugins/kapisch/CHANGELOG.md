@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 1.0.0 - 2026-08-23
+
+The first immutable, runtime-accepted KAPISCH release (tag `v1.0.0`).
 
 - Protected persisted workflow history across resume snapshots: task and graph
   identity are immutable, prior nodes cannot disappear, terminal artifact and
@@ -12,11 +14,6 @@
   valid compatible predecessor is supplied.
 - Hardened validator artifact loading: malformed, non-UTF-8, and unreadable
   manifest, state, and review evidence now fail closed with structured findings.
-
-These entries describe implemented repository changes on mutable `main`. They
-are not a runtime-accepted or released artifact: the manifest remains `0.1.0`,
-and clean Codex installation, fresh-session discovery, reviewer invocation, and
-`$kapisch` acceptance remain planned under [#11](https://github.com/twKrash/kapisch/issues/11).
 
 - Packaged the repository as the Git-backed `kapisch-local` marketplace with a
   single canonical plugin bundle under `plugins/kapisch`.
@@ -38,8 +35,24 @@ and clean Codex installation, fresh-session discovery, reviewer invocation, and
   defaults, fixtures, and byte-preserving legacy migration.
 - Extended the validator with structural route validation for version-3 durable
   manifests. This automated coverage does not establish external-effect
-  recovery safety: step lifecycle, graph-free delegation, and external-write or
-  destructive reconciliation remain deferred under [#10](https://github.com/twKrash/kapisch/issues/10).
+  recovery safety. Issue #10 implemented the fail-closed boundary: delegated
+  `external-write` and `destructive` routes are rejected even with explicit
+  authority. Enabling those effects still requires a future reconciliation
+  protocol; step lifecycle and graph-free delegation remain deferred.
+- Added native-Windows-safe optional profile setup and fail-closed catalog
+  preflight without overwriting existing profiles.
+- Added the installed `kapisch-validate` command with bundled contract
+  discovery while retaining the source-checkout compatibility wrapper.
+
+This release is bound to the immutable commit tagged `v1.0.0`, which passed the
+clean Unix-like runtime acceptance recorded in
+[`plugins/kapisch/docs/acceptance-runtime.md`](plugins/kapisch/docs/acceptance-runtime.md)
+(installed `kapisch-validate` `[]`/exit 0). Native-Windows runtime acceptance is
+tracked in a separate issue.
+
+## Unreleased
+
+(No pending changes yet.)
 
 ## 0.1.0 - 2026-07-21
 
