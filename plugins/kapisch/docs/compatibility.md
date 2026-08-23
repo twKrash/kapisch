@@ -5,8 +5,19 @@
 Legacy migration and the `default`/`foundry` presentation themes are
 implemented, reviewed, and frozen supported compatibility surfaces. They are
 not scheduled for removal; a separate product decision is required before that
-changes. Their presence does not establish Codex runtime acceptance or a
-release.
+changes. Their presence alone does not establish runtime acceptance for a Codex
+surface.
+
+## Platform status
+
+- Windows 11 with Codex Desktop and WSL2 completed the 1.0.1 release-baseline
+  flow. Keep Codex homes and repositories in the WSL Linux filesystem; see
+  [acceptance-windows-v1.0.1.md](acceptance-windows-v1.0.1.md).
+- Native Windows Python 3.11 passes profile setup and portable-package tests.
+  Live no-WSL marketplace and plugin support is not claimed until every live
+  step is observed successfully.
+- The immutable Linux 1.0.0 evidence remains historical and unchanged in
+  [acceptance-runtime.md](acceptance-runtime.md).
 
 ## Validator command compatibility
 
@@ -81,14 +92,14 @@ Its local run evidence belongs under its own ignored `.kapisch/`.
 
 Dogfood sequence:
 
-1. Before claiming Codex-installation acceptance, run
-   `codex plugin marketplace add twKrash/kapisch --ref v1.0.0` in a clean
-   Codex environment, using the immutable release tag (a later release may use a
-   newer tag). Then install `kapisch@kapisch-local` and verify
-   `$kapisch` is discoverable without profiles. Record the exact tag in
-   [`acceptance-runtime.md`](acceptance-runtime.md); never use mutable `main` as
-   the released path. The Unix-like surface reached this with release 1.0.0;
-   native-Windows runtime acceptance is tracked in a separate issue.
+1. For release 1.0.1, run
+   `codex plugin marketplace add twKrash/kapisch --ref v1.0.1` in a clean Codex
+   environment after the immutable tag is published. Install
+   `kapisch@kapisch-local`, start a fresh session, and verify `$kapisch` from the
+   installed cache. Record the exact release SHA and tag in
+   [`acceptance-windows-v1.0.1.md`](acceptance-windows-v1.0.1.md); never use
+   mutable `main` as a release reference. Historical 1.0.0 Unix evidence stays
+   in [`acceptance-runtime.md`](acceptance-runtime.md).
 2. Run graph-free advisory work without profiles; do not claim approval.
 3. Explicitly install `kapisch-reviewer` with `setup_profile.py`, then record a
    fresh canonical reviewer invocation before an approving review.

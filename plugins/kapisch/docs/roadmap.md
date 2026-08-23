@@ -86,14 +86,14 @@ subject to the capabilities of the installed Codex client. KAPISCH must not add
 a daemon, database, MCP server, container runtime, or separate orchestration
 service.
 
-## Next milestone — standalone KAPISCH repository
+## Standalone KAPISCH repository — delivered
 
-Status: implemented and reviewed; runtime acceptance and release remain
-planned under [issue #11](https://github.com/twKrash/kapisch/issues/11).
-The source extraction and Git-backed local-marketplace layout are implemented.
-Clean Codex installation, fresh-session discovery, reviewer invocation, and
-`$kapisch` acceptance have not been exercised. OpenAI public Plugin Directory
-submission is deferred/archived. See [acceptance.md](acceptance.md),
+Status: implemented, reviewed, runtime accepted, and released at 1.0.0. The
+Windows 11 Desktop + WSL2 release baseline is accepted for 1.0.1; the frozen
+release-SHA rerun, CI, and tag verification remain issue #21 publication gates.
+OpenAI public Plugin Directory submission is deferred/archived. See
+[acceptance.md](acceptance.md),
+[acceptance-windows-v1.0.1.md](acceptance-windows-v1.0.1.md),
 [compatibility.md](compatibility.md), and [collision-check.md](collision-check.md).
 
 Goal: extract the reusable skill, portable role contracts, Codex agent-profile
@@ -148,15 +148,12 @@ Required work:
 10. Verify natural-language routing, role/profile resolution, graph-free review,
    durable sequential execution, resume, reviewer invocation evidence, and final
    readiness against the extracted plugin.
-11. Treat the GitHub repository as locally distributable only after
-   `codex plugin marketplace add twKrash/kapisch --ref v1.0.0` (the immutable
-   release tag; a later release may use a newer tag) and installation
-   of `kapisch@kapisch-local` work in a clean Codex environment and the bundled
-   validator test suite passes without application-repository imports. Record
-   the exact accepted commit and tag in `acceptance-runtime.md`; mutable `main`
-   is not a release reference. This milestone was reached with release 1.0.0
-   on the Unix-like surface (see `acceptance-runtime.md`); native-Windows
-   runtime acceptance is tracked in a separate issue.
+11. Treat the GitHub repository as locally distributable only after an
+   immutable tag resolves in a clean Codex environment, installation of
+   `kapisch@kapisch-local` works, and the bundled validator suite passes without
+   application-repository imports. Release 1.0.0 completed this on Linux; the
+   1.0.1 Windows baseline is recorded in
+   `acceptance-windows-v1.0.1.md`. Mutable `main` is never a release reference.
 12. Define the compatibility removal boundary and rollback path from active
     KAPISCH profiles to prior user-owned configuration.
 13. Convert newly created task-local knowledge records to canonical TOML during
@@ -405,8 +402,9 @@ Status: implemented and reviewed. Clean Unix-like Codex installation,
 fresh-session discovery, reviewer invocation, and `$kapisch` runtime acceptance
 were completed for release 1.0.0 (tag `v1.0.0`, see `acceptance-runtime.md`).
 Issue #10 is complete: delegated `external-write` and `destructive` effects now
-fail closed. Native-Windows runtime acceptance remains tracked in a separate
-issue. The maintainer's scope-reduction
+fail closed. Windows 11 Desktop + WSL2 release-baseline acceptance is recorded
+for 1.0.1 in `acceptance-windows-v1.0.1.md`; live native no-WSL support is not
+yet claimed. The maintainer's scope-reduction
 decision (2026-08-04, PR #4) is implemented: the route record carries the
 minimum delegation metadata (selected capability, maximum effect class,
 authority, digest-bound context/evidence); the parallel route lifecycle/revision
