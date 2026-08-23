@@ -1,8 +1,9 @@
 # Clean-runtime acceptance record
 
-Status: **PARTIAL — clean Unix-like acceptance COMPLETE (see below);
-native-Windows surface, version/tag/release-sequence evidence, and the
-final-head re-run remain outstanding.**
+Status: **PARTIAL — clean Unix-like acceptance COMPLETE at RELEASE_SHA
+`d186b90` (release 1.0.0, tag `v1.0.0`); native-Windows surface and the final
+release-sequence are deferred/remain outstanding (Windows in a separate
+issue).**
 
 This checked-in record is the evidence accumulator for issue #11. Repository
 preparation, automated tests, and this template do not establish Codex runtime
@@ -405,6 +406,38 @@ directory with `TWV-PARSE-MISSING-ARTIFACT`. Requesting **durable end-to-end
 execution** makes the controller emit the canonical graph/state artifacts and
 passes validation. This is documented here so the pre-release acceptance step
 uses the durable-execution phrasing.
+
+---
+
+## RELEASE_SHA acceptance (1.0.0, 2026-08-23) — PASSED
+
+**Status: PASSED.** The clean Unix-like acceptance rerun at the final release
+commit `d186b90592f65f9861c680d852ee05723f982903` (= `RELEASE_SHA`, tag
+`v1.0.0`), in brand-new authenticated homes/consumer (no copied auth).
+
+- Date/time: 2026-08-23
+- OS/arch: Linux 7.1.8-arch1-3, x86_64
+- Codex surface/version: authenticated standalone `codex-cli 0.148.0`
+  (ChatGPT OAuth, logged in inside the fresh home)
+- Python version: 3.11.16
+- `RELEASE_SHA`: `d186b90592f65f9861c680d852ee05723f982903` (immutable tag `v1.0.0`)
+- Fresh `CODEX_HOME`: `/tmp/kapisch-release-home-UvG0kJ` (empty before `codex login`)
+- Fresh consumer repo: `/tmp/kapisch-release-consumer-qjJ1ir` (git init, README only)
+
+Results:
+- Marketplace resolved to exact `RELEASE_SHA`; plugin installed/enabled at
+  version **1.0.0**.
+- All six profiles installed into the consumer, no collision/drift.
+- Live durable `$kapisch` invocation: role `mechanic`, task
+  `add-a-short-installation-section-to-readme-md-an`, durable artifacts written
+  (`01-plan.md`, `02-execution-graph.toml`, `03-state.toml`, T01/R01/F01 tasks,
+  round-0 + final reviews), final status `complete`.
+- Independent iteration review returned `approve`; separate final-readiness
+  review returned `ready` (lifecycle `completed`).
+- **Installed validator: `[]`, exit 0** at `$CONSUMER/.kapisch/runs/<task_id>`.
+
+This is the binding acceptance evidence for release 1.0.0. Native-Windows
+acceptance is deferred to a separate issue per the maintainer decision.
 
 ---
 
