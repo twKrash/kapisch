@@ -22,8 +22,8 @@ Windows compatibility and release-documentation update for issue #21.
 - Changed no production workflow, CLI, schema, profile identity, dependency, or
   runtime behavior because the clean acceptance reproduced no KAPISCH defect.
 
-The exact release-SHA rerun, CI result, and remote `v1.0.1` tag verification are
-publication gates and are recorded in
+The exact release-SHA rerun, CI result, and remote `v1.0.1` tag verification
+passed and are recorded in
 [`docs/acceptance-windows-v1.0.1.md`](docs/acceptance-windows-v1.0.1.md).
 
 ## 1.0.0 - 2026-08-23

@@ -12,7 +12,7 @@ dispatch, durable execution, and the installed public validator.
 | Portable package and validator | passed | `scripts/test_portable_package.py` and `tests/kapisch_validation` |
 | Unix-like release 1.0.0 | complete | [historical runtime record](acceptance-runtime.md) |
 | Windows 11 Desktop + WSL2 release baseline | complete | [1.0.1 Windows record](acceptance-windows-v1.0.1.md) |
-| 1.0.1 exact release SHA and remote tag | pending publication gates | [1.0.1 Windows record](acceptance-windows-v1.0.1.md) |
+| 1.0.1 exact release SHA and remote tag | complete | [1.0.1 Windows record](acceptance-windows-v1.0.1.md) |
 | Native Windows without WSL | automated Python gates passed; live flow not yet claimed | [1.0.1 Windows record](acceptance-windows-v1.0.1.md) |
 | OpenAI public Plugin Directory | out of scope | Git-backed `kapisch-local` is the distribution path |
 
@@ -53,9 +53,9 @@ It must prove:
 6. the installed `kapisch-validate` command returns `[]` and exit code 0 without
    `--contract-dir`.
 
-Version 1.0.0 completed this flow on Linux. The issue #21 baseline completed it
-on Windows Desktop with WSL2; the final 1.0.1 release-SHA rerun and publication
-evidence remain gated on PR approval and explicit tag authorization.
+Version 1.0.0 completed this flow on Linux. Version 1.0.1 completed it on
+Windows Desktop with WSL2 at the exact release SHA, including remote tag
+verification.
 
 ## Delegation boundary
 

@@ -88,10 +88,10 @@ service.
 
 ## Standalone KAPISCH repository — delivered
 
-Status: implemented, reviewed, runtime accepted, and released at 1.0.0. The
-Windows 11 Desktop + WSL2 release baseline is accepted for 1.0.1; the frozen
-release-SHA rerun, CI, and tag verification remain issue #21 publication gates.
-OpenAI public Plugin Directory submission is deferred/archived. See
+Status: implemented, reviewed, runtime accepted, and released at 1.0.1. The
+Windows 11 Desktop + WSL2 frozen release-SHA rerun, CI, and remote tag
+verification passed for issue #21. OpenAI public Plugin Directory submission is
+deferred/archived. See
 [acceptance.md](acceptance.md),
 [acceptance-windows-v1.0.1.md](acceptance-windows-v1.0.1.md),
 [compatibility.md](compatibility.md), and [collision-check.md](collision-check.md).

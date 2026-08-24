@@ -9,7 +9,7 @@ Directory submission.
 
 | Surface | Verified status for 1.0.1 |
 | --- | --- |
-| Windows 11 + Codex Desktop + WSL2 | Live release-baseline flow passed; exact release-SHA rerun remains a publication gate. |
+| Windows 11 + Codex Desktop + WSL2 | Fresh exact-release-SHA flow passed; see the 1.0.1 acceptance record. |
 | Linux | Live 1.0.0 flow passed; 1.0.1 automated suites pass on the unchanged runtime. |
 | Native Windows, no WSL | Python 3.11 profile and portable-package suites pass; live plugin support is not yet claimed. |
 
