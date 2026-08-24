@@ -350,8 +350,14 @@ are available.
 
 ## Change 5 — project understanding and architecture documentation
 
-Status: implemented and reviewed. Policy B covers only advisory researcher dogfood. The
-preserved Round 0 negative review led to profile-path and lifecycle fixes;
+Status: implemented and reviewed. Policy B applies only to advisory researcher
+dogfood when the collaboration runtime does not expose profile selection. It
+permits `resolved_runtime_profile=unavailable/not exposed` only when the
+installed profile identity and revision are recorded, drift is absent, and the
+result must not infer selection from installation. This exception cannot
+satisfy independent approval or final readiness, which still require a
+configured-reviewer invocation and canonical evidence. The preserved Round 0
+negative review led to profile-path and lifecycle fixes;
 canonical Round 1 approved the resulting pre-correction staged delta. The first
 distinct final-readiness pass returned `not-ready` because the portable reviewer
 role embedded a Codex-specific path and this roadmap did not reflect the

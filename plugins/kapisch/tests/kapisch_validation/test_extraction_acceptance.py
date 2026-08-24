@@ -143,11 +143,49 @@ class ExtractionAcceptanceTests(unittest.TestCase):
         )[1].split("## Change 6", 1)[0]
         normalized = " ".join(change5.split())
         self.assertIn("Policy B", normalized)
+        self.assertIn("runtime does not expose profile selection", normalized)
+        self.assertIn(
+            "installed profile identity and revision are recorded", normalized
+        )
+        self.assertIn("drift is absent", normalized)
+        self.assertIn("must not infer selection from installation", normalized)
+        self.assertIn(
+            "cannot satisfy independent approval or final readiness", normalized
+        )
         self.assertIn("preserved Round 0 negative review", normalized)
         self.assertIn("canonical Round 1 approved", normalized)
         self.assertIn("final-readiness pass returned `not-ready`", normalized)
         self.assertIn("fresh whole-delta approving review", normalized)
         self.assertIn("distinct final-readiness decision", normalized)
+
+    def test_change7_plan_keeps_current_fail_closed_boundary_discoverable(
+        self,
+    ) -> None:
+        plan_path = ROOT / "docs/change-7-execution-plan.md"
+        plan = plan_path.read_text(encoding="utf-8")
+        phase8 = plan.split("## Phase 8 — clean-environment acceptance", 1)[1].split(
+            "## Phase 9", 1
+        )[0]
+        normalized = " ".join(phase8.split())
+        self.assertIn("historical and deferred", normalized)
+        self.assertIn("external-write preview", normalized)
+        self.assertIn("delegated route is rejected", normalized)
+        self.assertIn(
+            "cannot classify an unsupported interrupted delegated external-write "
+            "step as safely retryable",
+            normalized,
+        )
+        self.assertNotIn("execute it, and persist the external result", normalized)
+        self.assertNotIn("Interrupt a started external-write step", normalized)
+
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        local_targets = {
+            target.split("#", 1)[0]
+            for target in re.findall(r"\]\(([^)]+)\)", readme)
+            if "://" not in target
+        }
+        self.assertIn("docs/change-7-execution-plan.md", local_targets)
+        self.assertTrue(plan_path.is_file())
 
     def test_user_profile_install_records_revisions_and_reports_drift(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -499,20 +499,25 @@ server unless a separately approved future change adds one.
 
 ## Phase 8 — clean-environment acceptance
 
+The original external-write execution and interruption scenarios are historical
+and deferred by the 2026-08-04 scope decision. Current acceptance proves
+preview rejection and fail-closed recovery; it does not execute or interrupt a
+delegated external effect.
+
 Exercise these scenarios in a clean installed Codex environment:
 
 1. Explicitly invoke an installed instruction-only skill through KAPISCH.
 2. Automatically select a plugin-bundled read-only skill.
 3. Use an external-read connector with only the focused context.
-4. Prepare an external write, stop at the gate, approve the exact target and
-   payload, execute it, and persist the external result.
+4. Prepare an external-write preview and verify the delegated route is rejected
+   even when the exact target, payload, and explicit authority are recorded.
 5. Name an unavailable plugin and verify fail-closed behavior.
 6. Run on a surface without plugin support and verify disclosed native fallback
    or a precise blocker.
 7. Install a plugin and verify its capability only in a fresh session when the
    runtime requires that refresh.
-8. Interrupt a started external-write step and verify resume does not duplicate
-   it.
+8. Verify resume cannot classify an unsupported interrupted delegated
+   external-write step as safely retryable.
 9. Use a specialist review capability and verify that it remains advisory until
    the configured KAPISCH reviewer produces canonical evidence.
 10. Verify that KAPISCH never installs, authenticates, commits, pushes,

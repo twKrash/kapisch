@@ -113,6 +113,7 @@ From the repository root, also run `python -m unittest discover -s tests` and
 - [Acceptance status](docs/acceptance.md)
 - [Compatibility and rollback](docs/compatibility.md)
 - [Roadmap](docs/roadmap.md)
+- [Change 7 execution history and acceptance plan](docs/change-7-execution-plan.md)
 - [Changelog](CHANGELOG.md)
 - [Contributing](CONTRIBUTING.md)
 

@@ -141,10 +141,12 @@ At the exact baseline SHA:
   filesystem skips; suite passed; `portable-package=passed`.
 - Validator wrapper/help smoke test passed.
 
-After the 1.0.1 version, test, and documentation edits, the candidate repeated
-the same gates: Linux root 8/8; Linux validator and portable suites each ran 245
-tests and passed; native Windows profiles passed 16/16; and native Windows
-portable ran 245 tests with the same five capability-based skips and passed.
+After the 1.0.1 version, test, and documentation edits, including the
+documentation-contract regression added during PR review, the candidate
+repeated the same gates: Linux root 8/8; Linux validator and portable suites
+each ran 246 tests and passed; native Windows profiles passed 16/16; and native
+Windows portable ran 246 tests with the same five capability-based skips and
+passed.
 
 Native Windows commands were run from an isolated NTFS copy, not `/mnt/c` from
 inside WSL:
