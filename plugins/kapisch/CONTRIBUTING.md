@@ -22,6 +22,11 @@ python scripts/test_portable_package.py
 python scripts/validate_kapisch.py --help
 ```
 
+Under WSL, first confirm that `tempfile.gettempdir()` is on the Linux
+filesystem. If it resolves under `/mnt/c`, prefix POSIX filesystem-sensitive
+test commands with `TMPDIR=/tmp`; FIFO and permission semantics on a mounted
+Windows filesystem are not representative Linux results.
+
 Also run `python -m unittest discover -s tests` and `git diff --check` from the
 repository root. Windows-sensitive changes must pass the profile and portable
 suites on native Windows Python 3.11.
