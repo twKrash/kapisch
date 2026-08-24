@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 
@@ -15,6 +17,62 @@ PLUGIN = ROOT / "plugins/kapisch"
 
 
 class MarketplaceTests(unittest.TestCase):
+    def test_release_metadata_is_consistent(self) -> None:
+        manifest = json.loads(
+            (PLUGIN / ".codex-plugin/plugin.json").read_text(encoding="utf-8")
+        )
+        project = tomllib.loads(
+            (PLUGIN / "pyproject.toml").read_text(encoding="utf-8")
+        )["project"]
+        self.assertEqual(manifest["version"], project["version"])
+
+        version = project["version"]
+        release_tag = f"v{version}"
+        catalog = json.loads(MARKETPLACE.read_text(encoding="utf-8"))
+        self.assertEqual(catalog["name"], "kapisch-local")
+        self.assertEqual(
+            catalog["plugins"][0]["source"],
+            {"source": "local", "path": "./plugins/kapisch"},
+        )
+        self.assertEqual(catalog["plugins"][0]["name"], manifest["name"])
+
+        release_command = (
+            f"codex plugin marketplace add twKrash/kapisch --ref {release_tag}"
+        )
+        for readme in (ROOT / "README.md", PLUGIN / "README.md"):
+            contents = " ".join(readme.read_text(encoding="utf-8").split())
+            self.assertIn(
+                release_command,
+                contents,
+            )
+            self.assertEqual(
+                set(
+                    re.findall(
+                        r"codex plugin marketplace add twKrash/kapisch "
+                        r"--ref (v[0-9A-Za-z.-]+)",
+                        contents,
+                    )
+                ),
+                {release_tag},
+            )
+
+        changelog = (PLUGIN / "CHANGELOG.md").read_text(encoding="utf-8")
+        self.assertIn(f"## {version} -", changelog)
+
+        windows_acceptance = (
+            PLUGIN / "docs" / f"acceptance-windows-v{version}.md"
+        )
+        self.assertTrue(windows_acceptance.is_file())
+        acceptance = windows_acceptance.read_text(encoding="utf-8")
+        self.assertIn(
+            f"# Windows acceptance record — {version}",
+            acceptance,
+        )
+        self.assertIn(
+            f"- Release: `{version}`; intended immutable tag: `{release_tag}`.",
+            acceptance,
+        )
+
     def test_digest_sensitive_fixtures_are_checked_out_with_lf(self) -> None:
         fixture = (
             "plugins/kapisch/tests/kapisch_validation/fixtures/"
@@ -81,10 +139,13 @@ class MarketplaceTests(unittest.TestCase):
     def test_documented_commands_use_the_github_marketplace(self) -> None:
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         normalized = " ".join(readme.split())
-        # Released path (immutable tag v1.0.0) is documented and uses the
-        # immutable tag, never main.
+        version = json.loads(
+            (PLUGIN / ".codex-plugin/plugin.json").read_text(encoding="utf-8")
+        )["version"]
+        # The released path is pinned to the versioned immutable tag.
         self.assertIn(
-            "codex plugin marketplace add twKrash/kapisch --ref v1.0.0",
+            "codex plugin marketplace add "
+            f"twKrash/kapisch --ref v{version}",
             normalized,
         )
         # A runnable development path is preserved (against mutable code) and is
