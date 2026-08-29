@@ -512,6 +512,29 @@ class ProfileSetTests(unittest.TestCase):
             )
             self.assertFalse(project.exists())
 
+    def test_managed_state_inspection_is_read_only_without_recovery(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            self.assertEqual(self._install(project, "balanced"), 0)
+            before = self._snapshot(project)
+            state_dir = project / ".kapisch/local-state"
+            state_dir.chmod(0o555)
+            try:
+                with mock.patch.object(
+                    setup_profile,
+                    "_write_exclusive",
+                    side_effect=AssertionError("inspection attempted a filesystem write"),
+                ):
+                    self.assertEqual(
+                        setup_profile.main(
+                            ["--all", "--project-dir", str(project)]
+                        ),
+                        0,
+                    )
+            finally:
+                state_dir.chmod(0o755)
+            self.assertEqual(self._snapshot(project), before)
+
     def test_managed_switch_requires_explicit_replace_and_updates_all_state(self) -> None:
         with TemporaryDirectory() as temporary:
             project = Path(temporary)
@@ -696,6 +719,185 @@ class ProfileSetTests(unittest.TestCase):
             self.assertFalse(
                 (project / ".kapisch/local-state/profile-switch.toml").exists()
             )
+
+    def test_persistent_cleanup_denial_reports_committed_set_and_recovers(self) -> None:
+        for denied_kind in ("backup", "staging", "temporary", "journal"):
+            with self.subTest(denied_kind=denied_kind), TemporaryDirectory() as temporary:
+                project = Path(temporary)
+                self.assertEqual(self._install(project, "balanced"), 0)
+                original_replace = setup_profile.os.replace
+                original_unlink = Path.unlink
+                journal = project / ".kapisch/local-state/profile-switch.toml"
+                denied_path: Path | None = None
+
+                def publish_with_cleanup_artifact(source, destination):
+                    nonlocal denied_path
+                    result = original_replace(source, destination)
+                    if Path(source).name == ".profile-switch.commit.tmp":
+                        if denied_kind == "backup":
+                            denied_path = (
+                                project
+                                / ".codex/agents/.kapisch-architect.toml.kapisch-switch.bak"
+                            )
+                        elif denied_kind == "staging":
+                            denied_path = (
+                                project
+                                / ".codex/agents/.kapisch-architect.toml.kapisch-switch.tmp"
+                            )
+                            denied_path.write_bytes(b"leftover staging bytes")
+                        elif denied_kind == "temporary":
+                            denied_path = journal.with_name(".profile-switch.commit.tmp")
+                            denied_path.write_bytes(b"leftover temporary bytes")
+                        else:
+                            denied_path = journal
+                    return result
+
+                def deny_selected_cleanup(path: Path, *args, **kwargs):
+                    if denied_path is not None and path == denied_path:
+                        raise OSError(f"persistent {denied_kind} cleanup denial")
+                    return original_unlink(path, *args, **kwargs)
+
+                output = io.StringIO()
+                with (
+                    mock.patch.object(
+                        setup_profile.os,
+                        "replace",
+                        side_effect=publish_with_cleanup_artifact,
+                    ),
+                    mock.patch.object(
+                        Path,
+                        "unlink",
+                        autospec=True,
+                        side_effect=deny_selected_cleanup,
+                    ),
+                    redirect_stdout(output),
+                ):
+                    result = setup_profile.main(
+                        [
+                            "--all",
+                            "--project-dir",
+                            str(project),
+                            "--profile-set",
+                            "quality",
+                            "--install",
+                            "--replace-managed",
+                        ]
+                    )
+
+                self.assertEqual(result, 2)
+                self.assertIn("status=installed", output.getvalue())
+                self.assertIn("installed_profile_set=quality", output.getvalue())
+                self.assertIn("cleanup=committed switch cleanup pending", output.getvalue())
+                self.assertNotIn("rolled back", output.getvalue())
+                self.assertTrue(journal.exists())
+                self.assertEqual(
+                    tomllib.loads(journal.read_text(encoding="utf-8"))["status"],
+                    "committed",
+                )
+                for role, (model, effort) in self.EXPECTED_ROUTING["quality"].items():
+                    profile = tomllib.loads(
+                        (project / f".codex/agents/kapisch-{role}.toml").read_text(
+                            encoding="utf-8"
+                        )
+                    )
+                    state = tomllib.loads(
+                        (project / f".kapisch/local-state/profiles/{role}.toml").read_text(
+                            encoding="utf-8"
+                        )
+                    )
+                    self.assertEqual(
+                        (profile["model"], profile["model_reasoning_effort"]),
+                        (model, effort),
+                    )
+                    self.assertEqual(state["profile_set"], "quality")
+
+                recovery_output = io.StringIO()
+                with redirect_stdout(recovery_output):
+                    self.assertEqual(
+                        setup_profile.main(
+                            [
+                                "--all",
+                                "--project-dir",
+                                str(project),
+                                "--profile-set",
+                                "quality",
+                            ]
+                        ),
+                        0,
+                    )
+                self.assertIn(
+                    "recovery=completed interrupted managed-profile transaction",
+                    recovery_output.getvalue(),
+                )
+                self.assertFalse(journal.exists())
+
+    def test_committed_destination_divergence_is_not_reported_as_active(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            self.assertEqual(self._install(project, "balanced"), 0)
+            journal = project / ".kapisch/local-state/profile-switch.toml"
+            target = project / ".codex/agents/kapisch-architect.toml"
+            original_replace = setup_profile.os.replace
+            committed_bytes: bytes | None = None
+
+            def diverge_after_commit(source, destination):
+                nonlocal committed_bytes
+                result = original_replace(source, destination)
+                if Path(source).name == ".profile-switch.commit.tmp":
+                    committed_bytes = target.read_bytes()
+                    target.write_bytes(b'name = "kapisch-architect"\n# later drift\n')
+                return result
+
+            output = io.StringIO()
+            with (
+                mock.patch.object(
+                    setup_profile.os,
+                    "replace",
+                    side_effect=diverge_after_commit,
+                ),
+                redirect_stdout(output),
+            ):
+                result = setup_profile.main(
+                    [
+                        "--all",
+                        "--project-dir",
+                        str(project),
+                        "--profile-set",
+                        "quality",
+                        "--install",
+                        "--replace-managed",
+                    ]
+                )
+
+            self.assertEqual(result, 2)
+            self.assertIsNotNone(committed_bytes)
+            self.assertTrue(journal.exists())
+            self.assertIn("status=verification-failed", output.getvalue())
+            self.assertIn("committed switch verification failed", output.getvalue())
+            self.assertNotIn("status=installed", output.getvalue())
+            self.assertNotIn("installed_profile_set=quality", output.getvalue())
+            self.assertNotIn("committed profile set is active", output.getvalue())
+
+            target.write_bytes(committed_bytes)
+            recovery_output = io.StringIO()
+            with redirect_stdout(recovery_output):
+                self.assertEqual(
+                    setup_profile.main(
+                        [
+                            "--all",
+                            "--project-dir",
+                            str(project),
+                            "--profile-set",
+                            "quality",
+                        ]
+                    ),
+                    0,
+                )
+            self.assertIn(
+                "recovery=completed interrupted managed-profile transaction",
+                recovery_output.getvalue(),
+            )
+            self.assertFalse(journal.exists())
 
     def test_interrupted_switch_recovers_at_every_profile_and_state_publish(self) -> None:
         class SimulatedPowerLoss(BaseException):
@@ -920,13 +1122,17 @@ class ProfileSetTests(unittest.TestCase):
             lock = project / ".kapisch/local-state/profile-switch.lock"
             lock.write_text(f"pid={setup_profile.os.getpid()}\n", encoding="ascii")
             self.assertEqual(
-                setup_profile.main(["--all", "--project-dir", str(project)]),
+                setup_profile.main(
+                    ["--all", "--project-dir", str(project), "--install"]
+                ),
                 2,
             )
             self.assertTrue(lock.exists())
             lock.write_text("pid=999999\n", encoding="ascii")
             self.assertEqual(
-                setup_profile.main(["--all", "--project-dir", str(project)]),
+                setup_profile.main(
+                    ["--all", "--project-dir", str(project), "--install"]
+                ),
                 0,
             )
             self.assertFalse(lock.exists())
@@ -943,7 +1149,9 @@ class ProfileSetTests(unittest.TestCase):
             before[lock.relative_to(project)] = lock.read_bytes()
 
             self.assertEqual(
-                setup_profile.main(["--all", "--project-dir", str(project)]),
+                setup_profile.main(
+                    ["--all", "--project-dir", str(project), "--install"]
+                ),
                 2,
             )
             self.assertEqual(lock.read_text(encoding="ascii"), contents)

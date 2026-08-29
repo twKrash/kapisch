@@ -5,6 +5,7 @@ evidence that the 1.1.0 tag, release, or live runtime acceptance exists.
 
 - Release: `1.1.0`; intended immutable tag: `v1.1.0`.
 - Tested implementation SHA: `53116a27a5b0149448ef631b04d93d0829fda30e`.
+- Documentation evidence SHA: `887a33b342dc0fbf8435a0537578bc0a90c5ec5a`; this documentation-only head does not expand the tested runtime scope.
 - Final release SHA: pending review, merge, and authorized release preparation.
 - Remote tag verification: pending; do not create or publish the tag during candidate preparation.
 - Supported release-blocking Windows surface: Windows 11, Codex Desktop/CLI, and WSL2.

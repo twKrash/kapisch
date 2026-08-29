@@ -86,6 +86,9 @@ running setup concurrently until that issue is resolved.
 
 Recovery is the sole exception to inspect-only non-mutation: it completes the
 rollback or cleanup already authorized by the interrupted explicit replacement.
+Ordinary inspection does not create a lock file or require write access to the
+managed local-state directory. When an interrupted transaction is present,
+inspection first acquires the switch lock and performs only that recovery.
 The journal lives under `.kapisch/local-state/` and is not a durable workflow
 artifact, validator input, telemetry record, or semantic routing source.
 

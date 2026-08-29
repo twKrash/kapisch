@@ -72,6 +72,19 @@ class MarketplaceTests(unittest.TestCase):
             f"- Release: `{version}`; intended immutable tag: `{release_tag}`.",
             acceptance,
         )
+        implementation_sha = "53116a27a5b0149448ef631b04d93d0829fda30e"
+        documentation_sha = "887a33b342dc0fbf8435a0537578bc0a90c5ec5a"
+        matrix = (PLUGIN / "docs/acceptance.md").read_text(encoding="utf-8")
+        self.assertIn(f"tested implementation `{implementation_sha}`", matrix)
+        self.assertIn(f"documentation evidence bound at `{documentation_sha}`", matrix)
+        self.assertIn("final release SHA pending", matrix)
+        self.assertIn(f"- Tested implementation SHA: `{implementation_sha}`.", acceptance)
+        self.assertIn(f"- Documentation evidence SHA: `{documentation_sha}`", acceptance)
+        self.assertIn("this documentation-only head does not expand", acceptance)
+        self.assertIn(
+            "- Final release SHA: pending review, merge, and authorized release preparation.",
+            acceptance,
+        )
 
     def test_digest_sensitive_fixtures_are_checked_out_with_lf(self) -> None:
         fixture = (

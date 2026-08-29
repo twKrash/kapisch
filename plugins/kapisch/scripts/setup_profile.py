@@ -211,12 +211,16 @@ def _print_plan(plan: dict[str, Any], scope: str) -> None:
         if plan.get(key) is not None:
             label = {"template_digest": "template_sha256", "installed_digest": "installed_sha256"}.get(key, key)
             print(f"{label}={plan[key]}")
-    for key in ("drift", "template_drift", "error"):
+    for key in ("drift", "template_drift", "error", "cleanup"):
         if plan.get(key) is not None:
             print(f"{key}={plan[key]}")
     for collision in plan.get("collision", ()):
         print(f"identity_collision={collision}")
-    if plan["status"] == "installed" and plan.get("replaced_now"):
+    if plan["status"] == "verification-failed":
+        print("action=committed transaction needs manual state repair; no profile set is claimed active")
+    elif plan["status"] == "installed" and plan.get("cleanup"):
+        print("action=committed profile set is active; rerun inspection to finish cleanup")
+    elif plan["status"] == "installed" and plan.get("replaced_now"):
         print("action=managed profile replaced after identity and digest verification")
     elif plan["status"] == "installed" and plan.get("installed_now"):
         print("action=profile copied; no existing profile was overwritten")
@@ -630,7 +634,19 @@ def _recover_interrupted_switch(root: Path) -> tuple[bool, str | None]:
     return True, None
 
 
-def _commit(plans: list[dict[str, Any]], *, root: Path) -> tuple[bool, str | None]:
+def _committed_destinations_match(root: Path) -> bool:
+    """Whether a committed journal still describes the published catalog."""
+    try:
+        status, entries = _read_switch_journal(root)
+    except (OSError, ProfileReadError, ValueError):
+        return False
+    return status == "committed" and all(
+        _path_digest(Path(entry["destination"])) == entry["desired_sha256"]
+        for entry in entries
+    )
+
+
+def _commit(plans: list[dict[str, Any]], *, root: Path) -> tuple[str, str | None]:
     """Install missing profiles or replace a managed catalog transactionally."""
     created: list[Path] = []
     created_directories: list[Path] = []
@@ -812,6 +828,15 @@ def _commit(plans: list[dict[str, Any]], *, root: Path) -> tuple[bool, str | Non
             if not recovered:
                 raise OSError(f"committed switch cleanup failed: {recovery_error}")
     except (OSError, ValueError, KeyboardInterrupt) as exc:
+        durably_committed = switch_committed
+        if not durably_committed:
+            journal = _switch_journal_path(root)
+            if journal.exists() or journal.is_symlink():
+                try:
+                    journal_status, _ = _read_switch_journal(root)
+                    durably_committed = journal_status == "committed"
+                except (OSError, ProfileReadError, ValueError):
+                    pass
         recovered, recovery_error = _recover_interrupted_switch(root)
         journal = _switch_journal_path(root)
         if not journal.exists() and not journal.is_symlink():
@@ -839,13 +864,20 @@ def _commit(plans: list[dict[str, Any]], *, root: Path) -> tuple[bool, str | Non
                     directory.rmdir()
                 except OSError:
                     pass
-        if switch_committed and recovered:
-            return True, None
+        if durably_committed:
+            if recovered:
+                return "complete", None
+            detail = str(exc)
+            if recovery_error:
+                detail = f"{detail}; recovery failed: {recovery_error}"
+            if _committed_destinations_match(root):
+                return "cleanup-pending", detail
+            return "verification-failed", detail
         detail = str(exc)
         if not recovered:
             detail = f"{detail}; recovery failed: {recovery_error}"
-        return False, detail
-    return True, None
+        return "rolled-back", detail
+    return "complete", None
 
 
 def _process_is_alive(pid: int) -> bool:
@@ -949,21 +981,36 @@ def _switch_lock(root: Path, *, create: bool) -> Iterator[None]:
                 pass
 
 
-def _run_setup(args: argparse.Namespace, root: Path) -> int:
-    recovery_needed = (
+def _switch_recovery_needed(root: Path) -> bool:
+    return (
         _switch_journal_path(root).exists()
         or _switch_journal_path(root).is_symlink()
         or _switch_prepare_path(root).exists()
         or _switch_prepare_path(root).is_symlink()
     )
-    recovered, recovery_error = _recover_interrupted_switch(root)
-    if not recovered:
+
+
+def _run_setup(
+    args: argparse.Namespace,
+    root: Path,
+    *,
+    allow_recovery: bool,
+) -> int:
+    recovery_needed = _switch_recovery_needed(root)
+    if recovery_needed and not allow_recovery:
         print("status=collision")
-        print(f"error=interrupted managed switch could not be recovered: {recovery_error}")
-        print("action=review local state; no new profile operation was attempted")
+        print("error=interrupted managed switch requires serialized recovery")
+        print("action=rerun inspection to recover the interrupted transaction")
         return 2
-    if recovery_needed:
-        print("recovery=completed interrupted managed-profile transaction")
+    if allow_recovery:
+        recovered, recovery_error = _recover_interrupted_switch(root)
+        if not recovered:
+            print("status=collision")
+            print(f"error=interrupted managed switch could not be recovered: {recovery_error}")
+            print("action=review local state; no new profile operation was attempted")
+            return 2
+        if recovery_needed:
+            print("recovery=completed interrupted managed-profile transaction")
     roles = list(ROLE_CATALOG if args.all else (args.role,))
     agent_dir = root / ".codex" / "agents"
     targets = {agent_dir / f"kapisch-{role}.toml" for role in roles}
@@ -1002,9 +1049,10 @@ def _run_setup(args: argparse.Namespace, root: Path) -> int:
                     )
 
     failures = [plan for plan in plans if plan["status"] == "collision"]
+    cleanup_pending = False
     if args.install and not failures:
-        committed, error = _commit(plans, root=root)
-        if not committed:
+        commit_outcome, error = _commit(plans, root=root)
+        if commit_outcome == "rolled-back":
             for plan in plans:
                 if plan["status"] in {"install-pending", "replace-pending"}:
                     plan.update(
@@ -1012,6 +1060,15 @@ def _run_setup(args: argparse.Namespace, root: Path) -> int:
                         error=f"catalog installation rolled back: {error}",
                     )
             failures = [plan for plan in plans if plan["status"] == "collision"]
+        elif commit_outcome == "verification-failed":
+            for plan in plans:
+                if plan["status"] in {"install-pending", "replace-pending"}:
+                    plan.pop("installed_profile_set", None)
+                    plan.update(
+                        status="verification-failed",
+                        error=f"committed switch verification failed: {error}",
+                    )
+            cleanup_pending = True
         else:
             for plan in plans:
                 if plan["status"] in {"install-pending", "replace-pending"}:
@@ -1021,10 +1078,13 @@ def _run_setup(args: argparse.Namespace, root: Path) -> int:
                     plan["replaced_now"] = was_replacement
                     plan["installed_profile_set"] = plan["profile_set"]
                     plan["installed_digest"] = digest(plan["target"])
+                    if commit_outcome == "cleanup-pending":
+                        plan["cleanup"] = f"committed switch cleanup pending: {error}"
+            cleanup_pending = commit_outcome == "cleanup-pending"
 
     for plan in plans:
         _print_plan(plan, args.scope)
-    return 2 if failures else 0
+    return 2 if failures or cleanup_pending else 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1053,8 +1113,11 @@ def main(argv: list[str] | None = None) -> int:
 
     root = (args.project_dir if args.scope == "project" else args.user_dir).resolve()
     try:
+        recovery_needed = _switch_recovery_needed(root)
+        if not args.install and not recovery_needed:
+            return _run_setup(args, root, allow_recovery=False)
         with _switch_lock(root, create=args.install):
-            return _run_setup(args, root)
+            return _run_setup(args, root, allow_recovery=True)
     except OSError as exc:
         print("status=collision")
         print(f"error=profile setup lock failed: {exc}")
