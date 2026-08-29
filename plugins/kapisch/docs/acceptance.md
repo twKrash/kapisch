@@ -13,6 +13,8 @@ dispatch, durable execution, and the installed public validator.
 | Unix-like release 1.0.0 | complete | [historical runtime record](acceptance-runtime.md) |
 | Windows 11 Desktop + WSL2 release baseline | complete | [1.0.1 Windows record](acceptance-windows-v1.0.1.md) |
 | 1.0.1 exact release SHA and remote tag | complete | [1.0.1 Windows record](acceptance-windows-v1.0.1.md) |
+| 1.1.0 automated profile-set and release gates | passed on the current uncommitted candidate worktree | [1.1.0 Windows record](acceptance-windows-v1.1.0.md) |
+| 1.1.0 live balanced-vs-quality acceptance | pending | [1.1.0 Windows template](acceptance-windows-v1.1.0.md) |
 | Native Windows without WSL | automated Python gates passed; live flow not yet claimed | [1.0.1 Windows record](acceptance-windows-v1.0.1.md) |
 | OpenAI public Plugin Directory | out of scope | Git-backed `kapisch-local` is the distribution path |
 
@@ -38,6 +40,11 @@ migration, profile identity and drift, presentation themes, delegation records,
 installed console-command discovery, and the canonical marketplace source.
 Project-understanding procedures, role boundaries, handoffs, and independent
 review policy remain covered by the extraction-acceptance suite.
+
+For 1.1.0, profile tests additionally cover the three exact model/effort
+matrices, identical role instructions, balanced default, project/user scope,
+inspect-only behavior, explicit managed switching, drift/collision refusal,
+transaction rollback, and verified legacy quality records.
 
 ## Live acceptance boundary
 

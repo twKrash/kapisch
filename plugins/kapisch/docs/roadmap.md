@@ -325,10 +325,38 @@ Completed after S4 without changing durable execution semantics.
   Codex runtime owns configured profile/model resolution and dispatch.
 - Preserve every S1-S4 invariant, including fail-closed operational waves.
 
+## Release 1.1.0 — cost-aware profile routing
+
+Status: release candidate implemented locally; automated evidence, independent
+review, final readiness, paired runtime acceptance, and publication remain
+separate gates.
+
+- Add installer-time `balanced`, `quality`, and `budget` Codex runtime profile
+  sets while preserving the six logical roles and every workflow/safety
+  invariant.
+- Default new installations to `balanced`; retain the 1.0.1 routing baseline as
+  `quality`; provide an explicit `budget` configuration for routine work.
+- Add managed-only, drift-sensitive, transactional switching and record the
+  selected set in new machine-local state.
+- Defer replacement of the PID-file setup lock with an ownership-preserving
+  cross-platform lock protocol to
+  [issue #23](https://github.com/twKrash/kapisch/issues/23). The current lock
+  does not claim safety for simultaneous stale-lock reclamation or recovery
+  from a partial initial lock write; ordinary single-process setup and the
+  tested managed-switch recovery paths remain the 1.1.0 scope.
+- Reuse existing factual final-only metrics fields for later comparison;
+  unavailable model, effort, retry, elapsed, token, and cache observations stay
+  unavailable.
+- Make no unmeasured token or cost claim. The release candidate proves routing
+  configuration and safety behavior, not a savings percentage.
+- Keep TOON, new durable serialization, telemetry services, semantic Python
+  routing, and validator cost estimation out of scope.
+
 ## Change 4 — measured cost and context discipline
 
-Status: deferred until the standalone plugin is stable and runtime observations
-are available.
+Status: the 1.1.0 profile-routing baseline is being established; the broader
+benchmark/cache work remains deferred until comparable runtime observations are
+available.
 
 - Measure routing, model-tier, context-size, handoff reuse, validator, and review
   outcomes using auditable evidence.
@@ -347,6 +375,11 @@ are available.
   input or cached-token counts only when the runtime exposes them.
 - Do not turn the validator, cache, or benchmark harness into a semantic router
   or hidden persistent memory service.
+- Evaluate TOON or another compact prompt-only serialization for large
+  homogeneous ephemeral handoffs after model-routing benchmarks establish a
+  1.1.0 baseline. Preserve canonical TOML/JSON contracts and compare compact
+  JSON with the candidate format for correctness, retries, and tokens before any
+  optional experiment is adopted.
 
 ## Change 5 — project understanding and architecture documentation
 

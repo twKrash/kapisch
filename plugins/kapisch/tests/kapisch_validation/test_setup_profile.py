@@ -94,7 +94,13 @@ class SetupProfileSafetyTests(unittest.TestCase):
             source = Path(temporary) / "agents"
             source.mkdir()
             template = source / "kapisch-reviewer.toml"
-            valid = b'name = "kapisch-reviewer"\n'
+            valid = (
+                b'name = "kapisch-reviewer"\n'
+                b'description = "test"\n'
+                b'developer_instructions = "test"\n'
+                b'model = "gpt-5.6-sol"\n'
+                b'model_reasoning_effort = "high"\n'
+            )
             wrong = b'name = "someone-else"\n'
             template.write_bytes(valid)
             project = Path(temporary) / "project"
@@ -115,6 +121,7 @@ class SetupProfileSafetyTests(unittest.TestCase):
                 self.assertEqual(
                     setup_profile.main(
                         ["--role", "reviewer", "--project-dir", str(project), "--install"]
+                        + ["--profile-set", "quality"]
                     ),
                     0,
                 )
@@ -199,6 +206,71 @@ class SetupProfileSafetyTests(unittest.TestCase):
             self.assertEqual(setup_profile.main(["--all", "--project-dir", str(project), "--install"]), 0)
             self.assertEqual(len(list((project / ".codex/agents").glob("*.toml"))), 6)
             self.assertEqual(len(list((project / ".kapisch/local-state/profiles").glob("*.toml"))), 6)
+
+    def test_interleaved_initial_install_is_blocked_by_the_setup_lock(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            target = (project / ".codex/agents/kapisch-architect.toml").resolve()
+            original_write_exclusive = setup_profile._write_exclusive
+            nested_results: list[int] = []
+
+            def interleave(path: Path, contents: bytes, **kwargs):
+                if path == target and not nested_results:
+                    nested_results.append(
+                        setup_profile.main(
+                            ["--all", "--project-dir", str(project), "--install"]
+                        )
+                    )
+                return original_write_exclusive(path, contents, **kwargs)
+
+            with mock.patch.object(
+                setup_profile,
+                "_write_exclusive",
+                side_effect=interleave,
+            ):
+                self.assertEqual(
+                    setup_profile.main(
+                        ["--all", "--project-dir", str(project), "--install"]
+                    ),
+                    0,
+                )
+
+            self.assertEqual(nested_results, [2])
+            self.assertEqual(len(list((project / ".codex/agents").glob("*.toml"))), 6)
+            self.assertEqual(
+                len(list((project / ".kapisch/local-state/profiles").glob("*.toml"))),
+                6,
+            )
+
+    def test_lost_exclusive_create_does_not_remove_the_other_writer_file(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            target = (project / ".codex/agents/kapisch-architect.toml").resolve()
+            external = b'name = "external-writer"\n'
+            original_write_exclusive = setup_profile._write_exclusive
+
+            def lose_create(path: Path, contents: bytes, **kwargs):
+                if path == target:
+                    path.write_bytes(external)
+                    raise FileExistsError("simulated concurrent exclusive create")
+                return original_write_exclusive(path, contents, **kwargs)
+
+            with mock.patch.object(
+                setup_profile,
+                "_write_exclusive",
+                side_effect=lose_create,
+            ):
+                self.assertEqual(
+                    setup_profile.main(
+                        ["--all", "--project-dir", str(project), "--install"]
+                    ),
+                    2,
+                )
+
+            self.assertEqual(target.read_bytes(), external)
+            self.assertFalse(
+                (project / ".kapisch/local-state/profiles/architect.toml").exists()
+            )
 
     def test_second_identical_catalog_run_is_idempotent(self) -> None:
         with TemporaryDirectory() as temporary:
@@ -321,3 +393,581 @@ class SetupProfileSafetyTests(unittest.TestCase):
             self.assertFalse(project.exists())
             self.assertFalse(project.parent.joinpath(".codex").exists())
             self.assertFalse(project.parent.joinpath(".kapisch").exists())
+
+
+class ProfileSetTests(unittest.TestCase):
+    EXPECTED_ROUTING = {
+        "balanced": {
+            "architect": ("gpt-5.6-sol", "high"),
+            "researcher": ("gpt-5.6-terra", "medium"),
+            "implementer": ("gpt-5.6-terra", "medium"),
+            "implementer-lite": ("gpt-5.6-luna", "low"),
+            "mechanic": ("gpt-5.6-luna", "low"),
+            "reviewer": ("gpt-5.6-terra", "high"),
+        },
+        "quality": {
+            "architect": ("gpt-5.6-sol", "high"),
+            "researcher": ("gpt-5.6-sol", "high"),
+            "implementer": ("gpt-5.6-terra", "medium"),
+            "implementer-lite": ("gpt-5.6-luna", "low"),
+            "mechanic": ("gpt-5.6-luna", "low"),
+            "reviewer": ("gpt-5.6-sol", "high"),
+        },
+        "budget": {
+            "architect": ("gpt-5.6-terra", "high"),
+            "researcher": ("gpt-5.6-luna", "medium"),
+            "implementer": ("gpt-5.6-terra", "low"),
+            "implementer-lite": ("gpt-5.6-luna", "low"),
+            "mechanic": ("gpt-5.6-luna", "low"),
+            "reviewer": ("gpt-5.6-terra", "medium"),
+        },
+    }
+
+    def _install(self, project: Path, profile_set: str | None = None) -> int:
+        argv = ["--all", "--project-dir", str(project)]
+        if profile_set is not None:
+            argv.extend(("--profile-set", profile_set))
+        argv.append("--install")
+        return setup_profile.main(argv)
+
+    def _snapshot(self, project: Path) -> dict[Path, bytes]:
+        return {
+            path.relative_to(project): path.read_bytes()
+            for path in sorted(project.rglob("*"))
+            if path.is_file()
+        }
+
+    def test_default_install_uses_balanced_and_records_the_set(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            self.assertEqual(self._install(project), 0)
+            researcher = tomllib.loads(
+                (project / ".codex/agents/kapisch-researcher.toml").read_text(
+                    encoding="utf-8"
+                )
+            )
+            state = tomllib.loads(
+                (project / ".kapisch/local-state/profiles/researcher.toml").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(researcher["model"], "gpt-5.6-terra")
+            self.assertEqual(researcher["model_reasoning_effort"], "medium")
+            self.assertEqual(state["profile_set"], "balanced")
+            self.assertEqual(
+                state["template_sha256"],
+                hashlib.sha256(
+                    (setup_profile.AGENT_DIR / "kapisch-researcher.toml").read_bytes()
+                ).hexdigest(),
+            )
+            self.assertEqual(
+                state["installed_sha256"],
+                hashlib.sha256(
+                    (project / ".codex/agents/kapisch-researcher.toml").read_bytes()
+                ).hexdigest(),
+            )
+
+    def test_each_profile_set_installs_the_exact_six_role_routing_matrix(self) -> None:
+        canonical_instructions = {
+            role: tomllib.loads(
+                (setup_profile.AGENT_DIR / f"kapisch-{role}.toml").read_text(
+                    encoding="utf-8"
+                )
+            )["developer_instructions"]
+            for role in setup_profile.ROLE_CATALOG
+        }
+        for profile_set, expected in self.EXPECTED_ROUTING.items():
+            with self.subTest(profile_set=profile_set), TemporaryDirectory() as temporary:
+                project = Path(temporary)
+                self.assertEqual(self._install(project, profile_set), 0)
+                profiles = sorted((project / ".codex/agents").glob("*.toml"))
+                self.assertEqual(len(profiles), 6)
+                for role, (model, effort) in expected.items():
+                    values = tomllib.loads(
+                        (project / f".codex/agents/kapisch-{role}.toml").read_text(
+                            encoding="utf-8"
+                        )
+                    )
+                    self.assertEqual(values["name"], f"kapisch-{role}")
+                    self.assertEqual(values["model"], model)
+                    self.assertEqual(values["model_reasoning_effort"], effort)
+                    self.assertEqual(
+                        values["developer_instructions"], canonical_instructions[role]
+                    )
+
+    def test_profile_set_inspection_does_not_create_a_consumer(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary) / "consumer"
+            self.assertEqual(
+                setup_profile.main(
+                    [
+                        "--all",
+                        "--project-dir",
+                        str(project),
+                        "--profile-set",
+                        "budget",
+                    ]
+                ),
+                0,
+            )
+            self.assertFalse(project.exists())
+
+    def test_managed_switch_requires_explicit_replace_and_updates_all_state(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            self.assertEqual(self._install(project, "balanced"), 0)
+            before = self._snapshot(project)
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(self._install(project, "budget"), 0)
+            self.assertEqual(self._snapshot(project), before)
+            self.assertIn("rerun with --install --replace-managed", output.getvalue())
+
+            self.assertEqual(
+                setup_profile.main(
+                    [
+                        "--all",
+                        "--project-dir",
+                        str(project),
+                        "--profile-set",
+                        "budget",
+                        "--install",
+                        "--replace-managed",
+                    ]
+                ),
+                0,
+            )
+            for role, (model, effort) in self.EXPECTED_ROUTING["budget"].items():
+                profile = tomllib.loads(
+                    (project / f".codex/agents/kapisch-{role}.toml").read_text(
+                        encoding="utf-8"
+                    )
+                )
+                state = tomllib.loads(
+                    (project / f".kapisch/local-state/profiles/{role}.toml").read_text(
+                        encoding="utf-8"
+                    )
+                )
+                self.assertEqual((profile["model"], profile["model_reasoning_effort"]), (model, effort))
+                self.assertEqual(state["profile_set"], "budget")
+                self.assertEqual(
+                    state["installed_sha256"],
+                    hashlib.sha256(
+                        (project / f".codex/agents/kapisch-{role}.toml").read_bytes()
+                    ).hexdigest(),
+                )
+
+    def test_switch_refuses_a_user_modified_managed_profile(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            self.assertEqual(self._install(project, "balanced"), 0)
+            target = project / ".codex/agents/kapisch-reviewer.toml"
+            target.write_text(target.read_text(encoding="utf-8") + "# local change\n", encoding="utf-8")
+            before = self._snapshot(project)
+            output = io.StringIO()
+            with redirect_stdout(output):
+                result = setup_profile.main(
+                    [
+                        "--all",
+                        "--project-dir",
+                        str(project),
+                        "--profile-set",
+                        "quality",
+                        "--install",
+                        "--replace-managed",
+                    ]
+                )
+            self.assertEqual(result, 2)
+            self.assertEqual(self._snapshot(project), before)
+            self.assertIn("drift=user-modified", output.getvalue())
+
+    def test_failed_catalog_switch_restores_every_profile_and_state_byte(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            self.assertEqual(self._install(project, "balanced"), 0)
+            before = self._snapshot(project)
+            original_replace = setup_profile.os.replace
+            calls = 0
+
+            def fail_once(source, destination):
+                nonlocal calls
+                calls += 1
+                if calls == 7:
+                    raise OSError("simulated catalog switch interruption")
+                return original_replace(source, destination)
+
+            with mock.patch.object(setup_profile.os, "replace", side_effect=fail_once):
+                result = setup_profile.main(
+                    [
+                        "--all",
+                        "--project-dir",
+                        str(project),
+                        "--profile-set",
+                        "quality",
+                        "--install",
+                        "--replace-managed",
+                    ]
+                )
+            self.assertEqual(result, 2)
+            self.assertEqual(self._snapshot(project), before)
+
+    def test_concurrent_profile_change_is_detected_and_preserved(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            self.assertEqual(self._install(project, "balanced"), 0)
+            expected = self._snapshot(project)
+            target = project / ".codex/agents/kapisch-architect.toml"
+            changed = target.read_bytes() + b"# concurrent user change\n"
+            expected[target.relative_to(project)] = changed
+            original_replace = setup_profile.os.replace
+            first_replace = True
+
+            def change_before_first_replace(source, destination):
+                nonlocal first_replace
+                if first_replace:
+                    first_replace = False
+                    target.write_bytes(changed)
+                return original_replace(source, destination)
+
+            with mock.patch.object(
+                setup_profile.os,
+                "replace",
+                side_effect=change_before_first_replace,
+            ):
+                result = setup_profile.main(
+                    [
+                        "--all",
+                        "--project-dir",
+                        str(project),
+                        "--profile-set",
+                        "quality",
+                        "--install",
+                        "--replace-managed",
+                    ]
+                )
+            self.assertEqual(result, 2)
+            self.assertEqual(self._snapshot(project), expected)
+
+    def test_failed_backup_cleanup_finishes_the_committed_switch(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            self.assertEqual(self._install(project, "balanced"), 0)
+            before = self._snapshot(project)
+            original_unlink = Path.unlink
+            backup_cleanup_calls = 0
+
+            def fail_after_one_backup_cleanup(path: Path, *args, **kwargs):
+                nonlocal backup_cleanup_calls
+                if path.name.endswith(".bak"):
+                    backup_cleanup_calls += 1
+                    if backup_cleanup_calls == 2:
+                        raise OSError("simulated backup cleanup failure")
+                return original_unlink(path, *args, **kwargs)
+
+            with mock.patch.object(
+                Path,
+                "unlink",
+                autospec=True,
+                side_effect=fail_after_one_backup_cleanup,
+            ):
+                result = setup_profile.main(
+                    [
+                        "--all",
+                        "--project-dir",
+                        str(project),
+                        "--profile-set",
+                        "quality",
+                        "--install",
+                        "--replace-managed",
+                    ]
+                )
+            self.assertEqual(result, 0)
+            self.assertNotEqual(self._snapshot(project), before)
+            for role, (model, effort) in self.EXPECTED_ROUTING["quality"].items():
+                profile = tomllib.loads(
+                    (project / f".codex/agents/kapisch-{role}.toml").read_text(
+                        encoding="utf-8"
+                    )
+                )
+                self.assertEqual(
+                    (profile["model"], profile["model_reasoning_effort"]),
+                    (model, effort),
+                )
+            self.assertFalse(
+                (project / ".kapisch/local-state/profile-switch.toml").exists()
+            )
+
+    def test_interrupted_switch_recovers_at_every_profile_and_state_publish(self) -> None:
+        class SimulatedPowerLoss(BaseException):
+            pass
+
+        for boundary in range(1, 13):
+            with self.subTest(boundary=boundary), TemporaryDirectory() as temporary:
+                project = Path(temporary)
+                self.assertEqual(self._install(project, "balanced"), 0)
+                before = self._snapshot(project)
+                original_replace = setup_profile.os.replace
+                publishes = 0
+
+                def crash_after_publish(source, destination):
+                    nonlocal publishes
+                    result = original_replace(source, destination)
+                    if Path(source).name.endswith(".kapisch-switch.tmp"):
+                        publishes += 1
+                        if publishes == boundary:
+                            raise SimulatedPowerLoss
+                    return result
+
+                with (
+                    mock.patch.object(
+                        setup_profile.os,
+                        "replace",
+                        side_effect=crash_after_publish,
+                    ),
+                    self.assertRaises(SimulatedPowerLoss),
+                ):
+                    setup_profile.main(
+                        [
+                            "--all",
+                            "--project-dir",
+                            str(project),
+                            "--profile-set",
+                            "quality",
+                            "--install",
+                            "--replace-managed",
+                        ]
+                    )
+                self.assertTrue(
+                    (project / ".kapisch/local-state/profile-switch.toml").is_file()
+                )
+                self.assertEqual(
+                    setup_profile.main(
+                        [
+                            "--all",
+                            "--project-dir",
+                            str(project),
+                            "--profile-set",
+                            "balanced",
+                        ]
+                    ),
+                    0,
+                )
+                self.assertEqual(self._snapshot(project), before)
+
+    def test_interrupted_switch_preserves_a_later_user_edit(self) -> None:
+        class SimulatedPowerLoss(BaseException):
+            pass
+
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            self.assertEqual(self._install(project, "balanced"), 0)
+            original_replace = setup_profile.os.replace
+
+            def crash_after_first_publish(source, destination):
+                result = original_replace(source, destination)
+                if Path(source).name.endswith(".kapisch-switch.tmp"):
+                    raise SimulatedPowerLoss
+                return result
+
+            with (
+                mock.patch.object(
+                    setup_profile.os,
+                    "replace",
+                    side_effect=crash_after_first_publish,
+                ),
+                self.assertRaises(SimulatedPowerLoss),
+            ):
+                setup_profile.main(
+                    [
+                        "--all",
+                        "--project-dir",
+                        str(project),
+                        "--profile-set",
+                        "quality",
+                        "--install",
+                        "--replace-managed",
+                    ]
+                )
+
+            target = project / ".codex/agents/kapisch-architect.toml"
+            user_edit = target.read_bytes() + b"# user edit after interruption\n"
+            target.write_bytes(user_edit)
+
+            self.assertEqual(
+                setup_profile.main(
+                    [
+                        "--all",
+                        "--project-dir",
+                        str(project),
+                        "--profile-set",
+                        "balanced",
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(target.read_bytes(), user_edit)
+            self.assertFalse(
+                (project / ".kapisch/local-state/profile-switch.toml").exists()
+            )
+
+    def test_interrupted_journal_publish_recovers_and_commit_publish_finishes(self) -> None:
+        class SimulatedPowerLoss(BaseException):
+            pass
+
+        for boundary, expect_quality in (
+            (".profile-switch.prepare.tmp", False),
+            (".profile-switch.commit.tmp", True),
+        ):
+            with self.subTest(boundary=boundary), TemporaryDirectory() as temporary:
+                project = Path(temporary)
+                self.assertEqual(self._install(project, "balanced"), 0)
+                before = self._snapshot(project)
+                original_replace = setup_profile.os.replace
+
+                def crash_after_boundary(source, destination):
+                    result = original_replace(source, destination)
+                    if Path(source).name == boundary:
+                        raise SimulatedPowerLoss
+                    return result
+
+                with (
+                    mock.patch.object(
+                        setup_profile.os,
+                        "replace",
+                        side_effect=crash_after_boundary,
+                    ),
+                    self.assertRaises(SimulatedPowerLoss),
+                ):
+                    setup_profile.main(
+                        [
+                            "--all",
+                            "--project-dir",
+                            str(project),
+                            "--profile-set",
+                            "quality",
+                            "--install",
+                            "--replace-managed",
+                        ]
+                    )
+                self.assertEqual(
+                    setup_profile.main(
+                        [
+                            "--all",
+                            "--project-dir",
+                            str(project),
+                            "--profile-set",
+                            "quality" if expect_quality else "balanced",
+                        ]
+                    ),
+                    0,
+                )
+                if expect_quality:
+                    for role, (model, effort) in self.EXPECTED_ROUTING["quality"].items():
+                        profile = tomllib.loads(
+                            (
+                                project / f".codex/agents/kapisch-{role}.toml"
+                            ).read_text(encoding="utf-8")
+                        )
+                        self.assertEqual(
+                            (profile["model"], profile["model_reasoning_effort"]),
+                            (model, effort),
+                        )
+                else:
+                    self.assertEqual(self._snapshot(project), before)
+
+    def test_concurrent_identity_collision_rolls_back_without_deleting_it(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            self.assertEqual(self._install(project, "balanced"), 0)
+            expected = self._snapshot(project)
+            collision = project / ".codex/agents/unrelated.toml"
+            collision_bytes = b'name = "kapisch-reviewer"\n'
+            expected[collision.relative_to(project)] = collision_bytes
+            original_replace = setup_profile.os.replace
+            inserted = False
+
+            def insert_collision_before_publish(source, destination):
+                nonlocal inserted
+                if not inserted and Path(source).name.endswith(".kapisch-switch.tmp"):
+                    inserted = True
+                    collision.write_bytes(collision_bytes)
+                return original_replace(source, destination)
+
+            with mock.patch.object(
+                setup_profile.os,
+                "replace",
+                side_effect=insert_collision_before_publish,
+            ):
+                result = setup_profile.main(
+                    [
+                        "--all",
+                        "--project-dir",
+                        str(project),
+                        "--profile-set",
+                        "quality",
+                        "--install",
+                        "--replace-managed",
+                    ]
+                )
+            self.assertEqual(result, 2)
+            self.assertEqual(self._snapshot(project), expected)
+
+    def test_active_setup_lock_blocks_and_stale_lock_is_recovered(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            self.assertEqual(self._install(project, "balanced"), 0)
+            before = self._snapshot(project)
+            lock = project / ".kapisch/local-state/profile-switch.lock"
+            lock.write_text(f"pid={setup_profile.os.getpid()}\n", encoding="ascii")
+            self.assertEqual(
+                setup_profile.main(["--all", "--project-dir", str(project)]),
+                2,
+            )
+            self.assertTrue(lock.exists())
+            lock.write_text("pid=999999\n", encoding="ascii")
+            self.assertEqual(
+                setup_profile.main(["--all", "--project-dir", str(project)]),
+                0,
+            )
+            self.assertFalse(lock.exists())
+            self.assertEqual(self._snapshot(project), before)
+
+    def test_oversized_setup_lock_pid_fails_closed(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            self.assertEqual(self._install(project, "balanced"), 0)
+            before = self._snapshot(project)
+            lock = project / ".kapisch/local-state/profile-switch.lock"
+            contents = "pid=999999999999999999999999999999999999999999\n"
+            lock.write_text(contents, encoding="ascii")
+            before[lock.relative_to(project)] = lock.read_bytes()
+
+            self.assertEqual(
+                setup_profile.main(["--all", "--project-dir", str(project)]),
+                2,
+            )
+            self.assertEqual(lock.read_text(encoding="ascii"), contents)
+            self.assertEqual(self._snapshot(project), before)
+
+    def test_verified_legacy_state_is_inspectable_as_quality_without_rewrite(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            self.assertEqual(self._install(project, "quality"), 0)
+            for record in (project / ".kapisch/local-state/profiles").glob("*.toml"):
+                lines = [
+                    line
+                    for line in record.read_text(encoding="utf-8").splitlines()
+                    if not line.startswith("profile_set=")
+                ]
+                record.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            before = self._snapshot(project)
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(
+                    setup_profile.main(
+                        ["--all", "--project-dir", str(project)]
+                    ),
+                    0,
+                )
+            self.assertEqual(self._snapshot(project), before)
+            self.assertEqual(output.getvalue().count("installed_profile_set=quality"), 6)

@@ -44,6 +44,12 @@ The validator parses those persisted TOML artifacts and validates their schema,
 paths, transitions, and factual consistency. It does not re-derive or second
 guess the conversational decision.
 
+Installed profile sets are Codex runtime configuration, not request controls.
+`token_profile`, `profile_set`, and equivalent per-request routing sugar are not
+part of KAPISCH normalization. Select or switch a profile set explicitly with
+`scripts/setup_profile.py`; normal requests continue to select only a logical
+role and Codex resolves its installed profile.
+
 ## Repository instruction freshness
 
 After checkout, reset, rebase, merge, branch switch, worktree change, or another

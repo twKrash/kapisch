@@ -114,7 +114,15 @@ class ExtractionAcceptanceTests(unittest.TestCase):
             project = Path(tmp)
             self.assertEqual(
                 setup_profile(
-                    ["--role", "reviewer", "--project-dir", str(project), "--install"]
+                    [
+                        "--role",
+                        "reviewer",
+                        "--project-dir",
+                        str(project),
+                        "--profile-set",
+                        "quality",
+                        "--install",
+                    ]
                 ),
                 0,
             )

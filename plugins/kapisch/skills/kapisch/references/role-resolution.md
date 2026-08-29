@@ -11,6 +11,13 @@ invocation result. The role TOMLs remain directly supported by Codex. A failed
 or missing required reviewer invocation blocks approval; it is not predicted or
 replaced by a repository resolver.
 
+Installer-time `balanced`, `quality`, and `budget` profile sets configure only
+the Codex `model` and `model_reasoning_effort` fields for those same six logical
+profiles. They do not create roles or alter role selection, risk, review depth,
+approval, permissions, or durable logical tiers. Python may deterministically
+render an explicitly selected installed profile set; it never chooses the
+semantic role or changes the set per request.
+
 A skill or plugin capability is not a logical role, executor class, profile, or
 model tier. The six-role catalog stays closed, and capability selection follows
 role resolution: a delegated capability may supply methodology, repository

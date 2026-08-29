@@ -184,6 +184,16 @@ class MarketplaceTests(unittest.TestCase):
             "<consumer-repository>",
             readme,
         )
+        for profile_set in ("balanced", "quality", "budget"):
+            self.assertIn(
+                "python scripts/setup_profile.py --all --project-dir "
+                f"<consumer-repository> --profile-set {profile_set} --install",
+                readme,
+            )
+        self.assertIn(
+            "--profile-set budget --install --replace-managed",
+            readme,
+        )
         self.assertIn(
             "python scripts/migrate_legacy_run.py --project-dir "
             "<consumer-repository> --task-id <task-id> --approve",
@@ -222,6 +232,16 @@ class MarketplaceTests(unittest.TestCase):
                 (consumer / ".codex/agents/kapisch-reviewer.toml").is_file()
             )
 
+            help_result = subprocess.run(
+                [sys.executable, "scripts/setup_profile.py", "--help"],
+                cwd=PLUGIN,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(help_result.returncode, 0, help_result.stderr)
+            self.assertIn("--profile-set {balanced,quality,budget}", help_result.stdout)
+            self.assertIn("--replace-managed", help_result.stdout)
+
             legacy = consumer / ".planning/task-workflow/valid"
             shutil.copytree(
                 PLUGIN
@@ -248,6 +268,12 @@ class MarketplaceTests(unittest.TestCase):
                 migration.stdout + migration.stderr,
             )
             self.assertTrue((consumer / ".kapisch/runs/valid").is_dir())
+
+    def test_validation_package_keeps_the_standard_library_runtime_boundary(self) -> None:
+        project = tomllib.loads(
+            (PLUGIN / "pyproject.toml").read_text(encoding="utf-8")
+        )["project"]
+        self.assertNotIn("dependencies", project)
 
     def test_installed_plugin_validator_resolves_bundled_paths_from_plugin_root(
         self,

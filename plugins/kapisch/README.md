@@ -9,10 +9,11 @@ Codex continues to own agent dispatch, model selection, and sandboxing.
 This plugin is distributed through the Git-backed `kapisch-local` marketplace,
 not the OpenAI public Plugin Directory.
 
-Released installation:
+After an authorized maintainer publishes the immutable `v1.1.0` tag, the
+released installation command will be:
 
 ```text
-codex plugin marketplace add twKrash/kapisch --ref v1.0.1
+codex plugin marketplace add twKrash/kapisch --ref v1.1.0
 codex plugin add kapisch@kapisch-local
 ```
 
@@ -56,12 +57,33 @@ plugin directory, inspect a target before installing it:
 python scripts/setup_profile.py --role reviewer --project-dir <consumer-repository>
 python scripts/setup_profile.py --role reviewer --project-dir <consumer-repository> --install
 python scripts/setup_profile.py --all --project-dir <consumer-repository> --install
+python scripts/setup_profile.py --all --project-dir <consumer-repository> --profile-set balanced --install
+python scripts/setup_profile.py --all --project-dir <consumer-repository> --profile-set quality --install
+python scripts/setup_profile.py --all --project-dir <consumer-repository> --profile-set budget --install
 ```
 
-Setup refuses collisions and never overwrites, renames, or deletes an existing
-profile. It records and reports template and installed hashes, identity, and
-drift. Project scope is the default; `--scope user` is available when explicitly
-required.
+With no `--profile-set`, a new installation uses `balanced`. Setup refuses
+collisions and never overwrites, renames, or deletes an existing profile during
+ordinary install. It records and reports the selected set, template and
+installed hashes, identity, and drift. Project scope is the default; `--scope
+user` is available when explicitly required.
+
+To switch a verified KAPISCH-managed catalog after inspecting it, require the
+explicit replacement action:
+
+```text
+python scripts/setup_profile.py --all --project-dir <consumer-repository> --profile-set budget
+python scripts/setup_profile.py --all --project-dir <consumer-repository> --profile-set budget --install --replace-managed
+```
+
+Replacement fails closed for missing/unverifiable state, user drift, unrelated
+identities, collisions, concurrent changes, or transaction failure. A
+machine-local journal restores a prepared switch after process interruption or
+finishes cleanup for an already committed switch on the next setup invocation.
+Setup operations are process-locked, and recovery preserves a profile edited
+after interruption rather than restoring older bytes over the edit.
+See [profile sets](docs/profile-sets.md) for the exact routing, recovery, and
+legacy behavior.
 
 ## Validator
 
@@ -92,7 +114,7 @@ Windows 11 with Codex Desktop and WSL2 is the release-blocking Windows surface.
 Native Windows profile setup and portable-package tests pass on Python 3.11;
 live no-WSL plugin support is claimed only after a complete observed run. See
 [compatibility.md](docs/compatibility.md) and the
-[Windows acceptance record](docs/acceptance-windows-v1.0.1.md).
+[1.1.0 Windows acceptance template](docs/acceptance-windows-v1.1.0.md).
 
 ## Development checks
 
@@ -112,6 +134,7 @@ From the repository root, also run `python -m unittest discover -s tests` and
 - [Public workflow contract](skills/kapisch/SKILL.md)
 - [Acceptance status](docs/acceptance.md)
 - [Compatibility and rollback](docs/compatibility.md)
+- [Profile sets and switching](docs/profile-sets.md)
 - [Roadmap](docs/roadmap.md)
 - [Change 7 execution history and acceptance plan](docs/change-7-execution-plan.md)
 - [Changelog](CHANGELOG.md)
