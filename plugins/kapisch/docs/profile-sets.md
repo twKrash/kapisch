@@ -64,8 +64,9 @@ unrelated profiles, identity collisions, unreadable state, an unknown profile
 set, or a concurrent change blocks the entire catalog. The installer stages all
 new bytes and writes a machine-local prepared/committed recovery journal before
 publishing any replacement. A caught failure restores the prior profile and
-state bytes immediately. A process-level interruption is recovered before the
-next setup inspection or installation: a prepared transaction rolls back, while
+state bytes immediately unless recovery detects a later external edit, which it
+preserves. A process-level interruption is recovered before the next setup
+inspection or installation: a prepared transaction rolls back, while
 a fully committed transaction only finishes cleanup. Commit-time and
 postcondition identity checks catch a catalog collision inserted after
 preflight; the unrelated file is preserved. Switching back uses the same
