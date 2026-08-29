@@ -563,7 +563,7 @@ def _recover_interrupted_switch(root: Path) -> tuple[bool, str | None]:
         prepare = _switch_prepare_path(root)
         if prepare.exists() or prepare.is_symlink():
             try:
-                prepare.unlink()
+                os.unlink(prepare)
             except OSError as exc:
                 return False, f"incomplete switch preparation could not be removed: {exc}"
         return True, None
@@ -627,8 +627,8 @@ def _recover_interrupted_switch(root: Path) -> tuple[bool, str | None]:
         cleanup_paths.append(_switch_prepare_path(root))
         for path in cleanup_paths:
             if path.exists() or path.is_symlink():
-                path.unlink()
-        journal.unlink()
+                os.unlink(path)
+        os.unlink(journal)
     except (OSError, ProfileReadError, ValueError) as exc:
         return False, str(exc)
     return True, None
