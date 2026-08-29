@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import shutil
 import tomllib
 import unittest
@@ -729,6 +730,10 @@ class ProfileSetTests(unittest.TestCase):
                 original_unlink = Path.unlink
                 journal = project / ".kapisch/local-state/profile-switch.toml"
                 denied_path: Path | None = None
+                unlink_paths: list[str] = []
+
+                def normalized_path(path: Path | str) -> str:
+                    return os.path.normcase(os.path.abspath(os.fspath(path)))
 
                 def publish_with_cleanup_artifact(source, destination):
                     nonlocal denied_path
@@ -753,7 +758,12 @@ class ProfileSetTests(unittest.TestCase):
                     return result
 
                 def deny_selected_cleanup(path: Path, *args, **kwargs):
-                    if denied_path is not None and path == denied_path:
+                    normalized = normalized_path(path)
+                    unlink_paths.append(normalized)
+                    if (
+                        denied_path is not None
+                        and normalized == normalized_path(denied_path)
+                    ):
                         raise OSError(f"persistent {denied_kind} cleanup denial")
                     return original_unlink(path, *args, **kwargs)
 
@@ -785,6 +795,9 @@ class ProfileSetTests(unittest.TestCase):
                     )
 
                 self.assertEqual(result, 2)
+                self.assertIsNotNone(denied_path)
+                assert denied_path is not None
+                self.assertIn(normalized_path(denied_path), unlink_paths)
                 self.assertIn("status=installed", output.getvalue())
                 self.assertIn("installed_profile_set=quality", output.getvalue())
                 self.assertIn("cleanup=committed switch cleanup pending", output.getvalue())
