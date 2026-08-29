@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import shutil
 import tomllib
 import unittest
@@ -721,127 +720,94 @@ class ProfileSetTests(unittest.TestCase):
                 (project / ".kapisch/local-state/profile-switch.toml").exists()
             )
 
-    def test_persistent_cleanup_denial_reports_committed_set_and_recovers(self) -> None:
-        for denied_kind in ("backup", "staging", "temporary", "journal"):
-            with self.subTest(denied_kind=denied_kind), TemporaryDirectory() as temporary:
-                project = Path(temporary)
-                self.assertEqual(self._install(project, "balanced"), 0)
-                original_replace = setup_profile.os.replace
-                original_unlink = setup_profile.os.unlink
-                journal = project / ".kapisch/local-state/profile-switch.toml"
-                denied_path: Path | None = None
-                unlink_paths: list[str] = []
+    def test_persistent_committed_cleanup_failure_reports_committed_set_and_recovers(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            self.assertEqual(self._install(project, "balanced"), 0)
+            journal = project / ".kapisch/local-state/profile-switch.toml"
+            original_recover = setup_profile._recover_interrupted_switch
+            recovery_calls: list[Path] = []
 
-                def normalized_path(path: Path | str) -> str:
-                    return os.path.normcase(os.path.abspath(os.fspath(path)))
+            def deny_committed_cleanup(root: Path) -> tuple[bool, str | None]:
+                if not journal.exists():
+                    return original_recover(root)
+                self.assertEqual(
+                    tomllib.loads(journal.read_text(encoding="utf-8"))["status"],
+                    "committed",
+                )
+                recovery_calls.append(root)
+                return False, "simulated persistent committed cleanup failure"
 
-                def publish_with_cleanup_artifact(source, destination):
-                    nonlocal denied_path
-                    result = original_replace(source, destination)
-                    if Path(source).name == ".profile-switch.commit.tmp":
-                        if denied_kind == "backup":
-                            denied_path = (
-                                project
-                                / ".codex/agents/.kapisch-architect.toml.kapisch-switch.bak"
-                            )
-                        elif denied_kind == "staging":
-                            denied_path = (
-                                project
-                                / ".codex/agents/.kapisch-architect.toml.kapisch-switch.tmp"
-                            )
-                            denied_path.write_bytes(b"leftover staging bytes")
-                        elif denied_kind == "temporary":
-                            denied_path = journal.with_name(".profile-switch.commit.tmp")
-                            denied_path.write_bytes(b"leftover temporary bytes")
-                        else:
-                            denied_path = journal
-                    return result
+            output = io.StringIO()
+            with (
+                mock.patch.object(
+                    setup_profile,
+                    "_recover_interrupted_switch",
+                    side_effect=deny_committed_cleanup,
+                ),
+                redirect_stdout(output),
+            ):
+                result = setup_profile.main(
+                    [
+                        "--all",
+                        "--project-dir",
+                        str(project),
+                        "--profile-set",
+                        "quality",
+                        "--install",
+                        "--replace-managed",
+                    ]
+                )
 
-                def deny_selected_cleanup(path: Path, *args, **kwargs):
-                    normalized = normalized_path(path)
-                    unlink_paths.append(normalized)
-                    if (
-                        denied_path is not None
-                        and normalized == normalized_path(denied_path)
-                    ):
-                        raise OSError(f"persistent {denied_kind} cleanup denial")
-                    return original_unlink(path, *args, **kwargs)
+            self.assertEqual(result, 2)
+            self.assertEqual(recovery_calls, [project, project])
+            self.assertIn("status=installed", output.getvalue())
+            self.assertIn("installed_profile_set=quality", output.getvalue())
+            self.assertIn("cleanup=committed switch cleanup pending", output.getvalue())
+            self.assertNotIn("rolled back", output.getvalue())
+            self.assertTrue(journal.exists())
+            self.assertEqual(
+                tomllib.loads(journal.read_text(encoding="utf-8"))["status"],
+                "committed",
+            )
+            for role, (model, effort) in self.EXPECTED_ROUTING["quality"].items():
+                profile = tomllib.loads(
+                    (project / f".codex/agents/kapisch-{role}.toml").read_text(
+                        encoding="utf-8"
+                    )
+                )
+                state = tomllib.loads(
+                    (project / f".kapisch/local-state/profiles/{role}.toml").read_text(
+                        encoding="utf-8"
+                    )
+                )
+                self.assertEqual(
+                    (profile["model"], profile["model_reasoning_effort"]),
+                    (model, effort),
+                )
+                self.assertEqual(state["profile_set"], "quality")
 
-                output = io.StringIO()
-                with (
-                    mock.patch.object(
-                        setup_profile.os,
-                        "replace",
-                        side_effect=publish_with_cleanup_artifact,
-                    ),
-                    mock.patch.object(
-                        setup_profile.os,
-                        "unlink",
-                        side_effect=deny_selected_cleanup,
-                    ),
-                    redirect_stdout(output),
-                ):
-                    result = setup_profile.main(
+            recovery_output = io.StringIO()
+            with redirect_stdout(recovery_output):
+                self.assertEqual(
+                    setup_profile.main(
                         [
                             "--all",
                             "--project-dir",
                             str(project),
                             "--profile-set",
                             "quality",
-                            "--install",
-                            "--replace-managed",
                         ]
-                    )
-
-                self.assertEqual(result, 2)
-                self.assertIsNotNone(denied_path)
-                assert denied_path is not None
-                self.assertIn(normalized_path(denied_path), unlink_paths)
-                self.assertIn("status=installed", output.getvalue())
-                self.assertIn("installed_profile_set=quality", output.getvalue())
-                self.assertIn("cleanup=committed switch cleanup pending", output.getvalue())
-                self.assertNotIn("rolled back", output.getvalue())
-                self.assertTrue(journal.exists())
-                self.assertEqual(
-                    tomllib.loads(journal.read_text(encoding="utf-8"))["status"],
-                    "committed",
+                    ),
+                    0,
                 )
-                for role, (model, effort) in self.EXPECTED_ROUTING["quality"].items():
-                    profile = tomllib.loads(
-                        (project / f".codex/agents/kapisch-{role}.toml").read_text(
-                            encoding="utf-8"
-                        )
-                    )
-                    state = tomllib.loads(
-                        (project / f".kapisch/local-state/profiles/{role}.toml").read_text(
-                            encoding="utf-8"
-                        )
-                    )
-                    self.assertEqual(
-                        (profile["model"], profile["model_reasoning_effort"]),
-                        (model, effort),
-                    )
-                    self.assertEqual(state["profile_set"], "quality")
-
-                recovery_output = io.StringIO()
-                with redirect_stdout(recovery_output):
-                    self.assertEqual(
-                        setup_profile.main(
-                            [
-                                "--all",
-                                "--project-dir",
-                                str(project),
-                                "--profile-set",
-                                "quality",
-                            ]
-                        ),
-                        0,
-                    )
-                self.assertIn(
-                    "recovery=completed interrupted managed-profile transaction",
-                    recovery_output.getvalue(),
-                )
-                self.assertFalse(journal.exists())
+            self.assertIn(
+                "recovery=completed interrupted managed-profile transaction",
+                recovery_output.getvalue(),
+            )
+            self.assertFalse(journal.exists())
 
     def test_committed_destination_divergence_is_not_reported_as_active(self) -> None:
         with TemporaryDirectory() as temporary:
