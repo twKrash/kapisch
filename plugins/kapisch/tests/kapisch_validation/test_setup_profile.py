@@ -736,7 +736,7 @@ class ProfileSetTests(unittest.TestCase):
                 target_set=target_set,
                 denied_kind=denied_kind,
             ), TemporaryDirectory() as temporary:
-                project = Path(temporary)
+                project = Path(temporary).resolve()
                 self.assertEqual(self._install(project, initial_set), 0)
                 self.assertEqual(
                     setup_profile.main(
