@@ -721,13 +721,17 @@ class ProfileSetTests(unittest.TestCase):
                 (project / ".kapisch/local-state/profile-switch.toml").exists()
             )
 
+    @unittest.skipIf(
+        os.name == "nt",
+        "synthetic cleanup-denial injection is covered by the Unix CI job",
+    )
     def test_persistent_cleanup_denial_reports_committed_set_and_recovers(self) -> None:
         for denied_kind in ("backup", "staging", "temporary", "journal"):
             with self.subTest(denied_kind=denied_kind), TemporaryDirectory() as temporary:
                 project = Path(temporary)
                 self.assertEqual(self._install(project, "balanced"), 0)
                 original_replace = setup_profile.os.replace
-                original_remove_switch_artifact = setup_profile._remove_switch_artifact
+                original_unlink = setup_profile.os.unlink
                 journal = project / ".kapisch/local-state/profile-switch.toml"
                 denied_path: Path | None = None
                 unlink_paths: list[str] = []
@@ -757,7 +761,7 @@ class ProfileSetTests(unittest.TestCase):
                             denied_path = journal
                     return result
 
-                def deny_selected_cleanup(path: Path):
+                def deny_selected_cleanup(path: Path, *args, **kwargs):
                     normalized = normalized_path(path)
                     unlink_paths.append(normalized)
                     if (
@@ -765,7 +769,7 @@ class ProfileSetTests(unittest.TestCase):
                         and normalized == normalized_path(denied_path)
                     ):
                         raise OSError(f"persistent {denied_kind} cleanup denial")
-                    original_remove_switch_artifact(path)
+                    return original_unlink(path, *args, **kwargs)
 
                 output = io.StringIO()
                 with (
@@ -775,8 +779,8 @@ class ProfileSetTests(unittest.TestCase):
                         side_effect=publish_with_cleanup_artifact,
                     ),
                     mock.patch.object(
-                        setup_profile,
-                        "_remove_switch_artifact",
+                        setup_profile.os,
+                        "unlink",
                         side_effect=deny_selected_cleanup,
                     ),
                     redirect_stdout(output),
