@@ -738,8 +738,8 @@ class ProfileSetTests(unittest.TestCase):
             ), TemporaryDirectory() as temporary:
                 project = Path(temporary)
                 self.assertEqual(self._install(project, initial_set), 0)
-                original_replace = setup_profile.os.replace
-                original_unlink = setup_profile.os.unlink
+                original_read_switch_journal = setup_profile._read_switch_journal
+                original_remove_switch_artifact = setup_profile._remove_switch_artifact
                 journal = project / ".kapisch/local-state/profile-switch.toml"
                 denied_path: Path | None = None
                 unlink_paths: list[str] = []
@@ -747,10 +747,10 @@ class ProfileSetTests(unittest.TestCase):
                 def normalized_path(path: Path | str) -> str:
                     return os.path.normcase(os.path.abspath(os.fspath(path)))
 
-                def publish_with_cleanup_artifact(source, destination):
+                def read_switch_journal_with_cleanup_artifact(root: Path):
                     nonlocal denied_path
-                    result = original_replace(source, destination)
-                    if Path(source).name == ".profile-switch.commit.tmp":
+                    status, entries = original_read_switch_journal(root)
+                    if denied_path is None:
                         if denied_kind == "backup":
                             denied_path = (
                                 project
@@ -770,9 +770,9 @@ class ProfileSetTests(unittest.TestCase):
                             denied_path.write_bytes(b"leftover preparation bytes")
                         else:
                             denied_path = journal
-                    return result
+                    return status, entries
 
-                def deny_selected_cleanup(path: Path, *args, **kwargs):
+                def deny_selected_cleanup(path: Path) -> None:
                     normalized = normalized_path(path)
                     unlink_paths.append(normalized)
                     if (
@@ -780,19 +780,18 @@ class ProfileSetTests(unittest.TestCase):
                         and normalized == normalized_path(denied_path)
                     ):
                         raise OSError(f"persistent {denied_kind} cleanup denial")
-                    return original_unlink(path, *args, **kwargs)
+                    original_remove_switch_artifact(path)
 
                 output = io.StringIO()
                 with (
                     mock.patch.object(
-                        setup_profile.os,
-                        "replace",
-                        side_effect=publish_with_cleanup_artifact,
+                        setup_profile,
+                        "_read_switch_journal",
+                        side_effect=read_switch_journal_with_cleanup_artifact,
                     ),
                     mock.patch.object(
-                        Path,
-                        "unlink",
-                        autospec=True,
+                        setup_profile,
+                        "_remove_switch_artifact",
                         side_effect=deny_selected_cleanup,
                     ),
                     redirect_stdout(output),
