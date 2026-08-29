@@ -4,7 +4,8 @@
 evidence that the 1.1.0 tag, release, or live runtime acceptance exists.
 
 - Release: `1.1.0`; intended immutable tag: `v1.1.0`.
-- Candidate SHA: pending after the final candidate is committed by an authorized maintainer.
+- Tested implementation SHA: `53116a27a5b0149448ef631b04d93d0829fda30e`.
+- Final release SHA: pending review, merge, and authorized release preparation.
 - Remote tag verification: pending; do not create or publish the tag during candidate preparation.
 - Supported release-blocking Windows surface: Windows 11, Codex Desktop/CLI, and WSL2.
 - Native no-WSL live support: not claimed.
@@ -23,9 +24,11 @@ refusal, rollback after injected failure, selected-set state/digests, legacy
 
 ### Current candidate evidence — 2026-08-29
 
-This evidence is bound to the uncommitted candidate working tree based on
-`354020d2b270797b2099273ff9be8c132fc7aac7`; it is not exact-release-SHA or tag
-evidence.
+This evidence is bound to implementation commit
+`53116a27a5b0149448ef631b04d93d0829fda30e`, based on
+`354020d2b270797b2099273ff9be8c132fc7aac7`. It is not exact-release-SHA or tag
+evidence; later documentation-only evidence binding does not expand the tested
+runtime scope.
 
 - Linux root suite: 9 tests passed.
 - Linux validator suite: 263 tests passed.
