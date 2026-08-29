@@ -727,7 +727,7 @@ class ProfileSetTests(unittest.TestCase):
                 project = Path(temporary)
                 self.assertEqual(self._install(project, "balanced"), 0)
                 original_replace = setup_profile.os.replace
-                original_unlink = Path.unlink
+                original_unlink = setup_profile.os.unlink
                 journal = project / ".kapisch/local-state/profile-switch.toml"
                 denied_path: Path | None = None
                 unlink_paths: list[str] = []
@@ -775,9 +775,8 @@ class ProfileSetTests(unittest.TestCase):
                         side_effect=publish_with_cleanup_artifact,
                     ),
                     mock.patch.object(
-                        Path,
+                        setup_profile.os,
                         "unlink",
-                        autospec=True,
                         side_effect=deny_selected_cleanup,
                     ),
                     redirect_stdout(output),
