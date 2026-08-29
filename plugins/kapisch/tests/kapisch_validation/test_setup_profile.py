@@ -738,57 +738,73 @@ class ProfileSetTests(unittest.TestCase):
             ), TemporaryDirectory() as temporary:
                 project = Path(temporary)
                 self.assertEqual(self._install(project, initial_set), 0)
-                original_read_switch_journal = setup_profile._read_switch_journal
-                original_remove_switch_artifact = setup_profile._remove_switch_artifact
+                self.assertEqual(
+                    setup_profile.main(
+                        [
+                            "--all",
+                            "--project-dir",
+                            str(project),
+                            "--profile-set",
+                            target_set,
+                            "--install",
+                            "--replace-managed",
+                        ]
+                    ),
+                    0,
+                )
                 journal = project / ".kapisch/local-state/profile-switch.toml"
-                denied_path: Path | None = None
+                destination = project / ".codex/agents/kapisch-architect.toml"
+                backup = destination.with_name(
+                    f".{destination.name}.kapisch-switch.bak"
+                )
+                staged = destination.with_name(
+                    f".{destination.name}.kapisch-switch.tmp"
+                )
+                commit_temporary = journal.with_name(".profile-switch.commit.tmp")
+                prepare = journal.with_name(".profile-switch.prepare.tmp")
+                artifacts = {
+                    "backup": backup,
+                    "staging": staged,
+                    "temporary": commit_temporary,
+                    "prepare": prepare,
+                    "journal": journal,
+                }
+                denied_path = artifacts[denied_kind]
+                if denied_kind != "journal":
+                    denied_path.write_bytes(b"leftover switch artifact")
+                destination_digest = hashlib.sha256(destination.read_bytes()).hexdigest()
+                setup_profile._write_exclusive(
+                    journal,
+                    setup_profile._switch_journal_text(
+                        "committed",
+                        [
+                            {
+                                "role": "architect",
+                                "kind": "profile",
+                                "destination": str(destination),
+                                "backup": str(backup),
+                                "staged": str(staged),
+                                "original_sha256": destination_digest,
+                                "desired_sha256": destination_digest,
+                            }
+                        ],
+                    ),
+                )
+                original_remove_switch_artifact = setup_profile._remove_switch_artifact
                 unlink_paths: list[str] = []
 
                 def normalized_path(path: Path | str) -> str:
                     return os.path.normcase(os.path.abspath(os.fspath(path)))
 
-                def read_switch_journal_with_cleanup_artifact(root: Path):
-                    nonlocal denied_path
-                    status, entries = original_read_switch_journal(root)
-                    if denied_path is None:
-                        if denied_kind == "backup":
-                            denied_path = (
-                                project
-                                / ".codex/agents/.kapisch-architect.toml.kapisch-switch.bak"
-                            )
-                        elif denied_kind == "staging":
-                            denied_path = (
-                                project
-                                / ".codex/agents/.kapisch-architect.toml.kapisch-switch.tmp"
-                            )
-                            denied_path.write_bytes(b"leftover staging bytes")
-                        elif denied_kind == "temporary":
-                            denied_path = journal.with_name(".profile-switch.commit.tmp")
-                            denied_path.write_bytes(b"leftover temporary bytes")
-                        elif denied_kind == "prepare":
-                            denied_path = journal.with_name(".profile-switch.prepare.tmp")
-                            denied_path.write_bytes(b"leftover preparation bytes")
-                        else:
-                            denied_path = journal
-                    return status, entries
-
                 def deny_selected_cleanup(path: Path) -> None:
                     normalized = normalized_path(path)
                     unlink_paths.append(normalized)
-                    if (
-                        denied_path is not None
-                        and normalized == normalized_path(denied_path)
-                    ):
+                    if normalized == normalized_path(denied_path):
                         raise OSError(f"persistent {denied_kind} cleanup denial")
                     original_remove_switch_artifact(path)
 
                 output = io.StringIO()
                 with (
-                    mock.patch.object(
-                        setup_profile,
-                        "_read_switch_journal",
-                        side_effect=read_switch_journal_with_cleanup_artifact,
-                    ),
                     mock.patch.object(
                         setup_profile,
                         "_remove_switch_artifact",
@@ -803,22 +819,16 @@ class ProfileSetTests(unittest.TestCase):
                             str(project),
                             "--profile-set",
                             target_set,
-                            "--install",
-                            "--replace-managed",
                         ]
                     )
 
                 self.assertEqual(result, 2)
-                self.assertIsNotNone(denied_path)
-                assert denied_path is not None
                 self.assertIn(normalized_path(denied_path), unlink_paths)
-                self.assertIn("status=installed", output.getvalue())
+                self.assertIn("status=collision", output.getvalue())
                 self.assertIn(
-                    f"installed_profile_set={target_set}",
+                    "interrupted managed switch could not be recovered",
                     output.getvalue(),
                 )
-                self.assertIn("cleanup=committed switch cleanup pending", output.getvalue())
-                self.assertNotIn("rolled back", output.getvalue())
                 self.assertTrue(journal.exists())
                 self.assertEqual(
                     tomllib.loads(journal.read_text(encoding="utf-8"))["status"],
