@@ -721,15 +721,23 @@ class ProfileSetTests(unittest.TestCase):
                 (project / ".kapisch/local-state/profile-switch.toml").exists()
             )
 
-    @unittest.skipIf(
-        os.name == "nt",
-        "synthetic cleanup-denial injection is covered by the Unix CI job",
-    )
     def test_persistent_cleanup_denial_reports_committed_set_and_recovers(self) -> None:
-        for denied_kind in ("backup", "staging", "temporary", "journal"):
-            with self.subTest(denied_kind=denied_kind), TemporaryDirectory() as temporary:
+        for initial_set, target_set, denied_kind in (
+            (initial_set, target_set, denied_kind)
+            for initial_set, target_set in (
+                ("balanced", "quality"),
+                ("quality", "budget"),
+                ("budget", "quality"),
+            )
+            for denied_kind in ("backup", "staging", "temporary", "prepare", "journal")
+        ):
+            with self.subTest(
+                initial_set=initial_set,
+                target_set=target_set,
+                denied_kind=denied_kind,
+            ), TemporaryDirectory() as temporary:
                 project = Path(temporary)
-                self.assertEqual(self._install(project, "balanced"), 0)
+                self.assertEqual(self._install(project, initial_set), 0)
                 original_replace = setup_profile.os.replace
                 original_unlink = setup_profile.os.unlink
                 journal = project / ".kapisch/local-state/profile-switch.toml"
@@ -757,6 +765,9 @@ class ProfileSetTests(unittest.TestCase):
                         elif denied_kind == "temporary":
                             denied_path = journal.with_name(".profile-switch.commit.tmp")
                             denied_path.write_bytes(b"leftover temporary bytes")
+                        elif denied_kind == "prepare":
+                            denied_path = journal.with_name(".profile-switch.prepare.tmp")
+                            denied_path.write_bytes(b"leftover preparation bytes")
                         else:
                             denied_path = journal
                     return result
@@ -779,8 +790,9 @@ class ProfileSetTests(unittest.TestCase):
                         side_effect=publish_with_cleanup_artifact,
                     ),
                     mock.patch.object(
-                        setup_profile.os,
+                        Path,
                         "unlink",
+                        autospec=True,
                         side_effect=deny_selected_cleanup,
                     ),
                     redirect_stdout(output),
@@ -791,7 +803,7 @@ class ProfileSetTests(unittest.TestCase):
                             "--project-dir",
                             str(project),
                             "--profile-set",
-                            "quality",
+                            target_set,
                             "--install",
                             "--replace-managed",
                         ]
@@ -802,7 +814,10 @@ class ProfileSetTests(unittest.TestCase):
                 assert denied_path is not None
                 self.assertIn(normalized_path(denied_path), unlink_paths)
                 self.assertIn("status=installed", output.getvalue())
-                self.assertIn("installed_profile_set=quality", output.getvalue())
+                self.assertIn(
+                    f"installed_profile_set={target_set}",
+                    output.getvalue(),
+                )
                 self.assertIn("cleanup=committed switch cleanup pending", output.getvalue())
                 self.assertNotIn("rolled back", output.getvalue())
                 self.assertTrue(journal.exists())
@@ -810,7 +825,7 @@ class ProfileSetTests(unittest.TestCase):
                     tomllib.loads(journal.read_text(encoding="utf-8"))["status"],
                     "committed",
                 )
-                for role, (model, effort) in self.EXPECTED_ROUTING["quality"].items():
+                for role, (model, effort) in self.EXPECTED_ROUTING[target_set].items():
                     profile = tomllib.loads(
                         (project / f".codex/agents/kapisch-{role}.toml").read_text(
                             encoding="utf-8"
@@ -825,7 +840,7 @@ class ProfileSetTests(unittest.TestCase):
                         (profile["model"], profile["model_reasoning_effort"]),
                         (model, effort),
                     )
-                    self.assertEqual(state["profile_set"], "quality")
+                    self.assertEqual(state["profile_set"], target_set)
 
                 recovery_output = io.StringIO()
                 with redirect_stdout(recovery_output):
@@ -836,7 +851,7 @@ class ProfileSetTests(unittest.TestCase):
                                 "--project-dir",
                                 str(project),
                                 "--profile-set",
-                                "quality",
+                                target_set,
                             ]
                         ),
                         0,

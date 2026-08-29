@@ -17,6 +17,35 @@ PLUGIN = ROOT / "plugins/kapisch"
 
 
 class MarketplaceTests(unittest.TestCase):
+    IMPLEMENTATION_SHA = "53116a27a5b0149448ef631b04d93d0829fda30e"
+    DOCUMENTATION_SHA = "887a33b342dc0fbf8435a0537578bc0a90c5ec5a"
+
+    def assert_release_provenance(self, matrix: str, acceptance: str) -> None:
+        self.assertIn(
+            f"tested implementation `{self.IMPLEMENTATION_SHA}`",
+            matrix,
+        )
+        self.assertIn(
+            f"documentation evidence bound at `{self.DOCUMENTATION_SHA}`",
+            matrix,
+        )
+        self.assertIn("final release SHA pending", matrix)
+        self.assertNotIn("current uncommitted candidate worktree", matrix)
+        self.assertIn(
+            f"- Tested implementation SHA: `{self.IMPLEMENTATION_SHA}`.",
+            acceptance,
+        )
+        self.assertIn(
+            f"- Documentation evidence SHA: `{self.DOCUMENTATION_SHA}`",
+            acceptance,
+        )
+        self.assertIn("this documentation-only head does not expand", acceptance)
+        self.assertIn(
+            "- Final release SHA: pending review, merge, and authorized release preparation.",
+            acceptance,
+        )
+        self.assertNotIn("current uncommitted candidate worktree", acceptance)
+
     def test_release_metadata_is_consistent(self) -> None:
         manifest = json.loads(
             (PLUGIN / ".codex-plugin/plugin.json").read_text(encoding="utf-8")
@@ -72,19 +101,27 @@ class MarketplaceTests(unittest.TestCase):
             f"- Release: `{version}`; intended immutable tag: `{release_tag}`.",
             acceptance,
         )
-        implementation_sha = "53116a27a5b0149448ef631b04d93d0829fda30e"
-        documentation_sha = "887a33b342dc0fbf8435a0537578bc0a90c5ec5a"
         matrix = (PLUGIN / "docs/acceptance.md").read_text(encoding="utf-8")
-        self.assertIn(f"tested implementation `{implementation_sha}`", matrix)
-        self.assertIn(f"documentation evidence bound at `{documentation_sha}`", matrix)
-        self.assertIn("final release SHA pending", matrix)
-        self.assertIn(f"- Tested implementation SHA: `{implementation_sha}`.", acceptance)
-        self.assertIn(f"- Documentation evidence SHA: `{documentation_sha}`", acceptance)
-        self.assertIn("this documentation-only head does not expand", acceptance)
-        self.assertIn(
-            "- Final release SHA: pending review, merge, and authorized release preparation.",
-            acceptance,
-        )
+        self.assert_release_provenance(matrix, acceptance)
+
+
+    def test_release_metadata_rejects_contradictory_provenance(self) -> None:
+        version = tomllib.loads(
+            (PLUGIN / "pyproject.toml").read_text(encoding="utf-8")
+        )["project"]["version"]
+        matrix = (PLUGIN / "docs/acceptance.md").read_text(encoding="utf-8")
+        acceptance = (
+            PLUGIN / "docs" / f"acceptance-windows-v{version}.md"
+        ).read_text(encoding="utf-8")
+
+        with self.assertRaisesRegex(
+            AssertionError,
+            "current uncommitted candidate worktree",
+        ):
+            self.assert_release_provenance(
+                f"{matrix}\ncurrent uncommitted candidate worktree",
+                acceptance,
+            )
 
     def test_digest_sensitive_fixtures_are_checked_out_with_lf(self) -> None:
         fixture = (
