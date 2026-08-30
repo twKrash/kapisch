@@ -36,6 +36,13 @@ sets without changing profile filenames or identities. A new installation uses
 `balanced` unless the user explicitly selects another set. The `quality` bytes
 preserve the 1.0.1 routing baseline.
 
+Profile sets resolve runtime model and reasoning effort only. Durable
+`model_tier` values remain logical workflow requirements and never imply a
+concrete model family; approval authority, risk classification, and independent
+review therefore remain identical across sets. Configured runtime values may be
+recorded only as factual observations on the established observability
+surfaces.
+
 New local-state records add `profile_set`. A 1.0.x record without that field is
 read-only compatible when its recorded template digest matches the current
 quality template and its identity/path/digest fields remain valid; inspection

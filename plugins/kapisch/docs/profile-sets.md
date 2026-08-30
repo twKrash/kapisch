@@ -1,7 +1,9 @@
 # Codex agent profile sets
 
 KAPISCH 1.1.0 keeps one six-role logical catalog and offers three installer-time
-Codex runtime configurations. Profile sets change only `model` and
+Codex runtime configurations. Logical executor classes and `model_tier` values
+are durable workflow requirements, not concrete model or reasoning-effort
+claims. Profile sets resolve the runtime `model` and
 `model_reasoning_effort`; they do not change role semantics, workflow selection,
 risk, permissions, review independence, final readiness, approval authority,
 durable evidence, validator behavior, sequential execution, or ecosystem
@@ -17,6 +19,13 @@ routing.
 | implementer-lite | `gpt-5.6-luna` / `low` | `gpt-5.6-luna` / `low` | `gpt-5.6-luna` / `low` |
 | mechanic | `gpt-5.6-luna` / `low` | `gpt-5.6-luna` / `low` | `gpt-5.6-luna` / `low` |
 | reviewer | `gpt-5.6-terra` / `high` | `gpt-5.6-sol` / `high` | `gpt-5.6-terra` / `medium` |
+
+The installer `PROFILE_SET_ROUTING` is the canonical runtime resolver; this
+table is its operator-facing rendering. A durable `model_tier=high` remains a
+logical high-risk workflow requirement in every set: it does not imply Sol.
+Thus quality may resolve the high-tier reviewer to Sol/high, balanced may
+resolve it to Terra/high, and budget uses its approved routing above. Actual
+model and effort are profile-set/runtime facts, not inferred durable evidence.
 
 Use `balanced` for normal work. Use `quality` for difficult architecture, broad
 ambiguity, unusually sensitive work, or when maximum research/review capability
@@ -84,6 +93,14 @@ reclamation or a partial initial lock write. Hardening those concurrent-process
 boundaries is deferred to
 [issue #23](https://github.com/twKrash/kapisch/issues/23); callers should avoid
 running setup concurrently until that issue is resolved.
+
+The current transaction also does not claim hardened containment through every
+descendant symlink, junction, or reparse point; preservation of all destination
+security metadata; or conditional publication against every external atomic
+rename. Those filesystem boundaries are deferred to
+[issue #25](https://github.com/twKrash/kapisch/issues/25) (KPR24-001,
+KPR24-003, and KPR24-008). Until then, callers must use a trusted ordinary
+filesystem tree and avoid concurrent external edits to managed paths.
 
 Recovery is the sole exception to inspect-only non-mutation: it completes the
 rollback or cleanup already authorized by the interrupted explicit replacement.

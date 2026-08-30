@@ -122,4 +122,6 @@ final` nodes at the `high` tier; it is never an implementation-dispatch target
 or batch member.
 Durable graphs use `cheap`, `standard`, and `high` logical tiers and documented
 execution classes. These are replaceable routing values, not model identifiers.
-They do not claim a model, token, cache, cost, or performance outcome.
+The installed profile set resolves actual model and reasoning effort at runtime;
+durable evidence does not infer either from a tier. Logical tier values do not
+claim a model, token, cache, cost, or performance outcome.
