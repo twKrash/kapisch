@@ -6,7 +6,7 @@ import argparse
 from contextlib import contextmanager
 import hashlib
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import secrets
 from typing import Any, Callable, Iterator
 import tomllib
@@ -179,6 +179,19 @@ def _record_values(path: Path) -> dict[str, Any]:
         raise ProfileReadError(f"state record is unreadable or malformed: {exc}") from exc
 
 
+def _template_provenance_matches(saved: object, template: Path) -> bool:
+    if not isinstance(saved, str) or not saved:
+        return False
+    if saved == template.name:
+        return True
+    return any(
+        candidate.is_absolute()
+        and candidate.parent.name == "agents"
+        and candidate.name == template.name
+        for candidate in (PurePosixPath(saved), PureWindowsPath(saved))
+    )
+
+
 def _record_text(
     *,
     template: Path,
@@ -190,7 +203,7 @@ def _record_text(
     installed_digest: str,
 ) -> str:
     fields = (
-        ("template", template),
+        ("template", template.name),
         ("template_sha256", template_digest),
         ("installed_profile", target),
         ("scope", scope),
@@ -365,11 +378,14 @@ def _prepare_role(
         if (
             saved.get("profile_identity") != expected_identity
             or saved.get("installed_profile") != str(target)
-            or saved.get("template") != str(template)
+            or not _template_provenance_matches(saved.get("template"), template)
             or not isinstance(saved.get("installed_sha256"), str)
             or not isinstance(saved.get("template_sha256"), str)
         ):
-            plan.update(status="collision", error="state record identity or paths cannot be verified")
+            plan.update(
+                status="collision",
+                error="state record identity or template provenance cannot be verified",
+            )
             return plan
         recorded_set = saved.get("profile_set")
         if recorded_set is None:

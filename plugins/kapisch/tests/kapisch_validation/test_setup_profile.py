@@ -438,7 +438,9 @@ class ProfileSetTests(unittest.TestCase):
             if path.is_file()
         }
 
-    def _expected_set_bytes(self, project: Path, profile_set: str) -> dict[Path, bytes]:
+    def _expected_set_bytes(
+        self, project: Path, profile_set: str, scope: str = "project"
+    ) -> dict[Path, bytes]:
         expected: dict[Path, bytes] = {}
         for role in setup_profile.ROLE_CATALOG:
             template = setup_profile.AGENT_DIR / f"kapisch-{role}.toml"
@@ -453,7 +455,7 @@ class ProfileSetTests(unittest.TestCase):
                     template=template,
                     template_digest=hashlib.sha256(canonical).hexdigest(),
                     target=target,
-                    scope="project",
+                    scope=scope,
                     role=role,
                     profile_set=profile_set,
                     installed_digest=hashlib.sha256(rendered).hexdigest(),
@@ -748,6 +750,118 @@ class ProfileSetTests(unittest.TestCase):
                     output.getvalue(),
                 )
                 self.assertNotIn("installed_profile_set=quality", output.getvalue())
+
+    def test_relocated_template_provenance_keeps_managed_sets_switchable(self) -> None:
+        cases = (
+            ("project single current", "project", ["--role", "reviewer"], False),
+            ("project catalog current", "project", ["--all"], False),
+            ("user single current", "user", ["--role", "reviewer"], False),
+            ("user catalog current", "user", ["--all"], False),
+            ("project single legacy", "project", ["--role", "reviewer"], True),
+            ("project catalog legacy", "project", ["--all"], True),
+            ("user single legacy", "user", ["--role", "reviewer"], True),
+            ("user catalog legacy", "user", ["--all"], True),
+        )
+        for name, scope, selector, legacy in cases:
+            with self.subTest(name=name), TemporaryDirectory() as temporary:
+                temporary_root = Path(temporary)
+                previous_agents = (
+                    temporary_root / "cache" / "kapisch" / "1.0.1" / "agents"
+                )
+                current_agents = (
+                    temporary_root / "cache" / "kapisch" / "1.1.0" / "agents"
+                )
+                shutil.copytree(setup_profile.AGENT_DIR, previous_agents)
+                shutil.copytree(setup_profile.AGENT_DIR, current_agents)
+                root = (temporary_root / scope).resolve()
+                root_args = (
+                    ["--project-dir", str(root)]
+                    if scope == "project"
+                    else ["--scope", "user", "--user-dir", str(root)]
+                )
+                quality_args = [*selector, *root_args, "--profile-set", "quality"]
+                with (
+                    mock.patch.object(setup_profile, "AGENT_DIR", previous_agents),
+                    redirect_stdout(io.StringIO()),
+                ):
+                    self.assertEqual(setup_profile.main([*quality_args, "--install"]), 0)
+
+                for record in (root / ".kapisch/local-state/profiles").glob("*.toml"):
+                    role = record.stem
+                    contents = record.read_text(encoding="utf-8").replace(
+                        f'template="kapisch-{role}.toml"',
+                        f"template={setup_profile.toml_basic_string(previous_agents / f'kapisch-{role}.toml')}",
+                    )
+                    if legacy:
+                        contents = "\n".join(
+                            line
+                            for line in contents.splitlines()
+                            if not line.startswith("profile_set=")
+                        ) + "\n"
+                    record.write_text(contents, encoding="utf-8")
+                before = self._snapshot(root)
+
+                with (
+                    mock.patch.object(setup_profile, "AGENT_DIR", current_agents),
+                    redirect_stdout(io.StringIO()),
+                ):
+                    self.assertEqual(setup_profile.main(quality_args), 0)
+                self.assertEqual(self._snapshot(root), before)
+
+                for profile_set in ("balanced", "quality"):
+                    with (
+                        mock.patch.object(setup_profile, "AGENT_DIR", current_agents),
+                        redirect_stdout(io.StringIO()),
+                    ):
+                        self.assertEqual(
+                            setup_profile.main(
+                                [
+                                    *selector,
+                                    *root_args,
+                                    "--profile-set",
+                                    profile_set,
+                                    "--install",
+                                    "--replace-managed",
+                                ]
+                            ),
+                            0,
+                        )
+                    expected = {
+                        path.relative_to(root): contents
+                        for path, contents in self._expected_set_bytes(
+                            root, profile_set, scope
+                        ).items()
+                    }
+                    if selector == ["--role", "reviewer"]:
+                        expected = {
+                            path: contents
+                            for path, contents in expected.items()
+                            if path.name in {"kapisch-reviewer.toml", "reviewer.toml"}
+                        }
+                    self.assertEqual(self._snapshot(root), expected)
+
+    def test_template_provenance_rejects_unrelated_versioned_paths(self) -> None:
+        template = setup_profile.AGENT_DIR / "kapisch-reviewer.toml"
+        self.assertTrue(
+            setup_profile._template_provenance_matches(
+                "/cache/kapisch/1.0.1/agents/kapisch-reviewer.toml", template
+            )
+        )
+        self.assertTrue(
+            setup_profile._template_provenance_matches(
+                r"C:\cache\kapisch\1.0.1\agents\kapisch-reviewer.toml", template
+            )
+        )
+        for value in (
+            "/cache/kapisch/1.0.1/templates/kapisch-reviewer.toml",
+            "/cache/kapisch/1.0.1/agents/kapisch-architect.toml",
+            "kapisch-architect.toml",
+            None,
+        ):
+            with self.subTest(value=value):
+                self.assertFalse(
+                    setup_profile._template_provenance_matches(value, template)
+                )
 
     def test_switch_refuses_a_user_modified_managed_profile(self) -> None:
         with TemporaryDirectory() as temporary:
