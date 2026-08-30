@@ -659,10 +659,11 @@ def _recover_interrupted_switch(root: Path) -> tuple[bool, str | None]:
                 restore = _recovery_staging_path(entry, destination)
                 if restore.exists() or restore.is_symlink():
                     if _path_digest(restore) != entry["original_sha256"]:
-                        if (
-                            "recovery" not in entry
-                            or not _is_owned_recovery_staging(restore, backup_bytes)
-                        ):
+                        # Version-1 journals used this deterministic sibling path.
+                        # A verified prefix of the authoritative backup is the
+                        # legacy transaction's only staging identity; any other
+                        # object remains fail-closed.
+                        if not _is_owned_recovery_staging(restore, backup_bytes):
                             raise OSError(f"recovery staging path is unsafe: {restore}")
                         _remove_switch_artifact(restore)
                 if not restore.exists() and not restore.is_symlink():

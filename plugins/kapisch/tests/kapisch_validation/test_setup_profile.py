@@ -499,6 +499,46 @@ class ProfileSetTests(unittest.TestCase):
             )
         return before
 
+    def _legacy_prepared_switch(
+        self, project: Path
+    ) -> tuple[dict[Path, bytes], Path, Path]:
+        before = self._snapshot(project)
+        role = "researcher"
+        target = project / f".codex/agents/kapisch-{role}.toml"
+        original = target.read_bytes()
+        desired = setup_profile._render_profile_bytes(
+            (setup_profile.AGENT_DIR / f"kapisch-{role}.toml").read_bytes(),
+            role=role,
+            profile_set="quality",
+        )
+        backup = target.with_name(f".{target.name}.kapisch-switch.bak")
+        staged = target.with_name(f".{target.name}.kapisch-switch.tmp")
+        backup.write_bytes(original)
+        target.write_bytes(desired)
+        journal = project / ".kapisch/local-state/profile-switch.toml"
+        setup_profile._write_exclusive(
+            journal,
+            setup_profile._switch_journal_text(
+                "prepared",
+                [
+                    {
+                        "role": role,
+                        "kind": "profile",
+                        "destination": str(target),
+                        "backup": str(backup),
+                        "staged": str(staged),
+                        "original_sha256": hashlib.sha256(original).hexdigest(),
+                        "desired_sha256": hashlib.sha256(desired).hexdigest(),
+                    }
+                ],
+            ),
+        )
+        return (
+            before,
+            journal,
+            target.with_name(f".{target.name}.kapisch-switch.recover.tmp"),
+        )
+
     def test_default_install_uses_balanced_and_records_the_set(self) -> None:
         with TemporaryDirectory() as temporary:
             project = Path(temporary)
@@ -1202,6 +1242,52 @@ class ProfileSetTests(unittest.TestCase):
             self.assertFalse(recovery.exists())
             self.assertEqual(unrelated.read_bytes(), b"user-owned")
             self.assertEqual(self._snapshot(project), expected)
+
+    def test_legacy_partial_recovery_staging_recovers_automatically(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary).resolve()
+            self.assertEqual(self._install(project, "balanced"), 0)
+            before, journal, recovery = self._legacy_prepared_switch(project)
+            backup = recovery.with_name(
+                ".kapisch-researcher.toml.kapisch-switch.bak"
+            )
+            recovery.write_bytes(backup.read_bytes()[:1])
+            self.assertEqual(tomllib.loads(journal.read_text())["version"], 1)
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(
+                    setup_profile.main(
+                        ["--all", "--project-dir", str(project), "--profile-set", "balanced"]
+                    ),
+                    0,
+                )
+            self.assertIn(
+                "recovery=completed interrupted managed-profile transaction",
+                output.getvalue(),
+            )
+            self.assertFalse(journal.exists())
+            self.assertFalse(recovery.exists())
+            self.assertEqual(self._snapshot(project), before)
+
+    def test_legacy_unverified_recovery_staging_fails_closed(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary).resolve()
+            self.assertEqual(self._install(project, "balanced"), 0)
+            _, journal, recovery = self._legacy_prepared_switch(project)
+            recovery.write_bytes(b"unrelated user file")
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(
+                    setup_profile.main(
+                        ["--all", "--project-dir", str(project), "--profile-set", "balanced"]
+                    ),
+                    2,
+                )
+            self.assertIn("recovery staging path is unsafe", output.getvalue())
+            self.assertEqual(recovery.read_bytes(), b"unrelated user file")
+            self.assertTrue(journal.exists())
 
     def test_unverified_recovery_staging_fails_closed(self) -> None:
         with TemporaryDirectory() as temporary:
