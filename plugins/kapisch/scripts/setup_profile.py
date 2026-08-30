@@ -392,6 +392,18 @@ def _prepare_role(
         else:
             plan.update(status="collision", error="state record has an unknown profile set")
             return plan
+        expected_model, expected_effort = PROFILE_SET_ROUTING[installed_profile_set][
+            role
+        ]
+        if (
+            installed_values.get("model"),
+            installed_values.get("model_reasoning_effort"),
+        ) != (expected_model, expected_effort):
+            plan.update(
+                status="collision",
+                error="state record profile set does not match installed profile routing",
+            )
+            return plan
         plan.update(
             installed_profile_set=installed_profile_set,
             installed_bytes=installed_bytes,

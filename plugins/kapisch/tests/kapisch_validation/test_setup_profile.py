@@ -711,6 +711,44 @@ class ProfileSetTests(unittest.TestCase):
                     ).hexdigest(),
                 )
 
+    def test_recorded_profile_set_must_match_installed_runtime_routing(self) -> None:
+        cases = (
+            ("single inspection", ["--role", "reviewer"], False),
+            ("single replacement", ["--role", "reviewer"], True),
+            ("catalog inspection", ["--all"], False),
+            ("catalog replacement", ["--all"], True),
+        )
+        for name, selector, install in cases:
+            with self.subTest(name=name), TemporaryDirectory() as temporary:
+                project = Path(temporary)
+                self.assertEqual(self._install(project, "balanced"), 0)
+                record = project / ".kapisch/local-state/profiles/reviewer.toml"
+                record.write_text(
+                    record.read_text(encoding="utf-8").replace(
+                        'profile_set="balanced"', 'profile_set="quality"'
+                    ),
+                    encoding="utf-8",
+                )
+                before = self._snapshot(project)
+                argv = [
+                    *selector,
+                    "--project-dir",
+                    str(project),
+                    "--profile-set",
+                    "quality",
+                ]
+                if install:
+                    argv.extend(("--install", "--replace-managed"))
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    self.assertEqual(setup_profile.main(argv), 2)
+                self.assertEqual(self._snapshot(project), before)
+                self.assertIn(
+                    "state record profile set does not match installed profile routing",
+                    output.getvalue(),
+                )
+                self.assertNotIn("installed_profile_set=quality", output.getvalue())
+
     def test_switch_refuses_a_user_modified_managed_profile(self) -> None:
         with TemporaryDirectory() as temporary:
             project = Path(temporary)
