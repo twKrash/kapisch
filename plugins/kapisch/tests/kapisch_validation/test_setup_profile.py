@@ -438,6 +438,67 @@ class ProfileSetTests(unittest.TestCase):
             if path.is_file()
         }
 
+    def _expected_set_bytes(self, project: Path, profile_set: str) -> dict[Path, bytes]:
+        expected: dict[Path, bytes] = {}
+        for role in setup_profile.ROLE_CATALOG:
+            template = setup_profile.AGENT_DIR / f"kapisch-{role}.toml"
+            canonical = template.read_bytes()
+            target = project / f".codex/agents/kapisch-{role}.toml"
+            rendered = setup_profile._render_profile_bytes(
+                canonical, role=role, profile_set=profile_set
+            )
+            expected[target] = rendered
+            expected[project / f".kapisch/local-state/profiles/{role}.toml"] = (
+                setup_profile._record_text(
+                    template=template,
+                    template_digest=hashlib.sha256(canonical).hexdigest(),
+                    target=target,
+                    scope="project",
+                    role=role,
+                    profile_set=profile_set,
+                    installed_digest=hashlib.sha256(rendered).hexdigest(),
+                ).encode("utf-8")
+            )
+        return expected
+
+    def _interrupt_prepared_switch(self, project: Path) -> dict[Path, bytes]:
+        class SimulatedPowerLoss(BaseException):
+            pass
+
+        before = self._snapshot(project)
+        original_replace = setup_profile.os.replace
+        publishes = 0
+
+        def crash_after_researcher_publish(source, destination):
+            nonlocal publishes
+            result = original_replace(source, destination)
+            if Path(source).name.endswith(".kapisch-switch.tmp"):
+                publishes += 1
+                if publishes == 9:
+                    raise SimulatedPowerLoss
+            return result
+
+        with (
+            mock.patch.object(
+                setup_profile.os,
+                "replace",
+                side_effect=crash_after_researcher_publish,
+            ),
+            self.assertRaises(SimulatedPowerLoss),
+        ):
+            setup_profile.main(
+                [
+                    "--all",
+                    "--project-dir",
+                    str(project),
+                    "--profile-set",
+                    "quality",
+                    "--install",
+                    "--replace-managed",
+                ]
+            )
+        return before
+
     def test_default_install_uses_balanced_and_records_the_set(self) -> None:
         with TemporaryDirectory() as temporary:
             project = Path(temporary)
@@ -495,6 +556,35 @@ class ProfileSetTests(unittest.TestCase):
                     self.assertEqual(
                         values["developer_instructions"], canonical_instructions[role]
                     )
+
+    def test_profile_sets_keep_durable_state_model_independent(self) -> None:
+        reviewer_runtime = {
+            "balanced": ("gpt-5.6-terra", "high"),
+            "quality": ("gpt-5.6-sol", "high"),
+            "budget": ("gpt-5.6-terra", "medium"),
+        }
+        for profile_set, expected_runtime in reviewer_runtime.items():
+            with self.subTest(profile_set=profile_set), TemporaryDirectory() as temporary:
+                project = Path(temporary)
+                self.assertEqual(self._install(project, profile_set), 0)
+                profile = tomllib.loads(
+                    (project / ".codex/agents/kapisch-reviewer.toml").read_text(
+                        encoding="utf-8"
+                    )
+                )
+                record = tomllib.loads(
+                    (project / ".kapisch/local-state/profiles/reviewer.toml").read_text(
+                        encoding="utf-8"
+                    )
+                )
+                self.assertEqual(
+                    (profile["model"], profile["model_reasoning_effort"]),
+                    expected_runtime,
+                )
+                self.assertEqual(record["profile_set"], profile_set)
+                self.assertNotIn("model", record)
+                self.assertNotIn("model_reasoning_effort", record)
+                self.assertNotIn("model_tier", record)
 
     def test_profile_set_inspection_does_not_create_a_consumer(self) -> None:
         with TemporaryDirectory() as temporary:
@@ -871,6 +961,76 @@ class ProfileSetTests(unittest.TestCase):
                 )
                 self.assertFalse(journal.exists())
 
+    def test_commit_cleanup_denial_keeps_the_committed_set_active(self) -> None:
+        for initial_set, target_set in (
+            ("balanced", "quality"),
+            ("quality", "budget"),
+            ("budget", "quality"),
+        ):
+            with self.subTest(initial_set=initial_set, target_set=target_set), TemporaryDirectory() as temporary:
+                project = Path(temporary).resolve()
+                self.assertEqual(self._install(project, initial_set), 0)
+                expected = self._expected_set_bytes(project, target_set)
+                journal = project / ".kapisch/local-state/profile-switch.toml"
+                original_remove = setup_profile._remove_switch_artifact
+
+                def deny_backup_cleanup(path: Path) -> None:
+                    if path.name.endswith(".kapisch-switch.bak"):
+                        raise OSError("persistent committed backup cleanup denial")
+                    original_remove(path)
+
+                output = io.StringIO()
+                with (
+                    mock.patch.object(
+                        setup_profile,
+                        "_remove_switch_artifact",
+                        side_effect=deny_backup_cleanup,
+                    ),
+                    redirect_stdout(output),
+                ):
+                    result = setup_profile.main(
+                        [
+                            "--all",
+                            "--project-dir",
+                            str(project),
+                            "--profile-set",
+                            target_set,
+                            "--install",
+                            "--replace-managed",
+                        ]
+                    )
+
+                self.assertEqual(result, 2)
+                self.assertTrue(journal.exists())
+                self.assertEqual(
+                    tomllib.loads(journal.read_text(encoding="utf-8"))["status"],
+                    "committed",
+                )
+                for path, expected_bytes in expected.items():
+                    self.assertEqual(path.read_bytes(), expected_bytes)
+                text = output.getvalue()
+                self.assertNotIn("rolled back", text)
+                self.assertEqual(text.count(f"installed_profile_set={target_set}"), 6)
+                self.assertIn("cleanup=committed switch cleanup pending", text)
+                self.assertIn(
+                    "action=committed profile set is active; rerun inspection to finish cleanup",
+                    text,
+                )
+
+                recovery_output = io.StringIO()
+                with redirect_stdout(recovery_output):
+                    self.assertEqual(
+                        setup_profile.main(
+                            ["--all", "--project-dir", str(project), "--profile-set", target_set]
+                        ),
+                        0,
+                    )
+                self.assertIn(
+                    "recovery=completed interrupted managed-profile transaction",
+                    recovery_output.getvalue(),
+                )
+                self.assertFalse(journal.exists())
+
     def test_committed_destination_divergence_is_not_reported_as_active(self) -> None:
         with TemporaryDirectory() as temporary:
             project = Path(temporary)
@@ -939,6 +1099,137 @@ class ProfileSetTests(unittest.TestCase):
                 recovery_output.getvalue(),
             )
             self.assertFalse(journal.exists())
+
+    def test_caught_recovery_staging_failures_remove_owned_artifacts(self) -> None:
+        for phase in ("write", "flush", "fsync", "close"):
+            with self.subTest(phase=phase), TemporaryDirectory() as temporary:
+                staging = Path(temporary) / ".profile.kapisch-switch.recover.token.tmp"
+                contents = b"verified backup bytes"
+                original_open = Path.open
+
+                class FailingStream:
+                    def __init__(self, stream) -> None:
+                        self.stream = stream
+
+                    def __enter__(self):
+                        return self
+
+                    def __exit__(self, exc_type, exc_value, traceback):
+                        self.stream.close()
+                        if phase == "close":
+                            raise OSError("simulated close failure")
+                        return False
+
+                    def write(self, value):
+                        if phase == "write":
+                            self.stream.write(value[:1])
+                            raise OSError("simulated write failure")
+                        return self.stream.write(value)
+
+                    def flush(self):
+                        if phase == "flush":
+                            raise OSError("simulated flush failure")
+                        return self.stream.flush()
+
+                    def fileno(self):
+                        return self.stream.fileno()
+
+                def failing_open(path: Path, mode="r", *args, **kwargs):
+                    stream = original_open(path, mode, *args, **kwargs)
+                    if path == staging and mode == "xb" and phase != "fsync":
+                        return FailingStream(stream)
+                    return stream
+
+                contexts = [
+                    mock.patch.object(
+                        Path,
+                        "open",
+                        autospec=True,
+                        side_effect=failing_open,
+                    )
+                ]
+                if phase == "fsync":
+                    contexts.append(
+                        mock.patch.object(
+                            setup_profile.os,
+                            "fsync",
+                            side_effect=OSError("simulated fsync failure"),
+                        )
+                    )
+                with contexts[0]:
+                    if len(contexts) == 2:
+                        with contexts[1]:
+                            with self.assertRaises(OSError):
+                                setup_profile._write_recovery_staging(staging, contents)
+                    else:
+                        with self.assertRaises(OSError):
+                            setup_profile._write_recovery_staging(staging, contents)
+                self.assertFalse(staging.exists())
+
+    def test_transaction_owned_partial_recovery_staging_recovers_automatically(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary).resolve()
+            self.assertEqual(self._install(project, "balanced"), 0)
+            before = self._interrupt_prepared_switch(project)
+            status, entries = setup_profile._read_switch_journal(project)
+            self.assertEqual(status, "prepared")
+            entry = next(
+                entry
+                for entry in entries
+                if setup_profile._path_digest(Path(entry["destination"]))
+                != entry["original_sha256"]
+            )
+            recovery = Path(entry["recovery"])
+            backup_bytes = Path(entry["backup"]).read_bytes()
+            recovery.write_bytes(backup_bytes[:1])
+            unrelated = recovery.with_name(".user-owned-recovery.tmp")
+            unrelated.write_bytes(b"user-owned")
+            expected = dict(before)
+            expected[unrelated.relative_to(project)] = b"user-owned"
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(
+                    setup_profile.main(
+                        ["--all", "--project-dir", str(project), "--profile-set", "balanced"]
+                    ),
+                    0,
+                )
+            self.assertIn(
+                "recovery=completed interrupted managed-profile transaction",
+                output.getvalue(),
+            )
+            self.assertFalse(recovery.exists())
+            self.assertEqual(unrelated.read_bytes(), b"user-owned")
+            self.assertEqual(self._snapshot(project), expected)
+
+    def test_unverified_recovery_staging_fails_closed(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary).resolve()
+            self.assertEqual(self._install(project, "balanced"), 0)
+            self._interrupt_prepared_switch(project)
+            _, entries = setup_profile._read_switch_journal(project)
+            entry = next(
+                entry
+                for entry in entries
+                if setup_profile._path_digest(Path(entry["destination"]))
+                != entry["original_sha256"]
+            )
+            recovery = Path(entry["recovery"])
+            recovery.write_bytes(b"unrelated user file")
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(
+                    setup_profile.main(
+                        ["--all", "--project-dir", str(project), "--profile-set", "balanced"]
+                    ),
+                    2,
+                )
+            self.assertIn("recovery staging path is unsafe", output.getvalue())
+            self.assertEqual(recovery.read_bytes(), b"unrelated user file")
+            self.assertTrue(
+                (project / ".kapisch/local-state/profile-switch.toml").exists()
+            )
 
     def test_interrupted_switch_recovers_at_every_profile_and_state_publish(self) -> None:
         class SimulatedPowerLoss(BaseException):

@@ -7,6 +7,7 @@ from contextlib import contextmanager
 import hashlib
 import os
 from pathlib import Path
+import secrets
 from typing import Any, Callable, Iterator
 import tomllib
 
@@ -477,19 +478,23 @@ def _switch_prepare_path(root: Path) -> Path:
 
 
 def _switch_journal_text(status: str, entries: list[dict[str, Any]]) -> bytes:
-    lines = ["version=1\n", f"status={toml_basic_string(status)}\n"]
+    version = 2 if entries and all("recovery" in entry for entry in entries) else 1
+    lines = [f"version={version}\n", f"status={toml_basic_string(status)}\n"]
+    fields = (
+        "role",
+        "kind",
+        "destination",
+        "backup",
+        "staged",
+        "recovery",
+        "original_sha256",
+        "desired_sha256",
+    )
     for entry in entries:
         lines.append("[[entries]]\n")
-        for key in (
-            "role",
-            "kind",
-            "destination",
-            "backup",
-            "staged",
-            "original_sha256",
-            "desired_sha256",
-        ):
-            lines.append(f"{key}={toml_basic_string(entry[key])}\n")
+        for key in fields:
+            if key in entry:
+                lines.append(f"{key}={toml_basic_string(entry[key])}\n")
     return "".join(lines).encode("utf-8")
 
 
@@ -498,7 +503,8 @@ def _read_switch_journal(root: Path) -> tuple[str, list[dict[str, Any]]]:
     if journal.is_symlink():
         raise OSError("profile-switch journal is a symbolic link")
     values = _parse_profile_bytes(journal.read_bytes())
-    if values.get("version") != 1 or values.get("status") not in {"prepared", "committed"}:
+    version = values.get("version")
+    if version not in {1, 2} or values.get("status") not in {"prepared", "committed"}:
         raise OSError("profile-switch journal has an unsupported version or status")
     entries = values.get("entries")
     if not isinstance(entries, list) or not entries:
@@ -512,6 +518,8 @@ def _read_switch_journal(root: Path) -> tuple[str, list[dict[str, Any]]]:
         "original_sha256",
         "desired_sha256",
     }
+    if version == 2:
+        expected_fields.add("recovery")
     seen: set[tuple[str, str]] = set()
     checked: list[dict[str, Any]] = []
     for entry in entries:
@@ -540,6 +548,19 @@ def _read_switch_journal(root: Path) -> tuple[str, list[dict[str, Any]]]:
             or entry["staged"] != str(staged)
         ):
             raise OSError("profile-switch journal paths cannot be verified")
+        if version == 2:
+            recovery = Path(entry["recovery"])
+            prefix = f".{destination.name}.kapisch-switch.recover."
+            suffix = ".tmp"
+            token = recovery.name.removeprefix(prefix).removesuffix(suffix)
+            if (
+                recovery.parent != destination.parent
+                or not recovery.name.startswith(prefix)
+                or not recovery.name.endswith(suffix)
+                or len(token) != 32
+                or any(character not in "0123456789abcdef" for character in token)
+            ):
+                raise OSError("profile-switch recovery staging path cannot be verified")
         for digest_key in ("original_sha256", "desired_sha256"):
             digest_value = entry[digest_key]
             if len(digest_value) != 64 or any(
@@ -559,6 +580,39 @@ def _path_digest(path: Path) -> str | None:
 
 def _remove_switch_artifact(path: Path) -> None:
     path.unlink()
+
+
+def _recovery_staging_path(entry: dict[str, Any], destination: Path) -> Path:
+    return Path(entry["recovery"]) if "recovery" in entry else destination.with_name(
+        f".{destination.name}.kapisch-switch.recover.tmp"
+    )
+
+def _is_owned_recovery_staging(path: Path, contents: bytes) -> bool:
+    if path.is_symlink() or not path.is_file():
+        return False
+    try:
+        staging = path.read_bytes()
+    except OSError:
+        return False
+    return len(staging) <= len(contents) and contents.startswith(staging)
+
+
+def _write_recovery_staging(path: Path, contents: bytes) -> None:
+    created = False
+
+    def mark_created() -> None:
+        nonlocal created
+        created = True
+
+    try:
+        _write_exclusive(path, contents, on_created=mark_created)
+    except BaseException:
+        if created and _is_owned_recovery_staging(path, contents):
+            try:
+                _remove_switch_artifact(path)
+            except OSError:
+                pass
+        raise
 
 
 def _recover_interrupted_switch(root: Path) -> tuple[bool, str | None]:
@@ -601,14 +655,18 @@ def _recover_interrupted_switch(root: Path) -> tuple[bool, str | None]:
                 if _path_digest(destination) == entry["original_sha256"]:
                     continue
                 backup = Path(entry["backup"])
-                restore = destination.with_name(
-                    f".{destination.name}.kapisch-switch.recover.tmp"
-                )
+                backup_bytes = backup.read_bytes()
+                restore = _recovery_staging_path(entry, destination)
                 if restore.exists() or restore.is_symlink():
                     if _path_digest(restore) != entry["original_sha256"]:
-                        raise OSError(f"recovery staging path is unsafe: {restore}")
-                else:
-                    _write_exclusive(restore, backup.read_bytes())
+                        if (
+                            "recovery" not in entry
+                            or not _is_owned_recovery_staging(restore, backup_bytes)
+                        ):
+                            raise OSError(f"recovery staging path is unsafe: {restore}")
+                        _remove_switch_artifact(restore)
+                if not restore.exists() and not restore.is_symlink():
+                    _write_recovery_staging(restore, backup_bytes)
                 os.replace(restore, destination)
             for entry in entries:
                 destination = Path(entry["destination"])
@@ -617,6 +675,19 @@ def _recover_interrupted_switch(root: Path) -> tuple[bool, str | None]:
                 )
                 if _path_digest(destination) != expected_digest:
                     raise OSError(f"recovery verification failed: {destination}")
+            for entry in entries:
+                if "recovery" not in entry:
+                    continue
+                restore = _recovery_staging_path(entry, Path(entry["destination"]))
+                if not restore.exists() and not restore.is_symlink():
+                    continue
+                backup_bytes = Path(entry["backup"]).read_bytes()
+                if (
+                    _path_digest(restore) != entry["original_sha256"]
+                    and not _is_owned_recovery_staging(restore, backup_bytes)
+                ):
+                    raise OSError(f"recovery staging path is unsafe: {restore}")
+                _remove_switch_artifact(restore)
         else:
             for entry in entries:
                 destination = Path(entry["destination"])
@@ -743,7 +814,17 @@ def _commit(plans: list[dict[str, Any]], *, root: Path) -> tuple[str, str | None
                 candidate = destination.with_name(
                     f".{destination.name}.kapisch-switch.tmp"
                 )
-                if backup.exists() or backup.is_symlink() or candidate.exists() or candidate.is_symlink():
+                recovery = destination.with_name(
+                    f".{destination.name}.kapisch-switch.recover.{secrets.token_hex(16)}.tmp"
+                )
+                if (
+                    backup.exists()
+                    or backup.is_symlink()
+                    or candidate.exists()
+                    or candidate.is_symlink()
+                    or recovery.exists()
+                    or recovery.is_symlink()
+                ):
                     raise OSError(f"switch staging path already exists for {destination}")
                 original_by_destination[destination] = original
                 desired_by_destination[destination] = contents
@@ -754,6 +835,7 @@ def _commit(plans: list[dict[str, Any]], *, root: Path) -> tuple[str, str | None
                         "destination": str(destination),
                         "backup": str(backup),
                         "staged": str(candidate),
+                        "recovery": str(recovery),
                         "original_sha256": hashlib.sha256(original).hexdigest(),
                         "desired_sha256": hashlib.sha256(contents).hexdigest(),
                     }
