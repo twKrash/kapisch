@@ -13,7 +13,7 @@ dispatch, durable execution, and the installed public validator.
 | Unix-like release 1.0.0 | complete | [historical runtime record](acceptance-runtime.md) |
 | Windows 11 Desktop + WSL2 release baseline | complete | [1.0.1 Windows record](acceptance-windows-v1.0.1.md) |
 | 1.0.1 exact release SHA and remote tag | complete | [1.0.1 Windows record](acceptance-windows-v1.0.1.md) |
-| 1.1.0 automated profile-set and release gates | passed for tested implementation `53116a27a5b0149448ef631b04d93d0829fda30e`; documentation evidence bound at `887a33b342dc0fbf8435a0537578bc0a90c5ec5a`; final release SHA pending | [1.1.0 Windows record](acceptance-windows-v1.1.0.md) |
+| 1.1.0 automated profile-set and release gates | passed for tested runtime tree `7ccc2b6a4987cac416f1566debc47e45fc1c2b14`; final release SHA pending | [1.1.0 Windows record](acceptance-windows-v1.1.0.md) |
 | 1.1.0 live balanced-vs-quality acceptance | pending | [1.1.0 Windows template](acceptance-windows-v1.1.0.md) |
 | Native Windows without WSL | automated Python gates passed; live flow not yet claimed | [1.0.1 Windows record](acceptance-windows-v1.0.1.md) |
 | OpenAI public Plugin Directory | out of scope | Git-backed `kapisch-local` is the distribution path |

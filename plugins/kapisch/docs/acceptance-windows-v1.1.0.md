@@ -4,8 +4,7 @@
 evidence that the 1.1.0 tag, release, or live runtime acceptance exists.
 
 - Release: `1.1.0`; intended immutable tag: `v1.1.0`.
-- Tested implementation SHA: `53116a27a5b0149448ef631b04d93d0829fda30e`.
-- Documentation evidence SHA: `887a33b342dc0fbf8435a0537578bc0a90c5ec5a`; this documentation-only head does not expand the tested runtime scope.
+- Tested runtime SHA: `7ccc2b6a4987cac416f1566debc47e45fc1c2b14`.
 - Final release SHA: pending review, merge, and authorized release preparation.
 - Remote tag verification: pending; do not create or publish the tag during candidate preparation.
 - Supported release-blocking Windows surface: Windows 11, Codex Desktop/CLI, and WSL2.
@@ -23,24 +22,25 @@ inspect-only behavior, explicit install, managed switching, drift and collision
 refusal, rollback after injected failure, selected-set state/digests, legacy
 1.0.x inspection, and Windows path handling.
 
-### Current candidate evidence — 2026-08-29
+### Current candidate evidence — 2026-08-30
 
-This evidence is bound to implementation commit
-`53116a27a5b0149448ef631b04d93d0829fda30e`, based on
-`354020d2b270797b2099273ff9be8c132fc7aac7`. It is not exact-release-SHA or tag
-evidence; later documentation-only evidence binding does not expand the tested
-runtime scope.
+The automated evidence is bound to this exact runtime tree:
+`7ccc2b6a4987cac416f1566debc47e45fc1c2b14`. It is not exact-release-SHA or
+tag evidence. The evidence-record update does not change the tested runtime
+tree.
 
-- Linux root suite: 9 tests passed.
-- Linux validator suite: 263 tests passed.
-- Linux portable package: 263 tests passed; `portable-package=passed`.
-- Linux focused profile/setup suite: 33 tests passed.
+- Linux root suite: 10 tests passed.
+- Linux validator suite: 276 tests passed.
+- Linux portable package: 276 tests passed; `portable-package=passed`.
+- Linux focused profile/setup suite: 46 tests passed.
 - Validator and profile setup help smokes passed; `compileall` and
   `git diff --check` passed.
-- Native Windows CPython 3.11.15 focused profile/setup suite: 33 tests passed
-  from an isolated NTFS copy.
-- Native Windows CPython 3.11.15 portable package: 263 tests passed with five
-  capability-based skips; `portable-package=passed`.
+- Native Windows GitHub Actions CPython 3.11.9 focused profile/setup suite:
+  46 tests passed.
+- Native Windows GitHub Actions CPython 3.11.9 portable package: 276 tests
+  passed; `portable-package=passed`.
+- The exact-runtime GitHub Actions evidence is
+  [run 33324716442](https://github.com/twKrash/kapisch/actions/runs/33324716442).
 
 Known limitation: the PID-file lock does not fully serialize simultaneous
 stale-lock reclamation and a partial initial lock write can require manual local

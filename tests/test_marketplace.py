@@ -17,29 +17,20 @@ PLUGIN = ROOT / "plugins/kapisch"
 
 
 class MarketplaceTests(unittest.TestCase):
-    IMPLEMENTATION_SHA = "53116a27a5b0149448ef631b04d93d0829fda30e"
-    DOCUMENTATION_SHA = "887a33b342dc0fbf8435a0537578bc0a90c5ec5a"
+    TESTED_RUNTIME_SHA = "7ccc2b6a4987cac416f1566debc47e45fc1c2b14"
 
     def assert_release_provenance(self, matrix: str, acceptance: str) -> None:
         self.assertIn(
-            f"tested implementation `{self.IMPLEMENTATION_SHA}`",
-            matrix,
-        )
-        self.assertIn(
-            f"documentation evidence bound at `{self.DOCUMENTATION_SHA}`",
+            f"tested runtime tree `{self.TESTED_RUNTIME_SHA}`",
             matrix,
         )
         self.assertIn("final release SHA pending", matrix)
         self.assertNotIn("current uncommitted candidate worktree", matrix)
         self.assertIn(
-            f"- Tested implementation SHA: `{self.IMPLEMENTATION_SHA}`.",
+            f"- Tested runtime SHA: `{self.TESTED_RUNTIME_SHA}`.",
             acceptance,
         )
-        self.assertIn(
-            f"- Documentation evidence SHA: `{self.DOCUMENTATION_SHA}`",
-            acceptance,
-        )
-        self.assertIn("this documentation-only head does not expand", acceptance)
+        self.assertIn("automated evidence is bound to this exact runtime tree", acceptance)
         self.assertIn(
             "- Final release SHA: pending review, merge, and authorized release preparation.",
             acceptance,
