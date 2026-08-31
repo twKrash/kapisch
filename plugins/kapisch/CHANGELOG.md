@@ -2,8 +2,19 @@
 
 ## Unreleased
 
-The 1.1.0 release candidate below is prepared locally but has not been tagged or
+The 1.2.0 release candidate below is prepared locally but has not been tagged or
 published.
+
+## 1.2.0 - 2026-08-31 (release candidate)
+
+Backward-compatible v4 durable controller capability.
+
+- Added immutable stage outcomes and a deterministic, digest-bound controller view.
+- Added explicit controller-view rendering and eligible v3-to-v4 migration tools.
+- Added bounded controller/role transport contracts and provider-independent benchmark comparison.
+- Retained v1-v3 compatibility and existing review/final-readiness semantics.
+
+Benchmark acceptance, independent review, final readiness, tagging, and publication remain pending; this candidate is not released.
 
 ## 1.1.0 - 2026-08-28 (release candidate)
 
