@@ -154,7 +154,13 @@ outcome="running"
         cases = {
             "valid-sequential-v2": (0, None),
             "valid-v1-defaults": (0, None),
+            "valid-v4-controller": (0, None),
             "missing-review-scope": (2, "TWV-REVIEW-MISSING-SCOPE"),
+            "invalid-v4-missing-view": (2, "TWV-VIEW-MISSING"),
+            "invalid-v4-stale-view-digest": (2, "TWV-VIEW-STATE-BINDING"),
+            "invalid-v4-unknown-outcome-field": (2, "TWV-OUTCOME-UNKNOWN-FIELD"),
+            "invalid-v4-report-digest": (2, "TWV-OUTCOME-REPORT-DIGEST"),
+            "invalid-v4-reviewer-invocation": (2, "TWV-OUTCOME-INVOCATION"),
             "stale-review-evidence": (2, "TWV-REVIEW-STALE-EVIDENCE"),
             "malformed-invocation-envelope": (2, "TWV-SCHEMA-MISSING-FIELD"),
             "dependency-cycle": (2, "TWV-REF-DEPENDENCY-CYCLE"),
