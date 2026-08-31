@@ -11,6 +11,7 @@ from .errors import ValidationError, sorted_errors
 from .delegations import parse_route, validate_route_references
 from .manifest import parse_manifest
 from .references import parse_state, validate_references
+from .outcomes import validate_outcomes
 from .review_evidence import validate_review_evidence
 from .transitions import validate_lifecycle, validate_transition
 
@@ -94,6 +95,7 @@ def validate_snapshot(
     errors.extend(validate_references(manifest, state, task_dir, contract_dir))
     errors.extend(validate_lifecycle(manifest, state))
     errors.extend(validate_review_evidence(manifest, state, task_dir))
+    errors.extend(validate_outcomes(manifest, state, task_dir))
     return errors
 
 

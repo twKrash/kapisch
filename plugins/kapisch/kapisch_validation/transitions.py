@@ -510,6 +510,18 @@ def _validate_attempt_advancement(
                 "persisted attempt verification cannot be removed or rewritten",
             )
         ]
+    if (
+        previous.get("status") in {"complete", "blocked", "failed"}
+        and not _semantic_equal(current.get("outcome_path"), previous.get("outcome_path"))
+    ):
+        return [
+            _runtime_error(
+                manifest,
+                node_id,
+                "assignment.attempts",
+                "terminal attempt outcome path is immutable",
+            )
+        ]
     return []
 
 
@@ -592,7 +604,7 @@ def _validate_nonterminal_runtime_bindings(
                     "assignment.attempts",
                     current_assignment.get("attempts", []),
                     previous_assignment.get("attempts", []),
-                    mutable_fields=frozenset({"status", "verification"}),
+                    mutable_fields=frozenset({"status", "verification", "outcome_path"}),
                 )
             )
             current_attempts = _records_by_id(current_assignment.get("attempts", []))
@@ -688,6 +700,34 @@ def _validate_artifact_compatibility(
                             "terminal artifact content does not match the persisted snapshot",
                         )
                     )
+        previous_assignment = previous_node.raw.get("assignment")
+        current_assignment = current_node.raw.get("assignment")
+        if not isinstance(previous_assignment, dict) or not isinstance(current_assignment, dict):
+            continue
+        previous_attempts = _records_by_id(previous_assignment.get("attempts", []))
+        current_attempts = _records_by_id(current_assignment.get("attempts", []))
+        if previous_attempts is None or current_attempts is None:
+            continue
+        for attempt_id, previous_attempt in previous_attempts.items():
+            if previous_attempt.get("status") not in {"complete", "blocked", "failed"}:
+                continue
+            current_attempt = current_attempts.get(attempt_id)
+            previous_path = previous_attempt.get("outcome_path")
+            current_path = current_attempt.get("outcome_path") if current_attempt else None
+            if (
+                not isinstance(previous_path, str)
+                or previous_path != current_path
+                or task_dir is None
+                or previous_task_dir is None
+                or _artifact_digest(task_dir, current_path) != _artifact_digest(previous_task_dir, previous_path)
+            ):
+                errors.append(
+                    _artifact_error(
+                        manifest,
+                        f"nodes[{previous_node.id}].attempts[{attempt_id}].outcome_path",
+                        "terminal outcome content does not match the persisted snapshot",
+                    )
+                )
     return errors
 
 
