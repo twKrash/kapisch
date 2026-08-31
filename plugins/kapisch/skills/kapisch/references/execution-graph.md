@@ -457,3 +457,12 @@ triage before review; `NEEDS_CONTEXT` remains non-complete until focused context
 is supplied; `BLOCKED`/`FAILED` cause the controller to update graph/state and
 stop dependent dispatch. The implementer returns only status, revision/diff,
 one-line verification, and concerns; the controller persists the durable report.
+
+## Version-4 projection bindings
+
+Version-4 manifests bind `controller_view = "04-controller-view.toml"` and
+terminal attempts bind immutable `stage-outcomes/<attempt-id>.toml` paths.
+State binds the view path and SHA-256. The view is deterministically derived
+from canonical graph/state and validated outcomes; it stores only the current
+decision, active assignment, bounded dependency outcomes, and references. It
+is replaceable and has no independent authority.

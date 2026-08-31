@@ -202,3 +202,27 @@ coverage, reviewer identity, a complete approval chain, or final readiness.
 Markdown contracts and the independent reviewer remain authoritative for
 semantic review and final-readiness decisions. Pressure scenarios are
 non-normative challenge cases.
+
+## Thin controller for version-4 durable runs
+
+For a version-4 durable run, the controller normally reads only
+`04-controller-view.toml`, then dispatches the selected role with its brief,
+context, repository binding, and explicitly relevant artifact references. The
+specialist reads detailed evidence; the controller does not copy reports,
+transcripts, raw tool output, or completed-stage context into later prompts.
+
+Stage outcomes live at `stage-outcomes/<attempt-id>.toml` and bind compact
+status, bounded findings, verification references, and retry provenance to
+canonical detailed evidence. They never approve review or final readiness.
+Reviewers still inspect the actual Git range independently and require the
+canonical invocation evidence.
+
+Regenerate a missing or stale controller view only through the explicit
+renderer after canonical validation. Block on corrupt projections, missing
+canonical evidence, ambiguous active state, or failed validation. Legacy
+version-1 through version-3 runs retain their existing resume behavior.
+
+Re-dispatch requires a persisted allowed reason, predecessor attempt, and
+budget effect. Confidence-only or generic follow-up re-dispatch is forbidden.
+Load transcripts, full run trees, old reports, or debug history only for a
+recorded, bounded recovery/debug reason.
