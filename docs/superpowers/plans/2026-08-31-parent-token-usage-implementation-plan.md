@@ -107,7 +107,8 @@ It then emits `[request]`, `[gates]`, `[active_assignment]` (all scalar/bounded 
 | `plugins/kapisch/kapisch_validation/vocabulary.py` | v4 closed vocabularies and bounded-field constants. |
 | `plugins/kapisch/kapisch_validation/models.py` | Typed parsed outcome/controller-view records. |
 | `plugins/kapisch/kapisch_validation/outcomes.py` **new** | Read-only parse/validate outcome artifacts and their graph/report/invocation bindings. |
-| `plugins/kapisch/kapisch_validation/controller_view.py` **new** | Pure deterministic view data construction, canonical TOML rendering, digest calculation, and validation. No writes. |
+| `plugins/kapisch/kapisch_validation/canonical_toml.py` **new** | Deterministic standard-library TOML serializer for the supported durable value subset; rejects unsupported values. |
+| `plugins/kapisch/kapisch_validation/controller_view.py` **new** | Pure deterministic view data construction, canonical TOML rendering through `canonical_toml`, digest calculation, and validation. No writes. |
 | `plugins/kapisch/kapisch_validation/manifest.py` | v4 graph/attempt schema and v1–v3 compatibility parsing. |
 | `plugins/kapisch/kapisch_validation/references.py` | v4 state binding parsing and path/reference checks. |
 | `plugins/kapisch/kapisch_validation/transitions.py` | v4 outcome immutability and lifecycle/re-dispatch checks across snapshots. |
@@ -227,6 +228,7 @@ git commit -m "feat: validate immutable KAPISCH stage outcomes"
 
 **Files:**
 
+- Create: `plugins/kapisch/kapisch_validation/canonical_toml.py`
 - Create: `plugins/kapisch/kapisch_validation/controller_view.py`
 - Modify: `plugins/kapisch/kapisch_validation/cli.py`
 - Test: `plugins/kapisch/tests/kapisch_validation/test_controller_view.py`
@@ -234,9 +236,9 @@ git commit -m "feat: validate immutable KAPISCH stage outcomes"
 **Interfaces:**
 
 - Consumes: parsed v4 manifest/state, validated outcomes, raw manifest bytes, and the canonical-state JSON digest rule.
-- Produces: `state_semantic_sha256(state_raw) -> str`, `build_controller_view(manifest, state, outcomes, manifest_bytes) -> dict[str, object]`, `render_controller_view(view) -> bytes`, and `validate_controller_view(manifest, state, task_dir) -> list[ValidationError]`.
+- Produces: `render_toml(data: dict[str, object], *, key_order: tuple[str, ...] = ()) -> bytes`; `state_semantic_sha256(state_raw) -> str`; `build_controller_view(manifest, state, outcomes, manifest_bytes) -> dict[str, object]`; `render_controller_view(view) -> bytes`; and `validate_controller_view(manifest, state, task_dir) -> list[ValidationError]`.
 
-- [ ] **Step 1: Write failing deterministic-render tests.** Assert two semantically identical parsed states differing only in `controller_view_path`/`controller_view_sha256` produce the same state semantic digest; assert fixed view bytes/digest for the v4 fixture; assert predecessor outcomes include only completed dependencies ordered by node sequence then attempt ID; assert the rendered view omits `report_sha256`, raw report content, extensions, metrics, and non-dependency outcomes.
+- [ ] **Step 1: Write failing serializer and deterministic-render tests.** Add `render_toml` tests that parse its bytes with `tomllib.loads` and obtain the original nested `dict`/`list`, string, bool, int, finite-float, and empty collection values; assert identical input gives identical bytes and `datetime`, `date`, `time`, non-finite float, tuple, and unknown object raise `ValueError`. Also assert two semantically identical parsed states differing only in `controller_view_path`/`controller_view_sha256` produce the same state semantic digest; assert fixed view bytes/digest for the v4 fixture; assert predecessor outcomes include only completed dependencies ordered by node sequence then attempt ID; assert the rendered view omits `report_sha256`, raw report content, extensions, metrics, and non-dependency outcomes.
 
 ```python
 self.assertEqual(
@@ -254,7 +256,7 @@ Run: `python -m unittest plugins.kapisch.tests.kapisch_validation.test_controlle
 
 Expected: FAIL with `ModuleNotFoundError: kapisch_validation.controller_view`.
 
-- [ ] **Step 4: Implement pure construction/rendering.** Use a hand-written canonical TOML renderer for the exact locked order; do not add a TOML dependency. Compute manifest raw-byte SHA-256 and canonical-state JSON SHA-256 as specified. Derive `active_node_id`, `next_node_id`, and predecessor outcomes from existing deterministic transition output. Set `validator_status="pass"`/`validator_error_count=0` only when called after successful snapshot validation; otherwise the writer must refuse to render rather than emit a failing view.
+- [ ] **Step 4: Implement pure construction/rendering.** Implement `canonical_toml.render_toml` with Python 3.11 only. It serializes the supported value subset recursively as canonical TOML using sorted keys except for the caller-provided leading `key_order`; it emits strings with JSON-compatible double-quote escaping, `true|false`, decimal integers, finite floats, arrays, and inline tables. It rejects all unsupported values rather than coercing them. Render the controller view through that serializer with the exact locked top-level order; do not add a TOML dependency. Compute manifest raw-byte SHA-256 and canonical-state JSON SHA-256 as specified. Derive `active_node_id`, `next_node_id`, and predecessor outcomes from existing deterministic transition output. Set `validator_status="pass"`/`validator_error_count=0` only when called after successful snapshot validation; otherwise the writer must refuse to render rather than emit a failing view.
 
 - [ ] **Step 5: Wire validation into `validate_snapshot` after reference/lifecycle/outcome checks.** Avoid recursive validation: `validate_controller_view` validates source/binding/projection, while `validate_snapshot` supplies already-validated outcome data. `kapisch-validate` remains read-only.
 
@@ -267,7 +269,7 @@ Expected: PASS.
 - [ ] **Step 7: Commit the deterministic projection.**
 
 ```bash
-git add plugins/kapisch/kapisch_validation/{controller_view.py,cli.py} \
+git add plugins/kapisch/kapisch_validation/{canonical_toml.py,controller_view.py,cli.py} \
   plugins/kapisch/tests/kapisch_validation/test_controller_view.py
 git commit -m "feat: derive KAPISCH controller view"
 ```
@@ -288,7 +290,7 @@ git commit -m "feat: derive KAPISCH controller view"
 
 - [ ] **Step 1: Write failing renderer tests.** In a temporary v4 fixture copy, assert render creates fixed view bytes, updates state’s view hash, and validates. Patch the atomic replacement seam to fail; assert original state/view bytes remain unchanged. Assert invalid source snapshots return 2 and create no view.
 
-- [ ] **Step 2: Write failing migration tests.** Invoke migration with `--task-dir SOURCE --destination-task-dir DEST --approve`. Assert it rejects omitted `--approve`, omitted destination, an existing destination, active/ambiguous legacy runs, missing reports, or invalid legacy artifacts; assert an eligible complete v3 source produces v4 `DEST` with generated outcomes/view while source byte digests remain unchanged.
+- [ ] **Step 2: Write failing migration tests.** Invoke migration with `--task-dir SOURCE --destination-task-dir DEST --approve`. Assert it rejects omitted `--approve`, omitted destination, an existing destination, active/ambiguous legacy runs, missing reports, invalid legacy artifacts, and a v3 extension containing a date/time or another value `canonical_toml` rejects. Assert an eligible complete v3 source produces v4 `DEST` with generated outcomes/view; source byte digests remain unchanged; every copied non-graph/state artifact is byte-identical; and `tomllib.loads` shows destination graph/state equal the source parsed graph/state except for exactly version-4 bindings, required attempt outcome paths, and generated state view bindings.
 
 - [ ] **Step 3: Run focused tests to confirm scripts are absent.**
 
@@ -298,7 +300,7 @@ Expected: FAIL with import/file-not-found failures for the two scripts.
 
 - [ ] **Step 4: Implement the renderer.** Follow `migrate_legacy_run.py` safety style: parse and validate before writes; create a same-directory temporary file; `os.replace` view first; atomically replace state second; if state replacement fails, restore the old view bytes; run read-only validation after both replacements; on post-write validation failure restore both old bytes and return 2. Do not add this behavior to `kapisch-validate`.
 
-- [ ] **Step 5: Implement migration as copy-then-validate.** Parse `SOURCE` and `DEST` from the required arguments, reject an existing `DEST`, and create the staging directory under `DEST.parent`. Require a complete, inactive v3 graph with persisted terminal assignment/attempt records and valid current evidence; add version-4 fields, derive an outcome for each terminal attempt from canonical report/invocation facts only, render view, validate, then atomically rename the staged directory to `DEST`. Fail closed when a required outcome fact cannot be derived; never synthesize reviewer provenance or decisions.
+- [ ] **Step 5: Implement migration as copy-then-validate.** Parse `SOURCE` and `DEST` from the required arguments, reject an existing `DEST`, and create the staging directory under `DEST.parent`. Copy the complete source tree byte-for-byte first. Require a complete, inactive v3 graph with persisted terminal assignment/attempt records and valid current evidence. Parse only staged `02-execution-graph.toml` and `03-state.toml`; modify their parsed dictionaries with version-4 bindings and terminal attempt outcome paths; render those two files with `canonical_toml.render_toml`; and leave every other staged artifact byte-identical to source. If either parsed graph/state contains a value outside the serializer’s supported subset, block without creating `DEST`. Derive outcomes only from canonical report/invocation facts, render the view, validate the staged v4 tree, then atomically rename the staged directory to `DEST`. Fail closed when a required outcome fact cannot be derived; never synthesize reviewer provenance or decisions.
 
 - [ ] **Step 6: Add portable-package assertions.** Require both scripts and their imported package modules in the copied bundle; run `--help` for both scripts in the package smoke test.
 
