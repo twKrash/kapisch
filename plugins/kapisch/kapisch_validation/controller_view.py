@@ -117,7 +117,9 @@ def validate_controller_view(manifest, state, task_dir: Path) -> list[Validation
         errors.append(ValidationError("TWV-VIEW-STATE-DIGEST", str(path), "source_state_sha256", "source state digest mismatch"))
     if state.controller_view_sha256 != hashlib.sha256(artifact.data).hexdigest():
         errors.append(ValidationError("TWV-VIEW-STATE-BINDING", str(path), "controller_view_sha256", "state binding digest mismatch"))
-    expected = build_controller_view(manifest, state, _outcome_records(manifest, task_dir), manifest_bytes)
-    if raw.get("next_action") != expected["next_action"] or raw.get("active_node_id") != expected["active_node_id"]:
-        errors.append(ValidationError("TWV-VIEW-TRANSITION", str(path), "next_action", "view does not match deterministic transition"))
+    expected_bytes = render_controller_view(
+        build_controller_view(manifest, state, _outcome_records(manifest, task_dir), manifest_bytes)
+    )
+    if artifact.data != expected_bytes:
+        errors.append(ValidationError("TWV-VIEW-PROJECTION", str(path), VIEW_PATH, "view is not the canonical deterministic projection"))
     return errors
