@@ -11,7 +11,8 @@ active_node_id = "unavailable"
 next_node_id = "unavailable"
 current_fix_round = 0
 max_fix_rounds = 1
-active_assignment = {assignment_id = "unavailable", brief = "unavailable", context = "unavailable", node_id = "unavailable", report = "unavailable", role = "unavailable"}
-gates = {fix_policy = "manual", risk = "unavailable"}
+active_assignment = {assignment_id = "unavailable", brief = "unavailable", context = "unavailable", logical_role = "unavailable", model_tier = "unavailable", node_id = "unavailable", report = "unavailable", role = "unavailable"}
+blocking_reason = "unavailable"
+gates = {authority = {commit = "manual", dispatch = "single", executor = "implementer", model_tier = "standard", push = "manual"}, final_readiness_required = true, fix_policy = "manual", review_required = true, risk = "unavailable", workflow = "sequential"}
 predecessor_outcomes = []
-request = {roadmap_item = "unavailable", source_plan = "01-plan.md"}
+request = {roadmap_item = "unavailable", scope = "unavailable", source_plan = "01-plan.md"}

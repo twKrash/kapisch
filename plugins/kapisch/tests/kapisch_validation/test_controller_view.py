@@ -7,8 +7,16 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from kapisch_validation.controller_view import build_controller_view, render_controller_view, state_semantic_sha256
+from kapisch_validation.manifest import parse_manifest
+from kapisch_validation.references import parse_state
+def _view() -> dict[str, object]:
+    task = FIXTURES / "valid-v4-controller"
+    manifest = parse_manifest(task / "02-execution-graph.toml").manifest
+    state, errors = parse_state(task / "03-state.toml")
+    assert manifest is not None and state is not None and not errors
+    return build_controller_view(manifest, state, {}, (task / "02-execution-graph.toml").read_bytes())
 
-from kapisch_validation.controller_view import render_controller_view, state_semantic_sha256
 
 FIXTURES = Path(__file__).parent / "fixtures"
 ROOT = Path(__file__).resolve().parents[2]
@@ -23,6 +31,19 @@ class ControllerViewTests(unittest.TestCase):
         view = {"version": 1, "task_id": "task", "request": {"scope": "bounded"}, "predecessor_outcomes": []}
         self.assertEqual(render_controller_view(view), render_controller_view(view))
 
+    def test_view_contains_normal_transition_contract(self) -> None:
+        view = _view()
+        self.assertEqual(set(view["request"]), {"source_plan", "roadmap_item", "scope"})
+        self.assertEqual(
+            set(view["gates"]),
+            {"workflow", "risk", "fix_policy", "review_required", "final_readiness_required", "authority"},
+        )
+        self.assertEqual(set(view["gates"]["authority"]), {"commit", "push", "dispatch", "executor", "model_tier"})
+        self.assertEqual(
+            set(view["active_assignment"]),
+            {"node_id", "role", "logical_role", "model_tier", "assignment_id", "brief", "context", "report"},
+        )
+        self.assertIn("blocking_reason", view)
     def test_rebound_derived_mutations_fail(self) -> None:
         for needle, replacement in (
             ('source_plan = "01-plan.md"', 'source_plan = "wrong.md"'),

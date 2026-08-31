@@ -74,9 +74,33 @@ def build_controller_view(manifest, state, outcomes: object, manifest_bytes: byt
         "next_node_id": selected_id,
         "current_fix_round": state.raw["current_fix_round"],
         "max_fix_rounds": state.raw["max_fix_rounds"],
-        "request": {"source_plan": manifest.source_plan, "roadmap_item": manifest.roadmap_item or "unavailable"},
-        "gates": {"risk": active.raw.get("risk", "unavailable") if active else "unavailable", "fix_policy": manifest.policies.get("fix_policy", "unavailable")},
-        "active_assignment": {"node_id": selected_id, "role": active.raw.get("executor_class", "unavailable") if active else "unavailable", "assignment_id": assignment.get("id", "unavailable") if isinstance(assignment, dict) else "unavailable", "brief": active.raw.get("brief", "unavailable") if active else "unavailable", "context": active.raw.get("context", "unavailable") if active else "unavailable", "report": active.raw.get("report", "unavailable") if active else "unavailable"},
+        "request": {
+            "source_plan": manifest.source_plan,
+            "roadmap_item": manifest.roadmap_item or "unavailable",
+            "scope": manifest.policies.get("scope", "unavailable"),
+        },
+        "gates": {
+            "workflow": manifest.policies.get("execution", "unavailable"),
+            "risk": active.raw.get("risk", "unavailable") if active else "unavailable",
+            "fix_policy": manifest.policies.get("fix_policy", "unavailable"),
+            "review_required": any(node.kind == "review" for node in manifest.nodes),
+            "final_readiness_required": any(node.kind == "final" for node in manifest.nodes),
+            "authority": {
+                key: manifest.policies.get(key, "unavailable")
+                for key in ("commit", "push", "dispatch", "executor", "model_tier")
+            },
+        },
+        "blocking_reason": next_action if next_action.startswith("block:") else "unavailable",
+        "active_assignment": {
+            "node_id": selected_id,
+            "role": active.raw.get("executor_class", "unavailable") if active else "unavailable",
+            "logical_role": active.raw.get("executor_class", "unavailable") if active else "unavailable",
+            "model_tier": active.raw.get("model_tier", "unavailable") if active else "unavailable",
+            "assignment_id": assignment.get("id", "unavailable") if isinstance(assignment, dict) else "unavailable",
+            "brief": active.raw.get("brief", "unavailable") if active else "unavailable",
+            "context": active.raw.get("context", "unavailable") if active else "unavailable",
+            "report": active.raw.get("report", "unavailable") if active else "unavailable",
+        },
         "predecessor_outcomes": predecessors,
     }
 
