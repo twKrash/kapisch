@@ -352,7 +352,7 @@ def validate_snapshot_compatibility(
                 manifest, previous, task_dir, previous_task_dir
             )
         )
-        if manifest.version == 3 or previous.version == 3:
+        if manifest.version in {3, 4} or previous.version in {3, 4}:
             errors.extend(_validate_route_compatibility(task_dir, previous_task_dir))
     return errors
 
