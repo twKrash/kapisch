@@ -223,21 +223,54 @@ def _outcome_binding_errors(raw: dict[str, object], path: Path, node, assignment
     return errors
 
 
+def _redispatch_errors(
+    raw: dict[str, object], path: Path, node, attempt: dict[str, object],
+    attempts: list[tuple[object, dict[str, object], dict[str, object]]],
+    valid_outcomes: dict[str, dict[str, object]],
+) -> list[ValidationError]:
+    reason = raw.get("redispatch_reason")
+    if reason == "none":
+        return []
+    predecessor_id = raw.get("predecessor_attempt_id")
+    predecessor = next((item for item in attempts if item[2].get("id") == predecessor_id), None)
+    if predecessor is None or predecessor_id == attempt.get("id"):
+        return [_e("TWV-OUTCOME-REDISPATCH-PREDECESSOR", path, "predecessor_attempt_id", "must name an earlier persisted attempt")]
+    predecessor_node, _, predecessor_attempt = predecessor
+    current_rank = (node.sequence, next(index for index, value in enumerate(attempts) if value[2] is attempt))
+    predecessor_rank = (predecessor_node.sequence, next(index for index, value in enumerate(attempts) if value[2] is predecessor_attempt))
+    if predecessor_rank >= current_rank or predecessor_attempt.get("status") not in LIFECYCLE_VALUES:
+        return [_e("TWV-OUTCOME-REDISPATCH-PREDECESSOR", path, "predecessor_attempt_id", "must precede this terminal attempt")]
+    outcome_path = predecessor_attempt.get("outcome_path")
+    if not isinstance(outcome_path, str) or outcome_path not in valid_outcomes:
+        return [_e("TWV-OUTCOME-REDISPATCH-PREDECESSOR", path, "predecessor_attempt_id", "must bind a valid terminal outcome")]
+    same_node = {"interrupted-active-stage", "failed-attempt", "dispatch-no-work"}
+    if reason in same_node and predecessor_node.id != node.id:
+        return [_e("TWV-OUTCOME-REDISPATCH-PREDECESSOR", path, "predecessor_attempt_id", "reason requires a predecessor in the same node")]
+    return []
+
+
 def validate_outcomes(manifest: Manifest, state: State, task_dir: Path) -> list[ValidationError]:
     if manifest.version != 4:
         return []
     errors: list[ValidationError] = []
-    for node, assignment, attempt in _attempts(manifest):
-        status = attempt.get("status")
-        outcome_path = attempt.get("outcome_path")
-        if status not in LIFECYCLE_VALUES:
+    attempts = list(_attempts(manifest))
+    parsed: list[tuple[object, dict[str, object], dict[str, object], Path, dict[str, object]]] = []
+    valid_outcomes: dict[str, dict[str, object]] = {}
+    for node, assignment, attempt in attempts:
+        if attempt.get("status") not in LIFECYCLE_VALUES:
             continue
-        path = _contained(task_dir, outcome_path)
+        path = _contained(task_dir, attempt.get("outcome_path"))
         if path is None:
             errors.append(_e("TWV-OUTCOME-PATH", task_dir / "02-execution-graph.toml", f"{node.id}:{attempt.get('id')}", "terminal attempt outcome path is invalid"))
             continue
         raw, parse_errors = parse_outcome(path)
         errors.extend(parse_errors)
         if raw is not None:
-            errors.extend(_outcome_binding_errors(raw, path, node, assignment, attempt, manifest, task_dir))
+            binding_errors = _outcome_binding_errors(raw, path, node, assignment, attempt, manifest, task_dir)
+            errors.extend(binding_errors)
+            parsed.append((node, assignment, attempt, path, raw))
+            if not binding_errors and isinstance(attempt.get("outcome_path"), str):
+                valid_outcomes[attempt["outcome_path"]] = raw
+    for node, _, attempt, path, raw in parsed:
+        errors.extend(_redispatch_errors(raw, path, node, attempt, attempts, valid_outcomes))
     return errors

@@ -92,6 +92,20 @@ class OutcomeTests(unittest.TestCase):
             errors = validate_outcomes(manifest, state, task_dir)
         self.assertIn("TWV-OUTCOME-REPORT-DIGEST", {error.code for error in errors})
 
+    def test_nonexistent_redispatch_predecessor_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task_dir, manifest, state = self.make_v4_task(temporary)
+            self.write_outcome(task_dir)
+            outcome = task_dir / "stage-outcomes/AT-T01-1.toml"
+            outcome.write_text(
+                outcome.read_text().replace('redispatch_reason = "none"', 'redispatch_reason = "failed-attempt"').replace(
+                    'predecessor_attempt_id = "unavailable"', 'predecessor_attempt_id = "AT-NOT-REAL"'
+                ).replace("retry_budget_delta = 0", "retry_budget_delta = 1"),
+                encoding="utf-8",
+            )
+            errors = validate_outcomes(manifest, state, task_dir)
+        self.assertIn("TWV-OUTCOME-REDISPATCH-PREDECESSOR", {error.code for error in errors})
+
 
 if __name__ == "__main__":
     unittest.main()
