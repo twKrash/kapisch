@@ -13,6 +13,7 @@ dispatch, durable execution, and the installed public validator.
 | Unix-like release 1.0.0 | complete | [historical runtime record](acceptance-runtime.md) |
 | Windows 11 Desktop + WSL2 release baseline | complete | [1.0.1 Windows record](acceptance-windows-v1.0.1.md) |
 | 1.0.1 exact release SHA and remote tag | complete | [1.0.1 Windows record](acceptance-windows-v1.0.1.md) |
+| 1.2.0 v4 controller-view candidate | pending benchmark, independent review, final readiness, and release preparation | [1.2.0 Windows template](acceptance-windows-v1.2.0.md) |
 | 1.1.0 automated profile-set and release gates | passed for tested runtime tree `7ccc2b6a4987cac416f1566debc47e45fc1c2b14`; final release SHA pending | [1.1.0 Windows record](acceptance-windows-v1.1.0.md) |
 | 1.1.0 live balanced-vs-quality acceptance | pending | [1.1.0 Windows template](acceptance-windows-v1.1.0.md) |
 | Native Windows without WSL | automated Python gates passed; live flow not yet claimed | [1.0.1 Windows record](acceptance-windows-v1.0.1.md) |
