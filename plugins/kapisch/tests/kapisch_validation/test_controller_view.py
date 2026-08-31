@@ -46,11 +46,11 @@ class ControllerViewTests(unittest.TestCase):
         self.assertIn("blocking_reason", view)
     def test_rebound_derived_mutations_fail(self) -> None:
         for needle, replacement in (
-            ('source_plan = "01-plan.md"', 'source_plan = "wrong.md"'),
-            ('risk = "unavailable"', 'risk = "high"'),
-            ('assignment_id = "unavailable"', 'assignment_id = "wrong"'),
-            ('predecessor_outcomes = []', 'predecessor_outcomes = [{lifecycle = "failed"}]'),
-            ('next_action = "complete"', 'next_action = "block:wrong"'),
+            ('"source_plan" = "01-plan.md"', '"source_plan" = "wrong.md"'),
+            ('"risk" = "unavailable"', '"risk" = "high"'),
+            ('"assignment_id" = "unavailable"', '"assignment_id" = "wrong"'),
+            ('"predecessor_outcomes" = []', '"predecessor_outcomes" = [{"lifecycle" = "failed"}]'),
+            ('"next_action" = "complete"', '"next_action" = "block:wrong"'),
         ):
             with self.subTest(needle=needle), tempfile.TemporaryDirectory() as temp:
                 task = Path(temp) / "task"; shutil.copytree(FIXTURES / "valid-v4-controller", task)
