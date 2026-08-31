@@ -31,6 +31,7 @@ class MarketplaceTests(unittest.TestCase):
             acceptance,
         )
         self.assertIn("automated evidence is bound to this exact runtime tree", acceptance)
+        self.assertRegex(acceptance, r"272 passed,\s+4 platform-capability skips")
         self.assertIn(
             "- Final release SHA: pending review, merge, and authorized release preparation.",
             acceptance,

@@ -37,8 +37,8 @@ tree.
   `git diff --check` passed.
 - Native Windows GitHub Actions CPython 3.11.9 focused profile/setup suite:
   46 tests passed.
-- Native Windows GitHub Actions CPython 3.11.9 portable package: 276 tests
-  passed; `portable-package=passed`.
+- Native Windows GitHub Actions CPython 3.11.9 portable package: 272 passed,
+  4 platform-capability skips; `portable-package=passed`.
 - The exact-runtime GitHub Actions evidence is
   [run 33324716442](https://github.com/twKrash/kapisch/actions/runs/33324716442).
 
