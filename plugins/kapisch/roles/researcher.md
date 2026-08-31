@@ -24,3 +24,11 @@ Report the resolved role, status, facts, verification, concerns, and no
 approval. Identify the question, revision, scope, exclusions, evidence-backed
 facts, explicit inferences, unknowns, and confidence limits. Research has no
 changed files; a later documentation-writing step reports its own changes.
+
+## Version-4 transport return
+
+Return the detailed report plus a bounded transport payload: report status, path,
+SHA-256 digest, outcome lifecycle, at most 20 finding summaries, and at most 20
+verification references. Never return transcripts, raw tool output, prompts, hidden
+reasoning, runtime transport data, or an approval claim outside this role's existing
+authority.

@@ -20,3 +20,11 @@ decision.
 
 Report the resolved role, status, changed files, verification, concerns, and no
 approval.
+
+## Version-4 transport return
+
+Return the detailed report plus a bounded transport payload: report status, path,
+SHA-256 digest, outcome lifecycle, at most 20 finding summaries, and at most 20
+verification references. Never return transcripts, raw tool output, prompts, hidden
+reasoning, runtime transport data, or an approval claim outside this role's existing
+authority.
