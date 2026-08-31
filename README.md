@@ -7,10 +7,10 @@ Directory submission.
 
 ## Support
 
-| Surface | Verified status for 1.0.1 |
+| Surface | Verified status for the 1.1.0 release candidate |
 | --- | --- |
-| Windows 11 + Codex Desktop + WSL2 | Fresh exact-release-SHA flow passed; see the 1.0.1 acceptance record. |
-| Linux | Live 1.0.0 flow passed; 1.0.1 automated suites pass on the unchanged runtime. |
+| Windows 11 + Codex Desktop + WSL2 | 1.0.1 release baseline passed; 1.1.0 live acceptance remains pending. |
+| Linux | Historical live 1.0.0 flow passed; 1.1.0 automated evidence is recorded separately. |
 | Native Windows, no WSL | Python 3.11 profile and portable-package suites pass; live plugin support is not yet claimed. |
 
 Following [OpenAI's WSL guidance](https://learn.chatgpt.com/docs/windows/wsl),
@@ -19,10 +19,10 @@ example, `~/code`) rather than under `/mnt/c`.
 
 ## Quick start
 
-Use the immutable 1.0.1 release tag:
+After the immutable 1.1.0 tag is published, the released installation command is:
 
 ```text
-codex plugin marketplace add twKrash/kapisch --ref v1.0.1
+codex plugin marketplace add twKrash/kapisch --ref v1.1.0
 codex plugin add kapisch@kapisch-local
 ```
 
@@ -49,6 +49,13 @@ specialized routing is needed. From a source checkout's repository root:
 python plugins/kapisch/scripts/setup_profile.py --all --project-dir <consumer-repository> --install
 ```
 
+New installations default to the cost-oriented `balanced` runtime profile set.
+Use `--profile-set quality` for the 1.0.1 quality baseline or `--profile-set
+budget` for routine work in well-understood repositories. Profile sets change
+only Codex model/reasoning configuration; KAPISCH risk, permissions, independent
+review, and final-readiness rules do not change. See the [profile-set
+guide](plugins/kapisch/docs/profile-sets.md).
+
 ## Validator
 
 The validator is read-only, uses the Python 3.11 standard library, and discovers
@@ -64,7 +71,8 @@ kapisch-validate --task-dir <consumer-repository>/.kapisch/runs/<task-id> --form
 ## Documentation
 
 - [Plugin guide](plugins/kapisch/README.md)
-- [Windows 1.0.1 acceptance](plugins/kapisch/docs/acceptance-windows-v1.0.1.md)
+- [Windows 1.1.0 acceptance template](plugins/kapisch/docs/acceptance-windows-v1.1.0.md)
+- [Windows 1.0.1 historical acceptance](plugins/kapisch/docs/acceptance-windows-v1.0.1.md)
 - [Historical Unix 1.0.0 acceptance](plugins/kapisch/docs/acceptance-runtime.md)
 - [Compatibility and rollback](plugins/kapisch/docs/compatibility.md)
 - [Acceptance matrix](plugins/kapisch/docs/acceptance.md)

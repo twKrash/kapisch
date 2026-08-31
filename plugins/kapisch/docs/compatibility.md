@@ -29,6 +29,43 @@ same entry point; callers may remove their old `--contract-dir
 <plugin-root>/skills/kapisch` argument. An explicit `--contract-dir PATH`
 override remains supported for expert and compatibility use.
 
+## Agent profile-set compatibility
+
+KAPISCH 1.1.0 adds `balanced`, `quality`, and `budget` installer-time runtime
+sets without changing profile filenames or identities. A new installation uses
+`balanced` unless the user explicitly selects another set. The `quality` bytes
+preserve the 1.0.1 routing baseline.
+
+Profile sets resolve runtime model and reasoning effort only. Durable
+`model_tier` values remain logical workflow requirements and never imply a
+concrete model family; approval authority, risk classification, and independent
+review therefore remain identical across sets. Configured runtime values may be
+recorded only as factual observations on the established observability
+surfaces.
+
+New local-state records add `profile_set` and store the stable template filename,
+not the plugin cache location. A 1.0.x record without that field is read-only
+compatible when its template provenance names the expected template, its recorded
+template digest matches the current quality template, and its identity,
+installed-profile path, and digests remain valid; inspection reports it as legacy
+`quality` and does not rewrite it. An unknown or unverifiable legacy digest fails
+closed.
+
+Ordinary install remains non-overwriting. Switching requires `--install
+--replace-managed`, verified KAPISCH identity and state, a matching installed
+digest, and no collision or concurrent change. The transaction stages every new
+profile/state file before replacing any and uses a machine-local
+prepared/committed journal to restore prior bytes after a caught error or on the
+next setup invocation after process interruption. It rechecks target bytes and
+the complete selected identity catalog before committing. User-modified or
+unrelated profiles are never switched or removed. A committed transaction that
+was interrupted during cleanup keeps the selected new set and finishes cleanup
+on the next invocation. A process lock serializes setup operations, and
+recovery preserves profile bytes edited after interruption rather than
+restoring a backup over them.
+Rollback may also be performed by explicitly switching back to the prior set
+after inspection; KAPISCH does not delete profiles.
+
 ## Compatibility version 1
 
 Only `.planning/task-workflow/<task-id>/` is a supported legacy input namespace.
@@ -120,9 +157,9 @@ consumers have either migrated their retained runs or accepted that old runs
 cannot resume. Before removal, publish the final compatible release and keep it
 available for rollback.
 
-Profile rollback is deliberately non-destructive: inspect the recorded
+Profile rollback is deliberately managed and non-destructive: inspect the recorded
 `installed_profile` and digests in `.kapisch/local-state/profiles/<role>.toml`,
-then a human restores their prior user-owned profile from their backup or removes
-only the profile they explicitly chose to install. KAPISCH never deletes or
-renames it. Removing a profile makes review advisory until a reviewer profile is
-explicitly installed again.
+then explicitly switch a verified KAPISCH-managed profile back to its prior set,
+or have a human restore their user-owned profile from their own backup. KAPISCH
+never deletes an installed profile. Removing a profile makes review advisory
+until a reviewer profile is explicitly installed again.

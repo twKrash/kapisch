@@ -17,6 +17,27 @@ PLUGIN = ROOT / "plugins/kapisch"
 
 
 class MarketplaceTests(unittest.TestCase):
+    TESTED_RUNTIME_SHA = "7ccc2b6a4987cac416f1566debc47e45fc1c2b14"
+
+    def assert_release_provenance(self, matrix: str, acceptance: str) -> None:
+        self.assertIn(
+            f"tested runtime tree `{self.TESTED_RUNTIME_SHA}`",
+            matrix,
+        )
+        self.assertIn("final release SHA pending", matrix)
+        self.assertNotIn("current uncommitted candidate worktree", matrix)
+        self.assertIn(
+            f"- Tested runtime SHA: `{self.TESTED_RUNTIME_SHA}`.",
+            acceptance,
+        )
+        self.assertIn("automated evidence is bound to this exact runtime tree", acceptance)
+        self.assertRegex(acceptance, r"272 passed,\s+4 platform-capability skips")
+        self.assertIn(
+            "- Final release SHA: pending review, merge, and authorized release preparation.",
+            acceptance,
+        )
+        self.assertNotIn("current uncommitted candidate worktree", acceptance)
+
     def test_release_metadata_is_consistent(self) -> None:
         manifest = json.loads(
             (PLUGIN / ".codex-plugin/plugin.json").read_text(encoding="utf-8")
@@ -72,6 +93,27 @@ class MarketplaceTests(unittest.TestCase):
             f"- Release: `{version}`; intended immutable tag: `{release_tag}`.",
             acceptance,
         )
+        matrix = (PLUGIN / "docs/acceptance.md").read_text(encoding="utf-8")
+        self.assert_release_provenance(matrix, acceptance)
+
+
+    def test_release_metadata_rejects_contradictory_provenance(self) -> None:
+        version = tomllib.loads(
+            (PLUGIN / "pyproject.toml").read_text(encoding="utf-8")
+        )["project"]["version"]
+        matrix = (PLUGIN / "docs/acceptance.md").read_text(encoding="utf-8")
+        acceptance = (
+            PLUGIN / "docs" / f"acceptance-windows-v{version}.md"
+        ).read_text(encoding="utf-8")
+
+        with self.assertRaisesRegex(
+            AssertionError,
+            "current uncommitted candidate worktree",
+        ):
+            self.assert_release_provenance(
+                f"{matrix}\ncurrent uncommitted candidate worktree",
+                acceptance,
+            )
 
     def test_digest_sensitive_fixtures_are_checked_out_with_lf(self) -> None:
         fixture = (
@@ -184,6 +226,16 @@ class MarketplaceTests(unittest.TestCase):
             "<consumer-repository>",
             readme,
         )
+        for profile_set in ("balanced", "quality", "budget"):
+            self.assertIn(
+                "python scripts/setup_profile.py --all --project-dir "
+                f"<consumer-repository> --profile-set {profile_set} --install",
+                readme,
+            )
+        self.assertIn(
+            "--profile-set budget --install --replace-managed",
+            readme,
+        )
         self.assertIn(
             "python scripts/migrate_legacy_run.py --project-dir "
             "<consumer-repository> --task-id <task-id> --approve",
@@ -222,6 +274,16 @@ class MarketplaceTests(unittest.TestCase):
                 (consumer / ".codex/agents/kapisch-reviewer.toml").is_file()
             )
 
+            help_result = subprocess.run(
+                [sys.executable, "scripts/setup_profile.py", "--help"],
+                cwd=PLUGIN,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(help_result.returncode, 0, help_result.stderr)
+            self.assertIn("--profile-set {balanced,quality,budget}", help_result.stdout)
+            self.assertIn("--replace-managed", help_result.stdout)
+
             legacy = consumer / ".planning/task-workflow/valid"
             shutil.copytree(
                 PLUGIN
@@ -248,6 +310,12 @@ class MarketplaceTests(unittest.TestCase):
                 migration.stdout + migration.stderr,
             )
             self.assertTrue((consumer / ".kapisch/runs/valid").is_dir())
+
+    def test_validation_package_keeps_the_standard_library_runtime_boundary(self) -> None:
+        project = tomllib.loads(
+            (PLUGIN / "pyproject.toml").read_text(encoding="utf-8")
+        )["project"]
+        self.assertNotIn("dependencies", project)
 
     def test_installed_plugin_validator_resolves_bundled_paths_from_plugin_root(
         self,

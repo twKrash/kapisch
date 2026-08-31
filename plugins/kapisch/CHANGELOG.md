@@ -2,7 +2,40 @@
 
 ## Unreleased
 
-No pending changes.
+The 1.1.0 release candidate below is prepared locally but has not been tagged or
+published.
+
+## 1.1.0 - 2026-08-28 (release candidate)
+
+Cost-aware Codex agent runtime configuration without workflow-policy changes.
+
+- Added installer-time `balanced`, `quality`, and `budget` profile sets while
+  preserving the same six logical roles, identities, instructions, sandbox
+  boundaries, and independent reviewer contract.
+- Made `balanced` the default for new installations; `quality` preserves the
+  1.0.1 quality-first routing baseline and `budget` provides a lower-effort
+  configuration for routine work in well-understood repositories.
+- Added explicit, managed-only `--replace-managed` switching with identity,
+  state, installed-digest, collision, drift, and concurrent-change checks plus
+  a machine-local prepared/committed recovery journal for caught failures and
+  process interruption.
+- Added the selected profile set to new local-state records while keeping
+  verified 1.0.x records inspectable as legacy quality configurations without
+  rewriting them.
+- Reused existing factual workflow-metrics fields for later comparisons. Model,
+  effort, invocation, retry, elapsed-time, and token/cache values remain
+  unavailable unless the Codex execution surface actually exposes them.
+- Added focused routing, instruction-equivalence, install, inspect, switching,
+  drift, rollback, legacy-state, user/project scope, portable-package, and
+  release-consistency coverage.
+- Changed no logical routing, risk classification, permissions, review or final
+  requirements, approval authority, durable artifact format, validator
+  semantics, sequential execution, or ecosystem routing.
+
+No percentage token or cost reduction is claimed. Runtime savings require
+paired acceptance measurements. TOON and other serialization changes remain out
+of scope. The candidate is not released until live acceptance, independent
+review, final readiness, tagging, and publication are completed separately.
 
 ## 1.0.1 - 2026-08-23
 
