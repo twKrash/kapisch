@@ -89,7 +89,7 @@ def validate_delegation_snapshot(manifest, task_dir: Path) -> list[ValidationErr
 
 
 def validate_snapshot(
-    manifest, state, task_dir: Path, contract_dir: Path
+    manifest, state, task_dir: Path, contract_dir: Path, *, include_controller_view: bool = True
 ) -> list[ValidationError]:
     errors: list[ValidationError] = []
     errors.extend(validate_delegation_snapshot(manifest, task_dir))
@@ -97,7 +97,7 @@ def validate_snapshot(
     errors.extend(validate_lifecycle(manifest, state))
     errors.extend(validate_review_evidence(manifest, state, task_dir))
     errors.extend(validate_outcomes(manifest, state, task_dir))
-    if not errors:
+    if include_controller_view and not errors:
         errors.extend(validate_controller_view(manifest, state, task_dir))
     return errors
 
