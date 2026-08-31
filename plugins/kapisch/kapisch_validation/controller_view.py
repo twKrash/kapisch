@@ -6,6 +6,7 @@ import tomllib
 from pathlib import Path
 
 from .artifact_io import read_utf8_artifact
+from .canonical_toml import render_toml
 from .errors import ValidationError
 from .outcomes import parse_outcome
 from .transitions import determine_next_action
@@ -85,20 +86,15 @@ def _quote(value: object) -> str:
 
 
 def render_controller_view(view: dict[str, object]) -> bytes:
-    scalar_order = ("version", "task_id", "source_manifest_sha256", "source_state_sha256", "workflow_status", "current_revision", "next_action", "validator_status", "validator_error_count", "active_node_id", "next_node_id", "current_fix_round", "max_fix_rounds")
-    lines: list[str] = []
-    for key in scalar_order:
-        value = view[key]
-        lines.append(f"{key} = {value}" if isinstance(value, int) else f"{key} = {_quote(value)}")
-    for table in ("request", "gates", "active_assignment"):
-        lines.extend(("", f"[{table}]"))
-        for key, value in view[table].items():
-            lines.append(f"{key} = {_quote(value)}")
-    for record in view.get("predecessor_outcomes", []):
-        lines.extend(("", "[[predecessor_outcomes]]"))
-        for key in ("node_id", "attempt_id", "lifecycle", "role_status", "reviewer_decision", "redispatch_reason", "next_action_reason", "outcome_path"):
-            lines.append(f"{key} = {_quote(record[key])}")
-    return ("\n".join(lines) + "\n").encode("utf-8")
+    return render_toml(
+        view,
+        key_order=(
+            "version", "task_id", "source_manifest_sha256", "source_state_sha256",
+            "workflow_status", "current_revision", "next_action", "validator_status",
+            "validator_error_count", "active_node_id", "next_node_id",
+            "current_fix_round", "max_fix_rounds",
+        ),
+    )
 
 
 def validate_controller_view(manifest, state, task_dir: Path) -> list[ValidationError]:
