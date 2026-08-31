@@ -28,6 +28,8 @@ class Manifest:
     source_plan: str = ""
     roadmap_item: str | None = None
 
+    controller_view: str | None = None
+
 
 @dataclass(frozen=True)
 class State:
@@ -42,6 +44,9 @@ class State:
     next_action: str
     raw: dict[str, object]
     path: str = ""
+    controller_view_path: str | None = None
+    controller_view_sha256: str | None = None
+
 
 
 @dataclass(frozen=True)

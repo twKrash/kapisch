@@ -320,6 +320,101 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual(result.errors, ())
         self.assertEqual(result.manifest.version, 3)
 
+    def _v4_body(self) -> str:
+        return self._v3_body().replace(
+            "version = 3",
+            'version = 4\ncontroller_view = "04-controller-view.toml"',
+        )
+
+    def _v4_body_with_attempt(
+        self, *, status: str = "complete", outcome_path: str | None = None
+    ) -> str:
+        attempt_fields = (
+            'id="AT-T01-1",source_revision="base",'
+            'context_scope_ref="tasks/T01-context.md",'
+            f'status="{status}",verification=[]'
+        )
+        if outcome_path is not None:
+            attempt_fields += f',outcome_path="{outcome_path}"'
+        assignment = (
+            'assignment={id="A-T01-1",schema_version=1,'
+            'execution_class="bounded",reason_codes=[],source_revision="base",'
+            'context_refs=[],attempts=[{' + attempt_fields + '}],escalations=[]}\n'
+        )
+        return self._v4_body().replace("[nodes.revision]", assignment + "[nodes.revision]", 1)
+
+    def test_version_four_requires_controller_view_and_rejects_it_on_v3(self) -> None:
+        cases = (
+            (
+                self._v3_body().replace("version = 3", "version = 4"),
+                ("TWV-SCHEMA-MISSING-FIELD", "controller_view"),
+            ),
+            (
+                self._v3_body().replace(
+                    "version = 3",
+                    'version = 3\ncontroller_view = "04-controller-view.toml"',
+                ),
+                ("TWV-SCHEMA-UNSUPPORTED-V4-FIELD", "controller_view"),
+            ),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "02-execution-graph.toml"
+            for body, expected in cases:
+                with self.subTest(expected=expected):
+                    path.write_text(body, encoding="utf-8")
+                    result = parse_manifest(path)
+                    self.assertEqual(
+                        [(error.code, error.reference) for error in result.errors],
+                        [expected],
+                    )
+
+    def test_version_four_attempts_require_lifecycle_appropriate_outcome_path(self) -> None:
+        cases = (
+            (
+                self._v4_body_with_attempt(outcome_path=None),
+                ("TWV-SCHEMA-MISSING-FIELD", "nodes[0].attempts[0].outcome_path"),
+            ),
+            (
+                self._v4_body_with_attempt(outcome_path="unavailable"),
+                ("TWV-SCHEMA-INVALID-VALUE", "nodes[0].attempts[0].outcome_path"),
+            ),
+            (
+                self._v4_body_with_attempt(
+                    status="running",
+                    outcome_path="stage-outcomes/AT-T01-1.toml",
+                ),
+                ("TWV-SCHEMA-INVALID-VALUE", "nodes[0].attempts[0].outcome_path"),
+            ),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "02-execution-graph.toml"
+            for body, expected in cases:
+                with self.subTest(expected=expected):
+                    path.write_text(body, encoding="utf-8")
+                    result = parse_manifest(path)
+                    self.assertEqual(
+                        [(error.code, error.reference) for error in result.errors],
+                        [expected],
+                    )
+
+    def test_version_four_copy_of_durable_v3_fixture_parses(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "02-execution-graph.toml"
+            source = (
+                FIXTURES / "valid-v3-durable" / "02-execution-graph.toml"
+            ).read_text(encoding="utf-8")
+            path.write_text(
+                source.replace(
+                    "version = 3",
+                    'version = 4\ncontroller_view = "04-controller-view.toml"',
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            result = parse_manifest(path)
+        self.assertEqual(result.errors, ())
+        self.assertEqual(result.manifest.version, 4)
+
 
 if __name__ == "__main__":
     unittest.main()

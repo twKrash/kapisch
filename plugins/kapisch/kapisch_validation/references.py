@@ -11,7 +11,11 @@ from .artifact_io import (
 from .errors import ValidationError
 from .helpers import is_integer, non_empty_string, nonfinite_float_references, string_list
 from .models import Manifest, State
-from .vocabulary import WORKFLOW_STATUS_VALUES, closed_string_error
+from .vocabulary import (
+    V4_CONTROLLER_VIEW_PATH,
+    WORKFLOW_STATUS_VALUES,
+    closed_string_error,
+)
 
 STATE = {
     "task_id",
@@ -30,8 +34,9 @@ STATE = {
     "max_fix_rounds",
     "next_action",
     "extensions",
+    "controller_view_path",
+    "controller_view_sha256",
 }
-
 
 def _e(c: str, p: Path, r: str, m: str) -> ValidationError:
     return ValidationError(c, str(p), r, m)
@@ -108,7 +113,7 @@ def parse_state(path: Path) -> tuple[State | None, list[ValidationError]]:
                         "extension keys must be reverse-DNS namespaces",
                     )
                 )
-    for key in STATE - {"extensions"}:
+    for key in STATE - {"extensions", "controller_view_path", "controller_view_sha256"}:
         if key not in raw:
             errors.append(
                 _e("TWV-SCHEMA-MISSING-FIELD", path, key, "required field is missing")
@@ -187,6 +192,8 @@ def parse_state(path: Path) -> tuple[State | None, list[ValidationError]]:
         str(raw["next_action"]),
         raw,
         str(path),
+        raw.get("controller_view_path"),
+        raw.get("controller_view_sha256"),
     ), []
 
 
@@ -277,6 +284,54 @@ def validate_references(
                 "current fix round exceeds the configured maximum",
             )
         )
+    controller_view_fields = ("controller_view_path", "controller_view_sha256")
+    if manifest.version == 4:
+        for field in controller_view_fields:
+            if field not in state.raw:
+                errors.append(
+                    _e(
+                        "TWV-SCHEMA-MISSING-FIELD",
+                        task_dir / "03-state.toml",
+                        field,
+                        "required version-4 state binding is missing",
+                    )
+                )
+        if (
+            "controller_view_path" in state.raw
+            and state.raw["controller_view_path"] != V4_CONTROLLER_VIEW_PATH
+        ):
+            errors.append(
+                _e(
+                    "TWV-SCHEMA-INVALID-VALUE",
+                    task_dir / "03-state.toml",
+                    "controller_view_path",
+                    f"must be {V4_CONTROLLER_VIEW_PATH!r}",
+                )
+            )
+        digest = state.raw.get("controller_view_sha256")
+        if (
+            digest is not None
+            and (not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None)
+        ):
+            errors.append(
+                _e(
+                    "TWV-SCHEMA-INVALID-DIGEST",
+                    task_dir / "03-state.toml",
+                    "controller_view_sha256",
+                    "must be 64 lowercase hexadecimal characters",
+                )
+            )
+    else:
+        for field in controller_view_fields:
+            if field in state.raw:
+                errors.append(
+                    _e(
+                        "TWV-SCHEMA-UNSUPPORTED-V4-FIELD",
+                        task_dir / "03-state.toml",
+                        field,
+                        "version-4-only state field on a legacy manifest",
+                    )
+                )
     for n in manifest.nodes:
         for dep in n.depends_on:
             if dep not in known:
