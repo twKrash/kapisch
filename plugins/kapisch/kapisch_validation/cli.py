@@ -53,7 +53,7 @@ def _contract_is_usable(contract_dir: Path) -> bool:
 
 
 def validate_delegation_snapshot(manifest, task_dir: Path) -> list[ValidationError]:
-    if manifest.version != 3:
+    if manifest.version not in {3, 4}:
         return []
     errors: list[ValidationError] = []
     route_path = task_dir / "delegations" / "00-route.toml"

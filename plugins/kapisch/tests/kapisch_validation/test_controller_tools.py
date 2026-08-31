@@ -18,6 +18,11 @@ class ToolTests(unittest.TestCase):
     self.assertNotEqual(render(task).returncode,0)
     self.assertEqual(before,{path.relative_to(task):path.read_bytes() for path in (task/'03-state.toml',task/'04-controller-view.toml')})
     self.assertFalse(any(path.name.startswith('.04-controller-view.toml.') for path in task.iterdir()))
+ def test_v4_delegation_evidence_is_validated(self):
+  with tempfile.TemporaryDirectory() as directory:
+   task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task);(task/'delegations/D01/00-context.md').unlink()
+   result=subprocess.run([sys.executable,str(ROOT/'scripts'/'validate_kapisch.py'),'--task-dir',str(task)],capture_output=True,text=True)
+   self.assertNotEqual(result.returncode,0);self.assertIn('TWV-DELEG-MISSING-EVIDENCE',result.stdout)
  def test_missing_outcome_is_untouched(self):
   with tempfile.TemporaryDirectory() as directory:
    task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task);next((task/'stage-outcomes').iterdir()).unlink();before=(task/'03-state.toml').read_bytes(),(task/'04-controller-view.toml').read_bytes()
