@@ -840,7 +840,7 @@ def parse_manifest(path: Path) -> ParseResult:
                                     )
                                     or (
                                         value["status"] in {"complete", "blocked", "failed"}
-                                        and outcome_path == UNAVAILABLE_OUTCOME_PATH
+                                        and outcome_path != f"stage-outcomes/{value.get('id')}.toml"
                                     )
                                 )
                             ):

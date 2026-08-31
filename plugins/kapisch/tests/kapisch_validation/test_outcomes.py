@@ -106,6 +106,19 @@ class OutcomeTests(unittest.TestCase):
             errors = validate_outcomes(manifest, state, task_dir)
         self.assertIn("TWV-OUTCOME-REDISPATCH-PREDECESSOR", {error.code for error in errors})
 
+    def test_terminal_outcome_requires_canonical_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task_dir, _, _ = self.make_v4_task(temporary)
+            manifest_path = task_dir / "02-execution-graph.toml"
+            manifest_path.write_text(
+                manifest_path.read_text(encoding="utf-8").replace(
+                    "stage-outcomes/AT-T01-1.toml", "odd/location.toml"
+                ),
+                encoding="utf-8",
+            )
+            parsed = parse_manifest(manifest_path)
+        self.assertTrue(parsed.errors)
+
 
 if __name__ == "__main__":
     unittest.main()
