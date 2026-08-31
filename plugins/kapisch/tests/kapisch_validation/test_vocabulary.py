@@ -239,8 +239,9 @@ class VocabularyTests(unittest.TestCase):
                 state_path.read_text(encoding="utf-8") + state_bindings,
                 encoding="utf-8",
             )
-            code, findings = self.run_cli(root)
-            self.assertEqual(code, 0, findings)
+            state, errors = parse_state(state_path)
+            self.assertEqual(errors, [])
+            self.assertEqual(state.controller_view_path, "04-controller-view.toml")
 
         for binding in state_bindings.splitlines():
             with self.subTest(binding=binding), TemporaryDirectory() as temporary:
