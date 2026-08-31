@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -113,6 +114,17 @@ def parse_state(path: Path) -> tuple[State | None, list[ValidationError]]:
                         "extension keys must be reverse-DNS namespaces",
                     )
                 )
+        try:
+            json.dumps(extensions, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        except (TypeError, ValueError):
+            errors.append(
+                _e(
+                    "TWV-SCHEMA-INVALID-EXTENSION",
+                    path,
+                    "extensions",
+                    "extension values must use JSON-compatible scalar, array, and table values",
+                )
+            )
     for key in STATE - {"extensions", "controller_view_path", "controller_view_sha256"}:
         if key not in raw:
             errors.append(
