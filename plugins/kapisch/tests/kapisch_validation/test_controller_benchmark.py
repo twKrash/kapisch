@@ -24,6 +24,9 @@ class BenchmarkTests(unittest.TestCase):
   self.assertIsNone(data['roles']['parent']['input_tokens']['delta'])
  def test_missing_parent_is_not_required_evidence(self):
   _,data=compare([row('baseline',role='implementer')],[row('candidate',role='implementer')]);self.assertFalse(data['required_evidence_present'])
+ def test_omitted_expensive_child_blocks_comparison(self):
+  _,data=compare([row('baseline',10),row('baseline',100,role='implementer')],[row('candidate',8)])
+  self.assertFalse(data['pairing_complete']);self.assertFalse(data['required_evidence_present']);self.assertIsNone(data['roles']['parent']['input_tokens']['delta']);self.assertEqual(data['unmatched_baseline'],[['task','implementer',1]])
  def test_duplicate_records_fail(self):
   code,_=compare([row('baseline'),row('baseline')],[row('candidate')]);self.assertEqual(code,2)
  def test_fully_comparable_data_reports_delta(self):

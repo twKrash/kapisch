@@ -26,15 +26,18 @@ def aggregate(rows):
    if value is None: summary["unavailable_count"] += 1
    else: summary["observed_count"] += 1; summary["total"] += value
  return result
-def comparison(base,candidate, role, metric):
+def comparison(base,candidate, role, metric, pairing_complete):
  left=base[role][metric]; right=candidate[role][metric]
- comparable=left["observed_count"] > 0 and right["observed_count"] > 0 and not left["unavailable_count"] and not right["unavailable_count"]
+ comparable=pairing_complete and left["observed_count"] > 0 and right["observed_count"] > 0 and not left["unavailable_count"] and not right["unavailable_count"]
  return {"baseline":dict(left, total=left["total"] if left["observed_count"] else None),"candidate":dict(right,total=right["total"] if right["observed_count"] else None),"comparable":comparable,"delta":right["total"]-left["total"] if comparable else None}
 def main(argv=None):
  parser=argparse.ArgumentParser(); parser.add_argument("--baseline",required=True); parser.add_argument("--candidate",required=True); parser.add_argument("--format",choices=("json",),default="json"); args=parser.parse_args(argv)
  try: baseline=load(args.baseline,"baseline"); candidate=load(args.candidate,"candidate")
  except (OSError,json.JSONDecodeError,ValueError) as error: print(str(error)); return 2
- base,cand=aggregate(baseline),aggregate(candidate); roles=sorted(set(base)|set(cand)); data={role:{metric:comparison(base,cand,role,metric) for metric in NUMERIC} for role in roles}
- required=all("parent" in values and data["parent"][metric]["comparable"] for values in (base,cand) for metric in REQUIRED_COMPARISON)
- print(json.dumps({"roles":data,"required_evidence_present":required},sort_keys=True)); return 0
+ base,cand=aggregate(baseline),aggregate(candidate)
+ base_keys={(row["run_id"],row["role"],row["invocation"]) for row in baseline}; candidate_keys={(row["run_id"],row["role"],row["invocation"]) for row in candidate}
+ unmatched_baseline=sorted(base_keys-candidate_keys); unmatched_candidate=sorted(candidate_keys-base_keys); pairing_complete=not unmatched_baseline and not unmatched_candidate
+ roles=sorted(set(base)|set(cand)); data={role:{metric:comparison(base,cand,role,metric,pairing_complete) for metric in NUMERIC} for role in roles}
+ required=pairing_complete and all("parent" in values and data["parent"][metric]["comparable"] for values in (base,cand) for metric in REQUIRED_COMPARISON)
+ print(json.dumps({"roles":data,"required_evidence_present":required,"pairing_complete":pairing_complete,"unmatched_baseline":unmatched_baseline,"unmatched_candidate":unmatched_candidate},sort_keys=True)); return 0
 if __name__ == "__main__": raise SystemExit(main())
