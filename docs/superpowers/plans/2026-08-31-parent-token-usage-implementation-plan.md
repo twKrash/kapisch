@@ -116,7 +116,7 @@ It then emits `[request]`, `[gates]`, `[active_assignment]` (all scalar/bounded 
 | `plugins/kapisch/scripts/migrate_controller_view_v4.py` **new** | Explicit, fail-closed eligible-v3 to v4 copy/migration tool; never invoked by resume. |
 | `plugins/kapisch/skills/kapisch/references/{handoffs,execution-graph,resume,dispatch,review}.md` | Normative v4 semantics, load rules, retry rules, and unchanged review guarantees. |
 | `plugins/kapisch/skills/kapisch/SKILL.md` | Compact normal controller procedure and exceptional detailed-reference loading. |
-| `plugins/kapisch/tests/kapisch_validation/test_{manifest,references,transitions,cli}.py` | v4 parser, reference, lifecycle, CLI, and legacy compatibility coverage. |
+| `plugins/kapisch/tests/kapisch_validation/test_{manifest,vocabulary,transitions,cli}.py` | v4 parser, state-vocabulary, lifecycle, CLI, and legacy compatibility coverage. |
 | `plugins/kapisch/tests/kapisch_validation/test_outcomes.py` **new** | Outcome schema/binding/limit coverage. |
 | `plugins/kapisch/tests/kapisch_validation/test_controller_view.py` **new** | Pure renderer, deterministic ordering/digests, stale/missing/corrupt view coverage. |
 | `plugins/kapisch/tests/kapisch_validation/test_controller_tools.py` **new** | Atomic renderer and explicit migration behavior. |
@@ -137,7 +137,7 @@ It then emits `[request]`, `[gates]`, `[active_assignment]` (all scalar/bounded 
 - Modify: `plugins/kapisch/kapisch_validation/manifest.py`
 - Modify: `plugins/kapisch/kapisch_validation/references.py`
 - Test: `plugins/kapisch/tests/kapisch_validation/test_manifest.py`
-- Test: `plugins/kapisch/tests/kapisch_validation/test_references.py`
+- Test: `plugins/kapisch/tests/kapisch_validation/test_vocabulary.py`
 
 **Interfaces:**
 
@@ -155,7 +155,7 @@ self.assertEqual(
 
 - [ ] **Step 2: Run the focused tests and confirm they fail because version 4 and the new fields are unsupported.**
 
-Run: `python -m unittest plugins.kapisch.tests.kapisch_validation.test_manifest plugins.kapisch.tests.kapisch_validation.test_references`
+Run: `python -m unittest plugins.kapisch.tests.kapisch_validation.test_manifest plugins.kapisch.tests.kapisch_validation.test_vocabulary`
 
 Expected: FAIL with `TWV-SCHEMA-INVALID-VERSION` or missing parser support, not import/syntax errors.
 
@@ -163,7 +163,7 @@ Expected: FAIL with `TWV-SCHEMA-INVALID-VERSION` or missing parser support, not 
 
 - [ ] **Step 4: Run focused tests to green.**
 
-Run: `python -m unittest plugins.kapisch.tests.kapisch_validation.test_manifest plugins.kapisch.tests.kapisch_validation.test_references`
+Run: `python -m unittest plugins.kapisch.tests.kapisch_validation.test_manifest plugins.kapisch.tests.kapisch_validation.test_vocabulary`
 
 Expected: PASS.
 
@@ -171,7 +171,7 @@ Expected: PASS.
 
 ```bash
 git add plugins/kapisch/kapisch_validation/{vocabulary.py,models.py,manifest.py,references.py} \
-  plugins/kapisch/tests/kapisch_validation/test_{manifest,references}.py
+  plugins/kapisch/tests/kapisch_validation/test_{manifest,vocabulary}.py
 git commit -m "feat: parse KAPISCH v4 controller bindings"
 ```
 
