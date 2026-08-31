@@ -283,12 +283,12 @@ git commit -m "feat: derive KAPISCH controller view"
 
 **Interfaces:**
 
-- Consumes: valid durable task directories; `--task-dir PATH`; migration additionally requires `--approve`.
-- Produces: renderer exit 0 only after atomically replacing `04-controller-view.toml` and state bindings then revalidating; migration produces a copied v4 task directory and never mutates source.
+- Consumes: renderer `--task-dir PATH`; migration `--task-dir SOURCE --destination-task-dir DEST --approve`, where `DEST` must not exist.
+- Produces: renderer exit 0 only after atomically replacing `04-controller-view.toml` and state bindings then revalidating; migration produces `DEST` as a copied v4 task directory and never mutates `SOURCE`.
 
 - [ ] **Step 1: Write failing renderer tests.** In a temporary v4 fixture copy, assert render creates fixed view bytes, updates state’s view hash, and validates. Patch the atomic replacement seam to fail; assert original state/view bytes remain unchanged. Assert invalid source snapshots return 2 and create no view.
 
-- [ ] **Step 2: Write failing migration tests.** Assert migration rejects omitted `--approve`, active/ambiguous legacy runs, missing reports, or invalid legacy artifacts; assert an eligible complete v3 copy becomes v4 with generated outcomes/view and source byte digests unchanged; assert target collision refuses overwrite.
+- [ ] **Step 2: Write failing migration tests.** Invoke migration with `--task-dir SOURCE --destination-task-dir DEST --approve`. Assert it rejects omitted `--approve`, omitted destination, an existing destination, active/ambiguous legacy runs, missing reports, or invalid legacy artifacts; assert an eligible complete v3 source produces v4 `DEST` with generated outcomes/view while source byte digests remain unchanged.
 
 - [ ] **Step 3: Run focused tests to confirm scripts are absent.**
 
@@ -298,7 +298,7 @@ Expected: FAIL with import/file-not-found failures for the two scripts.
 
 - [ ] **Step 4: Implement the renderer.** Follow `migrate_legacy_run.py` safety style: parse and validate before writes; create a same-directory temporary file; `os.replace` view first; atomically replace state second; if state replacement fails, restore the old view bytes; run read-only validation after both replacements; on post-write validation failure restore both old bytes and return 2. Do not add this behavior to `kapisch-validate`.
 
-- [ ] **Step 5: Implement migration as copy-then-validate.** Copy the source task directory into a same-parent temporary directory; require a complete, inactive v3 graph with persisted terminal assignment/attempt records and valid current evidence; add version-4 fields, derive an outcome for each terminal attempt from canonical report/invocation facts only, render view, validate, then atomically rename to a non-existing explicit destination. Fail closed when a required outcome fact cannot be derived; never synthesize reviewer provenance or decisions.
+- [ ] **Step 5: Implement migration as copy-then-validate.** Parse `SOURCE` and `DEST` from the required arguments, reject an existing `DEST`, and create the staging directory under `DEST.parent`. Require a complete, inactive v3 graph with persisted terminal assignment/attempt records and valid current evidence; add version-4 fields, derive an outcome for each terminal attempt from canonical report/invocation facts only, render view, validate, then atomically rename the staged directory to `DEST`. Fail closed when a required outcome fact cannot be derived; never synthesize reviewer provenance or decisions.
 
 - [ ] **Step 6: Add portable-package assertions.** Require both scripts and their imported package modules in the copied bundle; run `--help` for both scripts in the package smoke test.
 
