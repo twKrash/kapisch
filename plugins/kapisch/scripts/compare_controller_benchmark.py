@@ -39,10 +39,20 @@ def behavioral_coverage(rows):
  return {"parent","researcher","implementer","reviewer"} <= {row["role"] for row in rows} and {"approve","ready"} <= {row["review_decision"] for row in rows if row["role"] == "reviewer"}
 def durable_coverage(rows):
  blocking=[row for row in rows if row["role"] == "reviewer" and row["review_decision"] == "do-not-approve" and row["review_findings"] > 0]
- fixing=[row for row in rows if row["role"] == "implementer" and any(row["invocation"] > review["invocation"] for review in blocking)]
- rereview=[row for row in rows if row["role"] == "reviewer" and row["review_decision"] == "approve" and any(row["invocation"] > fix["invocation"] for fix in fixing)]
- readiness=[row for row in rows if row["role"] == "reviewer" and row["review_decision"] == "ready" and any(row["invocation"] > review["invocation"] for review in rereview)]
- return {"parent","researcher","implementer","reviewer"} <= {row["role"] for row in rows} and bool(blocking and fixing and rereview and readiness)
+ lifecycle=any(
+  any(row["role"] == "implementer" and row["invocation"] < blocked["invocation"] for row in rows)
+  and any(
+   fix["role"] == "implementer" and fix["invocation"] > blocked["invocation"]
+   and any(
+    review["role"] == "reviewer" and review["review_decision"] == "approve" and review["invocation"] > fix["invocation"]
+    and any(ready["role"] == "reviewer" and ready["review_decision"] == "ready" and ready["invocation"] > review["invocation"] for ready in rows)
+    for review in rows
+   )
+   for fix in rows
+  )
+  for blocked in blocking
+ )
+ return {"parent","researcher","implementer","reviewer"} <= {row["role"] for row in rows} and lifecycle
 def resume_coverage(rows):
  return {"parent","implementer","reviewer"} <= {row["role"] for row in rows} and all(any(row["role"] == role and row["resume_result"] == "pass" for row in rows) for role in {"implementer","reviewer"})
 def coverage(rows):

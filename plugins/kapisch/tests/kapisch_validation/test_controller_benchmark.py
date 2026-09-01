@@ -7,7 +7,7 @@ def row(variant, tokens=10, turns=1, role="parent", invocation=1, scenario="beha
 def complete(variant,tokens=10):
  return [
   row(variant,tokens,scenario="behavioral"),row(variant,role="researcher",scenario="behavioral"),row(variant,role="implementer",scenario="behavioral"),row(variant,role="reviewer",scenario="behavioral",decision="approve",invocation=1),row(variant,role="reviewer",scenario="behavioral",decision="ready",invocation=2),
-  row(variant,tokens,scenario="durable-fix"),row(variant,role="researcher",scenario="durable-fix"),row(variant,role="implementer",scenario="durable-fix",invocation=1),row(variant,role="reviewer",scenario="durable-fix",decision="do-not-approve",findings=1,invocation=1),row(variant,role="implementer",scenario="durable-fix",invocation=2),row(variant,role="reviewer",scenario="durable-fix",decision="approve",invocation=3),row(variant,role="reviewer",scenario="durable-fix",decision="ready",invocation=4),
+  row(variant,tokens,scenario="durable-fix"),row(variant,role="researcher",scenario="durable-fix"),row(variant,role="implementer",scenario="durable-fix",invocation=1),row(variant,role="reviewer",scenario="durable-fix",decision="do-not-approve",findings=1,invocation=2),row(variant,role="implementer",scenario="durable-fix",invocation=3),row(variant,role="reviewer",scenario="durable-fix",decision="approve",invocation=4),row(variant,role="reviewer",scenario="durable-fix",decision="ready",invocation=5),
   row(variant,tokens,scenario="worker-reviewer-resume"),row(variant,role="implementer",scenario="worker-reviewer-resume",resume="pass"),row(variant,role="reviewer",scenario="worker-reviewer-resume",resume="pass")
  ]
 def compare(base,candidate):
@@ -43,9 +43,10 @@ class BenchmarkTests(unittest.TestCase):
  def test_durable_evidence_requires_a_blocking_fix_cycle(self):
   missing={
    'blocking':lambda row:row['role'] == 'reviewer' and row['review_decision'] == 'do-not-approve',
-   'fixing':lambda row:row['role'] == 'implementer' and row['invocation'] == 2,
-   'rereview':lambda row:row['role'] == 'reviewer' and row['review_decision'] == 'approve' and row['invocation'] == 3,
-   'readiness':lambda row:row['role'] == 'reviewer' and row['review_decision'] == 'ready' and row['invocation'] == 4,
+   'initial':lambda row:row['role'] == 'implementer' and row['invocation'] == 1,
+   'fixing':lambda row:row['role'] == 'implementer' and row['invocation'] == 3,
+   'rereview':lambda row:row['role'] == 'reviewer' and row['review_decision'] == 'approve' and row['invocation'] == 4,
+   'readiness':lambda row:row['role'] == 'reviewer' and row['review_decision'] == 'ready' and row['invocation'] == 5,
   }
   for phase,remove in missing.items():
    with self.subTest(phase=phase):
