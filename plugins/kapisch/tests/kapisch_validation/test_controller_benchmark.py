@@ -43,7 +43,7 @@ class BenchmarkTests(unittest.TestCase):
  def test_durable_evidence_requires_a_blocking_fix_cycle(self):
   missing={
    'blocking':lambda row:row['role'] == 'reviewer' and row['review_decision'] == 'do-not-approve',
-   'initial':lambda row:row['role'] == 'implementer' and row['invocation'] == 1,
+   'initial':lambda row:row['scenario'] == 'durable-fix' and row['role'] == 'implementer' and row['invocation'] == 1,
    'fixing':lambda row:row['role'] == 'implementer' and row['invocation'] == 3,
    'rereview':lambda row:row['role'] == 'reviewer' and row['review_decision'] == 'approve' and row['invocation'] == 4,
    'readiness':lambda row:row['role'] == 'reviewer' and row['review_decision'] == 'ready' and row['invocation'] == 5,
