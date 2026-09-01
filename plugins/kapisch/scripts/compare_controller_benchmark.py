@@ -5,14 +5,14 @@ from collections import defaultdict
 from pathlib import Path
 ROLES={"parent","mechanic","implementer-lite","implementer","architect","researcher","reviewer"}
 NUMERIC=("input_tokens","output_tokens","cache_read_tokens","turns","elapsed_ms")
-REQUIRED={"run_id","variant","role","invocation",*NUMERIC,"workflow_outcome","validator_exit","review_decision","review_findings","test_result","resume_result"}
+REQUIRED={"run_id","scenario","variant","role","invocation",*NUMERIC,"workflow_outcome","validator_exit","review_decision","review_findings","test_result","resume_result"}
 REQUIRED_COMPARISON={"input_tokens","turns"}
 def load(path, variant):
  rows=[]; seen=set()
  for number,line in enumerate(Path(path).read_text().splitlines(),1):
   row=json.loads(line)
-  if set(row) != REQUIRED or row["variant"] != variant or row["role"] not in ROLES: raise ValueError(f"bad record {number}")
-  key=(row["run_id"],row["role"],row["invocation"])
+  if set(row) != REQUIRED or row["variant"] != variant or row["role"] not in ROLES or row["scenario"] not in {"behavioral","durable-fix","worker-reviewer-resume"}: raise ValueError(f"bad record {number}")
+  key=(row["run_id"],row["scenario"],row["role"],row["invocation"])
   if key in seen: raise ValueError(f"duplicate {key}")
   seen.add(key)
   if any(value is not None and (not isinstance(value,int) or isinstance(value,bool) or value < 0) for value in (row[key] for key in NUMERIC)): raise ValueError(f"bad numeric {number}")
@@ -35,7 +35,7 @@ def main(argv=None):
  try: baseline=load(args.baseline,"baseline"); candidate=load(args.candidate,"candidate")
  except (OSError,json.JSONDecodeError,ValueError) as error: print(str(error)); return 2
  base,cand=aggregate(baseline),aggregate(candidate)
- base_keys={(row["run_id"],row["role"],row["invocation"]) for row in baseline}; candidate_keys={(row["run_id"],row["role"],row["invocation"]) for row in candidate}
+ base_keys={(row["run_id"],row["scenario"],row["role"],row["invocation"]) for row in baseline}; candidate_keys={(row["run_id"],row["scenario"],row["role"],row["invocation"]) for row in candidate}
  unmatched_baseline=sorted(base_keys-candidate_keys); unmatched_candidate=sorted(candidate_keys-base_keys); pairing_complete=not unmatched_baseline and not unmatched_candidate
  roles=sorted(set(base)|set(cand)); data={role:{metric:comparison(base,cand,role,metric,pairing_complete) for metric in NUMERIC} for role in roles}
  semantic_evidence_present=all(
@@ -45,7 +45,8 @@ def main(argv=None):
   for row in (*baseline,*candidate)
  )
  required_roles={"parent","reviewer"}
- coverage_complete=all(required_roles <= {row["role"] for row in rows} for rows in (baseline,candidate))
+ required_scenarios={"behavioral","durable-fix","worker-reviewer-resume"}
+ coverage_complete=all(required_roles <= {row["role"] for row in rows} and required_scenarios <= {row["scenario"] for row in rows} and any(row["role"] == "reviewer" and row["review_decision"] == "approve" for row in rows) and any(row["role"] == "reviewer" and row["review_decision"] == "ready" for row in rows) and any(row["scenario"] == "worker-reviewer-resume" and row["resume_result"] == "pass" for row in rows) for rows in (baseline,candidate))
  required=pairing_complete and coverage_complete and semantic_evidence_present and all("parent" in values and data["parent"][metric]["comparable"] for values in (base,cand) for metric in REQUIRED_COMPARISON)
  print(json.dumps({"roles":data,"required_evidence_present":required,"semantic_evidence_present":semantic_evidence_present,"coverage_complete":coverage_complete,"pairing_complete":pairing_complete,"unmatched_baseline":unmatched_baseline,"unmatched_candidate":unmatched_candidate},sort_keys=True)); return 0
 if __name__ == "__main__": raise SystemExit(main())
