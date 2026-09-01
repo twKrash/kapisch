@@ -30,6 +30,11 @@ def comparison(base,candidate, role, metric, pairing_complete):
  left=base[role][metric]; right=candidate[role][metric]
  comparable=pairing_complete and left["observed_count"] > 0 and right["observed_count"] > 0 and not left["unavailable_count"] and not right["unavailable_count"]
  return {"baseline":dict(left, total=left["total"] if left["observed_count"] else None),"candidate":dict(right,total=right["total"] if right["observed_count"] else None),"comparable":comparable,"delta":right["total"]-left["total"] if comparable else None}
+def coverage(rows):
+    scenarios={scenario:[row for row in rows if row["scenario"] == scenario] for scenario in {"behavioral","durable-fix","worker-reviewer-resume"}}
+    standard=all({"parent","researcher","implementer","reviewer"} <= {row["role"] for row in scenarios[scenario]} and {"approve","ready"} <= {row["review_decision"] for row in scenarios[scenario] if row["role"] == "reviewer"} for scenario in {"behavioral","durable-fix"})
+    resume=scenarios["worker-reviewer-resume"]
+    return standard and {"parent","implementer","reviewer"} <= {row["role"] for row in resume} and all(any(row["role"] == role and row["resume_result"] == "pass" for row in resume) for role in {"implementer","reviewer"})
 def main(argv=None):
  parser=argparse.ArgumentParser(); parser.add_argument("--baseline",required=True); parser.add_argument("--candidate",required=True); parser.add_argument("--format",choices=("json",),default="json"); args=parser.parse_args(argv)
  try: baseline=load(args.baseline,"baseline"); candidate=load(args.candidate,"candidate")
@@ -44,9 +49,7 @@ def main(argv=None):
   and row["review_decision"] in {"approve","ready"} and isinstance(row["review_findings"],int) and not isinstance(row["review_findings"],bool) and row["review_findings"] >= 0
   for row in (*baseline,*candidate)
  )
- required_roles={"parent","reviewer"}
- required_scenarios={"behavioral","durable-fix","worker-reviewer-resume"}
- coverage_complete=all(required_roles <= {row["role"] for row in rows} and required_scenarios <= {row["scenario"] for row in rows} and any(row["role"] == "reviewer" and row["review_decision"] == "approve" for row in rows) and any(row["role"] == "reviewer" and row["review_decision"] == "ready" for row in rows) and any(row["scenario"] == "worker-reviewer-resume" and row["resume_result"] == "pass" for row in rows) for rows in (baseline,candidate))
+ coverage_complete=all(coverage(rows) for rows in (baseline,candidate))
  required=pairing_complete and coverage_complete and semantic_evidence_present and all("parent" in values and data["parent"][metric]["comparable"] for values in (base,cand) for metric in REQUIRED_COMPARISON)
  print(json.dumps({"roles":data,"required_evidence_present":required,"semantic_evidence_present":semantic_evidence_present,"coverage_complete":coverage_complete,"pairing_complete":pairing_complete,"unmatched_baseline":unmatched_baseline,"unmatched_candidate":unmatched_candidate},sort_keys=True)); return 0
 if __name__ == "__main__": raise SystemExit(main())

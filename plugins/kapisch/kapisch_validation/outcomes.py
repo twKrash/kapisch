@@ -223,10 +223,27 @@ def _outcome_binding_errors(raw: dict[str, object], path: Path, node, assignment
     return errors
 
 
+def _report_authorizes_finding(outcome: dict[str, object], finding: object, task_dir: Path, reviewer_node_id: str) -> bool:
+    if not isinstance(finding, dict):
+        return False
+    report_path = outcome.get("report_path")
+    report = _contained(task_dir, report_path)
+    artifact, failure = read_utf8_artifact(report) if report is not None else (None, ArtifactFailure(ArtifactFailureKind.MISSING))
+    if failure is not None or artifact is None:
+        return False
+    fields = {
+        "finding_id": finding.get("id"),
+        "finding_severity": finding.get("severity"),
+        "finding_summary": finding.get("summary"),
+        "finding_scope": reviewer_node_id,
+    }
+    return all(isinstance(value, str) and f"{key}: {value}" in artifact.data.decode("utf-8") for key, value in fields.items())
+
+
 def _redispatch_errors(
     raw: dict[str, object], path: Path, node, attempt: dict[str, object],
     attempts: list[tuple[object, dict[str, object], dict[str, object]]],
-    valid_outcomes: dict[str, dict[str, object]],
+    valid_outcomes: dict[str, dict[str, object]], task_dir: Path
 ) -> list[ValidationError]:
     reason = raw.get("redispatch_reason")
     if reason == "none":
@@ -249,13 +266,9 @@ def _redispatch_errors(
         if (
             predecessor_outcome.get("role") != "reviewer"
             or not isinstance(findings, list)
-            or not any(
-                isinstance(finding, dict)
-                and finding.get("evidence_ref") == predecessor_outcome.get("report_path")
-                for finding in findings
-            )
+            or not any(_report_authorizes_finding(predecessor_outcome, finding, task_dir, predecessor_node.id) for finding in findings)
         ):
-            return [_e("TWV-OUTCOME-REDISPATCH-AUTHORIZATION", path, "predecessor_attempt_id", "reviewer-finding requires a reviewer finding bound to its canonical report")]
+            return [_e("TWV-OUTCOME-REDISPATCH-AUTHORIZATION", path, "predecessor_attempt_id", "reviewer-finding requires a finding authorized by the canonical reviewer report")]
     if reason == "approved-amendment":
         return [_e("TWV-OUTCOME-REDISPATCH-AUTHORIZATION", path, "redispatch_reason", "approved-amendment requires a versioned amendment authority artifact")]
     same_node = {"interrupted-active-stage", "failed-attempt", "dispatch-no-work"}
@@ -287,7 +300,7 @@ def validate_outcomes(manifest: Manifest, state: State, task_dir: Path) -> list[
             if not binding_errors and isinstance(attempt.get("outcome_path"), str):
                 valid_outcomes[attempt["outcome_path"]] = raw
     for node, _, attempt, path, raw in parsed:
-        errors.extend(_redispatch_errors(raw, path, node, attempt, attempts, valid_outcomes))
+        errors.extend(_redispatch_errors(raw, path, node, attempt, attempts, valid_outcomes, task_dir))
     consumed = sum(
         raw["retry_budget_delta"]
         for _, _, _, _, raw in parsed

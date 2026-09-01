@@ -5,7 +5,11 @@ ROOT=Path(__file__).resolve().parents[2]
 def row(variant, tokens=10, turns=1, role="parent", invocation=1, scenario="behavioral", decision="approve", resume="not-applicable"):
  return {'run_id':'task','scenario':scenario,'variant':variant,'role':role,'invocation':invocation,'input_tokens':tokens,'output_tokens':2,'cache_read_tokens':None,'turns':turns,'elapsed_ms':5,'workflow_outcome':'complete','validator_exit':0,'review_decision':decision,'review_findings':0,'test_result':'pass','resume_result':resume}
 def complete(variant,tokens=10):
- return [row(variant,tokens,scenario="behavioral"),row(variant,role="reviewer",scenario="behavioral",decision="approve"),row(variant,tokens,scenario="durable-fix"),row(variant,role="reviewer",scenario="durable-fix",decision="ready"),row(variant,tokens,scenario="worker-reviewer-resume",resume="pass"),row(variant,role="reviewer",scenario="worker-reviewer-resume",resume="pass")]
+ return [
+  row(variant,tokens,scenario="behavioral"),row(variant,role="researcher",scenario="behavioral"),row(variant,role="implementer",scenario="behavioral"),row(variant,role="reviewer",scenario="behavioral",decision="approve",invocation=1),row(variant,role="reviewer",scenario="behavioral",decision="ready",invocation=2),
+  row(variant,tokens,scenario="durable-fix"),row(variant,role="researcher",scenario="durable-fix"),row(variant,role="implementer",scenario="durable-fix"),row(variant,role="reviewer",scenario="durable-fix",decision="approve",invocation=1),row(variant,role="reviewer",scenario="durable-fix",decision="ready",invocation=2),
+  row(variant,tokens,scenario="worker-reviewer-resume"),row(variant,role="implementer",scenario="worker-reviewer-resume",resume="pass"),row(variant,role="reviewer",scenario="worker-reviewer-resume",resume="pass")
+ ]
 def compare(base,candidate):
  with tempfile.TemporaryDirectory() as directory:
   left=Path(directory)/'base.jsonl'; right=Path(directory)/'candidate.jsonl'

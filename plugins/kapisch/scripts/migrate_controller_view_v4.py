@@ -24,18 +24,17 @@ def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 def migration_disposition(path: Path) -> bool:
     try:
-        fields = dict(
-            line.split(":", 1)
+        records = [
+            tuple(part.strip() for part in line.split(":", 1))
             for line in path.read_text(encoding="utf-8").splitlines()
-            if ":" in line
-        )
-    except (OSError, UnicodeDecodeError, ValueError):
+            if line.split(":", 1)[0].strip() in {"status", "concerns", "findings"}
+        ]
+    except (OSError, UnicodeDecodeError):
         return False
-    return (
-        fields.get("status", "").strip() == "DONE"
-        and fields.get("concerns", "").strip() == "none"
-        and fields.get("findings", "").strip() == "none"
-    )
+    if len(records) != 3 or {key for key, _ in records} != {"status", "concerns", "findings"}:
+        return False
+    fields = dict(records)
+    return fields == {"status": "DONE", "concerns": "none", "findings": "none"}
 
 
 
