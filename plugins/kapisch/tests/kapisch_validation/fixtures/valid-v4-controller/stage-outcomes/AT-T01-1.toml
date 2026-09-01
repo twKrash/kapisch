@@ -18,6 +18,6 @@ reviewer_decision = "unavailable"
 role = "implementer"
 role_status = "done"
 task_id = "valid"
-verification = []
+verification = [{check = "tests", result = "pass", evidence_ref = "tasks/T01-report.md", output_sha256 = "331d26d6d8f862e46ba900811be8a7a1e4dbaa229b14c99becfd5e5151490d95"}]
 version = 1
 working_tree_state_sha256 = "unavailable"

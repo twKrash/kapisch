@@ -304,7 +304,7 @@ def _verification_binding_errors(raw: dict[str, object], path: Path, node, task_
         for record in evidence
         if isinstance(record, dict)
     ]
-    if verification and verification != expected:
+    if verification != expected:
         return [_e("TWV-OUTCOME-VERIFICATION-EVIDENCE", path, "verification", "does not exactly match canonical verification evidence")]
     errors: list[ValidationError] = []
     for index, record in enumerate(verification):

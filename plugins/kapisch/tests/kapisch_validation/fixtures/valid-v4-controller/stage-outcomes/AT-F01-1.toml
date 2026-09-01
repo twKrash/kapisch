@@ -18,6 +18,6 @@ reviewer_decision = "ready"
 role = "reviewer"
 role_status = "done"
 task_id = "valid"
-verification = []
+verification = [{check = "final", result = "pass", evidence_ref = "reviews/final/05-final.md", output_sha256 = "43f3c8df517a2435467fe95332214d943d9ea77f1a4542f61d531c171b84b787"}]
 version = 1
 working_tree_state_sha256 = "aaafded241c666e5ccd5b115c0f83224b443b7636e5fdde93a7bba043e69e939"

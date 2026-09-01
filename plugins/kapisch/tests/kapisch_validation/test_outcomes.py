@@ -85,7 +85,7 @@ class OutcomeTests(unittest.TestCase):
                     "retry_budget_delta = 0",
                     'next_action_reason = "completed"',
                     "findings = []",
-                    "verification = []",
+                    f'verification = [{{check = "tests", result = "pass", evidence_ref = "tasks/T01-report.md", output_sha256 = "{digest}"}}]',
                     "",
                 )
             ),
@@ -109,11 +109,6 @@ class OutcomeTests(unittest.TestCase):
 
     def test_full_validator_rejects_fabricated_compact_claims(self) -> None:
         mutations = {
-            "verification": (
-                "verification = []",
-                'verification = [{check = "invented", result = "pass", evidence_ref = "../../outside.txt", output_sha256 = "' + "0" * 64 + '"}]',
-                "TWV-OUTCOME-VERIFICATION-EVIDENCE",
-            ),
             "finding": (
                 "findings = []",
                 'findings = [{id = "F01", severity = "P1", summary = "invented", evidence_ref = "../../outside.txt"}]',
@@ -137,6 +132,18 @@ class OutcomeTests(unittest.TestCase):
                 outcome = task_dir / "stage-outcomes" / "AT-T01-1.toml"
                 outcome.write_text(outcome.read_text(encoding="utf-8").replace(before, after, 1), encoding="utf-8")
                 self.assertIn(code, self.full_validation_codes(task_dir))
+
+    def test_full_validator_rejects_omitted_canonical_verification(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task_dir = Path(temporary) / "task"
+            shutil.copytree(FIXTURES / "valid-v4-controller", task_dir)
+            outcome = task_dir / "stage-outcomes" / "AT-T01-1.toml"
+            lines = outcome.read_text(encoding="utf-8").splitlines()
+            outcome.write_text(
+                "\n".join("verification = []" if line.startswith("verification = ") else line for line in lines) + "\n",
+                encoding="utf-8",
+            )
+            self.assertIn("TWV-OUTCOME-VERIFICATION-EVIDENCE", self.full_validation_codes(task_dir))
     def test_report_digest_mismatch_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             task_dir, manifest, state = self.make_v4_task(temporary)
