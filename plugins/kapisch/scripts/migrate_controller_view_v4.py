@@ -22,6 +22,22 @@ from render_controller_view import main as render_view
 
 def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+def migration_disposition(path: Path) -> bool:
+    try:
+        fields = dict(
+            line.split(":", 1)
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if ":" in line
+        )
+    except (OSError, UnicodeDecodeError, ValueError):
+        return False
+    return (
+        fields.get("status", "").strip() == "DONE"
+        and fields.get("concerns", "").strip() == "none"
+        and fields.get("findings", "").strip() == "none"
+    )
+
+
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -72,7 +88,7 @@ def main(argv: list[str] | None = None) -> int:
                     if invocation_raw.get("returned_decision") not in {"approve", "ready"}:
                         return 2
                 report = staged / node["report"]
-                if not report.is_file():
+                if not report.is_file() or not migration_disposition(report):
                     return 2
                 outcome = {"version": 1, "task_id": graph["task_id"], "node_id": node["id"], "role": role, "assignment_id": assignment["id"], "attempt_id": attempt_id, "lifecycle": attempt["status"], "role_status": "done" if attempt["status"] == "complete" else attempt["status"], "base_revision": node["revision"]["base"], "head_revision": node["revision"]["head"], "working_tree_state_sha256": "unavailable", "report_path": node["report"], "report_sha256": digest(report), "invocation_path": invocation if role == "reviewer" else "unavailable", "invocation_id": invocation_raw.get("invocation_id", "unavailable") if role == "reviewer" else "unavailable", "invocation_sha256": digest(staged / invocation) if role == "reviewer" else "unavailable", "reviewer_decision": invocation_raw.get("returned_decision", "unavailable") if role == "reviewer" else "unavailable", "redispatch_reason": "none", "predecessor_attempt_id": "unavailable", "retry_budget_delta": 0, "next_action_reason": "completed", "findings": [], "verification": []}
                 evidence = node.get("verification_evidence")
