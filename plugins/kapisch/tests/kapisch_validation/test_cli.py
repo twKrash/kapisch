@@ -256,6 +256,16 @@ outcome="running"
             code, findings = self._run_paths(current, previous)
         self.assertEqual(code, 0)
         self.assertEqual(findings, [])
+    def test_unchanged_legacy_terminal_snapshot_is_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            current = root / "current"
+            previous = root / "previous"
+            shutil.copytree(FIXTURES / "valid-v3-durable", current)
+            shutil.copytree(FIXTURES / "valid-v3-durable", previous)
+            code, findings = self._run_paths(current, previous)
+        self.assertEqual(code, 0)
+        self.assertEqual(findings, [])
 
     def test_unchanged_runtime_history_is_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -80,7 +80,7 @@ def _schema_errors(raw: dict[str, object], path: Path) -> list[ValidationError]:
     for key in sorted(OUTCOME_FIELDS):
         if key not in raw:
             errors.append(_e("TWV-OUTCOME-MISSING-FIELD", path, key, "required outcome field is missing"))
-    if raw.get("version") != 1:
+    if type(raw.get("version")) is not int or raw["version"] != 1:
         errors.append(_e("TWV-OUTCOME-INVALID-VERSION", path, "version", "must be integer 1"))
     string_values = {
         "task_id", "node_id", "role", "assignment_id", "attempt_id", "lifecycle",

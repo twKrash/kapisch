@@ -31,7 +31,8 @@ def main(argv=None):
     text=old_state.decode('utf-8'); digest=hashlib.sha256(view).hexdigest()
     first_table=re.search(r'^[ \t]*\[',text,re.M); root=text[:first_table.start()] if first_table else text; tables=text[first_table.start():] if first_table else ''
     for key,value in [('controller_view_path','04-controller-view.toml'),('controller_view_sha256',digest)]:
-        root,count=re.subn(rf'^[ \t]*(?:"{key}"|{key})\s*=.*$',f'"{key}" = "{value}"',root,flags=re.M)
+        spelling=rf'(?:{key}|"{key}"|\'{key}\')'
+        root,count=re.subn(rf'^[ \t]*{spelling}\s*=.*$',f'"{key}" = "{value}"',root,flags=re.M)
         if count != 1: return 2
     text=root+tables
     try:

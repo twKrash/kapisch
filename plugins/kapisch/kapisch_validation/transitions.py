@@ -700,6 +700,8 @@ def _validate_artifact_compatibility(
                             "terminal artifact content does not match the persisted snapshot",
                         )
                     )
+        if manifest.version != 4 or previous.version != 4:
+            continue
         previous_assignment = previous_node.raw.get("assignment")
         current_assignment = current_node.raw.get("assignment")
         if not isinstance(previous_assignment, dict) or not isinstance(current_assignment, dict):

@@ -413,6 +413,15 @@ class ManifestTests(unittest.TestCase):
                         ("TWV-SCHEMA-INVALID-VALUE", "nodes[0].attempts[0].id"),
                         [(error.code, error.reference) for error in result.errors],
                     )
+    def test_legacy_attempt_ids_remain_readable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "02-execution-graph.toml"
+            body = self._v4_body_with_attempt().replace(
+                'version = 4\ncontroller_view = "04-controller-view.toml"', "version = 3"
+            ).replace('id="AT-T01-1"', 'id="../legacy-attempt"', 1)
+            path.write_text(body, encoding="utf-8")
+            result = parse_manifest(path)
+        self.assertEqual(result.errors, ())
     def test_version_four_copy_of_durable_v3_fixture_parses(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "02-execution-graph.toml"

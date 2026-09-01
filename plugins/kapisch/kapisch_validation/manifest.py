@@ -819,7 +819,7 @@ def parse_manifest(path: Path) -> ParseResult:
                             )
                             if status_error is not None:
                                 errors.append(status_error)
-                        if key == "attempts" and isinstance(value.get("id"), str):
+                        if version == 4 and key == "attempts" and isinstance(value.get("id"), str):
                             attempt_id = value["id"]
                             if attempt_id in {".", ".."} or any(
                                 separator in attempt_id for separator in ("/", "\\", "\x00")

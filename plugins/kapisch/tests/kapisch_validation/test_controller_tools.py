@@ -2,7 +2,7 @@ from __future__ import annotations
 import shutil, subprocess, sys, tempfile, unittest
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]; sys.path.insert(0,str(ROOT/'scripts'))
-from migrate_controller_view_v4 import migration_disposition
+from migrate_controller_view_v4 import main as migrate_controller_view, migration_disposition
 FIXTURES=Path(__file__).parent/'fixtures'
 def render(task): return subprocess.run([sys.executable,str(ROOT/'scripts'/'render_controller_view.py'),'--task-dir',str(task)],capture_output=True,text=True)
 class ToolTests(unittest.TestCase):
@@ -17,6 +17,14 @@ class ToolTests(unittest.TestCase):
   with tempfile.TemporaryDirectory() as directory:
    task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task);state=task/'03-state.toml';state.write_text(state.read_text().replace('controller_view_path =','"controller_view_path" =').replace('controller_view_sha256 =','"controller_view_sha256" ='))
    self.assertEqual(render(task).returncode,0)
+ def test_literal_quoted_state_keys_render_without_duplicates(self):
+  with tempfile.TemporaryDirectory() as directory:
+   task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task);state=task/'03-state.toml';state.write_text(state.read_text().replace('controller_view_path =',"'controller_view_path' =").replace('controller_view_sha256 =',"'controller_view_sha256' ="))
+   self.assertEqual(render(task).returncode,0)
+ def test_migration_rejects_preexisting_outcome_directory(self):
+  with tempfile.TemporaryDirectory() as directory:
+   root=Path(directory);source=root/'source';destination=root/'destination';shutil.copytree(FIXTURES/'valid-v3-durable',source);outcomes=source/'stage-outcomes';outcomes.mkdir();(outcomes/'old.txt').write_text('old')
+   self.assertEqual(migrate_controller_view(['--task-dir',str(source),'--destination-task-dir',str(destination),'--approve']),2);self.assertFalse(destination.exists())
  def test_indented_root_keys_ignore_indented_extension_keys(self):
   with tempfile.TemporaryDirectory() as directory:
    task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task);state=task/'03-state.toml'

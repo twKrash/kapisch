@@ -84,6 +84,15 @@ class OutcomeTests(unittest.TestCase):
             task_dir, manifest, state = self.make_v4_task(temporary)
             self.write_outcome(task_dir)
             self.assertEqual(validate_outcomes(manifest, state, task_dir), [])
+    def test_outcome_version_requires_an_integer_one(self) -> None:
+        for value in ("true", "1.0"):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as temporary:
+                task_dir, manifest, state = self.make_v4_task(temporary)
+                self.write_outcome(task_dir)
+                outcome = task_dir / "stage-outcomes/AT-T01-1.toml"
+                outcome.write_text(outcome.read_text(encoding="utf-8").replace("version = 1", f"version = {value}", 1), encoding="utf-8")
+                errors = validate_outcomes(manifest, state, task_dir)
+                self.assertIn("TWV-OUTCOME-INVALID-VERSION", {error.code for error in errors})
 
     def test_report_digest_mismatch_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
