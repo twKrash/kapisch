@@ -30,7 +30,7 @@ def main(argv=None):
     old_state=(d/'03-state.toml').read_bytes(); old_view=(d/'04-controller-view.toml').read_bytes() if (d/'04-controller-view.toml').exists() else None
     text=old_state.decode('utf-8'); digest=hashlib.sha256(view).hexdigest()
     for key,value in [('controller_view_path','04-controller-view.toml'),('controller_view_sha256',digest)]:
-        text,count=re.subn(rf'^{key}\s*=.*$',f'{key}="{value}"',text,flags=re.M)
+        text,count=re.subn(rf'^(?:"{key}"|{key})\s*=.*$',f'"{key}" = "{value}"',text,flags=re.M)
         if not count: text += ('\n' if not text.endswith('\n') else '')+f'{key}="{value}"\n'
     try:
         atomic(d/'04-controller-view.toml',view); atomic(d/'03-state.toml',text.encode())

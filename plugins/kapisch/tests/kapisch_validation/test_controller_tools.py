@@ -11,6 +11,10 @@ class ToolTests(unittest.TestCase):
   with tempfile.TemporaryDirectory() as directory:
    task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task)
    self.assertEqual(render(task).returncode,0)
+ def test_quoted_state_keys_render_without_duplicates(self):
+  with tempfile.TemporaryDirectory() as directory:
+   task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task);state=task/'03-state.toml';state.write_text(state.read_text().replace('controller_view_path =','"controller_view_path" =').replace('controller_view_sha256 =','"controller_view_sha256" ='))
+   self.assertEqual(render(task).returncode,0)
  def test_invalid_canonical_snapshots_are_untouched(self):
   for fixture in ('invalid-v4-report-digest','invalid-v4-reviewer-invocation'):
    with self.subTest(fixture=fixture),tempfile.TemporaryDirectory() as directory:
