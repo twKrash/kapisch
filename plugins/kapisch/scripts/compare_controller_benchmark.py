@@ -73,6 +73,6 @@ def main(argv=None):
   for row in (*baseline,*candidate)
  )
  coverage_complete=all(coverage(rows) for rows in (baseline,candidate))
- required=pairing_complete and coverage_complete and semantic_evidence_present and all("parent" in values and data["parent"][metric]["comparable"] for values in (base,cand) for metric in REQUIRED_COMPARISON)
+ required=pairing_complete and coverage_complete and semantic_evidence_present and all(data[role][metric]["comparable"] for role in roles for metric in REQUIRED_COMPARISON)
  print(json.dumps({"roles":data,"required_evidence_present":required,"semantic_evidence_present":semantic_evidence_present,"coverage_complete":coverage_complete,"pairing_complete":pairing_complete,"unmatched_baseline":unmatched_baseline,"unmatched_candidate":unmatched_candidate},sort_keys=True)); return 0
 if __name__ == "__main__": raise SystemExit(main())

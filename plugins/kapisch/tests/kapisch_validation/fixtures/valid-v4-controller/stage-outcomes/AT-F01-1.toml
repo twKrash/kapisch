@@ -20,4 +20,4 @@ role_status = "done"
 task_id = "valid"
 verification = []
 version = 1
-working_tree_state_sha256 = "unavailable"
+working_tree_state_sha256 = "aaafded241c666e5ccd5b115c0f83224b443b7636e5fdde93a7bba043e69e939"

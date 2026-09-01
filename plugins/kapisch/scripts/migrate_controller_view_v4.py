@@ -41,6 +41,35 @@ def migration_disposition(path: Path) -> bool:
     return dict(records) == {"status": "DONE", "concerns": "none", "findings": "none"}
 
 
+def outcome_destination(root: Path, attempt_id: object) -> Path | None:
+    if (
+        not isinstance(attempt_id, str)
+        or attempt_id in {".", ".."}
+        or any(separator in attempt_id for separator in ("/", "\\", "\0"))
+    ):
+        return None
+    try:
+        outcomes = (root / "stage-outcomes").resolve()
+        destination = (outcomes / f"{attempt_id}.toml").resolve()
+    except (OSError, RuntimeError):
+        return None
+    if destination.parent != outcomes:
+        return None
+    return destination
+
+
+def safe_attempt_destinations(manifest, root: Path) -> bool:
+    for node in manifest.nodes:
+        assignment = node.raw.get("assignment")
+        attempts = assignment.get("attempts") if isinstance(assignment, dict) else []
+        if not isinstance(attempts, list):
+            return False
+        for attempt in attempts:
+            if not isinstance(attempt, dict) or outcome_destination(root, attempt.get("id")) is None:
+                return False
+    return True
+
+
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -60,63 +89,87 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     manifest_result = parse_manifest(source / "02-execution-graph.toml")
     state, _ = parse_state(source / "03-state.toml")
-    if manifest_result.manifest is None or state is None or manifest_result.manifest.version != 3 or state.workflow_status != "complete" or validate(ROOT / "skills" / "kapisch", source):
+    if (
+        manifest_result.manifest is None
+        or state is None
+        or manifest_result.manifest.version != 3
+        or state.workflow_status != "complete"
+        or not safe_attempt_destinations(manifest_result.manifest, source)
+        or validate(ROOT / "skills" / "kapisch", source)
+    ):
         return 2
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="kapisch-v4-", dir=destination.parent) as temporary:
         staged = Path(temporary) / destination.name
-        shutil.copytree(source, staged, copy_function=shutil.copy2)
-        graph = tomllib.loads((staged / "02-execution-graph.toml").read_text(encoding="utf-8"))
-        graph["version"] = 4
-        graph["controller_view"] = "04-controller-view.toml"
-        outcomes = staged / "stage-outcomes"
-        outcomes.mkdir()
-        for node in graph["nodes"]:
-            assignment = node.get("assignment")
-            attempts = assignment.get("attempts") if isinstance(assignment, dict) else None
-            if not isinstance(attempts, list) or len(attempts) != 1:
+        try:
+            shutil.copytree(source, staged, copy_function=shutil.copy2)
+            graph = tomllib.loads((staged / "02-execution-graph.toml").read_text(encoding="utf-8"))
+            graph["version"] = 4
+            graph["controller_view"] = "04-controller-view.toml"
+            outcomes = staged / "stage-outcomes"
+            outcomes.mkdir()
+            for node in graph["nodes"]:
+                assignment = node.get("assignment")
+                attempts = assignment.get("attempts") if isinstance(assignment, dict) else None
+                if not isinstance(attempts, list) or len(attempts) != 1:
+                    return 2
+                for attempt in attempts:
+                    if not isinstance(attempt, dict) or attempt.get("status") != "complete":
+                        return 2
+                    attempt_id = attempt.get("id")
+                    destination_path = outcome_destination(staged, attempt_id)
+                    if destination_path is None:
+                        return 2
+                    outcome_path = destination_path.relative_to(staged).as_posix()
+                    attempt["outcome_path"] = outcome_path
+                    role, invocation = node["executor_class"], node.get("reviewer_invocation")
+                    invocation_raw: dict[str, object] = {}
+                    if role == "reviewer":
+                        if not isinstance(invocation, str) or not (staged / invocation).is_file():
+                            return 2
+                        invocation_raw = tomllib.loads((staged / invocation).read_text(encoding="utf-8"))
+                        if invocation_raw.get("returned_decision") not in {"approve", "ready"}:
+                            return 2
+                    report = staged / node["report"]
+                    if not report.is_file() or not migration_disposition(report):
+                        return 2
+                    outcome = {
+                        "version": 1, "task_id": graph["task_id"], "node_id": node["id"],
+                        "role": role, "assignment_id": assignment["id"], "attempt_id": attempt_id,
+                        "lifecycle": attempt["status"], "role_status": "done",
+                        "base_revision": node["revision"]["base"], "head_revision": node["revision"]["head"],
+                        "working_tree_state_sha256": invocation_raw.get("pre_dispatch_state_digest", "unavailable") if role == "reviewer" else "unavailable",
+                        "report_path": node["report"], "report_sha256": digest(report),
+                        "invocation_path": invocation if role == "reviewer" else "unavailable",
+                        "invocation_id": invocation_raw.get("invocation_id", "unavailable") if role == "reviewer" else "unavailable",
+                        "invocation_sha256": digest(staged / invocation) if role == "reviewer" else "unavailable",
+                        "reviewer_decision": invocation_raw.get("returned_decision", "unavailable") if role == "reviewer" else "unavailable",
+                        "redispatch_reason": "none", "predecessor_attempt_id": "unavailable",
+                        "retry_budget_delta": 0, "next_action_reason": "completed", "findings": [],
+                    }
+                    evidence = node.get("verification_evidence")
+                    if not isinstance(evidence, list) or any(
+                        not isinstance(record, dict)
+                        or set(record) != {"id", "check", "result", "evidence_ref", "output_sha256", "revision"}
+                        or record["result"] not in {"pass", "fail", "not-run", "unavailable"}
+                        for record in evidence
+                    ):
+                        return 2
+                    outcome["verification"] = [
+                        {key: record[key] for key in ("check", "result", "evidence_ref", "output_sha256")}
+                        for record in evidence
+                    ]
+                    destination_path.write_bytes(render_toml(outcome))
+            (staged / "02-execution-graph.toml").write_bytes(render_toml(graph))
+            state_raw = dict(state.raw)
+            state_raw["controller_view_path"] = "04-controller-view.toml"
+            state_raw["controller_view_sha256"] = "0" * 64
+            (staged / "03-state.toml").write_bytes(render_toml(state_raw))
+            if render_view(["--task-dir", str(staged)]) or validate(ROOT / "skills" / "kapisch", staged):
                 return 2
-            for attempt in attempts:
-                if not isinstance(attempt, dict) or attempt.get("status") != "complete":
-                    return 2
-                attempt_id = attempt.get("id")
-                if not isinstance(attempt_id, str):
-                    return 2
-                outcome_path = f"stage-outcomes/{attempt_id}.toml"
-                attempt["outcome_path"] = outcome_path
-                role, invocation = node["executor_class"], node.get("reviewer_invocation")
-                invocation_raw: dict[str, object] = {}
-                if role == "reviewer":
-                    if not isinstance(invocation, str) or not (staged / invocation).is_file():
-                        return 2
-                    invocation_raw = tomllib.loads((staged / invocation).read_text(encoding="utf-8"))
-                    if invocation_raw.get("returned_decision") not in {"approve", "ready"}:
-                        return 2
-                report = staged / node["report"]
-                if not report.is_file() or not migration_disposition(report):
-                    return 2
-                outcome = {"version": 1, "task_id": graph["task_id"], "node_id": node["id"], "role": role, "assignment_id": assignment["id"], "attempt_id": attempt_id, "lifecycle": attempt["status"], "role_status": "done" if attempt["status"] == "complete" else attempt["status"], "base_revision": node["revision"]["base"], "head_revision": node["revision"]["head"], "working_tree_state_sha256": "unavailable", "report_path": node["report"], "report_sha256": digest(report), "invocation_path": invocation if role == "reviewer" else "unavailable", "invocation_id": invocation_raw.get("invocation_id", "unavailable") if role == "reviewer" else "unavailable", "invocation_sha256": digest(staged / invocation) if role == "reviewer" else "unavailable", "reviewer_decision": invocation_raw.get("returned_decision", "unavailable") if role == "reviewer" else "unavailable", "redispatch_reason": "none", "predecessor_attempt_id": "unavailable", "retry_budget_delta": 0, "next_action_reason": "completed", "findings": [], "verification": []}
-                evidence = node.get("verification_evidence")
-                if not isinstance(evidence, list) or any(
-                    not isinstance(record, dict)
-                    or set(record) != {"id", "check", "result", "evidence_ref", "output_sha256", "revision"}
-                    or record["result"] not in {"pass", "fail", "not-run", "unavailable"}
-                    for record in evidence
-                ):
-                    return 2
-                outcome["verification"] = [
-                    {key: record[key] for key in ("check", "result", "evidence_ref", "output_sha256")}
-                    for record in evidence
-                ]
-                (staged / outcome_path).write_bytes(render_toml(outcome))
-        (staged / "02-execution-graph.toml").write_bytes(render_toml(graph))
-        state_raw = dict(state.raw)
-        state_raw["controller_view_path"] = "04-controller-view.toml"
-        state_raw["controller_view_sha256"] = "0" * 64
-        (staged / "03-state.toml").write_bytes(render_toml(state_raw))
-        if render_view(["--task-dir", str(staged)]) or validate(ROOT / "skills" / "kapisch", staged):
+            os.replace(staged, destination)
+        except (OSError, ValueError, tomllib.TOMLDecodeError):
             return 2
-        os.replace(staged, destination)
     return 0
 
 if __name__ == "__main__":

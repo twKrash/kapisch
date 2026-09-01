@@ -25,6 +25,13 @@ class BenchmarkTests(unittest.TestCase):
  def test_observed_zero_is_comparable(self):
   _,data=compare(complete('baseline',0),complete('candidate',0))
   self.assertEqual(data['roles']['parent']['input_tokens']['delta'],0);self.assertTrue(data['required_evidence_present'])
+ def test_unavailable_child_metrics_block_acceptance(self):
+  baseline=complete('baseline');candidate=complete('candidate')
+  for rows in (baseline,candidate):
+   for value in rows:
+    if value['role'] != 'parent': value['input_tokens']=value['turns']=None
+  _,data=compare(baseline,candidate)
+  self.assertFalse(data['required_evidence_present'])
  def test_mixed_observed_and_unavailable_is_not_comparable(self):
   _,data=compare([row('baseline',10),row('baseline',None,invocation=2)],[row('candidate',8),row('candidate',7,invocation=2)])
   self.assertIsNone(data['roles']['parent']['input_tokens']['delta'])

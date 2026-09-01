@@ -53,6 +53,23 @@ def _contained(task_dir: Path, relative_path: object) -> Path | None:
     return candidate
 
 
+def _outcome_path(task_dir: Path, attempt_id: object, relative_path: object) -> Path | None:
+    if (
+        not isinstance(attempt_id, str)
+        or attempt_id in {".", ".."}
+        or any(separator in attempt_id for separator in ("/", "\\", "\0"))
+    ):
+        return None
+    candidate = _contained(task_dir, relative_path)
+    try:
+        outcomes = (task_dir.resolve() / "stage-outcomes").resolve()
+    except (OSError, RuntimeError):
+        return None
+    if candidate is None or candidate.parent != outcomes or candidate.name != f"{attempt_id}.toml":
+        return None
+    return candidate
+
+
 def _digest(path: Path) -> str | None:
     artifact, failure = read_utf8_artifact(path)
     if failure is not None:
@@ -199,11 +216,16 @@ def _outcome_binding_errors(raw: dict[str, object], path: Path, node, assignment
         errors.append(_e("TWV-OUTCOME-REPORT-DIGEST", path, "report_sha256", "does not match detailed report bytes"))
     if raw.get("lifecycle") != attempt.get("status"):
         errors.append(_e("TWV-OUTCOME-LIFECYCLE", path, "lifecycle", "must match terminal attempt status"))
+    errors.extend(_normalized_claim_errors(raw, path, node))
+    errors.extend(_finding_binding_errors(raw, path, report, task_dir, node))
+    errors.extend(_verification_binding_errors(raw, path, node, task_dir))
     reviewer = node.raw.get("executor_class") == "reviewer"
     invocation_fields = ("invocation_path", "invocation_id", "invocation_sha256")
     if not reviewer:
         if any(raw.get(field) != "unavailable" for field in (*invocation_fields, "reviewer_decision")):
             errors.append(_e("TWV-OUTCOME-REVIEWER-EVIDENCE", path, "invocation_path", "only reviewers may carry reviewer evidence"))
+        if raw.get("working_tree_state_sha256") != "unavailable":
+            errors.append(_e("TWV-OUTCOME-WORKTREE-EVIDENCE", path, "working_tree_state_sha256", "non-reviewer outcomes have no canonical working-tree evidence"))
         return errors
     invocation_path = node.raw.get("reviewer_invocation")
     if raw.get("invocation_path") != invocation_path:
@@ -218,8 +240,80 @@ def _outcome_binding_errors(raw: dict[str, object], path: Path, node, assignment
         errors.append(_e("TWV-OUTCOME-INVOCATION-DIGEST", path, "invocation_sha256", "does not match invocation bytes"))
     if raw.get("invocation_id") != invocation_raw.get("invocation_id"):
         errors.append(_e("TWV-OUTCOME-INVOCATION", path, "invocation_id", "does not match invocation"))
-    if raw.get("reviewer_decision") != invocation_raw.get("returned_decision"):
+    decision = invocation_raw.get("returned_decision")
+    if raw.get("reviewer_decision") != decision:
         errors.append(_e("TWV-OUTCOME-REVIEWER-DECISION", path, "reviewer_decision", "does not match canonical invocation result"))
+    expected_status = {
+        "approve": "done",
+        "ready": "done",
+        "do-not-approve": "done-with-concerns",
+        "not-ready": "done-with-concerns",
+    }.get(decision)
+    if raw.get("lifecycle") == "complete" and expected_status is not None and raw.get("role_status") != expected_status:
+        errors.append(_e("TWV-OUTCOME-DISPOSITION", path, "role_status", "does not match canonical reviewer decision"))
+    if raw.get("working_tree_state_sha256") != invocation_raw.get("pre_dispatch_state_digest"):
+        errors.append(_e("TWV-OUTCOME-WORKTREE-EVIDENCE", path, "working_tree_state_sha256", "does not match canonical reviewer working-tree digest"))
+    return errors
+
+
+def _normalized_claim_errors(raw: dict[str, object], path: Path, node) -> list[ValidationError]:
+    lifecycle = raw.get("lifecycle")
+    role_status = raw.get("role_status")
+    if lifecycle == "complete":
+        allowed = {"done"} if node.raw.get("executor_class") != "reviewer" else {"done", "done-with-concerns"}
+    elif lifecycle == "blocked":
+        allowed = {"blocked", "needs-context"}
+    elif lifecycle == "failed":
+        allowed = {"failed"}
+    else:
+        return []
+    if role_status not in allowed:
+        return [_e("TWV-OUTCOME-DISPOSITION", path, "role_status", "does not match terminal lifecycle")]
+    return []
+
+
+def _finding_binding_errors(raw: dict[str, object], path: Path, report: Path | None, task_dir: Path, node) -> list[ValidationError]:
+    findings = raw.get("findings")
+    if not isinstance(findings, list):
+        return []
+    errors: list[ValidationError] = []
+    for index, finding in enumerate(findings):
+        reference = f"findings[{index}].evidence_ref"
+        if not isinstance(finding, dict) or _contained(task_dir, finding.get("evidence_ref")) is None:
+            errors.append(_e("TWV-OUTCOME-EVIDENCE-REF", path, reference, "must name contained canonical evidence"))
+            continue
+        if (
+            node.raw.get("executor_class") != "reviewer"
+            or finding.get("evidence_ref") != raw.get("report_path")
+            or report is None
+            or not _report_authorizes_finding(raw, finding, task_dir, node.id)
+        ):
+            errors.append(_e("TWV-OUTCOME-FINDING-EVIDENCE", path, reference, "finding is not proven by the canonical reviewer report"))
+    return errors
+
+
+def _verification_binding_errors(raw: dict[str, object], path: Path, node, task_dir: Path) -> list[ValidationError]:
+    verification = raw.get("verification")
+    if not isinstance(verification, list):
+        return []
+    evidence = node.raw.get("verification_evidence")
+    if not isinstance(evidence, list):
+        return [_e("TWV-OUTCOME-VERIFICATION-EVIDENCE", path, "verification", "canonical verification evidence is unavailable")]
+    expected = [
+        {key: record.get(key) for key in ("check", "result", "evidence_ref", "output_sha256")}
+        for record in evidence
+        if isinstance(record, dict)
+    ]
+    if verification and verification != expected:
+        return [_e("TWV-OUTCOME-VERIFICATION-EVIDENCE", path, "verification", "does not exactly match canonical verification evidence")]
+    errors: list[ValidationError] = []
+    for index, record in enumerate(verification):
+        reference = f"verification[{index}].evidence_ref"
+        evidence_path = _contained(task_dir, record.get("evidence_ref")) if isinstance(record, dict) else None
+        if evidence_path is None:
+            errors.append(_e("TWV-OUTCOME-EVIDENCE-REF", path, reference, "must name contained canonical evidence"))
+        elif record.get("output_sha256") != _digest(evidence_path):
+            errors.append(_e("TWV-OUTCOME-VERIFICATION-DIGEST", path, f"verification[{index}].output_sha256", "does not match evidence bytes"))
     return errors
 
 
@@ -273,15 +367,29 @@ def _redispatch_errors(
         findings = predecessor_outcome.get("findings")
         if (
             predecessor_outcome.get("role") != "reviewer"
+            or predecessor_outcome.get("role_status") != "done-with-concerns"
             or not isinstance(findings, list)
             or not any(_report_authorizes_finding(predecessor_outcome, finding, task_dir, predecessor_node.id) for finding in findings)
         ):
-            return [_e("TWV-OUTCOME-REDISPATCH-AUTHORIZATION", path, "predecessor_attempt_id", "reviewer-finding requires a finding authorized by the canonical reviewer report")]
-    if reason == "approved-amendment":
-        return [_e("TWV-OUTCOME-REDISPATCH-AUTHORIZATION", path, "redispatch_reason", "approved-amendment requires a versioned amendment authority artifact")]
-    same_node = {"interrupted-active-stage", "failed-attempt", "dispatch-no-work"}
-    if reason in same_node and predecessor_node.id != node.id:
-        return [_e("TWV-OUTCOME-REDISPATCH-PREDECESSOR", path, "predecessor_attempt_id", "reason requires a predecessor in the same node")]
+            return [_e("TWV-OUTCOME-REDISPATCH-AUTHORIZATION", path, "predecessor_attempt_id", "reviewer-finding requires a bound reviewer finding")]
+    elif reason == "failed-attempt":
+        if (
+            predecessor_node.id != node.id
+            or predecessor_attempt.get("status") != "failed"
+            or predecessor_outcome.get("lifecycle") != "failed"
+            or predecessor_outcome.get("role_status") != "failed"
+        ):
+            return [_e("TWV-OUTCOME-REDISPATCH-AUTHORIZATION", path, "predecessor_attempt_id", "failed-attempt requires a failed predecessor in the same node")]
+    elif reason == "interrupted-active-stage":
+        if (
+            predecessor_node.id != node.id
+            or predecessor_attempt.get("status") != "blocked"
+            or predecessor_outcome.get("lifecycle") != "blocked"
+            or predecessor_outcome.get("role_status") not in {"blocked", "needs-context"}
+        ):
+            return [_e("TWV-OUTCOME-REDISPATCH-AUTHORIZATION", path, "predecessor_attempt_id", "interrupted-active-stage requires a blocked predecessor in the same node")]
+    elif reason in {"stale-review-state", "dispatch-no-work", "approved-amendment"}:
+        return [_e("TWV-OUTCOME-REDISPATCH-AUTHORIZATION", path, "redispatch_reason", f"{reason} has no versioned authorization artifact")]
     return []
 
 
@@ -295,7 +403,7 @@ def validate_outcomes(manifest: Manifest, state: State, task_dir: Path) -> list[
     for node, assignment, attempt in attempts:
         if attempt.get("status") not in LIFECYCLE_VALUES:
             continue
-        path = _contained(task_dir, attempt.get("outcome_path"))
+        path = _outcome_path(task_dir, attempt.get("id"), attempt.get("outcome_path"))
         if path is None:
             errors.append(_e("TWV-OUTCOME-PATH", task_dir / "02-execution-graph.toml", f"{node.id}:{attempt.get('id')}", "terminal attempt outcome path is invalid"))
             continue

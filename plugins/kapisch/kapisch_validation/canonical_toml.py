@@ -1,11 +1,17 @@
 from __future__ import annotations
 import json, math
 
+def _string(value: str) -> str:
+    # JSON escapes TOML's C0 controls, but permits raw DEL (U+007F).
+    return json.dumps(value, ensure_ascii=False).replace("\x7f", "\\u007f")
+
+
 def _key(key: str) -> str:
-    return json.dumps(key, ensure_ascii=False)
+    return _string(key)
+
 
 def _value(value: object) -> str:
-    if isinstance(value, str): return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, str): return _string(value)
     if isinstance(value, bool): return 'true' if value else 'false'
     if isinstance(value, int): return str(value)
     if isinstance(value, float):
