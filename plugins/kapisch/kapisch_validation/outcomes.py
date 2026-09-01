@@ -273,4 +273,11 @@ def validate_outcomes(manifest: Manifest, state: State, task_dir: Path) -> list[
                 valid_outcomes[attempt["outcome_path"]] = raw
     for node, _, attempt, path, raw in parsed:
         errors.extend(_redispatch_errors(raw, path, node, attempt, attempts, valid_outcomes))
+    consumed = sum(
+        raw["retry_budget_delta"]
+        for _, _, _, _, raw in parsed
+        if isinstance(raw.get("retry_budget_delta"), int) and not isinstance(raw["retry_budget_delta"], bool)
+    )
+    if consumed != state.raw.get("current_fix_round") or consumed > state.raw.get("max_fix_rounds", -1):
+        errors.append(_e("TWV-OUTCOME-REDISPATCH-BUDGET", task_dir / "03-state.toml", "current_fix_round", "state retry budget does not match persisted outcomes"))
     return errors
