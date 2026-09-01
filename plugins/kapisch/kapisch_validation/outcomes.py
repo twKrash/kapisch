@@ -244,14 +244,20 @@ def _redispatch_errors(
     if not isinstance(outcome_path, str) or outcome_path not in valid_outcomes:
         return [_e("TWV-OUTCOME-REDISPATCH-PREDECESSOR", path, "predecessor_attempt_id", "must bind a valid terminal outcome")]
     predecessor_outcome = valid_outcomes[outcome_path]
-    if reason == "reviewer-finding" and (
-        predecessor_outcome.get("role") != "reviewer" or not predecessor_outcome.get("findings")
-    ):
-        return [_e("TWV-OUTCOME-REDISPATCH-AUTHORIZATION", path, "predecessor_attempt_id", "reviewer-finding requires a reviewer outcome with findings")]
-    if reason == "approved-amendment" and (
-        predecessor_outcome.get("role") != "reviewer" or predecessor_outcome.get("reviewer_decision") != "approve"
-    ):
-        return [_e("TWV-OUTCOME-REDISPATCH-AUTHORIZATION", path, "predecessor_attempt_id", "approved-amendment requires an approving reviewer outcome")]
+    if reason == "reviewer-finding":
+        findings = predecessor_outcome.get("findings")
+        if (
+            predecessor_outcome.get("role") != "reviewer"
+            or not isinstance(findings, list)
+            or not any(
+                isinstance(finding, dict)
+                and finding.get("evidence_ref") == predecessor_outcome.get("report_path")
+                for finding in findings
+            )
+        ):
+            return [_e("TWV-OUTCOME-REDISPATCH-AUTHORIZATION", path, "predecessor_attempt_id", "reviewer-finding requires a reviewer finding bound to its canonical report")]
+    if reason == "approved-amendment":
+        return [_e("TWV-OUTCOME-REDISPATCH-AUTHORIZATION", path, "redispatch_reason", "approved-amendment requires a versioned amendment authority artifact")]
     same_node = {"interrupted-active-stage", "failed-attempt", "dispatch-no-work"}
     if reason in same_node and predecessor_node.id != node.id:
         return [_e("TWV-OUTCOME-REDISPATCH-PREDECESSOR", path, "predecessor_attempt_id", "reason requires a predecessor in the same node")]
