@@ -420,3 +420,4 @@ and reviewer invocation facts where applicable. It excludes transcripts, raw
 tool output, hidden reasoning, and runtime transport fields. Detailed reports
 remain canonical evidence; compact outcomes do not replace review or final
 invocations.
+For a reviewer-finding redispatch, the digest-bound detailed reviewer report records one contiguous canonical finding block: `finding_id`, `finding_severity`, `finding_summary`, and `finding_scope`, one `key: value` field per line in that order. The compact finding must exactly equal one such block; values from separate blocks and prefixes never authorize redispatch.

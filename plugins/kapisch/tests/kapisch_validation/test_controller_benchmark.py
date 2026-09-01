@@ -2,12 +2,12 @@ from __future__ import annotations
 import json, subprocess, sys, tempfile, unittest
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
-def row(variant, tokens=10, turns=1, role="parent", invocation=1, scenario="behavioral", decision="approve", resume="not-applicable"):
- return {'run_id':'task','scenario':scenario,'variant':variant,'role':role,'invocation':invocation,'input_tokens':tokens,'output_tokens':2,'cache_read_tokens':None,'turns':turns,'elapsed_ms':5,'workflow_outcome':'complete','validator_exit':0,'review_decision':decision,'review_findings':0,'test_result':'pass','resume_result':resume}
+def row(variant, tokens=10, turns=1, role="parent", invocation=1, scenario="behavioral", decision="approve", resume="not-applicable", findings=0):
+ return {'run_id':'task','scenario':scenario,'variant':variant,'role':role,'invocation':invocation,'input_tokens':tokens,'output_tokens':2,'cache_read_tokens':None,'turns':turns,'elapsed_ms':5,'workflow_outcome':'complete','validator_exit':0,'review_decision':decision,'review_findings':findings,'test_result':'pass','resume_result':resume}
 def complete(variant,tokens=10):
  return [
   row(variant,tokens,scenario="behavioral"),row(variant,role="researcher",scenario="behavioral"),row(variant,role="implementer",scenario="behavioral"),row(variant,role="reviewer",scenario="behavioral",decision="approve",invocation=1),row(variant,role="reviewer",scenario="behavioral",decision="ready",invocation=2),
-  row(variant,tokens,scenario="durable-fix"),row(variant,role="researcher",scenario="durable-fix"),row(variant,role="implementer",scenario="durable-fix"),row(variant,role="reviewer",scenario="durable-fix",decision="approve",invocation=1),row(variant,role="reviewer",scenario="durable-fix",decision="ready",invocation=2),
+  row(variant,tokens,scenario="durable-fix"),row(variant,role="researcher",scenario="durable-fix"),row(variant,role="implementer",scenario="durable-fix",invocation=1),row(variant,role="reviewer",scenario="durable-fix",decision="do-not-approve",findings=1,invocation=1),row(variant,role="implementer",scenario="durable-fix",invocation=2),row(variant,role="reviewer",scenario="durable-fix",decision="approve",invocation=3),row(variant,role="reviewer",scenario="durable-fix",decision="ready",invocation=4),
   row(variant,tokens,scenario="worker-reviewer-resume"),row(variant,role="implementer",scenario="worker-reviewer-resume",resume="pass"),row(variant,role="reviewer",scenario="worker-reviewer-resume",resume="pass")
  ]
 def compare(base,candidate):
@@ -40,3 +40,15 @@ class BenchmarkTests(unittest.TestCase):
   _,data=compare([baseline],[candidate]);self.assertFalse(data['semantic_evidence_present']);self.assertFalse(data['required_evidence_present'])
  def test_fully_comparable_data_reports_delta(self):
   _,data=compare(complete('baseline',10),complete('candidate',8));self.assertEqual(data['roles']['parent']['input_tokens']['delta'],-6);self.assertTrue(data['required_evidence_present'])
+ def test_durable_evidence_requires_a_blocking_fix_cycle(self):
+  missing={
+   'blocking':lambda row:row['role'] == 'reviewer' and row['review_decision'] == 'do-not-approve',
+   'fixing':lambda row:row['role'] == 'implementer' and row['invocation'] == 2,
+   'rereview':lambda row:row['role'] == 'reviewer' and row['review_decision'] == 'approve' and row['invocation'] == 3,
+   'readiness':lambda row:row['role'] == 'reviewer' and row['review_decision'] == 'ready' and row['invocation'] == 4,
+  }
+  for phase,remove in missing.items():
+   with self.subTest(phase=phase):
+    baseline=[row for row in complete('baseline') if not remove(row)];candidate=[row for row in complete('candidate') if not remove(row)]
+    _,data=compare(baseline,candidate)
+    self.assertFalse(data['coverage_complete']);self.assertFalse(data['required_evidence_present'])

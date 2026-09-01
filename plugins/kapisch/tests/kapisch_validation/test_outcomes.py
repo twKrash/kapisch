@@ -134,5 +134,25 @@ class OutcomeTests(unittest.TestCase):
             self.assertTrue(_report_authorizes_finding(outcome, finding, task_dir, "R01"))
             report.write_text("finding_id: F01\n", encoding="utf-8")
             self.assertFalse(_report_authorizes_finding(outcome, finding, task_dir, "R01"))
+    def test_reviewer_finding_cannot_match_prefixes_or_separate_records(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task_dir = Path(temporary)
+            report = task_dir / "review.md"
+            finding = {"id": "F01", "severity": "P1", "summary": "missing proof"}
+            outcome = {"report_path": "review.md"}
+            report.write_text(
+                "finding_id: F010\nfinding_severity: P1\n"
+                "finding_summary: missing proof of authorization\nfinding_scope: R010\n",
+                encoding="utf-8",
+            )
+            self.assertFalse(_report_authorizes_finding(outcome, finding, task_dir, "R01"))
+            report.write_text(
+                "finding_id: F01\nfinding_severity: P1\n"
+                "finding_summary: another finding\nfinding_scope: R01\n\n"
+                "finding_id: F02\nfinding_severity: P2\n"
+                "finding_summary: missing proof\nfinding_scope: R02\n",
+                encoding="utf-8",
+            )
+            self.assertFalse(_report_authorizes_finding(outcome, finding, task_dir, "R01"))
 if __name__ == "__main__":
     unittest.main()

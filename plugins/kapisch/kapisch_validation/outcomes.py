@@ -237,7 +237,15 @@ def _report_authorizes_finding(outcome: dict[str, object], finding: object, task
         "finding_summary": finding.get("summary"),
         "finding_scope": reviewer_node_id,
     }
-    return all(isinstance(value, str) and f"{key}: {value}" in artifact.data.decode("utf-8") for key, value in fields.items())
+    if not all(isinstance(value, str) and value for value in fields.values()):
+        return False
+    keys = tuple(fields)
+    lines = artifact.data.decode("utf-8").splitlines()
+    return any(
+        {key: lines[index + offset][len(key) + 2:] for offset, key in enumerate(keys)} == fields
+        for index in range(len(lines) - len(keys) + 1)
+        if all(lines[index + offset].startswith(f"{key}: ") for offset, key in enumerate(keys))
+    )
 
 
 def _redispatch_errors(

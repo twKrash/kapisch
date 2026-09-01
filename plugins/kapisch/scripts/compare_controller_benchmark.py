@@ -11,7 +11,7 @@ def load(path, variant):
  rows=[]; seen=set()
  for number,line in enumerate(Path(path).read_text().splitlines(),1):
   row=json.loads(line)
-  if set(row) != REQUIRED or row["variant"] != variant or row["role"] not in ROLES or row["scenario"] not in {"behavioral","durable-fix","worker-reviewer-resume"}: raise ValueError(f"bad record {number}")
+  if set(row) != REQUIRED or row["variant"] != variant or row["role"] not in ROLES or row["scenario"] not in {"behavioral","durable-fix","worker-reviewer-resume"} or not isinstance(row["invocation"],int) or isinstance(row["invocation"],bool) or row["invocation"] < 1: raise ValueError(f"bad record {number}")
   key=(row["run_id"],row["scenario"],row["role"],row["invocation"])
   if key in seen: raise ValueError(f"duplicate {key}")
   seen.add(key)
@@ -32,9 +32,16 @@ def comparison(base,candidate, role, metric, pairing_complete):
  return {"baseline":dict(left, total=left["total"] if left["observed_count"] else None),"candidate":dict(right,total=right["total"] if right["observed_count"] else None),"comparable":comparable,"delta":right["total"]-left["total"] if comparable else None}
 def coverage(rows):
     scenarios={scenario:[row for row in rows if row["scenario"] == scenario] for scenario in {"behavioral","durable-fix","worker-reviewer-resume"}}
-    standard=all({"parent","researcher","implementer","reviewer"} <= {row["role"] for row in scenarios[scenario]} and {"approve","ready"} <= {row["review_decision"] for row in scenarios[scenario] if row["role"] == "reviewer"} for scenario in {"behavioral","durable-fix"})
+    behavioral=scenarios["behavioral"]
+    standard={"parent","researcher","implementer","reviewer"} <= {row["role"] for row in behavioral} and {"approve","ready"} <= {row["review_decision"] for row in behavioral if row["role"] == "reviewer"}
+    durable=scenarios["durable-fix"]
+    blocking=[row for row in durable if row["role"] == "reviewer" and row["review_decision"] == "do-not-approve" and row["review_findings"] > 0]
+    fixing=[row for row in durable if row["role"] == "implementer" and any(row["invocation"] > review["invocation"] for review in blocking)]
+    rereview=[row for row in durable if row["role"] == "reviewer" and row["review_decision"] == "approve" and any(row["invocation"] > fix["invocation"] for fix in fixing)]
+    readiness=[row for row in durable if row["role"] == "reviewer" and row["review_decision"] == "ready" and any(row["invocation"] > review["invocation"] for review in rereview)]
+    durable_complete={"parent","researcher","implementer","reviewer"} <= {row["role"] for row in durable} and bool(blocking and fixing and rereview and readiness)
     resume=scenarios["worker-reviewer-resume"]
-    return standard and {"parent","implementer","reviewer"} <= {row["role"] for row in resume} and all(any(row["role"] == role and row["resume_result"] == "pass" for row in resume) for role in {"implementer","reviewer"})
+    return standard and durable_complete and {"parent","implementer","reviewer"} <= {row["role"] for row in resume} and all(any(row["role"] == role and row["resume_result"] == "pass" for row in resume) for role in {"implementer","reviewer"})
 def main(argv=None):
  parser=argparse.ArgumentParser(); parser.add_argument("--baseline",required=True); parser.add_argument("--candidate",required=True); parser.add_argument("--format",choices=("json",),default="json"); args=parser.parse_args(argv)
  try: baseline=load(args.baseline,"baseline"); candidate=load(args.candidate,"candidate")
@@ -46,7 +53,7 @@ def main(argv=None):
  semantic_evidence_present=all(
   row["workflow_outcome"] == "complete" and row["validator_exit"] == 0
   and row["test_result"] == "pass" and row["resume_result"] in {"pass","not-applicable"}
-  and row["review_decision"] in {"approve","ready"} and isinstance(row["review_findings"],int) and not isinstance(row["review_findings"],bool) and row["review_findings"] >= 0
+  and row["review_decision"] in {"approve","do-not-approve","ready"} and isinstance(row["review_findings"],int) and not isinstance(row["review_findings"],bool) and row["review_findings"] >= 0
   for row in (*baseline,*candidate)
  )
  coverage_complete=all(coverage(rows) for rows in (baseline,candidate))

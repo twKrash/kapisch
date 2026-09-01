@@ -43,3 +43,8 @@ class ToolTests(unittest.TestCase):
    report=Path(directory)/'report.md'
    report.write_text('status: DONE_WITH_CONCERNS\nconcerns: security finding\nfindings: F01\nstatus: DONE\nconcerns: none\nfindings: none\n')
    self.assertFalse(migration_disposition(report))
+ def test_migration_rejects_malformed_disposition_marker(self):
+  with tempfile.TemporaryDirectory() as directory:
+   report=Path(directory)/'report.md'
+   report.write_text('status\nconcerns: none\nfindings: none\n')
+   self.assertFalse(migration_disposition(report))
