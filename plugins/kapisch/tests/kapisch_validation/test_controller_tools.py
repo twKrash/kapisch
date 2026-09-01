@@ -33,6 +33,11 @@ class ToolTests(unittest.TestCase):
    task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task);state=task/'03-state.toml';before=state.read_text();after=before.replace('controller_view_path="04-controller-view.toml"','controller_view_path="""\\\n04-controller-view.toml"""').replace('controller_view_sha256="796c118279979cb80e20179470af63b24a087442b91b741f5bdef08a6f490fdf"','controller_view_sha256="""\\\n796c118279979cb80e20179470af63b24a087442b91b741f5bdef08a6f490fdf"""')
    self.assertNotEqual(before,after);state.write_text(after)
    self.assertEqual(render(task).returncode,0)
+ def test_multiline_root_value_with_table_syntax_renders(self):
+  with tempfile.TemporaryDirectory() as directory:
+   task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task);state=task/'03-state.toml';manifest=task/'02-execution-graph.toml';before=state.read_text();after=before.replace('task_id = "valid"','task_id = """\\\n[valid]"""');self.assertNotEqual(before,after);state.write_text(after);manifest.write_text(manifest.read_text().replace('task_id = "valid"','task_id = "[valid]"'))
+   for outcome in (task/'stage-outcomes').iterdir(): outcome.write_text(outcome.read_text().replace('task_id = "valid"','task_id = "[valid]"'))
+   self.assertEqual(render(task).returncode,0)
  def test_migration_rejects_preexisting_outcome_directory(self):
   with tempfile.TemporaryDirectory() as directory:
    root=Path(directory);source=root/'source';destination=root/'destination';shutil.copytree(FIXTURES/'valid-v3-durable',source);outcomes=source/'stage-outcomes';outcomes.mkdir();(outcomes/'old.txt').write_text('old')

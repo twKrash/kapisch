@@ -39,6 +39,25 @@ def replace_root_binding(root: str, key: str, value: str) -> str | None:
     if len(matches) != 1: return None
     match=matches[0]
     return root[:match.start()]+f'"{key}" = "{value}"'+root[binding_value_end(root,match.end()):]
+def first_table_offset(text: str) -> int | None:
+    index=line_start=array_depth=0
+    while index < len(text):
+        if text[index] == "#":
+            newline=text.find("\n",index)
+            index=len(text) if newline < 0 else newline
+        elif text.startswith('"""',index) or text.startswith("'''",index):
+            index=binding_value_end(text,index)
+        elif text[index] in ('"',"'"):
+            index=binding_value_end(text,index)
+        elif text[index] == "[":
+            if array_depth == 0 and not text[line_start:index].strip(): return index
+            array_depth+=1; index+=1
+        elif text[index] == "]":
+            array_depth=max(0,array_depth-1); index+=1
+        else:
+            if text[index] == "\n": line_start=index+1
+            index+=1
+    return None
 
 def main(argv=None):
     p=argparse.ArgumentParser(); p.add_argument('--task-dir',required=True,type=Path); a=p.parse_args(argv); d=a.task_dir.resolve()
@@ -51,7 +70,7 @@ def main(argv=None):
     view=render_controller_view(build_controller_view(parsed.manifest,state,_outcome_records(parsed.manifest,d),(d/'02-execution-graph.toml').read_bytes()))
     old_state=(d/'03-state.toml').read_bytes(); old_view=(d/'04-controller-view.toml').read_bytes() if (d/'04-controller-view.toml').exists() else None
     text=old_state.decode('utf-8'); digest=hashlib.sha256(view).hexdigest()
-    first_table=re.search(r'^[ \t]*\[',text,re.M); root=text[:first_table.start()] if first_table else text; tables=text[first_table.start():] if first_table else ''
+    first_table=first_table_offset(text); root=text[:first_table] if first_table is not None else text; tables=text[first_table:] if first_table is not None else ''
     for key,value in [('controller_view_path','04-controller-view.toml'),('controller_view_sha256',digest)]:
         root=replace_root_binding(root,key,value)
         if root is None: return 2
