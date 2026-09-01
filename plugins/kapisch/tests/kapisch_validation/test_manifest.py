@@ -397,6 +397,22 @@ class ManifestTests(unittest.TestCase):
                         [expected],
                     )
 
+    def test_version_four_attempt_ids_are_path_safe_atoms(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "02-execution-graph.toml"
+            for attempt_id in ("../escaped", r"..\\escaped", ".", ".."):
+                with self.subTest(attempt_id=attempt_id):
+                    path.write_text(
+                        self._v4_body_with_attempt(
+                            outcome_path=f"stage-outcomes/{attempt_id}.toml"
+                        ).replace('id="AT-T01-1"', f'id="{attempt_id}"', 1),
+                        encoding="utf-8",
+                    )
+                    result = parse_manifest(path)
+                    self.assertIn(
+                        ("TWV-SCHEMA-INVALID-VALUE", "nodes[0].attempts[0].id"),
+                        [(error.code, error.reference) for error in result.errors],
+                    )
     def test_version_four_copy_of_durable_v3_fixture_parses(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "02-execution-graph.toml"

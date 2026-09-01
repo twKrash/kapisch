@@ -11,7 +11,8 @@ def load(path, variant):
  rows=[]; seen=set()
  for number,line in enumerate(Path(path).read_text().splitlines(),1):
   row=json.loads(line)
-  if set(row) != REQUIRED or row["variant"] != variant or row["role"] not in ROLES or row["scenario"] not in {"behavioral","durable-fix","worker-reviewer-resume"} or not isinstance(row["invocation"],int) or isinstance(row["invocation"],bool) or row["invocation"] < 1: raise ValueError(f"bad record {number}")
+  if not isinstance(row,dict) or set(row) != REQUIRED: raise ValueError(f"bad record {number}")
+  if any(not isinstance(row[field],str) or not row[field] for field in ("run_id","scenario","role","workflow_outcome","review_decision","test_result","resume_result")) or row["variant"] != variant or row["role"] not in ROLES or row["scenario"] not in {"behavioral","durable-fix","worker-reviewer-resume"} or not isinstance(row["invocation"],int) or isinstance(row["invocation"],bool) or row["invocation"] < 1 or not isinstance(row["validator_exit"],int) or isinstance(row["validator_exit"],bool) or row["validator_exit"] < 0 or not isinstance(row["review_findings"],int) or isinstance(row["review_findings"],bool) or row["review_findings"] < 0: raise ValueError(f"bad record {number}")
   key=(row["run_id"],row["scenario"],row["role"],row["invocation"])
   if key in seen: raise ValueError(f"duplicate {key}")
   seen.add(key)
@@ -30,18 +31,23 @@ def comparison(base,candidate, role, metric, pairing_complete):
  left=base[role][metric]; right=candidate[role][metric]
  comparable=pairing_complete and left["observed_count"] > 0 and right["observed_count"] > 0 and not left["unavailable_count"] and not right["unavailable_count"]
  return {"baseline":dict(left, total=left["total"] if left["observed_count"] else None),"candidate":dict(right,total=right["total"] if right["observed_count"] else None),"comparable":comparable,"delta":right["total"]-left["total"] if comparable else None}
+def covered_per_run(rows, predicate):
+ runs=defaultdict(list)
+ for row in rows: runs[row["run_id"]].append(row)
+ return bool(runs) and all(predicate(run) for run in runs.values())
+def behavioral_coverage(rows):
+ return {"parent","researcher","implementer","reviewer"} <= {row["role"] for row in rows} and {"approve","ready"} <= {row["review_decision"] for row in rows if row["role"] == "reviewer"}
+def durable_coverage(rows):
+ blocking=[row for row in rows if row["role"] == "reviewer" and row["review_decision"] == "do-not-approve" and row["review_findings"] > 0]
+ fixing=[row for row in rows if row["role"] == "implementer" and any(row["invocation"] > review["invocation"] for review in blocking)]
+ rereview=[row for row in rows if row["role"] == "reviewer" and row["review_decision"] == "approve" and any(row["invocation"] > fix["invocation"] for fix in fixing)]
+ readiness=[row for row in rows if row["role"] == "reviewer" and row["review_decision"] == "ready" and any(row["invocation"] > review["invocation"] for review in rereview)]
+ return {"parent","researcher","implementer","reviewer"} <= {row["role"] for row in rows} and bool(blocking and fixing and rereview and readiness)
+def resume_coverage(rows):
+ return {"parent","implementer","reviewer"} <= {row["role"] for row in rows} and all(any(row["role"] == role and row["resume_result"] == "pass" for row in rows) for role in {"implementer","reviewer"})
 def coverage(rows):
-    scenarios={scenario:[row for row in rows if row["scenario"] == scenario] for scenario in {"behavioral","durable-fix","worker-reviewer-resume"}}
-    behavioral=scenarios["behavioral"]
-    standard={"parent","researcher","implementer","reviewer"} <= {row["role"] for row in behavioral} and {"approve","ready"} <= {row["review_decision"] for row in behavioral if row["role"] == "reviewer"}
-    durable=scenarios["durable-fix"]
-    blocking=[row for row in durable if row["role"] == "reviewer" and row["review_decision"] == "do-not-approve" and row["review_findings"] > 0]
-    fixing=[row for row in durable if row["role"] == "implementer" and any(row["invocation"] > review["invocation"] for review in blocking)]
-    rereview=[row for row in durable if row["role"] == "reviewer" and row["review_decision"] == "approve" and any(row["invocation"] > fix["invocation"] for fix in fixing)]
-    readiness=[row for row in durable if row["role"] == "reviewer" and row["review_decision"] == "ready" and any(row["invocation"] > review["invocation"] for review in rereview)]
-    durable_complete={"parent","researcher","implementer","reviewer"} <= {row["role"] for row in durable} and bool(blocking and fixing and rereview and readiness)
-    resume=scenarios["worker-reviewer-resume"]
-    return standard and durable_complete and {"parent","implementer","reviewer"} <= {row["role"] for row in resume} and all(any(row["role"] == role and row["resume_result"] == "pass" for row in resume) for role in {"implementer","reviewer"})
+ scenarios={scenario:[row for row in rows if row["scenario"] == scenario] for scenario in {"behavioral","durable-fix","worker-reviewer-resume"}}
+ return covered_per_run(scenarios["behavioral"],behavioral_coverage) and covered_per_run(scenarios["durable-fix"],durable_coverage) and covered_per_run(scenarios["worker-reviewer-resume"],resume_coverage)
 def main(argv=None):
  parser=argparse.ArgumentParser(); parser.add_argument("--baseline",required=True); parser.add_argument("--candidate",required=True); parser.add_argument("--format",choices=("json",),default="json"); args=parser.parse_args(argv)
  try: baseline=load(args.baseline,"baseline"); candidate=load(args.candidate,"candidate")

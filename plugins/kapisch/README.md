@@ -102,9 +102,22 @@ installed validation.
 
 ## Compatibility
 
-Version-1 and version-2 durable manifests remain readable. Legacy
-`.planning/task-workflow/<task-id>/` runs are read-only inputs and move only
-through the explicit copy-and-validate command:
+Version-1 through version-4 durable manifests remain readable. Version-4
+snapshots include a derived `04-controller-view.toml`; render it only from a
+valid snapshot:
+
+```text
+python <plugin-root>/scripts/render_controller_view.py --task-dir <consumer-repository>/.kapisch/runs/<task-id>
+```
+
+Version-3 runs migrate to version 4 only through the explicit copy-and-validate
+command:
+
+```text
+python <plugin-root>/scripts/migrate_controller_view_v4.py --task-dir <v3-task-dir> --destination-task-dir <v4-task-dir> --approve
+```
+
+Older `.planning/task-workflow/<task-id>/` runs remain read-only inputs and use:
 
 ```text
 python scripts/migrate_legacy_run.py --project-dir <consumer-repository> --task-id <task-id> --approve

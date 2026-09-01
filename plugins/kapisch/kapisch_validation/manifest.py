@@ -819,6 +819,19 @@ def parse_manifest(path: Path) -> ParseResult:
                             )
                             if status_error is not None:
                                 errors.append(status_error)
+                        if key == "attempts" and isinstance(value.get("id"), str):
+                            attempt_id = value["id"]
+                            if attempt_id in {".", ".."} or any(
+                                separator in attempt_id for separator in ("/", "\\", "\x00")
+                            ):
+                                errors.append(
+                                    _e(
+                                        "TWV-SCHEMA-INVALID-VALUE",
+                                        path,
+                                        f"{ref}.{key}[{value_index}].id",
+                                        "must be a path-safe atom",
+                                    )
+                                )
                         if key == "attempts" and "outcome_path" in value:
                             outcome_path = value["outcome_path"]
                             if version in (1, 2, 3):

@@ -2,8 +2,8 @@ from __future__ import annotations
 import json, subprocess, sys, tempfile, unittest
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
-def row(variant, tokens=10, turns=1, role="parent", invocation=1, scenario="behavioral", decision="approve", resume="not-applicable", findings=0):
- return {'run_id':'task','scenario':scenario,'variant':variant,'role':role,'invocation':invocation,'input_tokens':tokens,'output_tokens':2,'cache_read_tokens':None,'turns':turns,'elapsed_ms':5,'workflow_outcome':'complete','validator_exit':0,'review_decision':decision,'review_findings':findings,'test_result':'pass','resume_result':resume}
+def row(variant, tokens=10, turns=1, role="parent", invocation=1, scenario="behavioral", decision="approve", resume="not-applicable", findings=0, run_id="task"):
+ return {'run_id':run_id,'scenario':scenario,'variant':variant,'role':role,'invocation':invocation,'input_tokens':tokens,'output_tokens':2,'cache_read_tokens':None,'turns':turns,'elapsed_ms':5,'workflow_outcome':'complete','validator_exit':0,'review_decision':decision,'review_findings':findings,'test_result':'pass','resume_result':resume}
 def complete(variant,tokens=10):
  return [
   row(variant,tokens,scenario="behavioral"),row(variant,role="researcher",scenario="behavioral"),row(variant,role="implementer",scenario="behavioral"),row(variant,role="reviewer",scenario="behavioral",decision="approve",invocation=1),row(variant,role="reviewer",scenario="behavioral",decision="ready",invocation=2),
@@ -52,3 +52,17 @@ class BenchmarkTests(unittest.TestCase):
     baseline=[row for row in complete('baseline') if not remove(row)];candidate=[row for row in complete('candidate') if not remove(row)]
     _,data=compare(baseline,candidate)
     self.assertFalse(data['coverage_complete']);self.assertFalse(data['required_evidence_present'])
+ def test_durable_cycle_cannot_cross_run_boundaries(self):
+  baseline=complete('baseline');candidate=complete('candidate')
+  for rows in (baseline,candidate):
+   for value in rows:
+    if value['scenario'] == 'durable-fix' and value['review_decision'] == 'do-not-approve': value['run_id']='blocked-run'
+    elif value['scenario'] == 'durable-fix': value['run_id']='followup-run'
+  _,data=compare(baseline,candidate)
+  self.assertFalse(data['coverage_complete']);self.assertFalse(data['required_evidence_present'])
+ def test_invalid_identity_fields_fail_cleanly(self):
+  for field,value in (('run_id',[]),('role',[]),('scenario',[])):
+   with self.subTest(field=field):
+    baseline=row('baseline');baseline[field]=value
+    code,_=compare([baseline],[row('candidate')])
+    self.assertEqual(code,2)
