@@ -17,7 +17,19 @@ def atomic(path: Path, data: bytes) -> None:
         try: os.unlink(tmp)
         except OSError: pass
         raise
-ROOT_ASSIGNMENT=re.compile(r'^[ \t]*(?P<key>(?:[A-Za-z0-9_-]+|"(?:\\.|[^"\\])*"|\'[^\']*\'))[ \t]*=.*$',re.M)
+ROOT_ASSIGNMENT=re.compile(r'^[ \t]*(?P<key>(?:[A-Za-z0-9_-]+|"(?:\\.|[^"\\])*"|\'[^\']*\'))[ \t]*=',re.M)
+def binding_value_end(root: str, start: int) -> int:
+    start+=len(root[start:])-len(root[start:].lstrip(" \t"))
+    delimiter=next((value for value in ('"""',"'''",'"',"'") if root.startswith(value,start)),None)
+    if delimiter is None:
+        end=root.find("\n",start)
+        return len(root) if end < 0 else end
+    index=start+len(delimiter)
+    while index < len(root):
+        if root.startswith(delimiter,index): return index+len(delimiter)
+        if delimiter != "'''" and root[index] == "\\": index+=2
+        else: index+=1
+    return len(root)
 def replace_root_binding(root: str, key: str, value: str) -> str | None:
     matches=[]
     for match in ROOT_ASSIGNMENT.finditer(root):
@@ -26,7 +38,7 @@ def replace_root_binding(root: str, key: str, value: str) -> str | None:
         if set(parsed) == {key}: matches.append(match)
     if len(matches) != 1: return None
     match=matches[0]
-    return root[:match.start()]+f'"{key}" = "{value}"'+root[match.end():]
+    return root[:match.start()]+f'"{key}" = "{value}"'+root[binding_value_end(root,match.end()):]
 
 def main(argv=None):
     p=argparse.ArgumentParser(); p.add_argument('--task-dir',required=True,type=Path); a=p.parse_args(argv); d=a.task_dir.resolve()

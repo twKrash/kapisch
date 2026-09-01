@@ -15,15 +15,23 @@ class ToolTests(unittest.TestCase):
    self.assertEqual(render(task).returncode,0)
  def test_quoted_state_keys_render_without_duplicates(self):
   with tempfile.TemporaryDirectory() as directory:
-   task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task);state=task/'03-state.toml';state.write_text(state.read_text().replace('controller_view_path =','"controller_view_path" =').replace('controller_view_sha256 =','"controller_view_sha256" ='))
+   task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task);state=task/'03-state.toml';before=state.read_text();after=before.replace('controller_view_path=','"controller_view_path"=').replace('controller_view_sha256=','"controller_view_sha256"=')
+   self.assertNotEqual(before,after);state.write_text(after)
    self.assertEqual(render(task).returncode,0)
  def test_literal_quoted_state_keys_render_without_duplicates(self):
   with tempfile.TemporaryDirectory() as directory:
-   task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task);state=task/'03-state.toml';state.write_text(state.read_text().replace('controller_view_path =',"'controller_view_path' =").replace('controller_view_sha256 =',"'controller_view_sha256' ="))
+   task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task);state=task/'03-state.toml';before=state.read_text();after=before.replace('controller_view_path=',"'controller_view_path'=").replace('controller_view_sha256=',"'controller_view_sha256'=")
+   self.assertNotEqual(before,after);state.write_text(after)
    self.assertEqual(render(task).returncode,0)
  def test_escaped_basic_quoted_state_keys_render_without_duplicates(self):
   with tempfile.TemporaryDirectory() as directory:
-   task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task);state=task/'03-state.toml';state.write_text(state.read_text().replace('controller_view_path =','"controller_view_\\u0070ath" =').replace('controller_view_sha256 =','"controller_view_sha\\u0032\\u0035\\u0036" ='))
+   task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task);state=task/'03-state.toml';before=state.read_text();after=before.replace('controller_view_path=','"controller_view_\\u0070ath"=').replace('controller_view_sha256=','"controller_view_sha\\u0032\\u0035\\u0036"=')
+   self.assertNotEqual(before,after);state.write_text(after)
+   self.assertEqual(render(task).returncode,0)
+ def test_multiline_state_bindings_render_without_residue(self):
+  with tempfile.TemporaryDirectory() as directory:
+   task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task);state=task/'03-state.toml';before=state.read_text();after=before.replace('controller_view_path="04-controller-view.toml"','controller_view_path="""\\\n04-controller-view.toml"""').replace('controller_view_sha256="796c118279979cb80e20179470af63b24a087442b91b741f5bdef08a6f490fdf"','controller_view_sha256="""\\\n796c118279979cb80e20179470af63b24a087442b91b741f5bdef08a6f490fdf"""')
+   self.assertNotEqual(before,after);state.write_text(after)
    self.assertEqual(render(task).returncode,0)
  def test_migration_rejects_preexisting_outcome_directory(self):
   with tempfile.TemporaryDirectory() as directory:
