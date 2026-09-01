@@ -26,9 +26,12 @@ def migration_disposition(path: Path) -> bool:
     try:
         records = []
         for line in path.read_text(encoding="utf-8").splitlines():
-            if ":" not in line:
+            stripped = line.strip()
+            if ":" not in stripped:
+                if stripped in {"status", "concerns", "findings"}:
+                    return False
                 continue
-            key, value = (part.strip() for part in line.split(":", 1))
+            key, value = (part.strip() for part in stripped.split(":", 1))
             if key in {"status", "concerns", "findings"}:
                 records.append((key, value))
     except (OSError, UnicodeDecodeError):
