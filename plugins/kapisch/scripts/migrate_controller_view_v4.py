@@ -33,7 +33,7 @@ def main(argv: list[str] | None = None) -> int:
     if not args.approve:
         parser.error("migration requires explicit --approve")
     source, destination = args.task_dir.resolve(), args.destination_task_dir.resolve()
-    if not source.is_dir() or destination.exists() or source == destination:
+    if not source.is_dir() or destination.exists() or source == destination or destination.is_relative_to(source):
         return 2
     manifest_result = parse_manifest(source / "02-execution-graph.toml")
     state, _ = parse_state(source / "03-state.toml")
