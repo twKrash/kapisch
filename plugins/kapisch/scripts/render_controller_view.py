@@ -29,9 +29,9 @@ def main(argv=None):
     view=render_controller_view(build_controller_view(parsed.manifest,state,_outcome_records(parsed.manifest,d),(d/'02-execution-graph.toml').read_bytes()))
     old_state=(d/'03-state.toml').read_bytes(); old_view=(d/'04-controller-view.toml').read_bytes() if (d/'04-controller-view.toml').exists() else None
     text=old_state.decode('utf-8'); digest=hashlib.sha256(view).hexdigest()
-    first_table=re.search(r'^\[',text,re.M); root=text[:first_table.start()] if first_table else text; tables=text[first_table.start():] if first_table else ''
+    first_table=re.search(r'^[ \t]*\[',text,re.M); root=text[:first_table.start()] if first_table else text; tables=text[first_table.start():] if first_table else ''
     for key,value in [('controller_view_path','04-controller-view.toml'),('controller_view_sha256',digest)]:
-        root,count=re.subn(rf'^(?:"{key}"|{key})\s*=.*$',f'"{key}" = "{value}"',root,flags=re.M)
+        root,count=re.subn(rf'^[ \t]*(?:"{key}"|{key})\s*=.*$',f'"{key}" = "{value}"',root,flags=re.M)
         if count != 1: return 2
     text=root+tables
     try:

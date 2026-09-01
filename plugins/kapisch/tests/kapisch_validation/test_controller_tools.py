@@ -15,6 +15,11 @@ class ToolTests(unittest.TestCase):
   with tempfile.TemporaryDirectory() as directory:
    task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task);state=task/'03-state.toml';state.write_text(state.read_text().replace('controller_view_path =','"controller_view_path" =').replace('controller_view_sha256 =','"controller_view_sha256" ='))
    self.assertEqual(render(task).returncode,0)
+ def test_indented_root_keys_ignore_indented_extension_keys(self):
+  with tempfile.TemporaryDirectory() as directory:
+   task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task);state=task/'03-state.toml'
+   state.write_text(state.read_text().replace('controller_view_path =','  controller_view_path =').replace('controller_view_sha256 =','  controller_view_sha256 =')+'\n  [extensions."com.example"]\n  controller_view_path = "extension"\n')
+   self.assertEqual(render(task).returncode,0)
  def test_invalid_canonical_snapshots_are_untouched(self):
   for fixture in ('invalid-v4-report-digest','invalid-v4-reviewer-invocation'):
    with self.subTest(fixture=fixture),tempfile.TemporaryDirectory() as directory:
