@@ -73,6 +73,18 @@ def main(argv: list[str] | None = None) -> int:
                 if not report.is_file():
                     return 2
                 outcome = {"version": 1, "task_id": graph["task_id"], "node_id": node["id"], "role": role, "assignment_id": assignment["id"], "attempt_id": attempt_id, "lifecycle": attempt["status"], "role_status": "done" if attempt["status"] == "complete" else attempt["status"], "base_revision": node["revision"]["base"], "head_revision": node["revision"]["head"], "working_tree_state_sha256": "unavailable", "report_path": node["report"], "report_sha256": digest(report), "invocation_path": invocation if role == "reviewer" else "unavailable", "invocation_id": invocation_raw.get("invocation_id", "unavailable") if role == "reviewer" else "unavailable", "invocation_sha256": digest(staged / invocation) if role == "reviewer" else "unavailable", "reviewer_decision": invocation_raw.get("returned_decision", "unavailable") if role == "reviewer" else "unavailable", "redispatch_reason": "none", "predecessor_attempt_id": "unavailable", "retry_budget_delta": 0, "next_action_reason": "completed", "findings": [], "verification": []}
+                evidence = node.get("verification_evidence")
+                if not isinstance(evidence, list) or any(
+                    not isinstance(record, dict)
+                    or set(record) != {"id", "check", "result", "evidence_ref", "output_sha256", "revision"}
+                    or record["result"] not in {"pass", "fail", "not-run", "unavailable"}
+                    for record in evidence
+                ):
+                    return 2
+                outcome["verification"] = [
+                    {key: record[key] for key in ("check", "result", "evidence_ref", "output_sha256")}
+                    for record in evidence
+                ]
                 (staged / outcome_path).write_bytes(render_toml(outcome))
         (staged / "02-execution-graph.toml").write_bytes(render_toml(graph))
         state_raw = dict(state.raw)
