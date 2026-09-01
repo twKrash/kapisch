@@ -38,6 +38,12 @@ class ToolTests(unittest.TestCase):
    task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task);state=task/'03-state.toml';manifest=task/'02-execution-graph.toml';before=state.read_text();after=before.replace('task_id = "valid"','task_id = """\\\n[valid]"""');self.assertNotEqual(before,after);state.write_text(after);manifest.write_text(manifest.read_text().replace('task_id = "valid"','task_id = "[valid]"'))
    for outcome in (task/'stage-outcomes').iterdir(): outcome.write_text(outcome.read_text().replace('task_id = "valid"','task_id = "[valid]"'))
    self.assertEqual(render(task).returncode,0)
+ def test_literal_root_value_with_backslash_preserves_table_boundary(self):
+  with tempfile.TemporaryDirectory() as directory:
+   task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task);state=task/'03-state.toml';manifest=task/'02-execution-graph.toml';before=state.read_text();after=before.replace('task_id = "valid"',"task_id = 'abc\\'")+'\n[extensions."com.example"]\ncontroller_view_path = "unrelated"\n';self.assertNotEqual(before,after);state.write_text(after)
+   manifest.write_text(manifest.read_text().replace('task_id = "valid"','task_id = "abc\\\\"'))
+   for outcome in (task/'stage-outcomes').iterdir(): outcome.write_text(outcome.read_text().replace('task_id = "valid"','task_id = "abc\\\\"'))
+   self.assertEqual(render(task).returncode,0);self.assertIn('[extensions."com.example"]\ncontroller_view_path = "unrelated"',state.read_text())
  def test_migration_rejects_preexisting_outcome_directory(self):
   with tempfile.TemporaryDirectory() as directory:
    root=Path(directory);source=root/'source';destination=root/'destination';shutil.copytree(FIXTURES/'valid-v3-durable',source);outcomes=source/'stage-outcomes';outcomes.mkdir();(outcomes/'old.txt').write_text('old')

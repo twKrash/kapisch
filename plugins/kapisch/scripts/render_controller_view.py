@@ -27,7 +27,7 @@ def binding_value_end(root: str, start: int) -> int:
     index=start+len(delimiter)
     while index < len(root):
         if root.startswith(delimiter,index): return index+len(delimiter)
-        if delimiter != "'''" and root[index] == "\\": index+=2
+        if delimiter in ('"','"""') and root[index] == "\\": index+=2
         else: index+=1
     return len(root)
 def replace_root_binding(root: str, key: str, value: str) -> str | None:
