@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import argparse, hashlib, os, re, sys, tempfile
+import argparse, hashlib, os, re, sys, tempfile, tomllib
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]; sys.path.insert(0,str(ROOT))
 from kapisch_validation.cli import validate_snapshot
@@ -17,6 +17,16 @@ def atomic(path: Path, data: bytes) -> None:
         try: os.unlink(tmp)
         except OSError: pass
         raise
+ROOT_ASSIGNMENT=re.compile(r'^[ \t]*(?P<key>(?:[A-Za-z0-9_-]+|"(?:\\.|[^"\\])*"|\'[^\']*\'))[ \t]*=.*$',re.M)
+def replace_root_binding(root: str, key: str, value: str) -> str | None:
+    matches=[]
+    for match in ROOT_ASSIGNMENT.finditer(root):
+        try: parsed=tomllib.loads(f"{match.group('key')} = 0")
+        except tomllib.TOMLDecodeError: continue
+        if set(parsed) == {key}: matches.append(match)
+    if len(matches) != 1: return None
+    match=matches[0]
+    return root[:match.start()]+f'"{key}" = "{value}"'+root[match.end():]
 
 def main(argv=None):
     p=argparse.ArgumentParser(); p.add_argument('--task-dir',required=True,type=Path); a=p.parse_args(argv); d=a.task_dir.resolve()
@@ -31,9 +41,8 @@ def main(argv=None):
     text=old_state.decode('utf-8'); digest=hashlib.sha256(view).hexdigest()
     first_table=re.search(r'^[ \t]*\[',text,re.M); root=text[:first_table.start()] if first_table else text; tables=text[first_table.start():] if first_table else ''
     for key,value in [('controller_view_path','04-controller-view.toml'),('controller_view_sha256',digest)]:
-        spelling=rf'(?:{key}|"{key}"|\'{key}\')'
-        root,count=re.subn(rf'^[ \t]*{spelling}\s*=.*$',f'"{key}" = "{value}"',root,flags=re.M)
-        if count != 1: return 2
+        root=replace_root_binding(root,key,value)
+        if root is None: return 2
     text=root+tables
     try:
         atomic(d/'04-controller-view.toml',view); atomic(d/'03-state.toml',text.encode())

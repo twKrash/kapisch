@@ -144,6 +144,20 @@ outcome="running"
             1,
         )
         manifest.write_text(content, encoding="utf-8")
+    def add_terminal_legacy_attempt(self, task_dir: Path) -> None:
+        manifest = task_dir / "02-execution-graph.toml"
+        assignment = (
+            'assignment={id="A-T01-1",schema_version=1,execution_class="bounded",'
+            'reason_codes=[],source_revision="base",context_refs=[],attempts=['
+            '{id="AT-T01-1",source_revision="base",context_scope_ref="tasks/T01-context.md",'
+            'status="complete",verification=[]}],escalations=[]}\n'
+        )
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8").replace(
+                "[nodes.revision]", assignment + "[nodes.revision]", 1
+            ),
+            encoding="utf-8",
+        )
 
     def test_missing_required_arguments_is_usage_error(self) -> None:
         with self.assertRaises(SystemExit) as raised:
@@ -261,8 +275,9 @@ outcome="running"
             root = Path(temporary)
             current = root / "current"
             previous = root / "previous"
-            shutil.copytree(FIXTURES / "valid-v3-durable", current)
-            shutil.copytree(FIXTURES / "valid-v3-durable", previous)
+            for task_dir in (current, previous):
+                shutil.copytree(FIXTURES / "valid-v3-durable", task_dir)
+                self.add_terminal_legacy_attempt(task_dir)
             code, findings = self._run_paths(current, previous)
         self.assertEqual(code, 0)
         self.assertEqual(findings, [])

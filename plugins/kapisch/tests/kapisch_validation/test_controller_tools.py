@@ -21,6 +21,10 @@ class ToolTests(unittest.TestCase):
   with tempfile.TemporaryDirectory() as directory:
    task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task);state=task/'03-state.toml';state.write_text(state.read_text().replace('controller_view_path =',"'controller_view_path' =").replace('controller_view_sha256 =',"'controller_view_sha256' ="))
    self.assertEqual(render(task).returncode,0)
+ def test_escaped_basic_quoted_state_keys_render_without_duplicates(self):
+  with tempfile.TemporaryDirectory() as directory:
+   task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task);state=task/'03-state.toml';state.write_text(state.read_text().replace('controller_view_path =','"controller_view_\\u0070ath" =').replace('controller_view_sha256 =','"controller_view_sha\\u0032\\u0035\\u0036" ='))
+   self.assertEqual(render(task).returncode,0)
  def test_migration_rejects_preexisting_outcome_directory(self):
   with tempfile.TemporaryDirectory() as directory:
    root=Path(directory);source=root/'source';destination=root/'destination';shutil.copytree(FIXTURES/'valid-v3-durable',source);outcomes=source/'stage-outcomes';outcomes.mkdir();(outcomes/'old.txt').write_text('old')
