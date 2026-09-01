@@ -1,7 +1,9 @@
 from __future__ import annotations
 import shutil, subprocess, sys, tempfile, unittest
 from pathlib import Path
-ROOT=Path(__file__).resolve().parents[2]; FIXTURES=Path(__file__).parent/'fixtures'
+ROOT=Path(__file__).resolve().parents[2]; sys.path.insert(0,str(ROOT/'scripts'))
+from migrate_controller_view_v4 import migration_disposition
+FIXTURES=Path(__file__).parent/'fixtures'
 def render(task): return subprocess.run([sys.executable,str(ROOT/'scripts'/'render_controller_view.py'),'--task-dir',str(task)],capture_output=True,text=True)
 class ToolTests(unittest.TestCase):
  def test_help(self):
@@ -36,3 +38,8 @@ class ToolTests(unittest.TestCase):
   with tempfile.TemporaryDirectory() as directory:
    task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task);next((task/'stage-outcomes').iterdir()).unlink();before=(task/'03-state.toml').read_bytes(),(task/'04-controller-view.toml').read_bytes()
    self.assertNotEqual(render(task).returncode,0);self.assertEqual(before,((task/'03-state.toml').read_bytes(),(task/'04-controller-view.toml').read_bytes()))
+ def test_migration_rejects_conflicting_disposition_fields(self):
+  with tempfile.TemporaryDirectory() as directory:
+   report=Path(directory)/'report.md'
+   report.write_text('status: DONE_WITH_CONCERNS\nconcerns: security finding\nfindings: F01\nstatus: DONE\nconcerns: none\nfindings: none\n')
+   self.assertFalse(migration_disposition(report))

@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 from kapisch_validation.manifest import parse_manifest
-from kapisch_validation.outcomes import validate_outcomes
+from kapisch_validation.outcomes import _report_authorizes_finding, validate_outcomes
 from kapisch_validation.references import parse_state
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -120,5 +120,19 @@ class OutcomeTests(unittest.TestCase):
         self.assertTrue(parsed.errors)
 
 
+    def test_reviewer_finding_requires_canonical_report_markers(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task_dir = Path(temporary)
+            report = task_dir / "review.md"
+            finding = {"id": "F01", "severity": "high", "summary": "missing proof"}
+            report.write_text(
+                "finding_id: F01\nfinding_severity: high\n"
+                "finding_summary: missing proof\nfinding_scope: R01\n",
+                encoding="utf-8",
+            )
+            outcome = {"report_path": "review.md"}
+            self.assertTrue(_report_authorizes_finding(outcome, finding, task_dir, "R01"))
+            report.write_text("finding_id: F01\n", encoding="utf-8")
+            self.assertFalse(_report_authorizes_finding(outcome, finding, task_dir, "R01"))
 if __name__ == "__main__":
     unittest.main()
