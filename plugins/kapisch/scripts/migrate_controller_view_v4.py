@@ -53,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
         for node in graph["nodes"]:
             assignment = node.get("assignment")
             attempts = assignment.get("attempts") if isinstance(assignment, dict) else None
-            if not isinstance(attempts, list) or not attempts:
+            if not isinstance(attempts, list) or len(attempts) != 1:
                 return 2
             for attempt in attempts:
                 if not isinstance(attempt, dict) or attempt.get("status") != "complete":
@@ -69,6 +69,8 @@ def main(argv: list[str] | None = None) -> int:
                     if not isinstance(invocation, str) or not (staged / invocation).is_file():
                         return 2
                     invocation_raw = tomllib.loads((staged / invocation).read_text(encoding="utf-8"))
+                    if invocation_raw.get("returned_decision") not in {"approve", "ready"}:
+                        return 2
                 report = staged / node["report"]
                 if not report.is_file():
                     return 2
