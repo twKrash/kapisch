@@ -25,7 +25,7 @@ def main(argv=None):
   if base[0] != base[1]: raise ValueError("base plugin versions differ")
   current,previous=semver(candidate[0]),semver(base[0])
   if re.search(rf"^## {re.escape(candidate[0])}\b",Path("plugins/kapisch/CHANGELOG.md").read_text(),re.M) is None: raise ValueError("changelog lacks current version entry")
-  material=any(path.startswith(SHIPPED) for path in changed)
+  material=any(path.startswith(SHIPPED) or path in VERSION_FILES for path in changed)
   if material and current <= previous: raise ValueError("material shipped-plugin change requires increased version")
   if current < previous: raise ValueError("plugin version decreased")
  except (OSError,subprocess.CalledProcessError,ValueError,json.JSONDecodeError) as error:

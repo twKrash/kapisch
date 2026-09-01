@@ -41,9 +41,11 @@ def main(argv=None):
  semantic_evidence_present=all(
   row["workflow_outcome"] == "complete" and row["validator_exit"] == 0
   and row["test_result"] == "pass" and row["resume_result"] in {"pass","not-applicable"}
-  and row["review_decision"] in {"approve","ready","unavailable"}
+  and row["review_decision"] in {"approve","ready"} and isinstance(row["review_findings"],int) and not isinstance(row["review_findings"],bool) and row["review_findings"] >= 0
   for row in (*baseline,*candidate)
  )
- required=pairing_complete and semantic_evidence_present and all("parent" in values and data["parent"][metric]["comparable"] for values in (base,cand) for metric in REQUIRED_COMPARISON)
- print(json.dumps({"roles":data,"required_evidence_present":required,"semantic_evidence_present":semantic_evidence_present,"pairing_complete":pairing_complete,"unmatched_baseline":unmatched_baseline,"unmatched_candidate":unmatched_candidate},sort_keys=True)); return 0
+ required_roles={"parent","reviewer"}
+ coverage_complete=all(required_roles <= {row["role"] for row in rows} for rows in (baseline,candidate))
+ required=pairing_complete and coverage_complete and semantic_evidence_present and all("parent" in values and data["parent"][metric]["comparable"] for values in (base,cand) for metric in REQUIRED_COMPARISON)
+ print(json.dumps({"roles":data,"required_evidence_present":required,"semantic_evidence_present":semantic_evidence_present,"coverage_complete":coverage_complete,"pairing_complete":pairing_complete,"unmatched_baseline":unmatched_baseline,"unmatched_candidate":unmatched_candidate},sort_keys=True)); return 0
 if __name__ == "__main__": raise SystemExit(main())

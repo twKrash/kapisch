@@ -17,7 +17,7 @@ class BenchmarkTests(unittest.TestCase):
     _,data=compare([row('baseline',baseline)],[row('candidate',candidate)])
     metric=data['roles']['parent']['input_tokens'];self.assertFalse(metric['comparable']);self.assertIsNone(metric['delta']);self.assertFalse(data['required_evidence_present'])
  def test_observed_zero_is_comparable(self):
-  _,data=compare([row('baseline',0,0)],[row('candidate',0,0)])
+  _,data=compare([row('baseline',0,0),row('baseline',0,0,role='reviewer')],[row('candidate',0,0),row('candidate',0,0,role='reviewer')])
   self.assertEqual(data['roles']['parent']['input_tokens']['delta'],0);self.assertTrue(data['required_evidence_present'])
  def test_mixed_observed_and_unavailable_is_not_comparable(self):
   _,data=compare([row('baseline',10),row('baseline',None,invocation=2)],[row('candidate',8),row('candidate',7,invocation=2)])
@@ -33,4 +33,4 @@ class BenchmarkTests(unittest.TestCase):
   baseline=row('baseline');candidate=row('candidate');candidate['validator_exit']=2;candidate['test_result']='fail'
   _,data=compare([baseline],[candidate]);self.assertFalse(data['semantic_evidence_present']);self.assertFalse(data['required_evidence_present'])
  def test_fully_comparable_data_reports_delta(self):
-  _,data=compare([row('baseline',10)],[row('candidate',8)]);self.assertEqual(data['roles']['parent']['input_tokens']['delta'],-2);self.assertTrue(data['required_evidence_present'])
+  _,data=compare([row('baseline',10),row('baseline',role='reviewer')],[row('candidate',8),row('candidate',role='reviewer')]);self.assertEqual(data['roles']['parent']['input_tokens']['delta'],-2);self.assertTrue(data['required_evidence_present'])

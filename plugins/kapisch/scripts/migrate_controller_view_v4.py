@@ -35,6 +35,8 @@ def main(argv: list[str] | None = None) -> int:
     source, destination = args.task_dir.resolve(), args.destination_task_dir.resolve()
     if not source.is_dir() or destination.exists() or source == destination or destination.is_relative_to(source):
         return 2
+    if any(path.is_symlink() for path in source.rglob("*")):
+        return 2
     manifest_result = parse_manifest(source / "02-execution-graph.toml")
     state, _ = parse_state(source / "03-state.toml")
     if manifest_result.manifest is None or state is None or manifest_result.manifest.version != 3 or state.workflow_status != "complete" or validate(ROOT / "skills" / "kapisch", source):
