@@ -54,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
             if not isinstance(attempts, list) or not attempts:
                 return 2
             for attempt in attempts:
-                if not isinstance(attempt, dict) or attempt.get("status") not in {"complete", "blocked", "failed"}:
+                if not isinstance(attempt, dict) or attempt.get("status") != "complete":
                     return 2
                 attempt_id = attempt.get("id")
                 if not isinstance(attempt_id, str):
