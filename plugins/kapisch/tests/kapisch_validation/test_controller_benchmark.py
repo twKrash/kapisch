@@ -29,5 +29,8 @@ class BenchmarkTests(unittest.TestCase):
   self.assertFalse(data['pairing_complete']);self.assertFalse(data['required_evidence_present']);self.assertIsNone(data['roles']['parent']['input_tokens']['delta']);self.assertEqual(data['unmatched_baseline'],[['task','implementer',1]])
  def test_duplicate_records_fail(self):
   code,_=compare([row('baseline'),row('baseline')],[row('candidate')]);self.assertEqual(code,2)
+ def test_failed_run_evidence_is_not_accepted(self):
+  baseline=row('baseline');candidate=row('candidate');candidate['validator_exit']=2;candidate['test_result']='fail'
+  _,data=compare([baseline],[candidate]);self.assertFalse(data['semantic_evidence_present']);self.assertFalse(data['required_evidence_present'])
  def test_fully_comparable_data_reports_delta(self):
   _,data=compare([row('baseline',10)],[row('candidate',8)]);self.assertEqual(data['roles']['parent']['input_tokens']['delta'],-2);self.assertTrue(data['required_evidence_present'])
