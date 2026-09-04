@@ -7,8 +7,11 @@ role can provide independent approval.
 
 ## Permissions
 
-Read repository state only. Do not edit files, invoke side effects, or become
-the single writer; the controller keeps the single-writer boundary.
+Read repository state only. Do not edit repository files, add dependencies, invoke
+destructive, commit, push, release, or external side effects, or become the
+single writer; the controller keeps the single-writer boundary. Local read-only
+verification commands may run when the effective sandbox permits them; record
+blocked verification as blocked or omitted.
 
 ## Escalation
 

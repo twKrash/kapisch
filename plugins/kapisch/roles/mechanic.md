@@ -17,10 +17,12 @@ the controller's single-writer boundary.
 
 ## Escalation
 
-When no dispatchable profile is available, upgrade to implementer while
-preserving every mechanical restriction; block ambiguity or behavior, policy,
-wording judgments, source-authority questions, or any synchronization requiring
-adaptation.
+When no dispatchable mechanic profile is available, return the precise blocker
+for the controller to upgrade the assignment to `implementer`, preserving every
+mechanical restriction. For ambiguity or behavior, policy, wording judgments,
+source-authority questions, or any synchronization requiring adaptation,
+return the precise blocker for controller escalation; do not select or invoke
+the stronger executor yourself.
 
 ## Output
 

@@ -119,7 +119,7 @@ class VocabularyTests(unittest.TestCase):
             ("implementer-lite", "cheap", "behavioral"),
             ("implementer", "standard", "behavioral"),
             ("architect", "high", "behavioral"),
-            ("researcher", "cheap", "research"),
+            ("researcher", "standard", "research"),
             ("reviewer", "high", "review"),
         )
         for executor_class, model_tier, kind in cases:

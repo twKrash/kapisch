@@ -15,6 +15,7 @@ Execute in order.
 Stop condition: write only within explicit workspace authority, retaining the controller's single-writer boundary; inline implementation only with explicit workspace-write capability and enforceable restrictions, otherwise block for a dispatchable profile or user decision. Complete when the bound change is implemented, required fresh verification is recorded, the resulting diff is self-reviewed, and the report is complete. Otherwise escalate: insufficient authority, conflicting or underspecified requirements, or the required solution materially departs from the bound scope or approved design.
 
 Return a bounded v4 transport payload with report status/path/SHA-256, outcome lifecycle, bounded findings, and verification references; never include transcript or raw tool output.
+Bounded v4 transport limits: at most 20 finding summaries and at most 20 verification references.
 """
 model = "gpt-5.6-terra"
 model_reasoning_effort = "medium"

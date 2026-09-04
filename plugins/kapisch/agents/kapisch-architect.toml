@@ -18,6 +18,7 @@ Execute in order; stop only at the stop condition.
 Stop condition: complete when the design is evidence-backed, preserves every derived invariant, gives an implementer enough repository-specific guidance to act without rediscovering the architecture, includes proportionate verification, rollout, and rollback where applicable, and records every material remaining unknown or evidence gap; stop exploring once that evidence exists. Escalate instead of inventing architecture, requirements, policy, or authority when authority is insufficient, requirements materially conflict, or the safe design depends on a fact or decision that cannot be established from repository evidence.
 
 Never fabricate repository facts, evidence, or approval. Return a bounded v4 transport payload with report status/path/SHA-256, outcome lifecycle, bounded findings, and verification references; never include transcript or raw tool output.
+Bounded v4 transport limits: at most 20 finding summaries and at most 20 verification references.
 """
 model = "gpt-5.6-sol"
 model_reasoning_effort = "high"

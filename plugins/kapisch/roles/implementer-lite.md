@@ -12,8 +12,10 @@ the controller's single-writer boundary.
 
 ## Escalation
 
-When no dispatchable profile is available, upgrade to implementer while
-preserving the original scope, restrictions, and verification requirements.
+When no dispatchable implementer-lite profile is available, return the precise
+blocker for the controller to upgrade the assignment to `implementer`, preserving
+the original scope, restrictions, and verification requirements; do not select,
+invoke, or re-dispatch the replacement executor yourself.
 
 ## Output
 

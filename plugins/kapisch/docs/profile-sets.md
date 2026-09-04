@@ -14,7 +14,7 @@ routing.
 | Role | balanced (default) | quality | budget |
 | --- | --- | --- | --- |
 | architect | `gpt-5.6-sol` / `high` | `gpt-5.6-sol` / `high` | `gpt-5.6-terra` / `high` |
-| researcher | `gpt-5.6-terra` / `medium` | `gpt-5.6-sol` / `high` | `gpt-5.6-luna` / `medium` |
+| researcher | `gpt-5.6-terra` / `medium` | `gpt-5.6-terra` / `high` | `gpt-5.6-luna` / `high` |
 | implementer | `gpt-5.6-terra` / `medium` | `gpt-5.6-terra` / `medium` | `gpt-5.6-terra` / `low` |
 | implementer-lite | `gpt-5.6-luna` / `high` | `gpt-5.6-luna` / `high` | `gpt-5.6-luna` / `high` |
 | mechanic | `gpt-5.6-luna` / `low` | `gpt-5.6-luna` / `low` | `gpt-5.6-luna` / `low` |
@@ -28,9 +28,9 @@ resolve it to Terra/high, and budget uses its approved routing above. Actual
 model and effort are profile-set/runtime facts, not inferred durable evidence.
 
 Use `balanced` for normal work. Use `quality` for difficult architecture, broad
-ambiguity, unusually sensitive work, or when maximum research/review capability
-is preferred. Use `budget` for routine work in well-understood repositories
-when usage efficiency matters.
+ambiguity, unusually sensitive work, or when the higher-capability profile is
+preferred for architecture, research, and review. Use `budget` for routine work
+in well-understood repositories when usage efficiency matters.
 
 These are configurations, not quality or approval claims. A high-risk task under
 `budget` remains high-risk and still requires the same independent review. If an

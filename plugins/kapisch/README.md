@@ -9,11 +9,11 @@ Codex continues to own agent dispatch, model selection, and sandboxing.
 This plugin is distributed through the Git-backed `kapisch-local` marketplace,
 not the OpenAI public Plugin Directory.
 
-After an authorized maintainer publishes the immutable `v1.2.0` tag, the
+After an authorized maintainer publishes the immutable `v1.2.1` tag, the
 released installation command will be:
 
 ```text
-codex plugin marketplace add twKrash/kapisch --ref v1.2.0
+codex plugin marketplace add twKrash/kapisch --ref v1.2.1
 codex plugin add kapisch@kapisch-local
 ```
 

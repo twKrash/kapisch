@@ -408,7 +408,7 @@ class ProfileSetTests(unittest.TestCase):
         },
         "quality": {
             "architect": ("gpt-5.6-sol", "high"),
-            "researcher": ("gpt-5.6-sol", "high"),
+            "researcher": ("gpt-5.6-terra", "high"),
             "implementer": ("gpt-5.6-terra", "medium"),
             "implementer-lite": ("gpt-5.6-luna", "high"),
             "mechanic": ("gpt-5.6-luna", "low"),
@@ -416,7 +416,7 @@ class ProfileSetTests(unittest.TestCase):
         },
         "budget": {
             "architect": ("gpt-5.6-terra", "high"),
-            "researcher": ("gpt-5.6-luna", "medium"),
+            "researcher": ("gpt-5.6-luna", "high"),
             "implementer": ("gpt-5.6-terra", "low"),
             "implementer-lite": ("gpt-5.6-luna", "high"),
             "mechanic": ("gpt-5.6-luna", "low"),

@@ -12,8 +12,11 @@ single writer; the controller keeps the single-writer boundary.
 
 ## Escalation
 
-Use inline read-only planning when no dispatchable profile is available; block
-when that capability is unavailable or the requested work needs a decision.
+Use inline read-only planning when no dispatchable profile is available. The
+architect owns bounded architecture and design judgment within established scope
+and authority. Block only when that capability is unavailable or the requested
+decision lies outside that authority, including unresolved product, requirement,
+policy-authority, approval, or human decisions.
 
 ## Output
 
