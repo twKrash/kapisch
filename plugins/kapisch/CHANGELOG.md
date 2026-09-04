@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Restructure `kapisch-implementer-lite` into a bounded, gated execution
+  procedure (bind the prescription, pre-write evidence check,
+  mechanical-versus-material departure, fresh self-run verification, diff
+  self-review, explicit completion and escalation) and route it to
+  `gpt-5.6-luna`/`high` in the balanced, quality, and budget profile sets as a
+  role gate-fidelity requirement; the durable logical tier stays `cheap` and
+  mechanic routing is unchanged.
 The 1.2.0 release candidate below is prepared locally but has not been tagged or
 published.
 
