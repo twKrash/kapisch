@@ -7,10 +7,10 @@ Directory submission.
 
 ## Support
 
-| Surface | Verified status for the 1.2.0 release candidate |
+| Surface | Verified status for the 1.2.1 release candidate |
 | --- | --- |
-| Windows 11 + Codex Desktop + WSL2 | 1.0.1 release baseline passed; 1.2.0 live acceptance remains pending. |
-| Linux | Historical live 1.0.0 flow passed; 1.2.0 automated evidence is recorded separately. |
+| Windows 11 + Codex Desktop + WSL2 | 1.0.1 release baseline passed; 1.2.1 live acceptance remains pending. |
+| Linux | Historical live 1.0.0 flow passed; 1.2.1 automated evidence is recorded separately. |
 | Native Windows, no WSL | Python 3.11 profile and portable-package suites pass; live plugin support is not yet claimed. |
 
 Following [OpenAI's WSL guidance](https://learn.chatgpt.com/docs/windows/wsl),
@@ -19,10 +19,10 @@ example, `~/code`) rather than under `/mnt/c`.
 
 ## Quick start
 
-After the immutable 1.2.0 tag is published, the released installation command is:
+After the immutable 1.2.1 tag is published, the released installation command is:
 
 ```text
-codex plugin marketplace add twKrash/kapisch --ref v1.2.0
+codex plugin marketplace add twKrash/kapisch --ref v1.2.1
 codex plugin add kapisch@kapisch-local
 ```
 
@@ -71,7 +71,7 @@ kapisch-validate --task-dir <consumer-repository>/.kapisch/runs/<task-id> --form
 ## Documentation
 
 - [Plugin guide](plugins/kapisch/README.md)
-- [Windows 1.2.0 acceptance template](plugins/kapisch/docs/acceptance-windows-v1.2.0.md)
+- [Windows 1.2.1 acceptance template](plugins/kapisch/docs/acceptance-windows-v1.2.1.md)
 - [Windows 1.0.1 historical acceptance](plugins/kapisch/docs/acceptance-windows-v1.0.1.md)
 - [Historical Unix 1.0.0 acceptance](plugins/kapisch/docs/acceptance-runtime.md)
 - [Compatibility and rollback](plugins/kapisch/docs/compatibility.md)
