@@ -7,6 +7,7 @@ from .artifact_io import ArtifactFailure, ArtifactFailureKind, load_toml_artifac
 from .errors import ValidationError, sorted_errors
 from .helpers import is_integer, non_empty_string, nonfinite_float_references, string_list
 from .models import Manifest, Node, ParseResult
+from .path_atoms import is_portable_filename_atom
 from .vocabulary import (
     ASSIGNMENT_VALUES,
     MANIFEST_VERSION_VALUES,
@@ -819,19 +820,15 @@ def parse_manifest(path: Path) -> ParseResult:
                             )
                             if status_error is not None:
                                 errors.append(status_error)
-                        if version == 4 and key == "attempts" and isinstance(value.get("id"), str):
-                            attempt_id = value["id"]
-                            if attempt_id in {".", ".."} or any(
-                                separator in attempt_id for separator in ("/", "\\", "\x00")
-                            ):
-                                errors.append(
-                                    _e(
-                                        "TWV-SCHEMA-INVALID-VALUE",
-                                        path,
-                                        f"{ref}.{key}[{value_index}].id",
-                                        "must be a path-safe atom",
-                                    )
+                        if version == 4 and key == "attempts" and not is_portable_filename_atom(value.get("id")):
+                            errors.append(
+                                _e(
+                                    "TWV-SCHEMA-INVALID-VALUE",
+                                    path,
+                                    f"{ref}.{key}[{value_index}].id",
+                                    "must be a portable filename atom",
                                 )
+                            )
                         if key == "attempts" and "outcome_path" in value:
                             outcome_path = value["outcome_path"]
                             if version in (1, 2, 3):
@@ -867,13 +864,16 @@ def parse_manifest(path: Path) -> ParseResult:
                                 )
                         if key == "verification_evidence" and "output_sha256" in value:
                             digest = value["output_sha256"]
-                            if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+                            nonexecuted = value.get("result") in {"not-run", "unavailable"}
+                            if (nonexecuted and (digest != "unavailable" or value.get("evidence_ref") != "unavailable")) or (
+                                not nonexecuted and (not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None)
+                            ):
                                 errors.append(
                                     _e(
                                         "TWV-SCHEMA-INVALID-DIGEST",
                                         path,
                                         f"{ref}.{key}[{value_index}].output_sha256",
-                                        "must be 64 lowercase hexadecimal characters",
+                                        "must be unavailable for non-executed evidence and a 64-character lowercase digest otherwise",
                                     )
                                 )
         _extensions(n.get("extensions"), path, f"{ref}.extensions", errors)

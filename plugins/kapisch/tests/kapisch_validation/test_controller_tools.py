@@ -58,7 +58,7 @@ class ToolTests(unittest.TestCase):
    root=Path(directory);source=root/'source';destination=root/'destination';shutil.copytree(FIXTURES/'valid-v3-durable',source);outcomes=source/'stage-outcomes';outcomes.mkdir();(outcomes/'old.txt').write_text('old')
    self.assertEqual(migrate_controller_view(['--task-dir',str(source),'--destination-task-dir',str(destination),'--approve']),2);self.assertFalse(destination.exists())
  def test_migration_containment_preserves_source_and_outside_files(self):
-  for attempt_id,target_name in (('../../../escaped','escaped.toml'),('../../../source/02-execution-graph','02-execution-graph.toml')):
+  for attempt_id,target_name in (('../../../escaped','escaped.toml'),('../../../source/02-execution-graph','02-execution-graph.toml'),('CON','con-sentinel.toml')):
    with self.subTest(attempt_id=attempt_id),tempfile.TemporaryDirectory() as directory:
     root=Path(directory);source=self.eligible_v3_source(root);destination=root/'destination';sentinel=root/target_name;sentinel.write_bytes(b'sentinel')
     graph=tomllib.loads((source/'02-execution-graph.toml').read_text());graph['nodes'][0]['assignment']['attempts'][0]['id']=attempt_id

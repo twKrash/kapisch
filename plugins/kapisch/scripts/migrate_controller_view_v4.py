@@ -17,6 +17,7 @@ from kapisch_validation.canonical_toml import render_toml
 from kapisch_validation.cli import validate
 from kapisch_validation.manifest import parse_manifest
 from kapisch_validation.references import parse_state
+from kapisch_validation.path_atoms import is_portable_filename_atom
 from render_controller_view import main as render_view
 
 
@@ -42,11 +43,7 @@ def migration_disposition(path: Path) -> bool:
 
 
 def outcome_destination(root: Path, attempt_id: object) -> Path | None:
-    if (
-        not isinstance(attempt_id, str)
-        or attempt_id in {".", ".."}
-        or any(separator in attempt_id for separator in ("/", "\\", "\0"))
-    ):
+    if not is_portable_filename_atom(attempt_id):
         return None
     try:
         outcomes = (root / "stage-outcomes").resolve()

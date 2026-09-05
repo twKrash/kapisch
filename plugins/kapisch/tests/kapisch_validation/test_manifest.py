@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import tempfile
+import shutil
+
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -143,6 +145,37 @@ class ManifestTests(unittest.TestCase):
                 ("TWV-SCHEMA-INVALID-DIGEST", "nodes[0].verification_evidence[1].output_sha256"),
             ],
         )
+    def test_v4_allows_nonexecuted_verification_sentinel(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task_dir = Path(temporary) / "task"
+            shutil.copytree(FIXTURES / "valid-v4-controller", task_dir)
+            path = task_dir / "02-execution-graph.toml"
+            path.write_text(
+                path.read_text(encoding="utf-8").replace(
+                    'evidence_ref = "tasks/T01-report.md", id = "V01", output_sha256 = "331d26d6d8f862e46ba900811be8a7a1e4dbaa229b14c99becfd5e5151490d95", result = "pass"',
+                    'evidence_ref = "unavailable", id = "V01", output_sha256 = "unavailable", result = "not-run"',
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            result = parse_manifest(path)
+        self.assertEqual(result.errors, ())
+    def test_v4_rejects_nonportable_attempt_ids(self) -> None:
+        for attempt_id in ("CON", "C:temp", "bad:name", "trail.", "trail "):
+            with self.subTest(attempt_id=attempt_id), tempfile.TemporaryDirectory() as temporary:
+                task_dir = Path(temporary) / "task"
+                shutil.copytree(FIXTURES / "valid-v4-controller", task_dir)
+                path = task_dir / "02-execution-graph.toml"
+                path.write_text(
+                    path.read_text(encoding="utf-8")
+                    .replace('id = "AT-T01-1"', f'id = "{attempt_id}"', 1)
+                    .replace('stage-outcomes/AT-T01-1.toml', f"stage-outcomes/{attempt_id}.toml", 1),
+                    encoding="utf-8",
+                )
+                result = parse_manifest(path)
+            self.assertIn("nodes[0].attempts[0].id", {error.reference for error in result.errors})
+
+
 
     def test_operational_wave_fixture_fails_closed(self) -> None:
         result = parse_manifest(

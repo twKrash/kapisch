@@ -10,7 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from kapisch_validation.manifest import parse_manifest
-from kapisch_validation.outcomes import _redispatch_errors, _report_authorizes_finding, validate_outcomes
+from kapisch_validation.outcomes import _finding_binding_errors, _normalized_claim_errors, _redispatch_errors, _report_authorizes_finding, validate_outcomes
 from kapisch_validation.references import parse_state
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -164,6 +164,71 @@ class OutcomeTests(unittest.TestCase):
             )
             errors = validate_outcomes(manifest, state, task_dir)
         self.assertIn("TWV-OUTCOME-REDISPATCH-PREDECESSOR", {error.code for error in errors})
+    def test_no_redispatch_requires_unavailable_predecessor(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task_dir, manifest, state = self.make_v4_task(temporary)
+            self.write_outcome(task_dir)
+            outcome = task_dir / "stage-outcomes/AT-T01-1.toml"
+            outcome.write_text(
+                outcome.read_text(encoding="utf-8").replace(
+                    'predecessor_attempt_id = "unavailable"', 'predecessor_attempt_id = "AT-FABRICATED"', 1
+                ),
+                encoding="utf-8",
+            )
+            errors = validate_outcomes(manifest, state, task_dir)
+        self.assertIn("TWV-OUTCOME-REDISPATCH-PREDECESSOR", {error.code for error in errors})
+    def test_retry_authorized_requires_redispatch(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task_dir, manifest, state = self.make_v4_task(temporary)
+            self.write_outcome(task_dir)
+            outcome = task_dir / "stage-outcomes/AT-T01-1.toml"
+            outcome.write_text(
+                outcome.read_text(encoding="utf-8").replace(
+                    'next_action_reason = "completed"', 'next_action_reason = "retry-authorized"', 1
+                ),
+                encoding="utf-8",
+            )
+            errors = validate_outcomes(manifest, state, task_dir)
+        self.assertIn("TWV-OUTCOME-NEXT-ACTION", {error.code for error in errors})
+    def test_complete_outcome_rejects_blocked_next_action(self) -> None:
+        node = SimpleNamespace(raw={"executor_class": "implementer"})
+        raw = {
+            "lifecycle": "complete",
+            "role_status": "done",
+            "redispatch_reason": "none",
+            "next_action_reason": "blocked",
+        }
+        self.assertTrue(_normalized_claim_errors(raw, Path("outcome.toml"), node))
+
+    def test_nonexecuted_verification_binds_without_artifact_digest(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task_dir = Path(temporary) / "task"
+            shutil.copytree(FIXTURES / "valid-v4-controller", task_dir)
+            graph = task_dir / "02-execution-graph.toml"
+            graph.write_text(
+                graph.read_text(encoding="utf-8").replace(
+                    'evidence_ref = "tasks/T01-report.md", id = "V01", output_sha256 = "331d26d6d8f862e46ba900811be8a7a1e4dbaa229b14c99becfd5e5151490d95", result = "pass"',
+                    'evidence_ref = "unavailable", id = "V01", output_sha256 = "unavailable", result = "not-run"',
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            outcome = task_dir / "stage-outcomes/AT-T01-1.toml"
+            outcome.write_text(
+                outcome.read_text(encoding="utf-8").replace(
+                    'verification = [{check = "tests", result = "pass", evidence_ref = "tasks/T01-report.md", output_sha256 = "331d26d6d8f862e46ba900811be8a7a1e4dbaa229b14c99becfd5e5151490d95"}]',
+                    'verification = [{check = "tests", result = "not-run", evidence_ref = "unavailable", output_sha256 = "unavailable"}]',
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            manifest = parse_manifest(graph).manifest
+            state, errors = parse_state(task_dir / "03-state.toml")
+            self.assertEqual(errors, [])
+            self.assertEqual(validate_outcomes(manifest, state, task_dir), [])
+
+
+
 
     def test_terminal_outcome_requires_canonical_path(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -213,6 +278,27 @@ class OutcomeTests(unittest.TestCase):
                 encoding="utf-8",
             )
             self.assertFalse(_report_authorizes_finding(outcome, finding, task_dir, "R01"))
+
+    def test_nonreviewer_concern_binds_to_its_canonical_report(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task_dir = Path(temporary)
+            report = task_dir / "implement.md"
+            report.write_text(
+                "finding_id: F01\nfinding_severity: P2\n"
+                "finding_summary: incomplete proof\nfinding_scope: T01\n",
+                encoding="utf-8",
+            )
+            node = SimpleNamespace(id="T01", raw={"executor_class": "implementer"})
+            raw = {
+                "lifecycle": "complete",
+                "role_status": "done-with-concerns",
+                "redispatch_reason": "none",
+                "next_action_reason": "await-user",
+                "report_path": "implement.md",
+                "findings": [{"id": "F01", "severity": "P2", "summary": "incomplete proof", "evidence_ref": "implement.md"}],
+            }
+            self.assertEqual(_normalized_claim_errors(raw, report, node), [])
+            self.assertEqual(_finding_binding_errors(raw, report, report, task_dir, node), [])
     def test_redispatch_reasons_require_predecessor_facts(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             task_dir = Path(temporary)
@@ -238,8 +324,6 @@ class OutcomeTests(unittest.TestCase):
                 )
 
             supported = (
-                ("failed-attempt", "failed", {"lifecycle": "failed", "role_status": "failed"}, True),
-                ("interrupted-active-stage", "blocked", {"lifecycle": "blocked", "role_status": "blocked"}, True),
                 (
                     "reviewer-finding",
                     "complete",
@@ -256,8 +340,15 @@ class OutcomeTests(unittest.TestCase):
                 with self.subTest(reason=reason):
                     self.assertEqual(errors_for(reason, status, outcome, same_node=same_node), [])
                     self.assertTrue(errors_for(reason, "complete", {"lifecycle": "complete", "role_status": "done"}, same_node=same_node))
-            for reason in ("stale-review-state", "dispatch-no-work", "approved-amendment"):
+            rejected = (
+                ("failed-attempt", "failed", {"lifecycle": "failed", "role_status": "failed"}),
+                ("interrupted-active-stage", "blocked", {"lifecycle": "blocked", "role_status": "blocked"}),
+                ("stale-review-state", "complete", {"lifecycle": "complete", "role_status": "done"}),
+                ("dispatch-no-work", "complete", {"lifecycle": "complete", "role_status": "done"}),
+                ("approved-amendment", "complete", {"lifecycle": "complete", "role_status": "done"}),
+            )
+            for reason, status, outcome in rejected:
                 with self.subTest(reason=reason):
-                    self.assertTrue(errors_for(reason, "complete", {"lifecycle": "complete", "role_status": "done"}))
+                    self.assertTrue(errors_for(reason, status, outcome))
 if __name__ == "__main__":
     unittest.main()

@@ -7,6 +7,7 @@ from pathlib import Path
 from .artifact_io import ArtifactFailure, ArtifactFailureKind, load_toml_artifact, read_utf8_artifact
 from .errors import ValidationError
 from .models import Manifest, State
+from .path_atoms import is_portable_filename_atom
 from .vocabulary import EXECUTOR_CLASS_VALUES
 
 OUTCOME_FIELDS = {
@@ -39,8 +40,6 @@ SHA256_RE = re.compile(r"[0-9a-f]{64}")
 
 def _e(code: str, path: Path, reference: str, message: str) -> ValidationError:
     return ValidationError(code, str(path), reference, message)
-
-
 def _contained(task_dir: Path, relative_path: object) -> Path | None:
     if not isinstance(relative_path, str) or not relative_path or "\0" in relative_path:
         return None
@@ -54,11 +53,7 @@ def _contained(task_dir: Path, relative_path: object) -> Path | None:
 
 
 def _outcome_path(task_dir: Path, attempt_id: object, relative_path: object) -> Path | None:
-    if (
-        not isinstance(attempt_id, str)
-        or attempt_id in {".", ".."}
-        or any(separator in attempt_id for separator in ("/", "\\", "\0"))
-    ):
+    if not is_portable_filename_atom(attempt_id):
         return None
     candidate = _contained(task_dir, relative_path)
     try:
@@ -124,11 +119,9 @@ def _schema_errors(raw: dict[str, object], path: Path) -> list[ValidationError]:
             not isinstance(raw[key], str) or SHA256_RE.fullmatch(raw[key]) is None
         ):
             errors.append(_e("TWV-OUTCOME-INVALID-DIGEST", path, key, "must be unavailable or 64 lowercase hexadecimal characters"))
-    if not isinstance(raw.get("retry_budget_delta"), int) or isinstance(raw.get("retry_budget_delta"), bool):
-        errors.append(_e("TWV-OUTCOME-WRONG-SHAPE", path, "retry_budget_delta", "must be an integer"))
-    elif raw.get("redispatch_reason") in RETRY_DELTAS and raw["retry_budget_delta"] != RETRY_DELTAS[raw["redispatch_reason"]]:
-        errors.append(_e("TWV-OUTCOME-REDISPATCH-BUDGET", path, "retry_budget_delta", "does not match redispatch reason"))
-    if raw.get("redispatch_reason") != "none" and raw.get("predecessor_attempt_id") == "unavailable":
+    if raw.get("redispatch_reason") == "none" and raw.get("predecessor_attempt_id") != "unavailable":
+        errors.append(_e("TWV-OUTCOME-REDISPATCH-PREDECESSOR", path, "predecessor_attempt_id", "no redispatch requires unavailable predecessor"))
+    elif raw.get("redispatch_reason") != "none" and raw.get("predecessor_attempt_id") == "unavailable":
         errors.append(_e("TWV-OUTCOME-REDISPATCH-PREDECESSOR", path, "predecessor_attempt_id", "re-dispatch requires predecessor attempt"))
     _collection_errors(raw.get("findings"), path, "findings", {"id", "severity", "summary", "evidence_ref"}, errors)
     findings = raw.get("findings")
@@ -260,15 +253,26 @@ def _normalized_claim_errors(raw: dict[str, object], path: Path, node) -> list[V
     lifecycle = raw.get("lifecycle")
     role_status = raw.get("role_status")
     if lifecycle == "complete":
-        allowed = {"done"} if node.raw.get("executor_class") != "reviewer" else {"done", "done-with-concerns"}
+        allowed_statuses = {"done", "done-with-concerns"}
     elif lifecycle == "blocked":
-        allowed = {"blocked", "needs-context"}
+        allowed_statuses = {"blocked", "needs-context"}
     elif lifecycle == "failed":
-        allowed = {"failed"}
+        allowed_statuses = {"failed"}
     else:
         return []
-    if role_status not in allowed:
+    if role_status not in allowed_statuses:
         return [_e("TWV-OUTCOME-DISPOSITION", path, "role_status", "does not match terminal lifecycle")]
+    actions = {
+        ("complete", "done"): {"completed"},
+        ("complete", "done-with-concerns"): {"review-negative"} if node.raw.get("executor_class") == "reviewer" else {"await-user"},
+        ("blocked", "blocked"): {"blocked"},
+        ("blocked", "needs-context"): {"await-user"},
+        ("failed", "failed"): {"failed", "dispatch-failed", "retry-exhausted"},
+    }[(lifecycle, role_status)]
+    if raw.get("next_action_reason") == "retry-authorized" and raw.get("redispatch_reason") == "reviewer-finding":
+        return []
+    if raw.get("next_action_reason") not in actions:
+        return [_e("TWV-OUTCOME-NEXT-ACTION", path, "next_action_reason", "does not match terminal lifecycle, role disposition, and redispatch authority")]
     return []
 
 
@@ -283,12 +287,11 @@ def _finding_binding_errors(raw: dict[str, object], path: Path, report: Path | N
             errors.append(_e("TWV-OUTCOME-EVIDENCE-REF", path, reference, "must name contained canonical evidence"))
             continue
         if (
-            node.raw.get("executor_class") != "reviewer"
-            or finding.get("evidence_ref") != raw.get("report_path")
+            finding.get("evidence_ref") != raw.get("report_path")
             or report is None
             or not _report_authorizes_finding(raw, finding, task_dir, node.id)
         ):
-            errors.append(_e("TWV-OUTCOME-FINDING-EVIDENCE", path, reference, "finding is not proven by the canonical reviewer report"))
+            errors.append(_e("TWV-OUTCOME-FINDING-EVIDENCE", path, reference, "finding is not proven by the canonical report"))
     return errors
 
 
@@ -309,6 +312,8 @@ def _verification_binding_errors(raw: dict[str, object], path: Path, node, task_
     errors: list[ValidationError] = []
     for index, record in enumerate(verification):
         reference = f"verification[{index}].evidence_ref"
+        if isinstance(record, dict) and record.get("result") in {"not-run", "unavailable"}:
+            continue
         evidence_path = _contained(task_dir, record.get("evidence_ref")) if isinstance(record, dict) else None
         if evidence_path is None:
             errors.append(_e("TWV-OUTCOME-EVIDENCE-REF", path, reference, "must name contained canonical evidence"))
@@ -372,23 +377,7 @@ def _redispatch_errors(
             or not any(_report_authorizes_finding(predecessor_outcome, finding, task_dir, predecessor_node.id) for finding in findings)
         ):
             return [_e("TWV-OUTCOME-REDISPATCH-AUTHORIZATION", path, "predecessor_attempt_id", "reviewer-finding requires a bound reviewer finding")]
-    elif reason == "failed-attempt":
-        if (
-            predecessor_node.id != node.id
-            or predecessor_attempt.get("status") != "failed"
-            or predecessor_outcome.get("lifecycle") != "failed"
-            or predecessor_outcome.get("role_status") != "failed"
-        ):
-            return [_e("TWV-OUTCOME-REDISPATCH-AUTHORIZATION", path, "predecessor_attempt_id", "failed-attempt requires a failed predecessor in the same node")]
-    elif reason == "interrupted-active-stage":
-        if (
-            predecessor_node.id != node.id
-            or predecessor_attempt.get("status") != "blocked"
-            or predecessor_outcome.get("lifecycle") != "blocked"
-            or predecessor_outcome.get("role_status") not in {"blocked", "needs-context"}
-        ):
-            return [_e("TWV-OUTCOME-REDISPATCH-AUTHORIZATION", path, "predecessor_attempt_id", "interrupted-active-stage requires a blocked predecessor in the same node")]
-    elif reason in {"stale-review-state", "dispatch-no-work", "approved-amendment"}:
+    else:
         return [_e("TWV-OUTCOME-REDISPATCH-AUTHORIZATION", path, "redispatch_reason", f"{reason} has no versioned authorization artifact")]
     return []
 

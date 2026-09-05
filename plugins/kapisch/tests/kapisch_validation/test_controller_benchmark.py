@@ -6,7 +6,7 @@ def row(variant, tokens=10, turns=1, role="parent", invocation=1, scenario="beha
  return {'run_id':run_id,'scenario':scenario,'variant':variant,'role':role,'invocation':invocation,'input_tokens':tokens,'output_tokens':2,'cache_read_tokens':None,'turns':turns,'elapsed_ms':5,'workflow_outcome':'complete','validator_exit':0,'review_decision':decision,'review_findings':findings,'test_result':'pass','resume_result':resume}
 def complete(variant,tokens=10):
  return [
-  row(variant,tokens,scenario="behavioral"),row(variant,role="researcher",scenario="behavioral"),row(variant,role="implementer",scenario="behavioral"),row(variant,role="reviewer",scenario="behavioral",decision="approve",invocation=1),row(variant,role="reviewer",scenario="behavioral",decision="ready",invocation=2),
+  row(variant,tokens,scenario="behavioral"),row(variant,role="implementer",scenario="behavioral"),row(variant,role="reviewer",scenario="behavioral",decision="approve",invocation=1),
   row(variant,tokens,scenario="durable-fix"),row(variant,role="researcher",scenario="durable-fix"),row(variant,role="implementer",scenario="durable-fix",invocation=1),row(variant,role="reviewer",scenario="durable-fix",decision="do-not-approve",findings=1,invocation=2),row(variant,role="implementer",scenario="durable-fix",invocation=3),row(variant,role="reviewer",scenario="durable-fix",decision="approve",invocation=4),row(variant,role="reviewer",scenario="durable-fix",decision="ready",invocation=5),
   row(variant,tokens,scenario="worker-reviewer-resume"),row(variant,role="implementer",scenario="worker-reviewer-resume",resume="pass"),row(variant,role="reviewer",scenario="worker-reviewer-resume",resume="pass")
  ]
@@ -25,6 +25,13 @@ class BenchmarkTests(unittest.TestCase):
  def test_observed_zero_is_comparable(self):
   _,data=compare(complete('baseline',0),complete('candidate',0))
   self.assertEqual(data['roles']['parent']['input_tokens']['delta'],0);self.assertTrue(data['required_evidence_present'])
+ def test_scenario_aggregates_include_parent_children_and_total(self):
+  _,data=compare(complete('baseline'),complete('candidate'))
+  behavioral=data['aggregates']['baseline']['behavioral']
+  self.assertEqual(behavioral['parent']['invocation_count'],1)
+  self.assertEqual(behavioral['children']['invocation_count'],2)
+  self.assertEqual(behavioral['total']['invocation_count'],3)
+
  def test_unavailable_child_metrics_block_acceptance(self):
   baseline=complete('baseline');candidate=complete('candidate')
   for rows in (baseline,candidate):

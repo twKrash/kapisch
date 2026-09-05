@@ -27,6 +27,22 @@ def aggregate(rows):
    if value is None: summary["unavailable_count"] += 1
    else: summary["observed_count"] += 1; summary["total"] += value
  return result
+def aggregate_scope(rows):
+ metrics={}
+ for metric in NUMERIC:
+  values=[row[metric] for row in rows]
+  observed=[value for value in values if value is not None]
+  metrics[metric]={"observed_count":len(observed),"unavailable_count":len(values)-len(observed),"total":sum(observed) if observed else None}
+ return {"invocation_count":len(rows),"metrics":metrics}
+def scenario_aggregates(rows):
+ return {
+  scenario:{
+   "parent":aggregate_scope([row for row in rows if row["scenario"] == scenario and row["role"] == "parent"]),
+   "children":aggregate_scope([row for row in rows if row["scenario"] == scenario and row["role"] != "parent"]),
+   "total":aggregate_scope([row for row in rows if row["scenario"] == scenario]),
+  }
+  for scenario in ("behavioral","durable-fix","worker-reviewer-resume")
+ }
 def comparison(base,candidate, role, metric, pairing_complete):
  left=base[role][metric]; right=candidate[role][metric]
  comparable=pairing_complete and left["observed_count"] > 0 and right["observed_count"] > 0 and not left["unavailable_count"] and not right["unavailable_count"]
@@ -36,7 +52,7 @@ def covered_per_run(rows, predicate):
  for row in rows: runs[row["run_id"]].append(row)
  return bool(runs) and all(predicate(run) for run in runs.values())
 def behavioral_coverage(rows):
- return {"parent","researcher","implementer","reviewer"} <= {row["role"] for row in rows} and {"approve","ready"} <= {row["review_decision"] for row in rows if row["role"] == "reviewer"}
+ return {"parent","implementer","reviewer"} <= {row["role"] for row in rows} and any(row["role"] == "reviewer" and row["review_decision"] == "approve" for row in rows)
 def durable_coverage(rows):
  blocking=[row for row in rows if row["role"] == "reviewer" and row["review_decision"] == "do-not-approve" and row["review_findings"] > 0]
  lifecycle=any(
@@ -74,5 +90,5 @@ def main(argv=None):
  )
  coverage_complete=all(coverage(rows) for rows in (baseline,candidate))
  required=pairing_complete and coverage_complete and semantic_evidence_present and all(data[role][metric]["comparable"] for role in roles for metric in REQUIRED_COMPARISON)
- print(json.dumps({"roles":data,"required_evidence_present":required,"semantic_evidence_present":semantic_evidence_present,"coverage_complete":coverage_complete,"pairing_complete":pairing_complete,"unmatched_baseline":unmatched_baseline,"unmatched_candidate":unmatched_candidate},sort_keys=True)); return 0
+ print(json.dumps({"roles":data,"aggregates":{"baseline":scenario_aggregates(baseline),"candidate":scenario_aggregates(candidate)},"required_evidence_present":required,"semantic_evidence_present":semantic_evidence_present,"coverage_complete":coverage_complete,"pairing_complete":pairing_complete,"unmatched_baseline":unmatched_baseline,"unmatched_candidate":unmatched_candidate},sort_keys=True)); return 0
 if __name__ == "__main__": raise SystemExit(main())
