@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import shutil
 import subprocess
 import sys
@@ -255,6 +256,40 @@ class OutcomeTests(unittest.TestCase):
                             self.assertEqual(errors, [])
                         else:
                             self.assertIn("TWV-OUTCOME-REDISPATCH-BUDGET", {error.code for error in errors})
+
+    def test_verification_result_wrong_shapes_are_reported(self):
+        for value in ([], {}, ["pass"], {"value": "pass"}, True, 1):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as temporary:
+                task = Path(temporary) / "task"
+                shutil.copytree(FIXTURES / "valid-v4-controller", task)
+                path = task / "stage-outcomes/AT-T01-1.toml"
+                raw = tomllib.loads(path.read_text(encoding="utf-8"))
+                raw["verification"][0]["result"] = value
+                path.write_bytes(render_toml(raw))
+                parsed, errors = parse_outcome(path)
+                self.assertIsNone(parsed)
+                self.assertIn("TWV-OUTCOME-WRONG-SHAPE", {e.code for e in errors})
+                self.assert_render_and_validate(task, "TWV-OUTCOME-WRONG-SHAPE")
+
+    def test_verification_result_array_json_cli_reports_validation_error(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            task = Path(temporary) / "task"
+            shutil.copytree(FIXTURES / "valid-v4-controller", task)
+            path = task / "stage-outcomes/AT-T01-1.toml"
+            raw = tomllib.loads(path.read_text(encoding="utf-8"))
+            raw["verification"][0]["result"] = []
+            path.write_bytes(render_toml(raw))
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts/validate_kapisch.py"),
+                 "--task-dir", str(task), "--format", "json"],
+                capture_output=True, text=True, timeout=10,
+            )
+            self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+            self.assertIn(
+                "TWV-OUTCOME-WRONG-SHAPE",
+                {error["code"] for error in json.loads(result.stdout)},
+            )
+            self.assertNotIn("Traceback", result.stderr)
 
     def assert_render_and_validate(self, task_dir: Path, error_code: str | None = None) -> None:
         before = {path: path.read_bytes() for path in task_dir.rglob("*") if path.is_file()}

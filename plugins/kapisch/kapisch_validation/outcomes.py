@@ -144,6 +144,8 @@ def _schema_errors(raw: dict[str, object], path: Path) -> list[ValidationError]:
             if not isinstance(record, dict):
                 continue
             result = record.get("result")
+            if not isinstance(result, str):
+                continue
             if result not in {"pass", "fail", "not-run", "unavailable"}:
                 errors.append(_e("TWV-OUTCOME-INVALID-VALUE", path, f"verification[{index}].result", "unsupported verification result"))
             digest = record.get("output_sha256")
