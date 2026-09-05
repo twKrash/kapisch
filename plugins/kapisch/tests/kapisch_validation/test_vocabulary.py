@@ -119,7 +119,7 @@ class VocabularyTests(unittest.TestCase):
             ("implementer-lite", "cheap", "behavioral"),
             ("implementer", "standard", "behavioral"),
             ("architect", "high", "behavioral"),
-            ("researcher", "cheap", "research"),
+            ("researcher", "standard", "research"),
             ("reviewer", "high", "review"),
         )
         for executor_class, model_tier, kind in cases:
@@ -207,6 +207,64 @@ class VocabularyTests(unittest.TestCase):
                 "banana",
                 WORKFLOW_STATUS_VALUES,
             )
+
+    def test_controller_view_state_bindings_are_version_bound(self) -> None:
+        state_bindings = (
+            'controller_view_path="04-controller-view.toml"\n'
+            'controller_view_sha256="' + "0" * 64 + '"\n'
+        )
+        with TemporaryDirectory() as temporary:
+            root = self.copy_fixture(temporary, "valid-v3-durable")
+            manifest_path = root / "02-execution-graph.toml"
+            manifest_path.write_text(
+                manifest_path.read_text(encoding="utf-8").replace(
+                    "version = 3",
+                    'version = 4\ncontroller_view = "04-controller-view.toml"',
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            code, findings = self.run_cli(root)
+            self.assertEqual(code, 2)
+            self.assertEqual(
+                [(finding["code"], finding["reference"]) for finding in findings],
+                [
+                    ("TWV-SCHEMA-MISSING-FIELD", "controller_view_path"),
+                    ("TWV-SCHEMA-MISSING-FIELD", "controller_view_sha256"),
+                    ("TWV-OUTCOME-NODE-LIFECYCLE", "F01.assignment.attempts"),
+                    ("TWV-OUTCOME-NODE-LIFECYCLE", "R01.assignment.attempts"),
+                    ("TWV-OUTCOME-NODE-LIFECYCLE", "T01.assignment.attempts"),
+                ],
+            )
+
+            state_path = root / "03-state.toml"
+            state_path.write_text(
+                state_path.read_text(encoding="utf-8") + state_bindings,
+                encoding="utf-8",
+            )
+            state, errors = parse_state(state_path)
+            self.assertEqual(errors, [])
+            self.assertEqual(state.controller_view_path, "04-controller-view.toml")
+
+        for binding in state_bindings.splitlines():
+            with self.subTest(binding=binding), TemporaryDirectory() as temporary:
+                root = self.copy_fixture(temporary, "valid-v3-durable")
+                state_path = root / "03-state.toml"
+                state_path.write_text(
+                    state_path.read_text(encoding="utf-8") + binding + "\n",
+                    encoding="utf-8",
+                )
+                code, findings = self.run_cli(root)
+                self.assertEqual(code, 2)
+                self.assertEqual(
+                    [(finding["code"], finding["reference"]) for finding in findings],
+                    [
+                        (
+                            "TWV-SCHEMA-UNSUPPORTED-V4-FIELD",
+                            binding.split("=", 1)[0],
+                        )
+                    ],
+                )
 
     def test_required_unknown_values_exit_two(self) -> None:
         cases = (

@@ -11,6 +11,8 @@ from .errors import ValidationError, sorted_errors
 from .delegations import parse_route, validate_route_references
 from .manifest import parse_manifest
 from .references import parse_state, validate_references
+from .outcomes import validate_outcomes
+from .controller_view import validate_controller_view
 from .review_evidence import validate_review_evidence
 from .transitions import validate_lifecycle, validate_transition
 
@@ -51,7 +53,7 @@ def _contract_is_usable(contract_dir: Path) -> bool:
 
 
 def validate_delegation_snapshot(manifest, task_dir: Path) -> list[ValidationError]:
-    if manifest.version != 3:
+    if manifest.version not in {3, 4}:
         return []
     errors: list[ValidationError] = []
     route_path = task_dir / "delegations" / "00-route.toml"
@@ -87,13 +89,16 @@ def validate_delegation_snapshot(manifest, task_dir: Path) -> list[ValidationErr
 
 
 def validate_snapshot(
-    manifest, state, task_dir: Path, contract_dir: Path
+    manifest, state, task_dir: Path, contract_dir: Path, *, include_controller_view: bool = True
 ) -> list[ValidationError]:
     errors: list[ValidationError] = []
     errors.extend(validate_delegation_snapshot(manifest, task_dir))
     errors.extend(validate_references(manifest, state, task_dir, contract_dir))
     errors.extend(validate_lifecycle(manifest, state))
     errors.extend(validate_review_evidence(manifest, state, task_dir))
+    errors.extend(validate_outcomes(manifest, state, task_dir))
+    if include_controller_view and not errors:
+        errors.extend(validate_controller_view(manifest, state, task_dir))
     return errors
 
 

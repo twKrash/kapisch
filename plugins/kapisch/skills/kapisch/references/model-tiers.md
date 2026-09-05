@@ -8,6 +8,7 @@ a model family, reasoning effort, token budget, or performance outcome.
 | --- | --- | --- |
 | `mechanic` | `cheap` | bounded mechanical work when dispatch permits it |
 | `implementer-lite` | `cheap` | bounded implementation work when dispatch permits it |
+| `researcher` | `standard` | bounded read-only repository research and evidence packages for other roles |
 | `implementer` | `standard` | implementation work, including high-risk prescriptive work |
 | `architect` | `high` | architecture and design work |
 | `reviewer` | `high` | independent review and final readiness |

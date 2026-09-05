@@ -7,8 +7,11 @@ role can provide independent approval.
 
 ## Permissions
 
-Read repository state only. Do not edit files, invoke side effects, or become
-the single writer; the controller keeps the single-writer boundary.
+Read repository state only. Do not edit repository files, add dependencies, invoke
+destructive, commit, push, release, or external side effects, or become the
+single writer; the controller keeps the single-writer boundary. Local read-only
+verification commands may run when the effective sandbox permits them; record
+blocked verification as blocked or omitted.
 
 ## Escalation
 
@@ -27,3 +30,11 @@ profile paths remain owned by setup, invocation-envelope, and handoff contracts.
 
 Report the resolved role, status, changed files when applicable, verification,
 concerns, and the independent review decision only when a profile is resolved.
+
+## Version-4 transport return
+
+Return the detailed report plus a bounded transport payload: report status, path,
+SHA-256 digest, outcome lifecycle, at most 20 finding summaries, and at most 20
+verification references. Never return transcripts, raw tool output, prompts, hidden
+reasoning, runtime transport data, or an approval claim outside this role's existing
+authority.

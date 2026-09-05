@@ -1,0 +1,23 @@
+assignment_id = "A-F01-1"
+attempt_id = "AT-F01-1"
+base_revision = "base"
+findings = []
+head_revision = "head"
+invocation_id = "I-FINAL"
+invocation_path = "reviews/final/00-final-invocation.toml"
+invocation_sha256 = "37df619d618463f6ffeec7386d13424b2859e194c3b4062d2f1ed31a1ff37815"
+lifecycle = "complete"
+next_action_reason = "completed"
+node_id = "F01"
+predecessor_attempt_id = "unavailable"
+redispatch_reason = "none"
+report_path = "reviews/final/05-final.md"
+report_sha256 = "43f3c8df517a2435467fe95332214d943d9ea77f1a4542f61d531c171b84b787"
+retry_budget_delta = 0
+reviewer_decision = "ready"
+role = "reviewer"
+role_status = "done"
+task_id = "valid"
+verification = [{check = "final", result = "pass", evidence_ref = "reviews/final/05-final.md", output_sha256 = "43f3c8df517a2435467fe95332214d943d9ea77f1a4542f61d531c171b84b787"}]
+version = 1
+working_tree_state_sha256 = "aaafded241c666e5ccd5b115c0f83224b443b7636e5fdde93a7bba043e69e939"

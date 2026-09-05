@@ -1,9 +1,37 @@
 # Changelog
 
-## Unreleased
+## 1.2.1 - 2026-09-04 (release candidate)
 
-The 1.1.0 release candidate below is prepared locally but has not been tagged or
+- Documented the `researcher` minimum logical tier as `standard` in the
+  model-tier reference; no validator rule was added in this change.
+- Rerouted the researcher runtime profile: quality `gpt-5.6-terra` / `high`,
+  budget `gpt-5.6-luna` / `high`; balanced remains `gpt-5.6-terra` / `medium`.
+- Restructured the researcher agent instructions into an ordered, bounded
+  evidence-gathering procedure with explicit stop and escalation conditions.
+- Restructure `kapisch-implementer-lite` into a bounded, gated execution
+  procedure (bind the prescription, pre-write evidence check,
+  mechanical-versus-material departure, fresh self-run verification, diff
+  self-review, explicit completion and escalation) and route it to
+  `gpt-5.6-luna`/`high` in the balanced, quality, and budget profile sets as a
+  role gate-fidelity requirement; the durable logical tier stays `cheap` and
+  mechanic routing is unchanged.
+- Hardened the `mechanic` agent and portable role contract into an ordered,
+  deterministic maintenance procedure with explicit operation binding, fresh
+  verification, scoped diff inspection, and controller-owned blocker escalation.
+
+The 1.2.0 release candidate below is prepared locally but has not been tagged or
 published.
+
+## 1.2.0 - 2026-08-31 (release candidate)
+
+Backward-compatible v4 durable controller capability.
+
+- Added immutable stage outcomes and a deterministic, digest-bound controller view.
+- Added explicit controller-view rendering and eligible v3-to-v4 migration tools.
+- Added bounded controller/role transport contracts and provider-independent benchmark comparison.
+- Retained v1-v3 compatibility and existing review/final-readiness semantics.
+
+Benchmark acceptance, independent review, final readiness, tagging, and publication remain pending; this candidate is not released.
 
 ## 1.1.0 - 2026-08-28 (release candidate)
 

@@ -45,6 +45,10 @@ WORKFLOW_STATUS_TRANSITIONS: dict[str, frozenset[str]] = {
 TERMINAL_WORKFLOW_STATUSES = frozenset({"complete"})
 TERMINAL_NEXT_ACTIONS = frozenset({"complete"})
 
+MANIFEST_VERSION_VALUES = (1, 2, 3, 4)
+V4_CONTROLLER_VIEW_PATH = "04-controller-view.toml"
+UNAVAILABLE_OUTCOME_PATH = "unavailable"
+
 
 def closed_string_error(
     value: object,

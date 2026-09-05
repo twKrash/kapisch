@@ -9,11 +9,11 @@ Codex continues to own agent dispatch, model selection, and sandboxing.
 This plugin is distributed through the Git-backed `kapisch-local` marketplace,
 not the OpenAI public Plugin Directory.
 
-After an authorized maintainer publishes the immutable `v1.1.0` tag, the
+After an authorized maintainer publishes the immutable `v1.2.1` tag, the
 released installation command will be:
 
 ```text
-codex plugin marketplace add twKrash/kapisch --ref v1.1.0
+codex plugin marketplace add twKrash/kapisch --ref v1.2.1
 codex plugin add kapisch@kapisch-local
 ```
 
@@ -102,9 +102,22 @@ installed validation.
 
 ## Compatibility
 
-Version-1 and version-2 durable manifests remain readable. Legacy
-`.planning/task-workflow/<task-id>/` runs are read-only inputs and move only
-through the explicit copy-and-validate command:
+Version-1 through version-4 durable manifests remain readable. Version-4
+snapshots include a derived `04-controller-view.toml`; render it only from a
+valid snapshot:
+
+```text
+python <plugin-root>/scripts/render_controller_view.py --task-dir <consumer-repository>/.kapisch/runs/<task-id>
+```
+
+Version-3 runs migrate to version 4 only through the explicit copy-and-validate
+command:
+
+```text
+python <plugin-root>/scripts/migrate_controller_view_v4.py --task-dir <v3-task-dir> --destination-task-dir <v4-task-dir> --approve
+```
+
+Older `.planning/task-workflow/<task-id>/` runs remain read-only inputs and use:
 
 ```text
 python scripts/migrate_legacy_run.py --project-dir <consumer-repository> --task-id <task-id> --approve
@@ -114,7 +127,7 @@ Windows 11 with Codex Desktop and WSL2 is the release-blocking Windows surface.
 Native Windows profile setup and portable-package tests pass on Python 3.11;
 live no-WSL plugin support is claimed only after a complete observed run. See
 [compatibility.md](docs/compatibility.md) and the
-[1.1.0 Windows acceptance template](docs/acceptance-windows-v1.1.0.md).
+[1.2.0 Windows acceptance template](docs/acceptance-windows-v1.2.0.md).
 
 ## Development checks
 

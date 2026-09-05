@@ -56,6 +56,34 @@ class ValidatorHardeningTests(unittest.TestCase):
         self.assertIsNone(state)
         self.assertEqual(errors[0].code, "TWV-PARSE-UNREADABLE-ARTIFACT")
 
+    def test_state_extensions_reject_non_json_values(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary) / "task"
+            shutil.copytree(FIXTURES / "valid-v4-controller", root)
+            state_path = root / "03-state.toml"
+            state_path.write_text(
+                state_path.read_text(encoding="utf-8")
+                + '\nextensions = {"com.example" = {observed_on = 2026-08-31}}\n',
+                encoding="utf-8",
+            )
+            state, errors = parse_state(state_path)
+        self.assertIsNone(state)
+        self.assertIn("TWV-SCHEMA-INVALID-EXTENSION", {error.code for error in errors})
+
+    def test_legacy_state_extensions_allow_toml_dates(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary) / "task"
+            shutil.copytree(FIXTURES / "valid-v3-durable", root)
+            state_path = root / "03-state.toml"
+            state_path.write_text(
+                state_path.read_text(encoding="utf-8")
+                + '\nextensions = {"com.example" = {observed_on = 2026-08-31}}\n',
+                encoding="utf-8",
+            )
+            state, errors = parse_state(state_path)
+        self.assertIsNotNone(state)
+        self.assertEqual(errors, [])
+
     def historical_identity_findings(
         self,
         root: Path,
