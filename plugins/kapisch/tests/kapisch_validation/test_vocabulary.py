@@ -231,6 +231,9 @@ class VocabularyTests(unittest.TestCase):
                 [
                     ("TWV-SCHEMA-MISSING-FIELD", "controller_view_path"),
                     ("TWV-SCHEMA-MISSING-FIELD", "controller_view_sha256"),
+                    ("TWV-OUTCOME-NODE-LIFECYCLE", "F01.assignment.attempts"),
+                    ("TWV-OUTCOME-NODE-LIFECYCLE", "R01.assignment.attempts"),
+                    ("TWV-OUTCOME-NODE-LIFECYCLE", "T01.assignment.attempts"),
                 ],
             )
 
