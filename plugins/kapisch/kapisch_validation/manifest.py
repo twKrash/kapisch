@@ -7,11 +7,15 @@ from .artifact_io import ArtifactFailure, ArtifactFailureKind, load_toml_artifac
 from .errors import ValidationError, sorted_errors
 from .helpers import is_integer, non_empty_string, nonfinite_float_references, string_list
 from .models import Manifest, Node, ParseResult
+from .path_atoms import is_portable_filename_atom
 from .vocabulary import (
     ASSIGNMENT_VALUES,
+    MANIFEST_VERSION_VALUES,
     NODE_ROUTING_VALUES,
     POLICY_VALUES,
     RUNTIME_RECORD_STATUS_VALUES,
+    UNAVAILABLE_OUTCOME_PATH,
+    V4_CONTROLLER_VIEW_PATH,
     closed_string_error,
 )
 
@@ -25,6 +29,7 @@ ROOT = {
     "nodes",
     "waves",
     "extensions",
+    "controller_view",
 }
 POLICIES = {
     "execution",
@@ -85,7 +90,14 @@ ASSIGNMENT = {
 }
 ASSIGNMENT_REQUIRED = ASSIGNMENT - {"context_fingerprint", "scope_fingerprint"}
 BATCH = {"id", "member_node_ids", "member_assignment_ids", "member_outcomes", "outcome"}
-ATTEMPT = {"id", "source_revision", "context_scope_ref", "status", "verification"}
+ATTEMPT = {
+    "id",
+    "source_revision",
+    "context_scope_ref",
+    "status",
+    "verification",
+    "outcome_path",
+}
 ESCALATION = {
     "id",
     "trigger",
@@ -219,27 +231,58 @@ def parse_manifest(path: Path) -> ParseResult:
     _extensions(raw.get("extensions"), path, "extensions", errors)
     _closed(raw.get("policies"), POLICIES, path, "policies", errors)
     version = raw.get("version")
-    if not is_integer(version) or version not in (1, 2, 3):
+    if not is_integer(version) or version not in MANIFEST_VERSION_VALUES:
         errors.append(
             _e(
                 "TWV-SCHEMA-INVALID-VERSION",
                 path,
                 "version",
-                "must be integer 1, 2, or 3",
+                "must be integer 1, 2, 3, or 4",
             )
         )
-    for key in ("task_id", "source_plan", "base_revision", "nodes"):
+    required_root_fields = ["task_id", "source_plan", "base_revision", "nodes"]
+    if version == 4:
+        required_root_fields.append("controller_view")
+    for key in required_root_fields:
         if key not in raw:
             errors.append(
                 _e("TWV-SCHEMA-MISSING-FIELD", path, key, "required field is missing")
             )
-    for key in ("task_id", "source_plan", "base_revision", "roadmap_item"):
+    for key in (
+        "task_id",
+        "source_plan",
+        "base_revision",
+        "roadmap_item",
+        "controller_view",
+    ):
         if key in raw:
             non_empty_string(
                 raw[key],
                 errors,
                 _e("TWV-SCHEMA-WRONG-SHAPE", path, key, "must be a non-empty string"),
             )
+    if (
+        version == 4
+        and "controller_view" in raw
+        and raw["controller_view"] != V4_CONTROLLER_VIEW_PATH
+    ):
+        errors.append(
+            _e(
+                "TWV-SCHEMA-INVALID-VALUE",
+                path,
+                "controller_view",
+                f"must be {V4_CONTROLLER_VIEW_PATH!r}",
+            )
+        )
+    if version in (1, 2, 3) and "controller_view" in raw:
+        errors.append(
+            _e(
+                "TWV-SCHEMA-UNSUPPORTED-V4-FIELD",
+                path,
+                "controller_view",
+                "version-4-only root field on a legacy manifest",
+            )
+        )
     policies = (
         dict(raw.get("policies", {})) if isinstance(raw.get("policies"), dict) else {}
     )
@@ -257,7 +300,7 @@ def parse_manifest(path: Path) -> ParseResult:
                         "required version-2 policy is missing",
                     )
                 )
-    if version == 3:
+    if version in (3, 4):
         for key in POLICIES:
             if key not in policies:
                 errors.append(
@@ -562,7 +605,7 @@ def parse_manifest(path: Path) -> ParseResult:
                     "version-3-only node field on a version-1 or version-2 manifest",
                 )
             )
-        if version == 3 and "delegation_ids" not in n:
+        if version in (3, 4) and "delegation_ids" not in n:
             errors.append(
                 _e(
                     "TWV-SCHEMA-MISSING-FIELD",
@@ -727,7 +770,12 @@ def parse_manifest(path: Path) -> ParseResult:
                 for value_index, value in enumerate(values):
                     _closed(value, allowed, path, f"{ref}.{key}[{value_index}]", errors)
                     if isinstance(value, dict):
-                        for required in allowed:
+                        required_fields = (
+                            allowed
+                            if key != "attempts" or version == 4
+                            else allowed - {"outcome_path"}
+                        )
+                        for required in required_fields:
                             if required not in value:
                                 errors.append(
                                     _e(
@@ -772,15 +820,66 @@ def parse_manifest(path: Path) -> ParseResult:
                             )
                             if status_error is not None:
                                 errors.append(status_error)
-                        if key == "verification_evidence" and "output_sha256" in value:
+                        if version == 4 and key == "attempts" and not is_portable_filename_atom(value.get("id")):
+                            errors.append(
+                                _e(
+                                    "TWV-SCHEMA-INVALID-VALUE",
+                                    path,
+                                    f"{ref}.{key}[{value_index}].id",
+                                    "must be a portable filename atom",
+                                )
+                            )
+                        if key == "attempts" and "outcome_path" in value:
+                            outcome_path = value["outcome_path"]
+                            if version in (1, 2, 3):
+                                errors.append(
+                                    _e(
+                                        "TWV-SCHEMA-UNSUPPORTED-V4-FIELD",
+                                        path,
+                                        f"{ref}.{key}[{value_index}].outcome_path",
+                                        "version-4-only attempt field on a legacy manifest",
+                                    )
+                                )
+                            elif (
+                                isinstance(value.get("status"), str)
+                                and isinstance(outcome_path, str)
+                                and (
+                                    (
+                                        value["status"] in {"pending", "running"}
+                                        and outcome_path != UNAVAILABLE_OUTCOME_PATH
+                                    )
+                                    or (
+                                        value["status"] in {"complete", "blocked", "failed"}
+                                        and outcome_path != f"stage-outcomes/{value.get('id')}.toml"
+                                    )
+                                )
+                            ):
+                                errors.append(
+                                    _e(
+                                        "TWV-SCHEMA-INVALID-VALUE",
+                                        path,
+                                        f"{ref}.{key}[{value_index}].outcome_path",
+                                        "must be unavailable for pending/running attempts and a path for terminal attempts",
+                                    )
+                                )
+                        if key == "verification_evidence" and "output_sha256" in value and isinstance(value.get("result"), str):
                             digest = value["output_sha256"]
-                            if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+                            nonexecuted = value["result"] in {"not-run", "unavailable"}
+                            invalid_digest = (
+                                version == 4
+                                and nonexecuted
+                                and (digest != "unavailable" or value.get("evidence_ref") != "unavailable")
+                            ) or (
+                                (version != 4 or not nonexecuted)
+                                and (not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None)
+                            )
+                            if invalid_digest:
                                 errors.append(
                                     _e(
                                         "TWV-SCHEMA-INVALID-DIGEST",
                                         path,
                                         f"{ref}.{key}[{value_index}].output_sha256",
-                                        "must be 64 lowercase hexadecimal characters",
+                                        "must be unavailable for non-executed evidence and a 64-character lowercase digest otherwise",
                                     )
                                 )
         _extensions(n.get("extensions"), path, f"{ref}.extensions", errors)
@@ -828,6 +927,7 @@ def parse_manifest(path: Path) -> ParseResult:
             str(path),
             raw["source_plan"],
             raw.get("roadmap_item"),
+            raw.get("controller_view"),
         ),
         (),
     )

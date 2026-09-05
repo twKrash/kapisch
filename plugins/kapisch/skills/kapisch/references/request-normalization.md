@@ -30,10 +30,10 @@ selection, fallback, and fail-closed rules for delegated steps are owned by
 
 The current graph-free `workflow=task` surface does not support delegation. A
 mandated capability therefore blocks for a user choice to promote the work to a
-durable version-3 graph or relax the constraint; it is never silently executed
-natively. An automatic capability selection may use native execution only when
-the approved outcome remains unchanged, otherwise it asks whether to promote the
-work to a durable graph.
+supported durable version-3 or version-4 graph or relax the constraint; it is
+never silently executed natively. An automatic capability selection may use
+native execution only when the approved outcome remains unchanged, otherwise it
+asks whether to promote the work to a durable graph.
 
 The LLM/controller selects `task` or `milestone`, logical roles, risk, review
 needs, and whether a request is read-only. It records only the durable facts

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import tempfile
+import shutil
+
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -143,6 +145,37 @@ class ManifestTests(unittest.TestCase):
                 ("TWV-SCHEMA-INVALID-DIGEST", "nodes[0].verification_evidence[1].output_sha256"),
             ],
         )
+    def test_v4_allows_nonexecuted_verification_sentinel(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task_dir = Path(temporary) / "task"
+            shutil.copytree(FIXTURES / "valid-v4-controller", task_dir)
+            path = task_dir / "02-execution-graph.toml"
+            path.write_text(
+                path.read_text(encoding="utf-8").replace(
+                    'evidence_ref = "tasks/T01-report.md", id = "V01", output_sha256 = "331d26d6d8f862e46ba900811be8a7a1e4dbaa229b14c99becfd5e5151490d95", result = "pass"',
+                    'evidence_ref = "unavailable", id = "V01", output_sha256 = "unavailable", result = "not-run"',
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            result = parse_manifest(path)
+        self.assertEqual(result.errors, ())
+    def test_v4_rejects_nonportable_attempt_ids(self) -> None:
+        for attempt_id in ("CON", "C:temp", "bad:name", "trail.", "trail "):
+            with self.subTest(attempt_id=attempt_id), tempfile.TemporaryDirectory() as temporary:
+                task_dir = Path(temporary) / "task"
+                shutil.copytree(FIXTURES / "valid-v4-controller", task_dir)
+                path = task_dir / "02-execution-graph.toml"
+                path.write_text(
+                    path.read_text(encoding="utf-8")
+                    .replace('id = "AT-T01-1"', f'id = "{attempt_id}"', 1)
+                    .replace('stage-outcomes/AT-T01-1.toml', f"stage-outcomes/{attempt_id}.toml", 1),
+                    encoding="utf-8",
+                )
+                result = parse_manifest(path)
+            self.assertIn("nodes[0].attempts[0].id", {error.reference for error in result.errors})
+
+
 
     def test_operational_wave_fixture_fails_closed(self) -> None:
         result = parse_manifest(
@@ -319,6 +352,126 @@ class ManifestTests(unittest.TestCase):
         )
         self.assertEqual(result.errors, ())
         self.assertEqual(result.manifest.version, 3)
+
+    def _v4_body(self) -> str:
+        return self._v3_body().replace(
+            "version = 3",
+            'version = 4\ncontroller_view = "04-controller-view.toml"',
+        )
+
+    def _v4_body_with_attempt(
+        self, *, status: str = "complete", outcome_path: str | None = None
+    ) -> str:
+        attempt_fields = (
+            'id="AT-T01-1",source_revision="base",'
+            'context_scope_ref="tasks/T01-context.md",'
+            f'status="{status}",verification=[]'
+        )
+        if outcome_path is not None:
+            attempt_fields += f',outcome_path="{outcome_path}"'
+        assignment = (
+            'assignment={id="A-T01-1",schema_version=1,'
+            'execution_class="bounded",reason_codes=[],source_revision="base",'
+            'context_refs=[],attempts=[{' + attempt_fields + '}],escalations=[]}\n'
+        )
+        return self._v4_body().replace("[nodes.revision]", assignment + "[nodes.revision]", 1)
+
+    def test_version_four_requires_controller_view_and_rejects_it_on_v3(self) -> None:
+        cases = (
+            (
+                self._v3_body().replace("version = 3", "version = 4"),
+                ("TWV-SCHEMA-MISSING-FIELD", "controller_view"),
+            ),
+            (
+                self._v3_body().replace(
+                    "version = 3",
+                    'version = 3\ncontroller_view = "04-controller-view.toml"',
+                ),
+                ("TWV-SCHEMA-UNSUPPORTED-V4-FIELD", "controller_view"),
+            ),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "02-execution-graph.toml"
+            for body, expected in cases:
+                with self.subTest(expected=expected):
+                    path.write_text(body, encoding="utf-8")
+                    result = parse_manifest(path)
+                    self.assertEqual(
+                        [(error.code, error.reference) for error in result.errors],
+                        [expected],
+                    )
+
+    def test_version_four_attempts_require_lifecycle_appropriate_outcome_path(self) -> None:
+        cases = (
+            (
+                self._v4_body_with_attempt(outcome_path=None),
+                ("TWV-SCHEMA-MISSING-FIELD", "nodes[0].attempts[0].outcome_path"),
+            ),
+            (
+                self._v4_body_with_attempt(outcome_path="unavailable"),
+                ("TWV-SCHEMA-INVALID-VALUE", "nodes[0].attempts[0].outcome_path"),
+            ),
+            (
+                self._v4_body_with_attempt(
+                    status="running",
+                    outcome_path="stage-outcomes/AT-T01-1.toml",
+                ),
+                ("TWV-SCHEMA-INVALID-VALUE", "nodes[0].attempts[0].outcome_path"),
+            ),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "02-execution-graph.toml"
+            for body, expected in cases:
+                with self.subTest(expected=expected):
+                    path.write_text(body, encoding="utf-8")
+                    result = parse_manifest(path)
+                    self.assertEqual(
+                        [(error.code, error.reference) for error in result.errors],
+                        [expected],
+                    )
+
+    def test_version_four_attempt_ids_are_path_safe_atoms(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "02-execution-graph.toml"
+            for attempt_id in ("../escaped", r"..\\escaped", ".", ".."):
+                with self.subTest(attempt_id=attempt_id):
+                    path.write_text(
+                        self._v4_body_with_attempt(
+                            outcome_path=f"stage-outcomes/{attempt_id}.toml"
+                        ).replace('id="AT-T01-1"', f'id="{attempt_id}"', 1),
+                        encoding="utf-8",
+                    )
+                    result = parse_manifest(path)
+                    self.assertIn(
+                        ("TWV-SCHEMA-INVALID-VALUE", "nodes[0].attempts[0].id"),
+                        [(error.code, error.reference) for error in result.errors],
+                    )
+    def test_legacy_attempt_ids_remain_readable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "02-execution-graph.toml"
+            body = self._v4_body_with_attempt().replace(
+                'version = 4\ncontroller_view = "04-controller-view.toml"', "version = 3"
+            ).replace('id="AT-T01-1"', 'id="../legacy-attempt"', 1)
+            path.write_text(body, encoding="utf-8")
+            result = parse_manifest(path)
+        self.assertEqual(result.errors, ())
+    def test_version_four_copy_of_durable_v3_fixture_parses(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "02-execution-graph.toml"
+            source = (
+                FIXTURES / "valid-v3-durable" / "02-execution-graph.toml"
+            ).read_text(encoding="utf-8")
+            path.write_text(
+                source.replace(
+                    "version = 3",
+                    'version = 4\ncontroller_view = "04-controller-view.toml"',
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            result = parse_manifest(path)
+        self.assertEqual(result.errors, ())
+        self.assertEqual(result.manifest.version, 4)
 
 
 if __name__ == "__main__":

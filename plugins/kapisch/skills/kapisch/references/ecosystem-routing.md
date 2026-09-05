@@ -82,10 +82,10 @@ LLM/controller's interpretation, never a separate entry point.
 
 Graph-free workflows do not delegate in the current scope. An explicit
 capability constraint in a graph-free workflow blocks and asks the user to
-promote the work to a durable version-3 graph or to relax the constraint before
-native execution. An automatic selection may use the disclosed native fallback
-only when the approved outcome remains unchanged; otherwise it asks whether to
-promote the work to a durable graph.
+promote the work to a supported durable version-3 or version-4 graph or to relax
+the constraint before native execution. An automatic selection may use the
+disclosed native fallback only when the approved outcome remains unchanged;
+otherwise it asks whether to promote the work to a durable graph.
 
 Delegation fails closed: any ambiguity about capability identity, availability,
 authority, or side-effect boundary stops for a user decision or blocks with the
@@ -101,7 +101,7 @@ new sibling delegated step with its own context, authority, and evidence.
 Delegation never revives operational waves, parallel scheduling, worktree
 integration, or multi-writer execution: the controller invokes at most one
 delegated capability at a time. Graph-free delegation (a route record without a
-version-3 execution graph) is deferred to a later change.
+version-3 or version-4 execution graph) is deferred to a later change.
 
 ## Delegation evidence layout
 
@@ -109,8 +109,8 @@ Delegation evidence is mandatory whenever KAPISCH uses an ecosystem capability,
 including when the user selected `handoff=chat`. It is required for route
 explanation, review, and safe resume; it is not an optional presentation
 handoff. It is a separate route record under the task run directory. Within
-the current scope the record is validated only as part of version-3 durable
-runs; graph-free delegation is deferred to a later change:
+the current scope the record is validated only as part of version-3 or
+version-4 durable runs; graph-free delegation is deferred to a later change:
 
 ```text
 .kapisch/runs/<task-id>/

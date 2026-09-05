@@ -125,3 +125,12 @@ execution classes. These are replaceable routing values, not model identifiers.
 The installed profile set resolves actual model and reasoning effort at runtime;
 durable evidence does not infer either from a tier. Logical tier values do not
 claim a model, token, cache, cost, or performance outcome.
+
+## Version-4 bounded dispatch
+
+Dispatch forms a stage-local assignment from the controller view, active
+brief/context references, current Git binding, and relevant predecessor
+outcomes. It passes references, not report or transcript contents. Re-dispatch
+is permitted only for a persisted reason from the closed v4 vocabulary with a
+predecessor attempt and required retry/fix budget effect; confidence-only
+follow-up is forbidden.

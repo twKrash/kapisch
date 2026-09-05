@@ -1,0 +1,17 @@
+version = 1
+task_id = "valid"
+source_manifest_sha256 = "1c9f502b04c5b2dc79ef81238885a1abefdc30c7050d8b9fc403fa8b8b639934"
+source_state_sha256 = "b1df45fcfed4c6f12a5b639c6c6e3fe9558e184249ffd8fa92b43e2c099ff9cb"
+workflow_status = "complete"
+current_revision = "head"
+next_action = "complete"
+validator_status = "pass"
+validator_error_count = 0
+active_node_id = "unavailable"
+next_node_id = "unavailable"
+current_fix_round = 0
+max_fix_rounds = 1
+active_assignment = {assignment_id = "unavailable", brief = "unavailable", context = "unavailable", node_id = "unavailable", report = "unavailable", role = "unavailable"}
+gates = {fix_policy = "manual", risk = "unavailable"}
+predecessor_outcomes = []
+request = {roadmap_item = "unavailable", source_plan = "01-plan.md"}

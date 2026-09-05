@@ -151,3 +151,13 @@ repository changes returns the same unsupported-capability result.
 The retired recovery protocol is preserved only as non-normative future design
 material in
 [`../../../docs/parallel-wave-design.md`](../../../docs/parallel-wave-design.md).
+
+## Version-4 controller view recovery
+
+Version-4 runs bind `04-controller-view.toml` and its SHA-256 in state. The
+view is a derived cache, never evidence. Resume loads a valid current view; a
+missing, stale, or corrupt view is regenerated only from validated canonical
+artifacts through the explicit renderer. Missing canonical evidence, digest
+mismatch, failed regeneration, or ambiguous active state is a durable block,
+not permission to dispatch. Version-1 through version-3 runs are resumed
+without synthesized outcomes or views.

@@ -1,0 +1,23 @@
+assignment_id = "A-R01-1"
+attempt_id = "AT-R01-1"
+base_revision = "base"
+findings = []
+head_revision = "head"
+invocation_id = "I-REVIEW"
+invocation_path = "reviews/round-0/00-review-invocation.toml"
+invocation_sha256 = "3d124445bbddcdba80d5b54caea4f4f2ece8d14b80ec51437a9f6ced0583db3e"
+lifecycle = "complete"
+next_action_reason = "completed"
+node_id = "R01"
+predecessor_attempt_id = "unavailable"
+redispatch_reason = "none"
+report_path = "reviews/round-0/03-review.md"
+report_sha256 = "7ca5080409fcb44e4e39af86bf963399db66108f37fbe1ce9d50fdc3842884d6"
+retry_budget_delta = 0
+reviewer_decision = "approve"
+role = "reviewer"
+role_status = "done"
+task_id = "valid"
+verification = [{check = "review", result = "pass", evidence_ref = "reviews/round-0/03-review.md", output_sha256 = "7ca5080409fcb44e4e39af86bf963399db66108f37fbe1ce9d50fdc3842884d6"}]
+version = 1
+working_tree_state_sha256 = "aaafded241c666e5ccd5b115c0f83224b443b7636e5fdde93a7bba043e69e939"
