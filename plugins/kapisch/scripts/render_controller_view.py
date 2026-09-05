@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import os
+import stat
 import sys
 import tempfile
 from pathlib import Path
@@ -23,6 +24,22 @@ def atomic(path: Path, data: bytes) -> None:
         except OSError: pass
         raise
 
+def _existing_view_bytes(path: Path) -> bytes | None:
+    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except FileNotFoundError:
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise OSError("existing controller view is not a regular file")
+        chunks = []
+        while chunk := os.read(descriptor, 64 * 1024):
+            chunks.append(chunk)
+        return b"".join(chunks)
+    finally:
+        os.close(descriptor)
+
 def main(argv=None):
     p=argparse.ArgumentParser(); p.add_argument('--task-dir',required=True,type=Path); a=p.parse_args(argv); d=a.task_dir.resolve()
     parsed=parse_manifest(d/'02-execution-graph.toml'); state,state_errors=parse_state(d/'03-state.toml')
@@ -32,7 +49,11 @@ def main(argv=None):
     if validate_snapshot(parsed.manifest,state,d,contract_dir,include_controller_view=False):
         return 2
     view=render_controller_view(build_controller_view(parsed.manifest,state,_outcome_records(parsed.manifest,d),(d/'02-execution-graph.toml').read_bytes()))
-    old_state=(d/'03-state.toml').read_bytes(); old_view=(d/'04-controller-view.toml').read_bytes() if (d/'04-controller-view.toml').exists() else None
+    try:
+        old_state = (d / "03-state.toml").read_bytes()
+        old_view = _existing_view_bytes(d / "04-controller-view.toml")
+    except OSError:
+        return 2
     state_raw = dict(state.raw)
     state_raw["controller_view_path"] = "04-controller-view.toml"
     state_raw["controller_view_sha256"] = hashlib.sha256(view).hexdigest()

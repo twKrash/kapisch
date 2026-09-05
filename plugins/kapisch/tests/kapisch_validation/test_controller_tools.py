@@ -1,8 +1,10 @@
 from __future__ import annotations
-import shutil, subprocess, sys, tempfile, tomllib, unittest
+import os, shutil, stat, subprocess, sys, tempfile, tomllib, unittest
 from pathlib import Path
+from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[2]; sys.path.insert(0,str(ROOT/'scripts'))
 from migrate_controller_view_v4 import main as migrate_controller_view, migration_disposition
+import render_controller_view as render_controller_view_tool
 from kapisch_validation.canonical_toml import render_toml
 FIXTURES=Path(__file__).parent/'fixtures'
 def render(task): return subprocess.run([sys.executable,str(ROOT/'scripts'/'render_controller_view.py'),'--task-dir',str(task)],capture_output=True,text=True)
@@ -22,6 +24,70 @@ class ToolTests(unittest.TestCase):
   with tempfile.TemporaryDirectory() as directory:
    task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task)
    self.assertEqual(render(task).returncode,0)
+ def test_existing_view_directory_is_rejected_without_writes(self):
+  with tempfile.TemporaryDirectory() as directory:
+   task = Path(directory) / "task"
+   shutil.copytree(FIXTURES / "valid-v4-controller", task)
+   view = task / "04-controller-view.toml"
+   state = task / "03-state.toml"
+   before = state.read_bytes()
+   view.unlink()
+   view.mkdir()
+   result = subprocess.run(
+       [sys.executable, str(ROOT / "scripts/render_controller_view.py"),
+        "--task-dir", str(task)],
+       capture_output=True, text=True, timeout=10,
+   )
+   self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+   self.assertNotIn("Traceback", result.stderr)
+   self.assertEqual(state.read_bytes(), before)
+   self.assertTrue(view.is_dir())
+ @unittest.skipUnless(hasattr(os, "mkfifo"), "requires POSIX FIFO support")
+ def test_existing_view_fifo_is_rejected_without_blocking(self):
+  with tempfile.TemporaryDirectory() as directory:
+   task = Path(directory) / "task"
+   shutil.copytree(FIXTURES / "valid-v4-controller", task)
+   view = task / "04-controller-view.toml"
+   state = task / "03-state.toml"
+   before = state.read_bytes()
+   view.unlink()
+   os.mkfifo(view)
+   result = subprocess.run(
+       [sys.executable, str(ROOT / "scripts/render_controller_view.py"),
+        "--task-dir", str(task)],
+       capture_output=True, text=True, timeout=10,
+   )
+   self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+   self.assertNotIn("Traceback", result.stderr)
+   self.assertEqual(state.read_bytes(), before)
+   self.assertTrue(stat.S_ISFIFO(view.stat().st_mode))
+ def test_missing_or_corrupt_regular_view_regenerates(self):
+  for old_view in (None, b"not TOML", b"\xff"):
+   with self.subTest(old_view=old_view), tempfile.TemporaryDirectory() as directory:
+    task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task);view=task/'04-controller-view.toml'
+    if old_view is None: view.unlink()
+    else: view.write_bytes(old_view)
+    result=subprocess.run([sys.executable,str(ROOT/'scripts'/'render_controller_view.py'),'--task-dir',str(task)],capture_output=True,text=True,timeout=10)
+    self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+    validation=subprocess.run([sys.executable,str(ROOT/'scripts'/'validate_kapisch.py'),'--task-dir',str(task)],capture_output=True,text=True,timeout=10)
+    self.assertEqual(validation.returncode,0,validation.stdout+validation.stderr)
+ def test_stale_regular_view_digest_regenerates(self):
+  with tempfile.TemporaryDirectory() as directory:
+   task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task);state=task/'03-state.toml'
+   state.write_text(state.read_text().replace('controller_view_sha256 = "796c118279979cb80e20179470af63b24a087442b91b741f5bdef08a6f490fdf"','controller_view_sha256 = "'+'0'*64+'"'))
+   result=subprocess.run([sys.executable,str(ROOT/'scripts'/'render_controller_view.py'),'--task-dir',str(task)],capture_output=True,text=True,timeout=10)
+   self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+   validation=subprocess.run([sys.executable,str(ROOT/'scripts'/'validate_kapisch.py'),'--task-dir',str(task)],capture_output=True,text=True,timeout=10)
+   self.assertEqual(validation.returncode,0,validation.stdout+validation.stderr)
+ def test_revalidation_failure_restores_original_view_bytes(self):
+  with tempfile.TemporaryDirectory() as directory:
+   task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task);view=task/'04-controller-view.toml';state=task/'03-state.toml'
+   old_view=b'\xff';old_state=state.read_bytes();view.write_bytes(old_view)
+   def forced_revalidation_failure(*args, **kwargs):
+    return [] if kwargs.get('include_controller_view') is False else ['forced failure']
+   with patch.object(render_controller_view_tool,'validate_snapshot',side_effect=forced_revalidation_failure):
+    self.assertEqual(render_controller_view_tool.main(['--task-dir',str(task)]),2)
+   self.assertEqual(view.read_bytes(),old_view);self.assertEqual(state.read_bytes(),old_state)
  def test_quoted_state_keys_render_without_duplicates(self):
   with tempfile.TemporaryDirectory() as directory:
    task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task);state=task/'03-state.toml';before=state.read_text();after=before.replace('controller_view_path=','"controller_view_path"=').replace('controller_view_sha256=','"controller_view_sha256"=')
