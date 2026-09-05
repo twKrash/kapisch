@@ -314,6 +314,26 @@ def _canonical_report_dispositions(report: Path) -> list[dict[str, str]]:
     ]
 
 
+def _canonical_disposition_errors(raw: dict[str, object], path: Path, disposition: dict[str, str]) -> list[ValidationError]:
+    expected = {
+        "DONE": {("complete", "done", "completed")},
+        "DONE_WITH_CONCERNS": {
+            ("complete", "done-with-concerns", "await-user"),
+            ("complete", "done-with-concerns", "review-negative"),
+            ("complete", "done-with-concerns", "retry-authorized"),
+            ("failed", "done-with-concerns", "review-negative"),
+        },
+        "NEEDS_CONTEXT": {("blocked", "needs-context", "await-user")},
+        "BLOCKED": {("blocked", "blocked", "blocked")},
+        "FAILED": {("failed", "failed", "failed")},
+    }
+    status = disposition.get("status")
+    normalized = (raw.get("lifecycle"), raw.get("role_status"), raw.get("next_action_reason"))
+    if status not in expected or normalized not in expected[status]:
+        return [_e("TWV-OUTCOME-DISPOSITION", path, "role_status", "must preserve the canonical report disposition")]
+    return []
+
+
 def _canonical_report_findings(report: Path, scope: str) -> list[dict[str, str]]:
     artifact, failure = read_utf8_artifact(report)
     if failure is not None or artifact is None:
@@ -359,8 +379,8 @@ def _finding_binding_errors(raw: dict[str, object], path: Path, report: Path | N
         dispositions = _canonical_report_dispositions(report)
         if len(dispositions) > 1:
             errors.append(_e("TWV-OUTCOME-DISPOSITION", path, "report_path", "must contain at most one explicit canonical disposition"))
-        elif dispositions and dispositions[0].get("status") == "DONE_WITH_CONCERNS" and raw.get("role_status") != "done-with-concerns":
-            errors.append(_e("TWV-OUTCOME-DISPOSITION", path, "role_status", "must preserve the canonical DONE_WITH_CONCERNS disposition"))
+        elif dispositions:
+            errors.extend(_canonical_disposition_errors(raw, path, dispositions[0]))
     return errors
 
 

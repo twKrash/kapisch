@@ -450,6 +450,82 @@ class OutcomeTests(unittest.TestCase):
                 outcome_path.write_bytes(render_toml(outcome))
                 self.assert_render_and_validate(task_dir, error)
 
+    def test_canonical_terminal_dispositions_bind_full_snapshot_projections(self) -> None:
+        for status, error in (
+            ("DONE", None),
+            ("FAILED", "TWV-OUTCOME-DISPOSITION"),
+            ("BLOCKED", "TWV-OUTCOME-DISPOSITION"),
+            ("NEEDS_CONTEXT", "TWV-OUTCOME-DISPOSITION"),
+        ):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as temporary:
+                task_dir = Path(temporary) / "task"
+                shutil.copytree(FIXTURES / "valid-v4-controller", task_dir)
+                report = task_dir / "tasks/T01-report.md"
+                report.write_text(
+                    f"status: {status}\nconcerns: unresolved\nfindings: none\n",
+                    encoding="utf-8",
+                )
+                digest = hashlib.sha256(report.read_bytes()).hexdigest()
+                graph_path = task_dir / "02-execution-graph.toml"
+                graph = tomllib.loads(graph_path.read_text(encoding="utf-8"))
+                graph["nodes"][0]["verification_evidence"][0]["output_sha256"] = digest
+                graph_path.write_bytes(render_toml(graph))
+                outcome_path = task_dir / "stage-outcomes/AT-T01-1.toml"
+                outcome = tomllib.loads(outcome_path.read_text(encoding="utf-8"))
+                outcome["report_sha256"] = digest
+                outcome["verification"][0]["output_sha256"] = digest
+                outcome_path.write_bytes(render_toml(outcome))
+                self.assert_render_and_validate(task_dir, error)
+
+    def test_canonical_terminal_dispositions_accept_legitimate_full_snapshot_projections(self) -> None:
+        cases = (
+            ("DONE", "complete", "done", "completed"),
+            ("DONE_WITH_CONCERNS", "complete", "done-with-concerns", "await-user"),
+            ("NEEDS_CONTEXT", "blocked", "needs-context", "await-user"),
+            ("BLOCKED", "blocked", "blocked", "blocked"),
+            ("FAILED", "failed", "failed", "failed"),
+        )
+        for status, lifecycle, role_status, action in cases:
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as temporary:
+                task_dir = Path(temporary) / "task"
+                shutil.copytree(FIXTURES / "valid-v4-controller", task_dir)
+                report = task_dir / "tasks/T01-report.md"
+                report.write_text(f"status: {status}\nconcerns: none\nfindings: none\n", encoding="utf-8")
+                digest = hashlib.sha256(report.read_bytes()).hexdigest()
+                graph_path = task_dir / "02-execution-graph.toml"
+                graph = tomllib.loads(graph_path.read_text(encoding="utf-8"))
+                state_path = task_dir / "03-state.toml"
+                state = tomllib.loads(state_path.read_text(encoding="utf-8"))
+                if lifecycle != "complete":
+                    graph["nodes"][0]["status"] = lifecycle
+                    graph["nodes"][0]["assignment"]["attempts"][0]["status"] = lifecycle
+                    for node in graph["nodes"][1:]:
+                        node["status"] = "pending"
+                        node["assignment"]["attempts"] = []
+                    state.update(
+                        workflow_status="running",
+                        completed_node_ids=[],
+                        blocked_node_ids=["T01"] if lifecycle == "blocked" else [],
+                        failed_node_ids=["T01"] if lifecycle == "failed" else [],
+                        next_action="block:missing-review-final",
+                        latest_approving_review_path="unavailable",
+                        latest_approving_invocation_id="unavailable",
+                    )
+                    state_path.write_bytes(render_toml(state))
+                graph["nodes"][0]["verification_evidence"][0]["output_sha256"] = digest
+                graph_path.write_bytes(render_toml(graph))
+                outcome_path = task_dir / "stage-outcomes/AT-T01-1.toml"
+                outcome = tomllib.loads(outcome_path.read_text(encoding="utf-8"))
+                outcome.update(
+                    report_sha256=digest,
+                    lifecycle=lifecycle,
+                    role_status=role_status,
+                    next_action_reason=action,
+                )
+                outcome["verification"][0]["output_sha256"] = digest
+                outcome_path.write_bytes(render_toml(outcome))
+                self.assert_render_and_validate(task_dir)
+
     def test_retry_authorized_requires_redispatch(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             task_dir, manifest, state = self.make_v4_task(temporary)
