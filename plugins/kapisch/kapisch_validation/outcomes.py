@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections import Counter
 from pathlib import Path
 from typing import Iterator, cast
 
@@ -300,6 +301,19 @@ def _normalized_claim_errors(raw: dict[str, object], path: Path, node, *, negati
     return []
 
 
+def _canonical_report_dispositions(report: Path) -> list[dict[str, str]]:
+    artifact, failure = read_utf8_artifact(report)
+    if failure is not None or artifact is None:
+        return []
+    lines = artifact.data.decode("utf-8").splitlines()
+    fields = ("status", "concerns", "findings")
+    return [
+        {key: lines[index + offset][len(key) + 2:] for offset, key in enumerate(fields)}
+        for index in range(len(lines) - len(fields) + 1)
+        if all(lines[index + offset].startswith(f"{key}: ") for offset, key in enumerate(fields))
+    ]
+
+
 def _canonical_report_findings(report: Path, scope: str) -> list[dict[str, str]]:
     artifact, failure = read_utf8_artifact(report)
     if failure is not None or artifact is None:
@@ -338,8 +352,15 @@ def _finding_binding_errors(raw: dict[str, object], path: Path, report: Path | N
             for finding in findings
             if isinstance(finding, dict) and all(isinstance(finding.get(key), str) for key in ("id", "severity", "summary"))
         ]
-        if canonical != compact:
+        canonical_records = Counter((record["id"], record["severity"], record["summary"]) for record in canonical)
+        compact_records = Counter((record["id"], record["severity"], record["summary"]) for record in compact)
+        if canonical_records != compact_records:
             errors.append(_e("TWV-OUTCOME-FINDING-EVIDENCE", path, "findings", "must preserve every recognized canonical finding without invention or omission"))
+        dispositions = _canonical_report_dispositions(report)
+        if len(dispositions) > 1:
+            errors.append(_e("TWV-OUTCOME-DISPOSITION", path, "report_path", "must contain at most one explicit canonical disposition"))
+        elif dispositions and dispositions[0].get("status") == "DONE_WITH_CONCERNS" and raw.get("role_status") != "done-with-concerns":
+            errors.append(_e("TWV-OUTCOME-DISPOSITION", path, "role_status", "must preserve the canonical DONE_WITH_CONCERNS disposition"))
     return errors
 
 

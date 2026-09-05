@@ -409,6 +409,47 @@ class OutcomeTests(unittest.TestCase):
 
             self.assert_render_and_validate(task_dir, "TWV-OUTCOME-REDISPATCH-AUTHORIZATION")
 
+    def test_structured_canonical_concerns_preserve_content_not_order_or_clean_disposition(self) -> None:
+        records = (("F1", "P1", "first concern"), ("F2", "P2", "second concern"))
+        cases = (
+            ("reordered", (records[1], records[0]), "done-with-concerns", "await-user", None),
+            ("omitted", (records[0],), "done-with-concerns", "await-user", "TWV-OUTCOME-FINDING-EVIDENCE"),
+            ("duplicated", (records[0], records[1], records[1]), "done-with-concerns", "await-user", "TWV-OUTCOME-FINDING-EVIDENCE"),
+            ("altered", (records[0], ("F2", "P2", "altered concern")), "done-with-concerns", "await-user", "TWV-OUTCOME-FINDING-EVIDENCE"),
+            ("clean-claim", records, "done", "completed", "TWV-OUTCOME-DISPOSITION"),
+            ("ambiguous-disposition", records, "done", "completed", "TWV-OUTCOME-DISPOSITION"),
+            ("normalized", records, "done-with-concerns", "await-user", None),
+        )
+        for name, compact_records, role_status, action, error in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temporary:
+                task_dir = Path(temporary) / "task"
+                shutil.copytree(FIXTURES / "valid-v4-controller", task_dir)
+                report = task_dir / "tasks/T01-report.md"
+                header = "status: DONE_WITH_CONCERNS\nconcerns: unresolved\nfindings: F1,F2\n"
+                if name == "ambiguous-disposition":
+                    header = "status: DONE\nconcerns: none\nfindings: none\n" + header
+                report.write_text(
+                    header + "".join(
+                        f"finding_id: {identifier}\nfinding_severity: {severity}\nfinding_summary: {summary}\nfinding_scope: T01\n"
+                        for identifier, severity, summary in records
+                    ),
+                    encoding="utf-8",
+                )
+                digest = hashlib.sha256(report.read_bytes()).hexdigest()
+                graph_path = task_dir / "02-execution-graph.toml"
+                graph = tomllib.loads(graph_path.read_text(encoding="utf-8"))
+                graph["nodes"][0]["verification_evidence"][0]["output_sha256"] = digest
+                graph_path.write_bytes(render_toml(graph))
+                outcome_path = task_dir / "stage-outcomes/AT-T01-1.toml"
+                outcome = tomllib.loads(outcome_path.read_text(encoding="utf-8"))
+                outcome.update(report_sha256=digest, role_status=role_status, next_action_reason=action, findings=[
+                    {"id": identifier, "severity": severity, "summary": summary, "evidence_ref": "tasks/T01-report.md"}
+                    for identifier, severity, summary in compact_records
+                ])
+                outcome["verification"][0]["output_sha256"] = digest
+                outcome_path.write_bytes(render_toml(outcome))
+                self.assert_render_and_validate(task_dir, error)
+
     def test_retry_authorized_requires_redispatch(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             task_dir, manifest, state = self.make_v4_task(temporary)
