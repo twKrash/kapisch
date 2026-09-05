@@ -392,6 +392,19 @@ def validate_outcomes(manifest: Manifest, state: State, task_dir: Path) -> list[
     if manifest.version != 4:
         return []
     errors: list[ValidationError] = []
+    for node in manifest.nodes:
+        if node.status not in {"complete", "blocked", "failed"}:
+            continue
+        assignment = node.raw.get("assignment")
+        history = assignment.get("attempts") if isinstance(assignment, dict) else None
+        latest = history[-1] if isinstance(history, list) and history else None
+        if not isinstance(latest, dict) or latest.get("status") != node.status:
+            errors.append(_e(
+                "TWV-OUTCOME-NODE-LIFECYCLE",
+                task_dir / "02-execution-graph.toml",
+                f"{node.id}.assignment.attempts",
+                "latest attempt status must match terminal node status",
+            ))
     attempts = list(_attempts(manifest))
     parsed: list[tuple[object, dict[str, object], dict[str, object], Path, dict[str, object]]] = []
     valid_outcomes: dict[str, dict[str, object]] = {}

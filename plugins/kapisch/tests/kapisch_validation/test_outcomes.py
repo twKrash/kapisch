@@ -5,10 +5,12 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+from kapisch_validation.canonical_toml import render_toml
 from kapisch_validation.manifest import parse_manifest
 from kapisch_validation.outcomes import _finding_binding_errors, _normalized_claim_errors, _redispatch_errors, _report_authorizes_finding, parse_outcome, validate_outcomes
 from kapisch_validation.references import parse_state
@@ -31,6 +33,12 @@ class OutcomeTests(unittest.TestCase):
             "[nodes.revision]",
             'assignment={id="A-T01-1",schema_version=1,execution_class="bounded",reason_codes=[],source_revision="base",context_refs=[],attempts=[{id="AT-T01-1",source_revision="base",context_scope_ref="tasks/T01-context.md",status="complete",verification=[],outcome_path="stage-outcomes/AT-T01-1.toml"}],escalations=[]}\n[nodes.revision]',
             1,
+        ).replace(
+            'id="R01"\ndelegation_ids=["D03"]\nsequence=2\ntitle="review"\nkind="review"\nrisk="high"\nstatus="complete"',
+            'id="R01"\ndelegation_ids=["D03"]\nsequence=2\ntitle="review"\nkind="review"\nrisk="high"\nstatus="pending"',
+        ).replace(
+            'id="F01"\ndelegation_ids=[]\nsequence=3\ntitle="final"\nkind="final"\nrisk="high"\nstatus="complete"',
+            'id="F01"\ndelegation_ids=[]\nsequence=3\ntitle="final"\nkind="final"\nrisk="high"\nstatus="pending"',
         )
         manifest_path.write_text(manifest, encoding="utf-8")
         state_path = task_dir / "03-state.toml"
@@ -97,6 +105,79 @@ class OutcomeTests(unittest.TestCase):
             task_dir, manifest, state = self.make_v4_task(temporary)
             self.write_outcome(task_dir)
             self.assertEqual(validate_outcomes(manifest, state, task_dir), [])
+
+    def test_complete_node_rejects_failed_latest_attempt(self):
+        from kapisch_validation.cli import validate
+
+        with tempfile.TemporaryDirectory() as temporary:
+            task = Path(temporary) / "task"
+            shutil.copytree(FIXTURES / "valid-v4-controller", task)
+            graph_path = task / "02-execution-graph.toml"
+            graph = tomllib.loads(graph_path.read_text(encoding="utf-8"))
+            node = next(node for node in graph["nodes"] if node["id"] == "T01")
+            self.assertEqual(node["status"], "complete")
+            node["assignment"]["attempts"][-1]["status"] = "failed"
+            graph_path.write_bytes(render_toml(graph))
+
+            outcome_path = task / "stage-outcomes/AT-T01-1.toml"
+            outcome = tomllib.loads(outcome_path.read_text(encoding="utf-8"))
+            outcome.update(
+                lifecycle="failed", role_status="failed",
+                next_action_reason="failed",
+            )
+            outcome_path.write_bytes(render_toml(outcome))
+
+            manifest = parse_manifest(graph_path).manifest
+            state, state_errors = parse_state(task / "03-state.toml")
+            self.assertIsNotNone(manifest)
+            self.assertIsNotNone(state)
+            self.assertEqual(state_errors, [])
+            self.assertIn(
+                "TWV-OUTCOME-NODE-LIFECYCLE",
+                {error.code for error in validate_outcomes(manifest, state, task)},
+            )
+            self.assertIn(
+                "TWV-OUTCOME-NODE-LIFECYCLE",
+                {error.code for error in validate(ROOT / "skills/kapisch", task)},
+            )
+            self.assert_render_and_validate(task, "TWV-OUTCOME-NODE-LIFECYCLE")
+
+    def test_terminal_node_attempt_status_matrix(self):
+        task = FIXTURES / "valid-v4-controller"
+        state, errors = parse_state(task / "03-state.toml")
+        self.assertEqual(errors, [])
+        for status in ("complete", "blocked", "failed"):
+            for attempt_status in ("pending", "running", "complete", "blocked", "failed"):
+                with self.subTest(status=status, attempt_status=attempt_status):
+                    node = SimpleNamespace(
+                        id="T01", status=status,
+                        raw={"assignment": {"attempts": [{"status": attempt_status}]}},
+                    )
+                    manifest = SimpleNamespace(version=4, nodes=[node])
+                    codes = {e.code for e in validate_outcomes(manifest, state, task)}
+                    self.assertEqual(
+                        "TWV-OUTCOME-NODE-LIFECYCLE" in codes,
+                        status != attempt_status,
+                    )
+        cases = (
+            ([], True),
+            ([{"status": "failed"}, {"status": "complete"}], False),
+            ([{"status": "complete"}, {"status": "failed"}], True),
+        )
+        for history, expected in cases:
+            with self.subTest(history=history):
+                node = SimpleNamespace(
+                    id="T01", status="complete",
+                    raw={"assignment": {"attempts": history}},
+                )
+                manifest = SimpleNamespace(version=4, nodes=[node])
+                codes = {e.code for e in validate_outcomes(manifest, state, task)}
+                self.assertEqual("TWV-OUTCOME-NODE-LIFECYCLE" in codes, expected)
+        node = SimpleNamespace(
+            id="T01", status="complete",
+            raw={"assignment": {"attempts": [{"status": "failed"}]}},
+        )
+        self.assertEqual(validate_outcomes(SimpleNamespace(version=3, nodes=[node]), state, task), [])
     def test_outcome_version_requires_an_integer_one(self) -> None:
         for value in ("true", "1.0"):
             with self.subTest(value=value), tempfile.TemporaryDirectory() as temporary:
@@ -220,7 +301,10 @@ class OutcomeTests(unittest.TestCase):
                 ).replace('role_status = "done"', 'role_status = "failed"').replace(
                     'next_action_reason = "completed"', f'next_action_reason = "{action}"'
                 ), encoding="utf-8")
-                self.assert_render_and_validate(task_dir, None if action == "failed" else "TWV-OUTCOME-NEXT-ACTION")
+                self.assert_render_and_validate(
+                    task_dir,
+                    "TWV-OUTCOME-NODE-LIFECYCLE" if action == "failed" else "TWV-OUTCOME-NEXT-ACTION",
+                )
 
     def test_nonexistent_redispatch_predecessor_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
