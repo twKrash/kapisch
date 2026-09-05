@@ -10,7 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from kapisch_validation.manifest import parse_manifest
-from kapisch_validation.outcomes import _finding_binding_errors, _normalized_claim_errors, _redispatch_errors, _report_authorizes_finding, validate_outcomes
+from kapisch_validation.outcomes import _finding_binding_errors, _normalized_claim_errors, _redispatch_errors, _report_authorizes_finding, parse_outcome, validate_outcomes
 from kapisch_validation.references import parse_state
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -150,6 +150,77 @@ class OutcomeTests(unittest.TestCase):
             self.write_outcome(task_dir, report_sha256="0" * 64)
             errors = validate_outcomes(manifest, state, task_dir)
         self.assertIn("TWV-OUTCOME-REPORT-DIGEST", {error.code for error in errors})
+
+    def test_retry_budget_matches_each_redispatch_reason(self) -> None:
+        for reason, expected in (
+            ("none", 0), ("interrupted-active-stage", 0), ("stale-review-state", 0),
+            ("dispatch-no-work", 0), ("reviewer-finding", 1), ("failed-attempt", 1),
+            ("approved-amendment", 1),
+        ):
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as temporary:
+                task_dir, _, _ = self.make_v4_task(temporary)
+                self.write_outcome(task_dir)
+                path = task_dir / "stage-outcomes/AT-T01-1.toml"
+                text = path.read_text(encoding="utf-8").replace(
+                    'redispatch_reason = "none"', f'redispatch_reason = "{reason}"'
+                )
+                if reason != "none":
+                    text = text.replace('predecessor_attempt_id = "unavailable"', 'predecessor_attempt_id = "AT-PRIOR"')
+                for delta in (0, 1):
+                    with self.subTest(delta=delta):
+                        path.write_text(text.replace("retry_budget_delta = 0", f"retry_budget_delta = {delta}"), encoding="utf-8")
+                        _, errors = parse_outcome(path)
+                        if delta == expected:
+                            self.assertEqual(errors, [])
+                        else:
+                            self.assertIn("TWV-OUTCOME-REDISPATCH-BUDGET", {error.code for error in errors})
+
+    def assert_render_and_validate(self, task_dir: Path, error_code: str | None = None) -> None:
+        before = {path: path.read_bytes() for path in task_dir.rglob("*") if path.is_file()}
+        for script in ("render_controller_view.py", "validate_kapisch.py"):
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / script), "--task-dir", str(task_dir)],
+                capture_output=True, text=True,
+            )
+            with self.subTest(script=script):
+                self.assertEqual(result.returncode, 2 if error_code else 0, result.stdout + result.stderr)
+                if error_code and script == "validate_kapisch.py":
+                    self.assertIn(error_code, result.stdout)
+        if error_code:
+            self.assertEqual({path: path.read_bytes() for path in task_dir.rglob("*") if path.is_file()}, before)
+
+    def test_renderer_and_validator_reject_invalid_retry_budget(self) -> None:
+        for delta in ('true', 'false', '"oops"', '0.0', '-1', '1', '2', '[]'):
+            with self.subTest(delta=delta), tempfile.TemporaryDirectory() as temporary:
+                task_dir = Path(temporary) / "task"
+                shutil.copytree(FIXTURES / "valid-v4-controller", task_dir)
+                path = task_dir / "stage-outcomes/AT-T01-1.toml"
+                path.write_text(path.read_text(encoding="utf-8").replace(
+                    "retry_budget_delta = 0", f"retry_budget_delta = {delta}"
+                ), encoding="utf-8")
+                if delta == '1':
+                    state = task_dir / "03-state.toml"
+                    state.write_text(state.read_text(encoding="utf-8").replace(
+                        "current_fix_round = 0", "current_fix_round = 1"
+                    ), encoding="utf-8")
+                self.assert_render_and_validate(task_dir, "TWV-OUTCOME-REDISPATCH-BUDGET")
+
+    def test_failed_attempt_cannot_assert_unsupported_next_action(self) -> None:
+        for action in ("failed", "dispatch-failed", "retry-exhausted"):
+            with self.subTest(action=action), tempfile.TemporaryDirectory() as temporary:
+                task_dir = Path(temporary) / "task"
+                shutil.copytree(FIXTURES / "valid-v4-controller", task_dir)
+                graph = task_dir / "02-execution-graph.toml"
+                graph.write_text(graph.read_text(encoding="utf-8").replace(
+                    'status = "complete"', 'status = "failed"', 1
+                ), encoding="utf-8")
+                path = task_dir / "stage-outcomes/AT-T01-1.toml"
+                path.write_text(path.read_text(encoding="utf-8").replace(
+                    'lifecycle = "complete"', 'lifecycle = "failed"'
+                ).replace('role_status = "done"', 'role_status = "failed"').replace(
+                    'next_action_reason = "completed"', f'next_action_reason = "{action}"'
+                ), encoding="utf-8")
+                self.assert_render_and_validate(task_dir, None if action == "failed" else "TWV-OUTCOME-NEXT-ACTION")
 
     def test_nonexistent_redispatch_predecessor_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -119,6 +119,10 @@ def _schema_errors(raw: dict[str, object], path: Path) -> list[ValidationError]:
             not isinstance(raw[key], str) or SHA256_RE.fullmatch(raw[key]) is None
         ):
             errors.append(_e("TWV-OUTCOME-INVALID-DIGEST", path, key, "must be unavailable or 64 lowercase hexadecimal characters"))
+    reason = raw.get("redispatch_reason")
+    delta = raw.get("retry_budget_delta")
+    if type(delta) is not int or not isinstance(reason, str) or delta != RETRY_DELTAS.get(reason):
+        errors.append(_e("TWV-OUTCOME-REDISPATCH-BUDGET", path, "retry_budget_delta", "must be the integer budget effect required by redispatch_reason"))
     if raw.get("redispatch_reason") == "none" and raw.get("predecessor_attempt_id") != "unavailable":
         errors.append(_e("TWV-OUTCOME-REDISPATCH-PREDECESSOR", path, "predecessor_attempt_id", "no redispatch requires unavailable predecessor"))
     elif raw.get("redispatch_reason") != "none" and raw.get("predecessor_attempt_id") == "unavailable":
@@ -267,7 +271,9 @@ def _normalized_claim_errors(raw: dict[str, object], path: Path, node) -> list[V
         ("complete", "done-with-concerns"): {"review-negative"} if node.raw.get("executor_class") == "reviewer" else {"await-user"},
         ("blocked", "blocked"): {"blocked"},
         ("blocked", "needs-context"): {"await-user"},
-        ("failed", "failed"): {"failed", "dispatch-failed", "retry-exhausted"},
+        # Dispatch failure and budget exhaustion need attempt-bound evidence that
+        # v1 outcomes do not carry; a failed lifecycle alone proves neither.
+        ("failed", "failed"): {"failed"},
     }[(lifecycle, role_status)]
     if raw.get("next_action_reason") == "retry-authorized" and raw.get("redispatch_reason") == "reviewer-finding":
         return []
