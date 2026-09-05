@@ -259,13 +259,16 @@ Before a node advances or review/final returns, persist the required evidence
 artifact and update graph/state references. Missing named durable evidence
 blocks the transition; conversation results cannot fill it.
 
-## Version-3 delegated-step references
+## Version-3 delegated-step references and version-4 compatibility
 
 Newly created durable graphs are version 3 after Change 7 lands. Version-1 and
 version-2 parsing, defaults, fixtures, and migration behavior are preserved
 without rewriting: a version-1 or version-2 manifest must reject
 version-3-only fields rather than silently adopting new behavior, and reading an
-old manifest must never create a route record or delegation fields.
+old manifest must never create a route record or delegation fields. Version-4
+manifests retain the version-3 `ecosystem_routing` policy and `delegation_ids`
+fields, adding controller-view/outcome requirements without changing
+delegated-step behavior.
 
 A version-3 manifest adds:
 
@@ -283,10 +286,10 @@ deferred and does not alter graph-node transitions.
 
 Version 3 changes no node-status transitions, deterministic node selection,
 parallelism sentinels, assignment semantics, batches, or logical model tiers.
-Graph-free delegation is deferred to a later change. The current version-3
-delegation route is for durable graphs only, and every shipped delegated step
-must name its owning graph node. The delegation record schema is owned by
-[ecosystem-routing.md](ecosystem-routing.md).
+Graph-free delegation is deferred to a later change. The current durable
+delegation route applies to version-3 and version-4 graphs, and every shipped
+delegated step must name its owning graph node. The delegation record schema is
+owned by [ecosystem-routing.md](ecosystem-routing.md).
 
 ## Dispatch-compatible graph fields
 

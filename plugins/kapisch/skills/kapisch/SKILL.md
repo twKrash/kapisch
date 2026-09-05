@@ -73,6 +73,8 @@ $kapisch workflow=task ecosystem=off
 Legacy or expert fields such as `mode`, `risk`, `depth`, `focus`, `dispatch`,
 and `batching` remain supported through
 [request normalization](references/request-normalization.md).
+The durable assignment, execution-class, mechanic-eligibility, and batching
+contract is in [dispatch.md](references/dispatch.md).
 
 `theme` changes presentation labels only. It never changes controls, canonical
 role IDs, profiles, routes, permissions, artifact fields or values, validation,
@@ -89,9 +91,10 @@ stops for a user decision rather than reusing narrower approval.
 Graph-free means that no execution graph, manifest, durable task nodes, or
 sequential execution state is required. It does not mean artifact-free.
 Graph-free workflows do not delegate in the current scope. A mandated skill or
-plugin blocks for a user choice to promote the work to a durable version-3 graph
-or relax the capability constraint; an automatic selection may use the disclosed
-native fallback only when the approved outcome is unchanged.
+plugin blocks for a user choice to promote the work to a supported durable
+version-3 or version-4 graph or relax the capability constraint; an automatic
+selection may use the disclosed native fallback only when the approved outcome
+is unchanged.
 
 Before reporting approval or readiness, apply the controller
 approval-reporting check defined in [review.md](references/review.md).
@@ -115,8 +118,10 @@ handoff, an explicit ready-to-commit/merge/release/final request, and every
 milestone. “Review my current branch before I open a PR” requests review, not
 final readiness. “Check whether this is ready to open a PR” requests final
 readiness. The LLM/controller chooses a logical role; Codex resolves configured
-profiles and models and reports actual invocation results. If required reviewer
-invocation is unavailable, approval is blocked and must not be fabricated.
+profiles and models under
+[model-tier/runtime-profile semantics](references/model-tiers.md) and reports
+actual invocation results. If required reviewer invocation is unavailable,
+approval is blocked and must not be fabricated.
 
 Independent review has two scopes. An **iteration review** is bound to the
 current bounded delta and approves only that delta; use it for a completed
@@ -146,10 +151,10 @@ binding capability constraint; an unavailable capability blocks with the safe
 setup or selection action, and an automatic selection may fall back to native
 KAPISCH execution only when the approved outcome stays achievable without
 changing methodology, data boundary, or authority, with the fallback disclosed.
-Delegation is supported only by durable version-3 graphs. In a graph-free
-workflow, an explicit capability request blocks for a user decision to promote
-the work or relax the request; it is never silently delegated or executed
-natively. Automatic selection follows the native-fallback rule above.
+Delegation is supported only by durable version-3 or version-4 graphs. In a
+graph-free workflow, an explicit capability request blocks for a user decision
+to promote the work or relax the request; it is never silently delegated or
+executed natively. Automatic selection follows the native-fallback rule above.
 Delegation never creates a role, executor class, profile, tier, or second
 controller, never lowers risk or review depth, cannot launder authority, never
 installs or authenticates anything, and never approves or declares readiness.
@@ -183,7 +188,11 @@ stronger source of truth.
 This file owns the public interface and shared safety boundaries. Canonical
 owners are: LLM interpretation and explicit-control precedence in
 [request-normalization.md](references/request-normalization.md); logical-role
-selection and Codex runtime dispatch in [role-resolution.md](references/role-resolution.md); risk in
+selection and Codex runtime dispatch in
+[role-resolution.md](references/role-resolution.md); durable assignment,
+execution-class, mechanic eligibility, and batching semantics in
+[dispatch.md](references/dispatch.md); logical-tier versus runtime-profile/model
+semantics in [model-tiers.md](references/model-tiers.md); risk in
 [risk.md](references/risk.md); review/final evidence in
 [review.md](references/review.md); durable artifacts and invocation envelopes in
 [handoffs.md](references/handoffs.md); sequential schema in
@@ -205,24 +214,16 @@ non-normative challenge cases.
 
 ## Thin controller for version-4 durable runs
 
-For a version-4 durable run, the controller normally reads only
-`04-controller-view.toml`, then dispatches the selected role with its brief,
-context, repository binding, and explicitly relevant artifact references. The
-specialist reads detailed evidence; the controller does not copy reports,
-transcripts, raw tool output, or completed-stage context into later prompts.
+Version-4 durable runs use a thin controller view over validated canonical
+artifacts. Compact stage outcomes and bounded recovery history keep later
+dispatch context focused rather than replaying reports, transcripts, raw tool
+output, or completed-stage context. Neither projection nor outcome may approve
+review or final readiness; reviewers still inspect the actual Git range and
+require canonical invocation evidence.
 
-Stage outcomes live at `stage-outcomes/<attempt-id>.toml` and bind compact
-status, bounded findings, verification references, and retry provenance to
-canonical detailed evidence. They never approve review or final readiness.
-Reviewers still inspect the actual Git range independently and require the
-canonical invocation evidence.
-
-Regenerate a missing or stale controller view only through the explicit
-renderer after canonical validation. Block on corrupt projections, missing
-canonical evidence, ambiguous active state, or failed validation. Legacy
-version-1 through version-3 runs retain their existing resume behavior.
-
-Re-dispatch requires a persisted allowed reason, predecessor attempt, and
-budget effect. Confidence-only or generic follow-up re-dispatch is forbidden.
-Load transcripts, full run trees, old reports, or debug history only for a
-recorded, bounded recovery/debug reason.
+Projection bindings and derived-view rules are owned by
+[execution-graph.md](references/execution-graph.md); compact outcome storage by
+[handoffs.md](references/handoffs.md); rendering and recovery by
+[resume.md](references/resume.md); and persisted redispatch reasons and budget
+effects by [dispatch.md](references/dispatch.md). Block when canonical evidence
+is missing or invalid, or when recovery is not deterministic.
