@@ -291,6 +291,31 @@ class OutcomeTests(unittest.TestCase):
             )
             self.assertNotIn("Traceback", result.stderr)
 
+    def test_graph_verification_result_wrong_shapes_are_structured_and_no_write(self) -> None:
+        for value in ([], {"result": "pass"}):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as temporary:
+                task_dir = Path(temporary) / "task"
+                shutil.copytree(FIXTURES / "valid-v4-controller", task_dir)
+                graph_path = task_dir / "02-execution-graph.toml"
+                graph = tomllib.loads(graph_path.read_text(encoding="utf-8"))
+                graph["nodes"][0]["verification_evidence"][0]["result"] = value
+                graph_path.write_bytes(render_toml(graph))
+                before = {path: path.read_bytes() for path in task_dir.rglob("*") if path.is_file()}
+                validation = subprocess.run(
+                    [sys.executable, str(ROOT / "scripts" / "validate_kapisch.py"), "--task-dir", str(task_dir), "--format", "json"],
+                    capture_output=True, text=True, timeout=10,
+                )
+                self.assertEqual(validation.returncode, 2, validation.stdout + validation.stderr)
+                self.assertIn("TWV-SCHEMA-WRONG-SHAPE", {error["code"] for error in json.loads(validation.stdout)})
+                self.assertNotIn("Traceback", validation.stderr)
+                rendering = subprocess.run(
+                    [sys.executable, str(ROOT / "scripts" / "render_controller_view.py"), "--task-dir", str(task_dir)],
+                    capture_output=True, text=True, timeout=10,
+                )
+                self.assertEqual(rendering.returncode, 2, rendering.stdout + rendering.stderr)
+                self.assertNotIn("Traceback", rendering.stderr)
+                self.assertEqual({path: path.read_bytes() for path in task_dir.rglob("*") if path.is_file()}, before)
+
     def assert_render_and_validate(self, task_dir: Path, error_code: str | None = None) -> None:
         before = {path: path.read_bytes() for path in task_dir.rglob("*") if path.is_file()}
         for script in ("render_controller_view.py", "validate_kapisch.py"):
@@ -367,6 +392,23 @@ class OutcomeTests(unittest.TestCase):
             )
             errors = validate_outcomes(manifest, state, task_dir)
         self.assertIn("TWV-OUTCOME-REDISPATCH-PREDECESSOR", {error.code for error in errors})
+    def test_full_snapshot_rejects_second_attempt_claiming_no_redispatch(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task_dir = Path(temporary) / "task"
+            shutil.copytree(FIXTURES / "valid-v4-controller", task_dir)
+            graph_path = task_dir / "02-execution-graph.toml"
+            graph = tomllib.loads(graph_path.read_text(encoding="utf-8"))
+            node = next(node for node in graph["nodes"] if node["id"] == "T01")
+            second = dict(node["assignment"]["attempts"][0])
+            second.update(id="AT-T01-2", outcome_path="stage-outcomes/AT-T01-2.toml")
+            node["assignment"]["attempts"].append(second)
+            graph_path.write_bytes(render_toml(graph))
+            outcome = tomllib.loads((task_dir / "stage-outcomes/AT-T01-1.toml").read_text(encoding="utf-8"))
+            outcome["attempt_id"] = "AT-T01-2"
+            (task_dir / "stage-outcomes/AT-T01-2.toml").write_bytes(render_toml(outcome))
+
+            self.assert_render_and_validate(task_dir, "TWV-OUTCOME-REDISPATCH-AUTHORIZATION")
+
     def test_retry_authorized_requires_redispatch(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             task_dir, manifest, state = self.make_v4_task(temporary)
@@ -507,6 +549,7 @@ class OutcomeTests(unittest.TestCase):
                     raw,
                     task_dir / "stage-outcomes/AT-2.toml",
                     node,
+                    {},
                     current,
                     [(predecessor_node, {}, predecessor), (node, {}, current)],
                     {"stage-outcomes/AT-1.toml": predecessor_outcome},

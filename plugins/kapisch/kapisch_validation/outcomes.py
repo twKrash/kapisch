@@ -3,10 +3,11 @@ from __future__ import annotations
 import hashlib
 import re
 from pathlib import Path
+from typing import Iterator, cast
 
 from .artifact_io import ArtifactFailure, ArtifactFailureKind, load_toml_artifact, read_utf8_artifact
 from .errors import ValidationError
-from .models import Manifest, State
+from .models import Manifest, Node, State
 from .path_atoms import is_portable_filename_atom
 from .vocabulary import EXECUTOR_CLASS_VALUES
 
@@ -112,11 +113,13 @@ def _schema_errors(raw: dict[str, object], path: Path) -> list[ValidationError]:
         if key in raw and raw[key] not in allowed:
             errors.append(_e("TWV-OUTCOME-INVALID-VALUE", path, key, "unsupported closed-vocabulary value"))
     for key in ("report_sha256",):
-        if key in raw and (not isinstance(raw[key], str) or SHA256_RE.fullmatch(raw[key]) is None):
+        value = raw.get(key)
+        if key in raw and (not isinstance(value, str) or SHA256_RE.fullmatch(value) is None):
             errors.append(_e("TWV-OUTCOME-INVALID-DIGEST", path, key, "must be 64 lowercase hexadecimal characters"))
     for key in ("working_tree_state_sha256", "invocation_sha256"):
-        if key in raw and raw[key] != "unavailable" and (
-            not isinstance(raw[key], str) or SHA256_RE.fullmatch(raw[key]) is None
+        value = raw.get(key)
+        if key in raw and value != "unavailable" and (
+            not isinstance(value, str) or SHA256_RE.fullmatch(value) is None
         ):
             errors.append(_e("TWV-OUTCOME-INVALID-DIGEST", path, key, "must be unavailable or 64 lowercase hexadecimal characters"))
     reason = raw.get("redispatch_reason")
@@ -180,7 +183,7 @@ def parse_outcome(path: Path) -> tuple[dict[str, object] | None, list[Validation
     return (raw if not errors else None), errors
 
 
-def _attempts(manifest: Manifest):
+def _attempts(manifest: Manifest) -> Iterator[tuple[Node, dict[str, object], dict[str, object]]]:
     for node in manifest.nodes:
         assignment = node.raw.get("assignment")
         if not isinstance(assignment, dict):
@@ -188,9 +191,10 @@ def _attempts(manifest: Manifest):
         attempts = assignment.get("attempts")
         if not isinstance(attempts, list):
             continue
+        typed_assignment = cast(dict[str, object], assignment)
         for attempt in attempts:
             if isinstance(attempt, dict):
-                yield node, assignment, attempt
+                yield node, typed_assignment, cast(dict[str, object], attempt)
 
 
 def _outcome_binding_errors(raw: dict[str, object], path: Path, node, assignment: dict[str, object], attempt: dict[str, object], manifest: Manifest, task_dir: Path) -> list[ValidationError]:
@@ -215,7 +219,6 @@ def _outcome_binding_errors(raw: dict[str, object], path: Path, node, assignment
         errors.append(_e("TWV-OUTCOME-REPORT-DIGEST", path, "report_sha256", "does not match detailed report bytes"))
     if raw.get("lifecycle") != attempt.get("status"):
         errors.append(_e("TWV-OUTCOME-LIFECYCLE", path, "lifecycle", "must match terminal attempt status"))
-    errors.extend(_normalized_claim_errors(raw, path, node))
     errors.extend(_finding_binding_errors(raw, path, report, task_dir, node))
     errors.extend(_verification_binding_errors(raw, path, node, task_dir))
     reviewer = node.raw.get("executor_class") == "reviewer"
@@ -223,6 +226,7 @@ def _outcome_binding_errors(raw: dict[str, object], path: Path, node, assignment
     if not reviewer:
         if any(raw.get(field) != "unavailable" for field in (*invocation_fields, "reviewer_decision")):
             errors.append(_e("TWV-OUTCOME-REVIEWER-EVIDENCE", path, "invocation_path", "only reviewers may carry reviewer evidence"))
+        errors.extend(_normalized_claim_errors(raw, path, node))
         if raw.get("working_tree_state_sha256") != "unavailable":
             errors.append(_e("TWV-OUTCOME-WORKTREE-EVIDENCE", path, "working_tree_state_sha256", "non-reviewer outcomes have no canonical working-tree evidence"))
         return errors
@@ -235,6 +239,7 @@ def _outcome_binding_errors(raw: dict[str, object], path: Path, node, assignment
     if failure is not None or invocation_raw is None:
         errors.append(_e("TWV-OUTCOME-INVOCATION", path, "invocation_path", "canonical invocation is unavailable"))
         return errors
+    assert invocation is not None
     if raw.get("invocation_sha256") != _digest(invocation):
         errors.append(_e("TWV-OUTCOME-INVOCATION-DIGEST", path, "invocation_sha256", "does not match invocation bytes"))
     if raw.get("invocation_id") != invocation_raw.get("invocation_id"):
@@ -242,28 +247,38 @@ def _outcome_binding_errors(raw: dict[str, object], path: Path, node, assignment
     decision = invocation_raw.get("returned_decision")
     if raw.get("reviewer_decision") != decision:
         errors.append(_e("TWV-OUTCOME-REVIEWER-DECISION", path, "reviewer_decision", "does not match canonical invocation result"))
-    expected_status = {
-        "approve": "done",
-        "ready": "done",
-        "do-not-approve": "done-with-concerns",
-        "not-ready": "done-with-concerns",
-    }.get(decision)
-    if raw.get("lifecycle") == "complete" and expected_status is not None and raw.get("role_status") != expected_status:
+    expected_status = None
+    if isinstance(decision, str):
+        expected_status = {
+            "approve": "done",
+            "ready": "done",
+            "do-not-approve": "done-with-concerns",
+            "not-ready": "done-with-concerns",
+        }.get(decision)
+    negative_reviewer_decision = (
+        invocation_raw.get("lifecycle_status") == "completed"
+        and raw.get("lifecycle") == "failed"
+        and ((node.raw.get("kind") == "review" and decision == "do-not-approve") or (node.raw.get("kind") == "final" and decision == "not-ready"))
+    )
+    errors.extend(_normalized_claim_errors(raw, path, node, negative_reviewer_decision=negative_reviewer_decision))
+    if expected_status is not None and raw.get("role_status") != expected_status:
         errors.append(_e("TWV-OUTCOME-DISPOSITION", path, "role_status", "does not match canonical reviewer decision"))
     if raw.get("working_tree_state_sha256") != invocation_raw.get("pre_dispatch_state_digest"):
         errors.append(_e("TWV-OUTCOME-WORKTREE-EVIDENCE", path, "working_tree_state_sha256", "does not match canonical reviewer working-tree digest"))
     return errors
 
 
-def _normalized_claim_errors(raw: dict[str, object], path: Path, node) -> list[ValidationError]:
+def _normalized_claim_errors(raw: dict[str, object], path: Path, node, *, negative_reviewer_decision: bool = False) -> list[ValidationError]:
     lifecycle = raw.get("lifecycle")
     role_status = raw.get("role_status")
+    if not isinstance(lifecycle, str) or not isinstance(role_status, str):
+        return []
     if lifecycle == "complete":
         allowed_statuses = {"done", "done-with-concerns"}
     elif lifecycle == "blocked":
         allowed_statuses = {"blocked", "needs-context"}
     elif lifecycle == "failed":
-        allowed_statuses = {"failed"}
+        allowed_statuses = {"failed", "done-with-concerns"} if negative_reviewer_decision else {"failed"}
     else:
         return []
     if role_status not in allowed_statuses:
@@ -276,12 +291,28 @@ def _normalized_claim_errors(raw: dict[str, object], path: Path, node) -> list[V
         # Dispatch failure and budget exhaustion need attempt-bound evidence that
         # v1 outcomes do not carry; a failed lifecycle alone proves neither.
         ("failed", "failed"): {"failed"},
+        ("failed", "done-with-concerns"): {"review-negative"},
     }[(lifecycle, role_status)]
     if raw.get("next_action_reason") == "retry-authorized" and raw.get("redispatch_reason") == "reviewer-finding":
         return []
     if raw.get("next_action_reason") not in actions:
         return [_e("TWV-OUTCOME-NEXT-ACTION", path, "next_action_reason", "does not match terminal lifecycle, role disposition, and redispatch authority")]
     return []
+
+
+def _canonical_report_findings(report: Path, scope: str) -> list[dict[str, str]]:
+    artifact, failure = read_utf8_artifact(report)
+    if failure is not None or artifact is None:
+        return []
+    lines = artifact.data.decode("utf-8").splitlines()
+    fields = ("finding_id", "finding_severity", "finding_summary", "finding_scope")
+    records: list[dict[str, str]] = []
+    for index in range(len(lines) - len(fields) + 1):
+        if all(lines[index + offset].startswith(f"{key}: ") for offset, key in enumerate(fields)):
+            record = {key: lines[index + offset][len(key) + 2:] for offset, key in enumerate(fields)}
+            if record["finding_scope"] == scope and all(record.values()):
+                records.append({"id": record["finding_id"], "severity": record["finding_severity"], "summary": record["finding_summary"]})
+    return records
 
 
 def _finding_binding_errors(raw: dict[str, object], path: Path, report: Path | None, task_dir: Path, node) -> list[ValidationError]:
@@ -300,6 +331,15 @@ def _finding_binding_errors(raw: dict[str, object], path: Path, report: Path | N
             or not _report_authorizes_finding(raw, finding, task_dir, node.id)
         ):
             errors.append(_e("TWV-OUTCOME-FINDING-EVIDENCE", path, reference, "finding is not proven by the canonical report"))
+    if report is not None:
+        canonical = _canonical_report_findings(report, node.id)
+        compact = [
+            {key: finding[key] for key in ("id", "severity", "summary")}
+            for finding in findings
+            if isinstance(finding, dict) and all(isinstance(finding.get(key), str) for key in ("id", "severity", "summary"))
+        ]
+        if canonical != compact:
+            errors.append(_e("TWV-OUTCOME-FINDING-EVIDENCE", path, "findings", "must preserve every recognized canonical finding without invention or omission"))
     return errors
 
 
@@ -356,12 +396,19 @@ def _report_authorizes_finding(outcome: dict[str, object], finding: object, task
 
 
 def _redispatch_errors(
-    raw: dict[str, object], path: Path, node, attempt: dict[str, object],
-    attempts: list[tuple[object, dict[str, object], dict[str, object]]],
+    raw: dict[str, object], path: Path, node, assignment: dict[str, object], attempt: dict[str, object],
+    attempts: list[tuple[Node, dict[str, object], dict[str, object]]],
     valid_outcomes: dict[str, dict[str, object]], task_dir: Path
 ) -> list[ValidationError]:
     reason = raw.get("redispatch_reason")
+    history = assignment.get("attempts")
+    subsequent = (
+        isinstance(history, list)
+        and any(value is attempt for value in history[1:])
+    )
     if reason == "none":
+        if subsequent:
+            return [_e("TWV-OUTCOME-REDISPATCH-AUTHORIZATION", path, "redispatch_reason", "subsequent persisted attempts require an evidence-bound redispatch reason")]
         return []
     predecessor_id = raw.get("predecessor_attempt_id")
     predecessor = next((item for item in attempts if item[2].get("id") == predecessor_id), None)
@@ -423,15 +470,26 @@ def validate_outcomes(manifest: Manifest, state: State, task_dir: Path) -> list[
             binding_errors = _outcome_binding_errors(raw, path, node, assignment, attempt, manifest, task_dir)
             errors.extend(binding_errors)
             parsed.append((node, assignment, attempt, path, raw))
-            if not binding_errors and isinstance(attempt.get("outcome_path"), str):
-                valid_outcomes[attempt["outcome_path"]] = raw
-    for node, _, attempt, path, raw in parsed:
-        errors.extend(_redispatch_errors(raw, path, node, attempt, attempts, valid_outcomes, task_dir))
+            outcome_path = attempt.get("outcome_path")
+            if not binding_errors and isinstance(outcome_path, str):
+                valid_outcomes[outcome_path] = raw
+    for node, assignment, attempt, path, raw in parsed:
+        errors.extend(_redispatch_errors(raw, path, node, assignment, attempt, attempts, valid_outcomes, task_dir))
     consumed = sum(
-        raw["retry_budget_delta"]
+        delta
         for _, _, _, _, raw in parsed
-        if isinstance(raw.get("retry_budget_delta"), int) and not isinstance(raw["retry_budget_delta"], bool)
+        for delta in [raw.get("retry_budget_delta")]
+        if isinstance(delta, int) and not isinstance(delta, bool)
     )
-    if consumed != state.raw.get("current_fix_round") or consumed > state.raw.get("max_fix_rounds", -1):
+    current_fix_round = state.raw.get("current_fix_round")
+    max_fix_rounds = state.raw.get("max_fix_rounds")
+    if (
+        not isinstance(current_fix_round, int)
+        or isinstance(current_fix_round, bool)
+        or not isinstance(max_fix_rounds, int)
+        or isinstance(max_fix_rounds, bool)
+        or consumed != current_fix_round
+        or consumed > max_fix_rounds
+    ):
         errors.append(_e("TWV-OUTCOME-REDISPATCH-BUDGET", task_dir / "03-state.toml", "current_fix_round", "state retry budget does not match persisted outcomes"))
     return errors

@@ -862,12 +862,18 @@ def parse_manifest(path: Path) -> ParseResult:
                                         "must be unavailable for pending/running attempts and a path for terminal attempts",
                                     )
                                 )
-                        if key == "verification_evidence" and "output_sha256" in value:
+                        if key == "verification_evidence" and "output_sha256" in value and isinstance(value.get("result"), str):
                             digest = value["output_sha256"]
-                            nonexecuted = value.get("result") in {"not-run", "unavailable"}
-                            if (nonexecuted and (digest != "unavailable" or value.get("evidence_ref") != "unavailable")) or (
-                                not nonexecuted and (not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None)
-                            ):
+                            nonexecuted = value["result"] in {"not-run", "unavailable"}
+                            invalid_digest = (
+                                version == 4
+                                and nonexecuted
+                                and (digest != "unavailable" or value.get("evidence_ref") != "unavailable")
+                            ) or (
+                                (version != 4 or not nonexecuted)
+                                and (not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None)
+                            )
+                            if invalid_digest:
                                 errors.append(
                                     _e(
                                         "TWV-SCHEMA-INVALID-DIGEST",

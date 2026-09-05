@@ -3,8 +3,8 @@ import os, shutil, stat, subprocess, sys, tempfile, tomllib, unittest
 from pathlib import Path
 from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[2]; sys.path.insert(0,str(ROOT/'scripts'))
-from migrate_controller_view_v4 import main as migrate_controller_view, migration_disposition
-import render_controller_view as render_controller_view_tool
+from migrate_controller_view_v4 import main as migrate_controller_view, migration_disposition  # pyright: ignore[reportMissingImports]
+import render_controller_view as render_controller_view_tool  # pyright: ignore[reportMissingImports]
 from kapisch_validation.canonical_toml import render_toml
 FIXTURES=Path(__file__).parent/'fixtures'
 def render(task): return subprocess.run([sys.executable,str(ROOT/'scripts'/'render_controller_view.py'),'--task-dir',str(task)],capture_output=True,text=True)
@@ -73,8 +73,8 @@ class ToolTests(unittest.TestCase):
     self.assertEqual(validation.returncode,0,validation.stdout+validation.stderr)
  def test_stale_regular_view_digest_regenerates(self):
   with tempfile.TemporaryDirectory() as directory:
-   task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task);state=task/'03-state.toml'
-   state.write_text(state.read_text().replace('controller_view_sha256 = "796c118279979cb80e20179470af63b24a087442b91b741f5bdef08a6f490fdf"','controller_view_sha256 = "'+'0'*64+'"'))
+   task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task);state=task/'03-state.toml';before=state.read_text();after=before.replace('controller_view_sha256="796c118279979cb80e20179470af63b24a087442b91b741f5bdef08a6f490fdf"','controller_view_sha256="'+'0'*64+'"');self.assertNotEqual(before,after)
+   state.write_text(after)
    result=subprocess.run([sys.executable,str(ROOT/'scripts'/'render_controller_view.py'),'--task-dir',str(task)],capture_output=True,text=True,timeout=10)
    self.assertEqual(result.returncode,0,result.stdout+result.stderr)
    validation=subprocess.run([sys.executable,str(ROOT/'scripts'/'validate_kapisch.py'),'--task-dir',str(task)],capture_output=True,text=True,timeout=10)
@@ -136,7 +136,7 @@ class ToolTests(unittest.TestCase):
  def test_migration_rejects_unsupported_state_values_without_writes(self):
   with tempfile.TemporaryDirectory() as directory:
    root=Path(directory);source=self.eligible_v3_source(root);destination=root/'destination'
-   state=source/'03-state.toml';state.write_text(state.read_text()+'\\n[extensions."com.example"]\\nrecorded_at = 2026-09-02T12:00:00Z\\n')
+   state=source/'03-state.toml';state.write_text(state.read_text()+'\n[extensions."com.example"]\nrecorded_at = 2026-09-02T12:00:00Z\n')
    before={path.relative_to(source):path.read_bytes() for path in source.rglob('*') if path.is_file()}
    self.assertEqual(migrate_controller_view(['--task-dir',str(source),'--destination-task-dir',str(destination),'--approve']),2)
    self.assertFalse(destination.exists());self.assertEqual(before,{path.relative_to(source):path.read_bytes() for path in source.rglob('*') if path.is_file()})
