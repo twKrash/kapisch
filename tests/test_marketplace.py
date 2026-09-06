@@ -111,6 +111,7 @@ class MarketplaceTests(unittest.TestCase):
             PLUGIN / "docs/compatibility.md": (
                 "profile_state_version = 1",
                 "## Legacy profile cleanup",
+                "## Durable-run legacy migration",
             ),
             PLUGIN / "docs/profile-sets.md": (
                 "--install --replace-managed",
@@ -127,13 +128,30 @@ class MarketplaceTests(unittest.TestCase):
         }
         for path, required in expectations.items():
             with self.subTest(path=path):
-                contents = path.read_text(encoding="utf-8")
+                contents = path.read_text(encoding="utf-8").lower()
                 for phrase in required:
-                    self.assertIn(phrase, contents)
+                    self.assertIn(phrase.lower(), contents)
 
         current_compatibility = (
             PLUGIN / "docs/compatibility.md"
         ).read_text(encoding="utf-8")
+        for phrase in (
+            "Stop concurrent profile setup processes",
+            "WSL users follow the POSIX procedure",
+            "Remove only the exact paths listed by setup",
+            "Optionally remove now-empty KAPISCH setup directories",
+            "--scope user --user-dir <user-home>",
+            "Verify every installed profile has the expected `kapisch-<role>` identity",
+            "Verify inspection reports no drift",
+        ):
+            self.assertIn(phrase, current_compatibility)
+        for command in (
+            "python scripts/setup_profile.py --all --project-dir <consumer-repository>",
+            "python scripts/setup_profile.py --all --project-dir <consumer-repository> --install",
+            "python scripts/setup_profile.py --all --scope user --user-dir <user-home>",
+            "python scripts/setup_profile.py --all --scope user --user-dir <user-home> --install",
+        ):
+            self.assertIn(command, current_compatibility)
         for obsolete in (
             "inspection reports it as legacy",
             "legacy `quality`",

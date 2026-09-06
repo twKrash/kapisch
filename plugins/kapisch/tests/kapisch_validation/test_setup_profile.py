@@ -1609,6 +1609,50 @@ class ProfileSetTests(unittest.TestCase):
                 self.assertIn("modified=false", output.getvalue())
                 self.assertIn(f"legacy_journal={journal}", output.getvalue())
 
+    def test_legacy_switch_journal_refusal_does_not_clean_a_stale_lock(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary).resolve()
+            self.assertEqual(self._install(project, "balanced"), 0)
+            self._interrupt_prepared_switch(project)
+            journal = project / ".kapisch/local-state/profile-switch.toml"
+            journal.write_bytes(
+                journal.read_bytes().replace(b"version=3\n", b"version=2\n", 1)
+            )
+            lock = project / ".kapisch/local-state/profile-switch.lock"
+            lock.write_text("pid=999999\n", encoding="ascii")
+            before = self._snapshot(project)
+            output = io.StringIO()
+
+            with redirect_stdout(output):
+                self.assertEqual(
+                    setup_profile.main(["--all", "--project-dir", str(project)]),
+                    2,
+                )
+
+            self.assertEqual(self._snapshot(project), before)
+            self.assertIn("status=unsupported-legacy", output.getvalue())
+            self.assertIn(f"legacy_journal={journal}", output.getvalue())
+
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary).resolve()
+            self.assertEqual(self._install(project, "balanced"), 0)
+            expected = self._interrupt_prepared_switch(project)
+            lock = project / ".kapisch/local-state/profile-switch.lock"
+            lock.write_text("pid=999999\n", encoding="ascii")
+            output = io.StringIO()
+
+            with redirect_stdout(output):
+                self.assertEqual(
+                    setup_profile.main(["--all", "--project-dir", str(project)]),
+                    0,
+                )
+
+            self.assertEqual(self._snapshot(project), expected)
+            self.assertIn(
+                "recovery=completed interrupted managed-profile transaction",
+                output.getvalue(),
+            )
+
     def test_legacy_switch_preparation_versions_are_not_removed(self) -> None:
         for version in (1, 2):
             with self.subTest(version=version), TemporaryDirectory() as temporary:

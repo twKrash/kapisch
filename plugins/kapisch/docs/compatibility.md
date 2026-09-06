@@ -48,37 +48,83 @@ or removed by KAPISCH.
 
 ## Legacy profile cleanup
 
-When setup lists an unsupported legacy path, back up and remove one exact
-installer-listed path at a time. Do not guess paths.
+Stop concurrent profile setup processes before inspection or cleanup. Run the
+2.x inspector for the scope being reset and record every path it lists:
+
+```text
+# Project scope
+python scripts/setup_profile.py --all --project-dir <consumer-repository>
+
+# User scope
+python scripts/setup_profile.py --all --scope user --user-dir <user-home>
+```
+
+The list can contain profile files, companion state records, the fixed
+`profile-switch.toml` journal, or the fixed `.profile-switch.prepare.tmp`
+preparation file. Remove only the exact paths listed by setup. Do not infer
+ownership from similar names, follow paths embedded in a legacy journal, or add
+nearby files to the cleanup list.
+
+WSL users follow the POSIX procedure below and use Linux paths. For each listed
+path, choose a distinct backup path so profile and state files with the same
+basename cannot overwrite one another:
 
 ```bash
 mkdir -p "$HOME/kapisch-profile-backup"
-printf 'Paste one exact path printed by setup: '
+printf 'Paste one exact path listed by setup: '
 IFS= read -r LEGACY_PATH
-cp -- "$LEGACY_PATH" "$HOME/kapisch-profile-backup/"
-printf 'Inspect the backup, then press Enter to remove the original.'
+printf 'Enter a distinct backup path under $HOME/kapisch-profile-backup: '
+IFS= read -r BACKUP_PATH
+cp -- "$LEGACY_PATH" "$BACKUP_PATH"
+printf 'Inspect the backup, then press Enter to remove the listed original.'
 IFS= read -r _confirmation
 rm -- "$LEGACY_PATH"
 ```
 
+On native Windows PowerShell, repeat this equivalent sequence for each listed
+path:
+
 ```powershell
 New-Item -ItemType Directory -Force "$HOME\kapisch-profile-backup"
-$LegacyPath = Read-Host "Paste one exact path printed by setup"
-Copy-Item -LiteralPath $LegacyPath -Destination "$HOME\kapisch-profile-backup"
-Read-Host "Inspect the backup, then press Enter to remove the original"
+$LegacyPath = Read-Host "Paste one exact path listed by setup"
+$BackupPath = Read-Host "Enter a distinct backup path under $HOME\kapisch-profile-backup"
+Copy-Item -LiteralPath $LegacyPath -Destination $BackupPath
+Read-Host "Inspect the backup, then press Enter to remove the listed original"
 Remove-Item -LiteralPath $LegacyPath
 ```
 
-Repeat the sequence for each printed path. Review every backup before removal,
-and never delete `.kapisch` wholesale. After cleanup, inspect and explicitly
-install the desired current catalog:
+Inspect every backup and confirm that it belongs to the installation being
+reset before removing its original. Never delete `.kapisch` wholesale: durable
+run evidence can coexist beneath it.
+
+Optionally remove now-empty KAPISCH setup directories such as the selected
+root's `.kapisch/local-state/profiles/` and
+`.kapisch/local-state/`, but only with a non-recursive empty-directory removal.
+Do not remove the shared `.codex/agents/` directory.
+
+After all listed files are removed, rerun the applicable project or user
+inspection command above. It must report a fresh `not-installed` state before
+reinstallation. Then use the matching ordinary install command:
 
 ```text
-python scripts/setup_profile.py --all --project-dir <consumer-repository>
+# Project reinstall
 python scripts/setup_profile.py --all --project-dir <consumer-repository> --install
+
+# User reinstall
+python scripts/setup_profile.py --all --scope user --user-dir <user-home> --install
 ```
 
-## Compatibility version 1
+Run the matching inspection command once more after reinstall:
+
+- Verify every installed profile has the expected `kapisch-<role>` identity.
+- Verify inspection reports no drift (`drift=none`).
+- Confirm `update_required=false`, proving immediate inspection introduces no
+  state drift.
+
+Plugin uninstall remains a separate operation and does not prove ownership of,
+or remove, optional profile files.
+
+## Durable-run legacy migration
 
 Only `.planning/task-workflow/<task-id>/` is a supported legacy input namespace.
 It is read-only. `scripts/migrate_legacy_run.py` copies that directory byte for
@@ -122,7 +168,7 @@ manifests rather than silently adopted:
 
 Reading an old manifest never creates a route record or delegation fields;
 `.kapisch/runs/<task-id>/delegations/` exists only when a delegation actually
-occurred. The legacy migration described under Compatibility version 1 is
+occurred. The legacy migration described under Durable-run legacy migration is
 unchanged: explicit (`--approve`), byte-preserving, source-retaining, and free
 of new legacy writes; it neither reads nor writes delegation records.
 
@@ -164,7 +210,7 @@ OpenAI public Plugin Directory.
 
 ## Removal boundary and rollback
 
-Remove compatibility version 1 only in a major release after all supported
+Remove durable-run compatibility version 1 only in a major release after all supported
 consumers have either migrated their retained runs or accepted that old runs
 cannot resume. Before removal, publish the final compatible release and keep it
 available for rollback.

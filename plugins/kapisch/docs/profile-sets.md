@@ -52,7 +52,7 @@ external edits.
 
 Unsupported legacy profile state and journal schemas 1–2 have a generic
 `unsupported legacy` outcome: they are rejected without mutation, migration, or
-recovery. Follow the [manual cleanup procedure](compatibility.md#legacy-profile-cleanup),
+recovery. Follow the [Manual cleanup procedure](compatibility.md#legacy-profile-cleanup),
 then inspect and install a current catalog.
 
 ## Observability boundary

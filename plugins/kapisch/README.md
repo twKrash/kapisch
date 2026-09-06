@@ -43,7 +43,9 @@ inspect a fresh target, then explicitly install it:
 
 ```text
 python scripts/setup_profile.py --role reviewer --project-dir <consumer-repository>
-python scripts/setup_profile.py --all --project-dir <consumer-repository> --install
+python scripts/setup_profile.py --all --project-dir <consumer-repository> --profile-set balanced --install
+python scripts/setup_profile.py --all --project-dir <consumer-repository> --profile-set quality --install
+python scripts/setup_profile.py --all --project-dir <consumer-repository> --profile-set budget --install
 ```
 
 `profile_state_version = 1` is the current local-state schema, not the plugin
@@ -58,7 +60,7 @@ python scripts/setup_profile.py --all --project-dir <consumer-repository> --prof
 
 Setup refuses drift and identity/catalog collisions. Unsupported legacy state is
 diagnostic-only: it receives no automatic migration or cleanup. Use the
-[manual cleanup procedure](docs/compatibility.md#legacy-profile-cleanup), then
+[Manual cleanup procedure](docs/compatibility.md#legacy-profile-cleanup), then
 inspect and install again. Removing the plugin and removing optional profiles
 are separate operations; plugin removal does not remove profiles, and profile
 removal is a deliberate user action.
@@ -83,7 +85,14 @@ python <plugin-root>/scripts/validate_kapisch.py --task-dir <consumer-repository
 Version-1 through version-4 durable manifests remain readable. Version-4
 snapshots include a derived controller view; version-3 runs migrate to version 4
 only through the explicit copy-and-validate command. Older
-`.planning/task-workflow/<task-id>/` runs remain read-only inputs. Windows 11
+`.planning/task-workflow/<task-id>/` runs remain read-only inputs and migrate
+only through the explicit approved command:
+
+```text
+python scripts/migrate_legacy_run.py --project-dir <consumer-repository> --task-id <task-id> --approve
+```
+
+Windows 11
 with Codex Desktop and WSL2 is the release-blocking Windows surface. Native
 Windows CI is required before release; live no-WSL support is not yet claimed.
 See [compatibility.md](docs/compatibility.md).
@@ -103,10 +112,11 @@ From the repository root, also run `python -m unittest discover -s tests` and
 
 - [Public workflow contract](skills/kapisch/SKILL.md)
 - [Acceptance status](docs/acceptance.md)
-- [Compatibility and rollback](docs/compatibility.md)
+- [Durable-run legacy migration and profile compatibility](docs/compatibility.md)
 - [Profile sets and switching](docs/profile-sets.md)
 - [Changelog](CHANGELOG.md)
 - [Contributing](CONTRIBUTING.md)
+- [Change 7 execution history and acceptance plan](docs/change-7-execution-plan.md)
 
 ## License
 

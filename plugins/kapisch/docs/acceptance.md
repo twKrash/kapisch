@@ -34,6 +34,9 @@ python -m unittest discover -s tests
 git diff --check
 ```
 
+Project-understanding procedures, role boundaries, handoffs, and independent
+review remain covered by the contract acceptance suite.
+
 The suites cover strict manifest versions, lifecycle and previous-snapshot
 compatibility, digest and UTF-8 handling, reviewer invocation evidence, legacy
 durable-run migration, profile identity and drift, presentation themes,

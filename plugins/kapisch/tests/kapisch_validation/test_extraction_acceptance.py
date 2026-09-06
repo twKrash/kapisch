@@ -207,7 +207,15 @@ class ExtractionAcceptanceTests(unittest.TestCase):
             self.assertTrue(profile.is_file())
             self.assertIn('profile_identity="kapisch-reviewer"', record.read_text())
             profile.write_text(profile.read_text() + "# user change\n", encoding="utf-8")
-            record.write_text(record.read_text().replace("template_sha256=", "template_sha256=\"old\" # "), encoding="utf-8")
+            record.write_text(
+                re.sub(
+                    r'(?m)^template_sha256="[0-9a-f]{64}"$',
+                    f'template_sha256="{"0" * 64}"',
+                    record.read_text(encoding="utf-8"),
+                    count=1,
+                ),
+                encoding="utf-8",
+            )
             output = io.StringIO()
             with redirect_stdout(output):
                 self.assertEqual(

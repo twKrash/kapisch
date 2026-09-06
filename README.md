@@ -44,7 +44,7 @@ installation reference.
 Plugin installation does not activate the six agent-profile templates. Install
 them explicitly into a consumer repository when approval-capable review or
 specialized routing is needed. **The legacy profile state is unsupported and is
-not automatically migrated.** Follow the [manual cleanup procedure](plugins/kapisch/docs/compatibility.md#legacy-profile-cleanup)
+not automatically migrated.** Follow the [Manual cleanup procedure](plugins/kapisch/docs/compatibility.md#legacy-profile-cleanup)
 before a fresh inspection and install.
 
 ```text
@@ -72,7 +72,7 @@ kapisch-validate --task-dir <consumer-repository>/.kapisch/runs/<task-id> --form
 - [Windows 2.0.0 acceptance record](plugins/kapisch/docs/acceptance-windows-v2.0.0.md)
 - [Windows 1.0.1 historical acceptance](plugins/kapisch/docs/acceptance-windows-v1.0.1.md)
 - [Historical Unix 1.0.0 acceptance](plugins/kapisch/docs/acceptance-runtime.md)
-- [Compatibility and rollback](plugins/kapisch/docs/compatibility.md)
+- [Durable-run legacy migration and profile compatibility](plugins/kapisch/docs/compatibility.md)
 - [Acceptance matrix](plugins/kapisch/docs/acceptance.md)
 - [Marketplace catalog](.agents/plugins/marketplace.json)
 

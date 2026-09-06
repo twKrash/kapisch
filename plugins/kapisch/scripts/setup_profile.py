@@ -1194,6 +1194,46 @@ def _switch_recovery_needed(root: Path) -> bool:
     )
 
 
+def _fixed_switch_state_requires_refusal(root: Path) -> bool:
+    states = (
+        ("journal", _switch_journal_path(root)),
+        ("prepare", _switch_prepare_path(root)),
+    )
+    versions: list[tuple[str, Path, int]] = []
+    state_error: str | None = None
+    for kind, path in states:
+        if not path.exists() and not path.is_symlink():
+            continue
+        try:
+            versions.append((kind, path, _read_switch_state_version(path)))
+        except (OSError, ProfileReadError, ValueError) as exc:
+            state_error = str(exc)
+    if state_error is not None or any(
+        version not in {1, 2, CURRENT_SWITCH_JOURNAL_VERSION}
+        for _, _, version in versions
+    ):
+        print("status=collision")
+        print("modified=false")
+        print(
+            "error=profile-switch state cannot be recovered safely: "
+            f"{state_error or 'unsupported version'}"
+        )
+        print("action=review local state; no new profile operation was attempted")
+        return True
+    legacy = next(
+        ((kind, path) for kind, path, version in versions if version in {1, 2}),
+        None,
+    )
+    if legacy is not None:
+        kind, path = legacy
+        print("status=unsupported-legacy")
+        print("modified=false")
+        print(f"legacy_{kind}={path}")
+        print("action=back up and remove the legacy profile-switch state manually")
+        return True
+    return False
+
+
 def _run_setup(
     args: argparse.Namespace,
     root: Path,
@@ -1207,41 +1247,9 @@ def _run_setup(
         print("action=rerun inspection to recover the interrupted transaction")
         return 2
     if allow_recovery and recovery_needed:
-        states = (
-            ("journal", _switch_journal_path(root)),
-            ("prepare", _switch_prepare_path(root)),
-        )
-        versions: list[tuple[str, Path, int]] = []
-        state_error: str | None = None
-        for kind, path in states:
-            if not path.exists() and not path.is_symlink():
-                continue
-            try:
-                versions.append((kind, path, _read_switch_state_version(path)))
-            except (OSError, ProfileReadError, ValueError) as exc:
-                state_error = str(exc)
-        if state_error is not None or any(
-            version not in {1, 2, CURRENT_SWITCH_JOURNAL_VERSION}
-            for _, _, version in versions
-        ):
-            print("status=collision")
-            print("modified=false")
-            print(
-                "error=profile-switch state cannot be recovered safely: "
-                f"{state_error or 'unsupported version'}"
-            )
-            print("action=review local state; no new profile operation was attempted")
-            return 2
-        legacy = next(
-            ((kind, path) for kind, path, version in versions if version in {1, 2}),
-            None,
-        )
-        if legacy is not None:
-            kind, path = legacy
-            print("status=unsupported-legacy")
-            print("modified=false")
-            print(f"legacy_{kind}={path}")
-            print("action=back up and remove the legacy profile-switch state manually")
+        # Revalidate current fixed transaction state under the setup lock. The
+        # same read-only gate also runs before lock acquisition in main().
+        if _fixed_switch_state_requires_refusal(root):
             return 2
     if allow_recovery:
         recovered, recovery_error = _recover_interrupted_switch(root)
@@ -1360,6 +1368,8 @@ def main(argv: list[str] | None = None) -> int:
     root = (args.project_dir if args.scope == "project" else args.user_dir).resolve()
     try:
         recovery_needed = _switch_recovery_needed(root)
+        if recovery_needed and _fixed_switch_state_requires_refusal(root):
+            return 2
         if not args.install and not recovery_needed:
             return _run_setup(args, root, allow_recovery=False)
         with _switch_lock(root, create=args.install):
