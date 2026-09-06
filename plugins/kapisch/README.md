@@ -9,11 +9,11 @@ Codex continues to own agent dispatch, model selection, and sandboxing.
 This plugin is distributed through the Git-backed `kapisch-local` marketplace,
 not the OpenAI public Plugin Directory.
 
-After an authorized maintainer publishes the immutable `v1.2.1` tag, the
+After an authorized maintainer publishes the immutable `v1.2.2` tag, the
 released installation command will be:
 
 ```text
-codex plugin marketplace add twKrash/kapisch --ref v1.2.1
+codex plugin marketplace add twKrash/kapisch --ref v1.2.2
 codex plugin add kapisch@kapisch-local
 ```
 
@@ -127,7 +127,7 @@ Windows 11 with Codex Desktop and WSL2 is the release-blocking Windows surface.
 Native Windows profile setup and portable-package tests pass on Python 3.11;
 live no-WSL plugin support is claimed only after a complete observed run. See
 [compatibility.md](docs/compatibility.md) and the
-[1.2.0 Windows acceptance template](docs/acceptance-windows-v1.2.0.md).
+[1.2.2 Windows acceptance template](docs/acceptance-windows-v1.2.2.md).
 
 ## Development checks
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.2 - 2026-09-06 (release candidate)
+
+- Fixed explicit `--install --replace-managed` upgrades of verified KAPISCH
+  1.0.1 managed profiles. The installer now requires the role-bound 1.0.1
+  template digest, matching recorded installed digest, verified destination
+  bytes, identity, and provenance before replacing a legacy profile with the
+  selected current profile set. Drifted, malformed, or unknown legacy records
+  remain fail-closed.
+
 ## 1.2.1 - 2026-09-04 (release candidate)
 
 - Documented the `researcher` minimum logical tier as `standard` in the

@@ -110,9 +110,11 @@ inspection first acquires the switch lock and performs only that recovery.
 The journal lives under `.kapisch/local-state/` and is not a durable workflow
 artifact, validator input, telemetry record, or semantic routing source.
 
-New records contain `profile_set`. Verified 1.0.x records without it remain
-inspectable as `quality` only when the recorded template digest matches the
-shipped quality bytes. They are never silently rewritten.
+New records contain `profile_set`. A 1.0.1 record without it remains
+inspectable only when role-bound legacy template and installed digests,
+provenance, identity, scope, destination, and actual bytes prove KAPISCH
+ownership. It is never silently rewritten; only `--install --replace-managed`
+may replace that verified legacy artifact with the selected current set.
 
 ## Observability boundary
 

@@ -44,12 +44,12 @@ recorded only as factual observations on the established observability
 surfaces.
 
 New local-state records add `profile_set` and store the stable template filename,
-not the plugin cache location. A 1.0.x record without that field is read-only
-compatible when its template provenance names the expected template, its recorded
-template digest matches the current quality template, and its identity,
-installed-profile path, and digests remain valid; inspection reports it as legacy
-`quality` and does not rewrite it. An unknown or unverifiable legacy digest fails
-closed.
+not the plugin cache location. A 1.0.1 record without that field is read-only
+compatible only when its expected template provenance, role and destination
+identity, scope, recorded template and installed digests, and actual installed
+bytes prove the role-bound 1.0.1 template. Inspection does not rewrite it. Only
+`--install --replace-managed` may replace that verified legacy artifact with the
+selected current set; unknown or unverifiable legacy evidence fails closed.
 
 Ordinary install remains non-overwriting. Switching requires `--install
 --replace-managed`, verified KAPISCH identity and state, a matching installed

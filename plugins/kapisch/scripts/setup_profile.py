@@ -22,6 +22,17 @@ ROLE_CATALOG = (
     "reviewer",
 )
 PROFILE_SET_CATALOG = ("balanced", "quality", "budget")
+# KAPISCH 1.0.1 installed each role's template verbatim and recorded no
+# profile_set. These role-bound digests are the durable evidence that lets a
+# later catalog safely recognize that exact legacy managed artifact.
+LEGACY_1_0_1_TEMPLATE_DIGESTS = {
+    "architect": "c85615400d67a80f6538031f7aad2e5424140f969b3484fb490006766ed57815",
+    "implementer-lite": "e2f0834c539c6ecf47edd7ccdaefbb2c57043c626c09258b97cce3cbfd52125f",
+    "implementer": "4f076716ac1ee26c0865082182cc66fef10f69c78b1200d9d4e99a10127305a5",
+    "mechanic": "2efc547670bf175555c102ff19c8539b706aad5d078cb37e073d68003baf08a6",
+    "researcher": "609913b8db5de874abfcd585a78d602bc22abd50df4a6a7cf600134bc00e88bf",
+    "reviewer": "6d01210c00a61058bc460bd42232956d1279f3a3e76ebb8e7d4ac9ea7fa076b7",
+}
 PROFILE_SET_ROUTING = {
     "balanced": {
         "architect": ("gpt-5.6-sol", "high"),
@@ -388,37 +399,36 @@ def _prepare_role(
             )
             return plan
         recorded_set = saved.get("profile_set")
-        if recorded_set is None:
-            quality_bytes = _render_profile_bytes(
-                template_bytes, role=role, profile_set="quality"
-            )
-            quality_digest = hashlib.sha256(quality_bytes).hexdigest()
+        legacy_record = recorded_set is None
+        if legacy_record:
+            legacy_digest = LEGACY_1_0_1_TEMPLATE_DIGESTS.get(role)
             if (
-                saved.get("template_sha256") != template_digest
-                or saved.get("installed_sha256") != quality_digest
+                saved.get("scope") != scope
+                or saved.get("template_sha256") != legacy_digest
+                or saved.get("installed_sha256") != legacy_digest
             ):
                 plan.update(
                     status="collision",
-                    error="legacy state record does not match the verified quality profile",
+                    error="legacy state record does not match a verified 1.0.1 managed profile",
                 )
                 return plan
             installed_profile_set = "quality"
         elif recorded_set in PROFILE_SET_CATALOG:
             installed_profile_set = recorded_set
+            expected_model, expected_effort = PROFILE_SET_ROUTING[installed_profile_set][
+                role
+            ]
+            if (
+                installed_values.get("model"),
+                installed_values.get("model_reasoning_effort"),
+            ) != (expected_model, expected_effort):
+                plan.update(
+                    status="collision",
+                    error="state record profile set does not match installed profile routing",
+                )
+                return plan
         else:
             plan.update(status="collision", error="state record has an unknown profile set")
-            return plan
-        expected_model, expected_effort = PROFILE_SET_ROUTING[installed_profile_set][
-            role
-        ]
-        if (
-            installed_values.get("model"),
-            installed_values.get("model_reasoning_effort"),
-        ) != (expected_model, expected_effort):
-            plan.update(
-                status="collision",
-                error="state record profile set does not match installed profile routing",
-            )
             return plan
         plan.update(
             installed_profile_set=installed_profile_set,
@@ -427,7 +437,7 @@ def _prepare_role(
         )
         plan["drift"] = "none" if saved.get("installed_sha256") == installed_digest else "user-modified"
         plan["template_drift"] = "none" if saved.get("template_sha256") == template_digest else "updated"
-        if installed_profile_set != profile_set:
+        if legacy_record or installed_profile_set != profile_set:
             plan["switch_required"] = True
             if install and replace_managed:
                 if plan["drift"] != "none":
