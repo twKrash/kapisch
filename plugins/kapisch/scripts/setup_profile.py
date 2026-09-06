@@ -61,6 +61,14 @@ def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _is_sha256(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
 def _read_profile(path: Path) -> dict[str, Any]:
     try:
         contents = path.read_bytes()
@@ -244,6 +252,8 @@ def _print_plan(plan: dict[str, Any], scope: str) -> None:
     for key in ("drift", "template_drift", "error", "cleanup"):
         if plan.get(key) is not None:
             print(f"{key}={plan[key]}")
+    if plan.get("update_required") is not None:
+        print("update_required=" + ("true" if plan["update_required"] else "false"))
     for collision in plan.get("collision", ()):
         print(f"identity_collision={collision}")
     if plan["status"] == "verification-failed":
@@ -395,8 +405,8 @@ def _prepare_role(
             saved.get("profile_identity") != expected_identity
             or saved.get("installed_profile") != str(target)
             or not _template_provenance_matches(saved.get("template"), template)
-            or not isinstance(saved.get("installed_sha256"), str)
-            or not isinstance(saved.get("template_sha256"), str)
+            or not _is_sha256(saved.get("installed_sha256"))
+            or not _is_sha256(saved.get("template_sha256"))
         ):
             plan.update(
                 status="collision",
@@ -424,16 +434,23 @@ def _prepare_role(
         else:
             plan.update(status="collision", error="state record has an unknown profile set")
             return plan
-        expected_model, expected_effort = PROFILE_SET_ROUTING[installed_profile_set][
-            role
-        ]
+        installed_model = saved.get("installed_model")
+        installed_effort = saved.get("installed_model_reasoning_effort")
         if (
-            installed_values.get("model"),
-            installed_values.get("model_reasoning_effort"),
-        ) != (expected_model, expected_effort):
+            not isinstance(installed_model, str)
+            or not isinstance(installed_effort, str)
+            or (
+                installed_values.get("model"),
+                installed_values.get("model_reasoning_effort"),
+            )
+            != (installed_model, installed_effort)
+        ):
             plan.update(
                 status="collision",
-                error="state record profile set does not match installed profile routing",
+                error=(
+                    "state record installed routing does not match "
+                    "the installed profile"
+                ),
             )
             return plan
         plan.update(
@@ -441,32 +458,47 @@ def _prepare_role(
             installed_bytes=installed_bytes,
             record_original_bytes=record_bytes,
         )
-        plan["drift"] = "none" if saved.get("installed_sha256") == installed_digest else "user-modified"
-        plan["template_drift"] = "none" if saved.get("template_sha256") == template_digest else "updated"
-        if installed_profile_set != profile_set:
-            plan["switch_required"] = True
-            if install and replace_managed:
-                if plan["drift"] != "none":
-                    plan.update(
-                        status="collision",
-                        error="managed replacement refused because the installed profile drifted",
-                    )
-                    return plan
-                try:
-                    plan["record_bytes"] = _record_text(
-                        template=template,
-                        template_digest=template_digest,
-                        target=target,
-                        scope=scope,
-                        role=role,
-                        profile_set=profile_set,
-                        installed_digest=desired_digest,
-                    ).encode("utf-8")
-                except (UnicodeError, ValueError) as exc:
-                    plan.update(status="collision", error=f"state record cannot be encoded safely: {exc}")
-                    return plan
-                plan["status"] = "replace-pending"
+        plan["drift"] = (
+            "none" if saved["installed_sha256"] == installed_digest else "user-modified"
+        )
+        plan["template_drift"] = (
+            "none" if saved["template_sha256"] == template_digest else "updated"
+        )
+        update_required = (
+            installed_profile_set != profile_set
+            or saved["template_sha256"] != template_digest
+            or installed_digest != desired_digest
+        )
+        plan["update_required"] = update_required
+        plan["switch_required"] = update_required
+
+        if install and replace_managed and plan["drift"] != "none":
+            plan.update(
+                status="collision",
+                error=(
+                    "managed replacement refused because "
+                    "the installed profile drifted"
+                ),
+            )
+            return plan
+        if update_required and install and replace_managed:
+            try:
+                plan["record_bytes"] = _record_text(
+                    template=template,
+                    template_digest=template_digest,
+                    target=target,
+                    scope=scope,
+                    role=role,
+                    profile_set=profile_set,
+                    installed_digest=desired_digest,
+                ).encode("utf-8")
+            except (UnicodeError, ValueError) as exc:
+                plan.update(
+                    status="collision", error=f"state record cannot be encoded safely: {exc}"
+                )
                 return plan
+            plan["status"] = "replace-pending"
+            return plan
         plan["status"] = "installed"
         return plan
 
@@ -1174,10 +1206,7 @@ def _run_setup(
                 if plan["status"] != "collision":
                     plan.update(
                         status="collision",
-                        error=(
-                            "complete-catalog operation refused because it would mix "
-                            "new installation and managed switching"
-                        ),
+                        error="cannot combine missing installs with managed replacements",
                     )
 
     failures = [plan for plan in plans if plan["status"] == "collision"]

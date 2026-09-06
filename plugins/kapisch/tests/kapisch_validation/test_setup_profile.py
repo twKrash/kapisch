@@ -802,43 +802,219 @@ class ProfileSetTests(unittest.TestCase):
                     ).hexdigest(),
                 )
 
-    def test_recorded_profile_set_must_match_installed_runtime_routing(self) -> None:
-        cases = (
-            ("single inspection", ["--role", "reviewer"], False),
-            ("single replacement", ["--role", "reviewer"], True),
-            ("catalog inspection", ["--all"], False),
-            ("catalog replacement", ["--all"], True),
-        )
-        for name, selector, install in cases:
-            with self.subTest(name=name), TemporaryDirectory() as temporary:
-                project = Path(temporary)
-                self.assertEqual(self._install(project, "balanced"), 0)
-                record = project / ".kapisch/local-state/profiles/reviewer.toml"
-                record.write_text(
-                    record.read_text(encoding="utf-8").replace(
-                        'profile_set="balanced"', 'profile_set="quality"'
+    def test_same_set_template_update_requires_explicit_replace(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary) / "project"
+            self.assertEqual(self._install(project, "balanced"), 0)
+            before = self._snapshot(project)
+            revised_agents = Path(temporary) / "revised-agents"
+            shutil.copytree(setup_profile.AGENT_DIR, revised_agents)
+            reviewer = revised_agents / "kapisch-reviewer.toml"
+            reviewer.write_bytes(
+                reviewer.read_bytes().replace(b"\r\n", b"\n")
+                + b"# current template revision\n"
+            )
+
+            inspect_output = io.StringIO()
+            with (
+                mock.patch.object(setup_profile, "AGENT_DIR", revised_agents),
+                redirect_stdout(inspect_output),
+            ):
+                self.assertEqual(
+                    setup_profile.main(
+                        [
+                            "--role",
+                            "reviewer",
+                            "--project-dir",
+                            str(project),
+                            "--profile-set",
+                            "balanced",
+                        ]
                     ),
-                    encoding="utf-8",
+                    0,
                 )
-                before = self._snapshot(project)
-                argv = [
-                    *selector,
-                    "--project-dir",
-                    str(project),
-                    "--profile-set",
-                    "quality",
-                ]
-                if install:
-                    argv.extend(("--install", "--replace-managed"))
-                output = io.StringIO()
-                with redirect_stdout(output):
-                    self.assertEqual(setup_profile.main(argv), 2)
-                self.assertEqual(self._snapshot(project), before)
-                self.assertIn(
-                    "state record profile set does not match installed profile routing",
-                    output.getvalue(),
+            self.assertEqual(self._snapshot(project), before)
+            self.assertIn("update_required=true", inspect_output.getvalue())
+            self.assertIn(
+                "rerun with --install --replace-managed",
+                inspect_output.getvalue(),
+            )
+
+            with (
+                mock.patch.object(setup_profile, "AGENT_DIR", revised_agents),
+                redirect_stdout(io.StringIO()),
+            ):
+                self.assertEqual(
+                    setup_profile.main(
+                        [
+                            "--role",
+                            "reviewer",
+                            "--project-dir",
+                            str(project),
+                            "--profile-set",
+                            "balanced",
+                            "--install",
+                            "--replace-managed",
+                        ]
+                    ),
+                    0,
                 )
-                self.assertNotIn("installed_profile_set=quality", output.getvalue())
+            self.assertIn(
+                b"# current template revision\n",
+                (project / ".codex/agents/kapisch-reviewer.toml").read_bytes(),
+            )
+
+    def test_changed_current_routing_is_a_supported_update(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            self.assertEqual(self._install(project, "balanced"), 0)
+            routing = {
+                name: dict(values)
+                for name, values in setup_profile.PROFILE_SET_ROUTING.items()
+            }
+            routing["balanced"]["reviewer"] = ("gpt-5.6-terra", "low")
+            before = self._snapshot(project)
+
+            output = io.StringIO()
+            with (
+                mock.patch.object(setup_profile, "PROFILE_SET_ROUTING", routing),
+                redirect_stdout(output),
+            ):
+                self.assertEqual(
+                    setup_profile.main(
+                        [
+                            "--role",
+                            "reviewer",
+                            "--project-dir",
+                            str(project),
+                            "--profile-set",
+                            "balanced",
+                        ]
+                    ),
+                    0,
+                )
+            self.assertEqual(self._snapshot(project), before)
+            self.assertIn("update_required=true", output.getvalue())
+
+            with (
+                mock.patch.object(setup_profile, "PROFILE_SET_ROUTING", routing),
+                redirect_stdout(io.StringIO()),
+            ):
+                self.assertEqual(
+                    setup_profile.main(
+                        [
+                            "--role",
+                            "reviewer",
+                            "--project-dir",
+                            str(project),
+                            "--profile-set",
+                            "balanced",
+                            "--install",
+                            "--replace-managed",
+                        ]
+                    ),
+                    0,
+                )
+            profile = tomllib.loads(
+                (project / ".codex/agents/kapisch-reviewer.toml").read_text(
+                    encoding="utf-8"
+                )
+            )
+            state = tomllib.loads(
+                (project / ".kapisch/local-state/profiles/reviewer.toml").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(profile["model_reasoning_effort"], "low")
+            self.assertEqual(state["installed_model_reasoning_effort"], "low")
+
+    def test_recorded_installed_routing_must_match_the_owned_profile(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            self.assertEqual(self._install(project, "balanced"), 0)
+            record = project / ".kapisch/local-state/profiles/reviewer.toml"
+            record.write_text(
+                record.read_text(encoding="utf-8").replace(
+                    'installed_model_reasoning_effort="high"',
+                    'installed_model_reasoning_effort="low"',
+                ),
+                encoding="utf-8",
+            )
+            before = self._snapshot(project)
+            for install in (False, True):
+                with self.subTest(install=install):
+                    argv = [
+                        "--role", "reviewer", "--project-dir", str(project),
+                        "--profile-set", "balanced",
+                    ]
+                    if install:
+                        argv.extend(("--install", "--replace-managed"))
+                    output = io.StringIO()
+                    with redirect_stdout(output):
+                        self.assertEqual(setup_profile.main(argv), 2)
+                    self.assertEqual(self._snapshot(project), before)
+                    self.assertIn(
+                        "state record installed routing does not match the installed profile",
+                        output.getvalue(),
+                    )
+
+    def test_all_completes_wholly_absent_pairs_beside_current_desired_roles(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            self.assertEqual(
+                setup_profile.main(
+                    [
+                        "--role", "reviewer", "--project-dir", str(project),
+                        "--profile-set", "balanced", "--install",
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(
+                setup_profile.main(
+                    [
+                        "--all", "--project-dir", str(project),
+                        "--profile-set", "balanced", "--install",
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(len(list((project / ".codex/agents").glob("*.toml"))), 6)
+            self.assertEqual(
+                len(list((project / ".kapisch/local-state/profiles").glob("*.toml"))),
+                6,
+            )
+
+    def test_all_rejects_missing_pairs_mixed_with_current_updates(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            self.assertEqual(
+                setup_profile.main(
+                    [
+                        "--role", "reviewer", "--project-dir", str(project),
+                        "--profile-set", "balanced", "--install",
+                    ]
+                ),
+                0,
+            )
+            before = self._snapshot(project)
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(
+                    setup_profile.main(
+                        [
+                            "--all", "--project-dir", str(project),
+                            "--profile-set", "quality", "--install",
+                            "--replace-managed",
+                        ]
+                    ),
+                    2,
+                )
+            self.assertEqual(self._snapshot(project), before)
+            self.assertIn(
+                "cannot combine missing installs with managed replacements",
+                output.getvalue(),
+            )
 
     def test_relocated_template_provenance_keeps_managed_sets_switchable(self) -> None:
         cases = (
