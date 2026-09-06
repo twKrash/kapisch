@@ -128,6 +128,17 @@ class MarketplaceTests(unittest.TestCase):
             check=True,
         )
         self.assertEqual(result.stdout.strip(), f"{fixture}: eol: lf")
+        legacy_fixture = (
+            "plugins/kapisch/tests/fixtures/legacy-1.0.1/kapisch-reviewer.toml"
+        )
+        result = subprocess.run(
+            ["git", "check-attr", "eol", "--", legacy_fixture],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        self.assertEqual(result.stdout.strip(), f"{legacy_fixture}: eol: lf")
 
     def test_github_marketplace_resolves_the_canonical_plugin(self) -> None:
         catalog = json.loads(MARKETPLACE.read_text(encoding="utf-8"))
