@@ -6,7 +6,7 @@ import argparse
 from contextlib import contextmanager
 import hashlib
 import os
-from pathlib import Path, PurePosixPath, PureWindowsPath
+from pathlib import Path
 import secrets
 from typing import Any, Callable, Iterator
 import tomllib
@@ -197,16 +197,17 @@ def _record_values(path: Path) -> dict[str, Any]:
         raise ProfileReadError(f"state record is unreadable or malformed: {exc}") from exc
 
 
-def _template_provenance_matches(saved: object, template: Path) -> bool:
-    if not isinstance(saved, str) or not saved:
-        return False
-    if saved == template.name:
-        return True
-    return any(
-        candidate.is_absolute()
-        and candidate.parent.name == "agents"
-        and candidate.name == template.name
-        for candidate in (PurePosixPath(saved), PureWindowsPath(saved))
+def _legacy_profile_binding_matches(
+    saved: dict[str, Any],
+    *,
+    expected_identity: str,
+    target: Path,
+    scope: str,
+) -> bool:
+    return (
+        saved.get("profile_identity") == expected_identity
+        and saved.get("installed_profile") == str(target)
+        and saved.get("scope") == scope
     )
 
 
@@ -256,7 +257,17 @@ def _print_plan(plan: dict[str, Any], scope: str) -> None:
         print("update_required=" + ("true" if plan["update_required"] else "false"))
     for collision in plan.get("collision", ()):
         print(f"identity_collision={collision}")
-    if plan["status"] == "verification-failed":
+    if plan["status"] == "unsupported-legacy":
+        print("modified=false")
+        print(f"legacy_profile={plan['legacy_profile']}")
+        print(f"legacy_state_record={plan['legacy_state_record']}")
+        print(
+            "action=back up and manually remove the listed legacy files, "
+            "then reinstall"
+        )
+        guidance = Path(__file__).resolve().parents[1] / "docs" / "compatibility.md"
+        print(f"guidance={guidance}#legacy-profile-cleanup")
+    elif plan["status"] == "verification-failed":
         print("action=committed transaction needs manual state repair; no profile set is claimed active")
     elif plan["status"] == "installed" and plan.get("cleanup"):
         print("action=committed profile set is active; rerun inspection to finish cleanup")
@@ -401,10 +412,44 @@ def _prepare_role(
         except OSError as exc:
             plan.update(status="collision", error=f"state record is unreadable or malformed: {exc}")
             return plan
+        state_version = saved.get("profile_state_version")
+        legacy_version = state_version is None or (
+            type(state_version) is int
+            and state_version < CURRENT_PROFILE_STATE_VERSION
+        )
+        if legacy_version:
+            if _legacy_profile_binding_matches(
+                saved,
+                expected_identity=expected_identity,
+                target=target,
+                scope=scope,
+            ):
+                plan.update(
+                    status="unsupported-legacy",
+                    error="unsupported legacy KAPISCH profile state was detected",
+                    legacy_profile=target,
+                    legacy_state_record=record,
+                )
+            else:
+                plan.update(
+                    status="collision",
+                    error="legacy-looking state bindings cannot be verified",
+                )
+            return plan
+        if (
+            type(state_version) is not int
+            or state_version != CURRENT_PROFILE_STATE_VERSION
+        ):
+            plan.update(
+                status="collision",
+                error="state record has an unsupported profile state version",
+            )
+            return plan
         if (
             saved.get("profile_identity") != expected_identity
             or saved.get("installed_profile") != str(target)
-            or not _template_provenance_matches(saved.get("template"), template)
+            or saved.get("scope") != scope
+            or saved.get("template") != template.name
             or not _is_sha256(saved.get("installed_sha256"))
             or not _is_sha256(saved.get("template_sha256"))
         ):
@@ -414,22 +459,7 @@ def _prepare_role(
             )
             return plan
         recorded_set = saved.get("profile_set")
-        if recorded_set is None:
-            quality_bytes = _render_profile_bytes(
-                template_bytes, role=role, profile_set="quality"
-            )
-            quality_digest = hashlib.sha256(quality_bytes).hexdigest()
-            if (
-                saved.get("template_sha256") != template_digest
-                or saved.get("installed_sha256") != quality_digest
-            ):
-                plan.update(
-                    status="collision",
-                    error="legacy state record does not match the verified quality profile",
-                )
-                return plan
-            installed_profile_set = "quality"
-        elif recorded_set in PROFILE_SET_CATALOG:
+        if recorded_set in PROFILE_SET_CATALOG:
             installed_profile_set = recorded_set
         else:
             plan.update(status="collision", error="state record has an unknown profile set")
@@ -1209,7 +1239,11 @@ def _run_setup(
                         error="cannot combine missing installs with managed replacements",
                     )
 
-    failures = [plan for plan in plans if plan["status"] == "collision"]
+    failures = [
+        plan
+        for plan in plans
+        if plan["status"] in {"collision", "unsupported-legacy"}
+    ]
     cleanup_pending = False
     if args.install and not failures:
         commit_outcome, error = _commit(plans, root=root)
@@ -1220,7 +1254,11 @@ def _run_setup(
                         status="collision",
                         error=f"catalog installation rolled back: {error}",
                     )
-            failures = [plan for plan in plans if plan["status"] == "collision"]
+            failures = [
+                plan
+                for plan in plans
+                if plan["status"] in {"collision", "unsupported-legacy"}
+            ]
         elif commit_outcome == "verification-failed":
             for plan in plans:
                 if plan["status"] in {"install-pending", "replace-pending"}:
