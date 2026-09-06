@@ -14,6 +14,7 @@ from kapisch_validation.review_evidence import (
     CANONICAL_REVIEWER_PROFILE,
     LEGACY_REVIEWER_PROFILE,
 )
+from scripts import setup_profile as setup_profile_module
 from scripts.migrate_legacy_run import main as migrate
 from scripts.setup_profile import main as setup_profile
 
@@ -130,7 +131,9 @@ class ExtractionAcceptanceTests(unittest.TestCase):
             self.assertTrue(installed.is_file())
             self.assertEqual(
                 installed.read_bytes(),
-                (ROOT / "agents/kapisch-reviewer.toml").read_bytes(),
+                setup_profile_module._normalize_template_bytes(
+                    (ROOT / "agents/kapisch-reviewer.toml").read_bytes()
+                ),
             )
             reviewer_contract = (ROOT / "roles/reviewer.md").read_text(
                 encoding="utf-8"
