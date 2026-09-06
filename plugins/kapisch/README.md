@@ -7,37 +7,25 @@ Codex continues to own agent dispatch, model selection, and sandboxing.
 ## Install
 
 This plugin is distributed through the Git-backed `kapisch-local` marketplace,
-not the OpenAI public Plugin Directory.
-
-After an authorized maintainer publishes the immutable `v1.2.1` tag, the
-released installation command will be:
+not the OpenAI public Plugin Directory. After an authorized maintainer publishes
+the immutable `v2.0.0` tag, install it with:
 
 ```text
-codex plugin marketplace add twKrash/kapisch --ref v1.2.1
+codex plugin marketplace add twKrash/kapisch --ref v2.0.0
 codex plugin add kapisch@kapisch-local
 ```
 
-Development installation from a local checkout:
-
-```text
-codex plugin marketplace add ./path/to/kapisch
-codex plugin add kapisch@kapisch-local
-```
-
-Or track mutable `main` instead:
+For mutable development only:
 
 ```text
 codex plugin marketplace add twKrash/kapisch --ref main
 codex plugin add kapisch@kapisch-local
 ```
 
-The release tag is immutable; `main` and local checkouts are mutable. Start a
-fresh Codex session after installation so `$kapisch` is available, as required
-by the [Codex plugin workflow](https://learn.chatgpt.com/docs/plugins).
+The release tag is immutable; `main` is mutable. Start a fresh Codex session
+after installation so `$kapisch` is available.
 
 ## Use
-
-Natural language is the normal interface:
 
 ```text
 Use $kapisch to fix the reconnect bug and add a regression test.
@@ -50,40 +38,33 @@ consumer repository's `.gitignore`.
 
 ## Optional profiles
 
-The templates in `agents/` are not activated by plugin installation. From this
-plugin directory, inspect a target before installing it:
+The templates in `agents/` are not activated by plugin installation. First
+inspect a fresh target, then explicitly install it:
 
 ```text
 python scripts/setup_profile.py --role reviewer --project-dir <consumer-repository>
-python scripts/setup_profile.py --role reviewer --project-dir <consumer-repository> --install
 python scripts/setup_profile.py --all --project-dir <consumer-repository> --install
-python scripts/setup_profile.py --all --project-dir <consumer-repository> --profile-set balanced --install
-python scripts/setup_profile.py --all --project-dir <consumer-repository> --profile-set quality --install
-python scripts/setup_profile.py --all --project-dir <consumer-repository> --profile-set budget --install
 ```
 
-With no `--profile-set`, a new installation uses `balanced`. Setup refuses
-collisions and never overwrites, renames, or deletes an existing profile during
-ordinary install. It records and reports the selected set, template and
-installed hashes, identity, and drift. Project scope is the default; `--scope
-user` is available when explicitly required.
-
-To switch a verified KAPISCH-managed catalog after inspecting it, require the
-explicit replacement action:
+`profile_state_version = 1` is the current local-state schema, not the plugin
+version. New installs default to `balanced`; select `quality` or `budget` only
+when intended. Same-set or changed-routing/profile-set updates are detected but
+require explicit replacement:
 
 ```text
 python scripts/setup_profile.py --all --project-dir <consumer-repository> --profile-set budget
 python scripts/setup_profile.py --all --project-dir <consumer-repository> --profile-set budget --install --replace-managed
 ```
 
-Replacement fails closed for missing/unverifiable state, user drift, unrelated
-identities, collisions, concurrent changes, or transaction failure. A
-machine-local journal restores a prepared switch after process interruption or
-finishes cleanup for an already committed switch on the next setup invocation.
-Setup operations are process-locked, and recovery preserves a profile edited
-after interruption rather than restoring older bytes over the edit.
-See [profile sets](docs/profile-sets.md) for the exact routing, recovery, and
-legacy behavior.
+Setup refuses drift and identity/catalog collisions. Unsupported legacy state is
+diagnostic-only: it receives no automatic migration or cleanup. Use the
+[manual cleanup procedure](docs/compatibility.md#legacy-profile-cleanup), then
+inspect and install again. Removing the plugin and removing optional profiles
+are separate operations; plugin removal does not remove profiles, and profile
+removal is a deliberate user action.
+
+See [profile sets](docs/profile-sets.md) for routing, replacement, recovery, and
+legacy outcomes.
 
 ## Validator
 
@@ -97,41 +78,17 @@ kapisch-validate --task-dir <consumer-repository>/.kapisch/runs/example --format
 python <plugin-root>/scripts/validate_kapisch.py --task-dir <consumer-repository>/.kapisch/runs/example
 ```
 
-`--contract-dir` remains an expert override and is unnecessary for a normal
-installed validation.
-
 ## Compatibility
 
 Version-1 through version-4 durable manifests remain readable. Version-4
-snapshots include a derived `04-controller-view.toml`; render it only from a
-valid snapshot:
-
-```text
-python <plugin-root>/scripts/render_controller_view.py --task-dir <consumer-repository>/.kapisch/runs/<task-id>
-```
-
-Version-3 runs migrate to version 4 only through the explicit copy-and-validate
-command:
-
-```text
-python <plugin-root>/scripts/migrate_controller_view_v4.py --task-dir <v3-task-dir> --destination-task-dir <v4-task-dir> --approve
-```
-
-Older `.planning/task-workflow/<task-id>/` runs remain read-only inputs and use:
-
-```text
-python scripts/migrate_legacy_run.py --project-dir <consumer-repository> --task-id <task-id> --approve
-```
-
-Windows 11 with Codex Desktop and WSL2 is the release-blocking Windows surface.
-Native Windows profile setup and portable-package tests pass on Python 3.11;
-live no-WSL plugin support is claimed only after a complete observed run. See
-[compatibility.md](docs/compatibility.md) and the
-[1.2.0 Windows acceptance template](docs/acceptance-windows-v1.2.0.md).
+snapshots include a derived controller view; version-3 runs migrate to version 4
+only through the explicit copy-and-validate command. Older
+`.planning/task-workflow/<task-id>/` runs remain read-only inputs. Windows 11
+with Codex Desktop and WSL2 is the release-blocking Windows surface. Native
+Windows CI is required before release; live no-WSL support is not yet claimed.
+See [compatibility.md](docs/compatibility.md).
 
 ## Development checks
-
-From this directory:
 
 ```text
 python -m unittest discover -s tests/kapisch_validation
@@ -148,8 +105,6 @@ From the repository root, also run `python -m unittest discover -s tests` and
 - [Acceptance status](docs/acceptance.md)
 - [Compatibility and rollback](docs/compatibility.md)
 - [Profile sets and switching](docs/profile-sets.md)
-- [Roadmap](docs/roadmap.md)
-- [Change 7 execution history and acceptance plan](docs/change-7-execution-plan.md)
 - [Changelog](CHANGELOG.md)
 - [Contributing](CONTRIBUTING.md)
 

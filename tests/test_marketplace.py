@@ -17,21 +17,28 @@ PLUGIN = ROOT / "plugins/kapisch"
 
 
 class MarketplaceTests(unittest.TestCase):
-    TESTED_RUNTIME_SHA = "7ccc2b6a4987cac416f1566debc47e45fc1c2b14"
-
     def assert_release_provenance(self, matrix: str, acceptance: str) -> None:
+        match = re.search(
+            r"^- Tested runtime SHA: `([0-9a-f]{40})`\.$",
+            acceptance,
+            re.MULTILINE,
+        )
+        self.assertIsNotNone(match)
+        tested_runtime_sha = match.group(1)
         self.assertIn(
-            f"tested runtime tree `{self.TESTED_RUNTIME_SHA}`",
+            f"tested runtime tree `{tested_runtime_sha}`",
             matrix,
         )
         self.assertIn("final release SHA pending", matrix)
         self.assertNotIn("current uncommitted candidate worktree", matrix)
         self.assertIn(
-            f"- Tested runtime SHA: `{self.TESTED_RUNTIME_SHA}`.",
+            "automated evidence is bound to this exact runtime tree",
             acceptance,
         )
-        self.assertIn("automated evidence is bound to this exact runtime tree", acceptance)
-        self.assertRegex(acceptance, r"272 passed,\s+4 platform-capability skips")
+        self.assertRegex(
+            acceptance,
+            r"[0-9]+ passed,\s+[0-9]+ platform-capability skips",
+        )
         self.assertIn(
             "- Final release SHA: pending review, merge, and authorized release preparation.",
             acceptance,
@@ -96,6 +103,43 @@ class MarketplaceTests(unittest.TestCase):
         matrix = (PLUGIN / "docs/acceptance.md").read_text(encoding="utf-8")
         self.assert_release_provenance(matrix, acceptance)
 
+
+    def test_current_profile_docs_describe_the_legacy_boundary(self) -> None:
+        expectations = {
+            ROOT / "README.md": ("v2.0.0", "legacy profile"),
+            PLUGIN / "README.md": ("profile_state_version", "manual cleanup"),
+            PLUGIN / "docs/compatibility.md": (
+                "profile_state_version = 1",
+                "## Legacy profile cleanup",
+            ),
+            PLUGIN / "docs/profile-sets.md": (
+                "--install --replace-managed",
+                "unsupported legacy",
+            ),
+            PLUGIN / "docs/acceptance.md": (
+                "2.0.0",
+                "historical",
+            ),
+            PLUGIN / "CONTRIBUTING.md": (
+                "historical profile bytes",
+                "automatic migration",
+            ),
+        }
+        for path, required in expectations.items():
+            with self.subTest(path=path):
+                contents = path.read_text(encoding="utf-8")
+                for phrase in required:
+                    self.assertIn(phrase, contents)
+
+        current_compatibility = (
+            PLUGIN / "docs/compatibility.md"
+        ).read_text(encoding="utf-8")
+        for obsolete in (
+            "inspection reports it as legacy",
+            "legacy `quality`",
+            "unverifiable legacy digest",
+        ):
+            self.assertNotIn(obsolete, current_compatibility)
 
     def test_release_metadata_rejects_contradictory_provenance(self) -> None:
         version = tomllib.loads(

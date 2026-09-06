@@ -2,69 +2,81 @@
 
 ## Compatibility status
 
-Legacy migration and the `default`/`foundry` presentation themes are
-implemented, reviewed, and frozen supported compatibility surfaces. They are
-not scheduled for removal; a separate product decision is required before that
-changes. Their presence alone does not establish runtime acceptance for a Codex
-surface.
+Legacy migration and the `default`/`foundry` presentation themes remain frozen
+supported compatibility surfaces. Their presence alone does not establish runtime
+acceptance for a Codex surface.
 
 ## Platform status
 
-- Windows 11 with Codex Desktop and WSL2 completed the 1.0.1 release-baseline
-  flow. Keep Codex homes and repositories in the WSL Linux filesystem; see
-  [acceptance-windows-v1.0.1.md](acceptance-windows-v1.0.1.md).
-- Native Windows Python 3.11 passes profile setup and portable-package tests.
-  Live no-WSL marketplace and plugin support is not claimed until every live
-  step is observed successfully.
+- Windows 11 with Codex Desktop and WSL2 completed the historical 1.0.1
+  release-baseline flow.
+- Native Windows automated CI is required for 2.0.0; live no-WSL marketplace and
+  plugin support is not claimed until every live step is observed successfully.
 - The immutable Linux 1.0.0 evidence remains historical and unchanged in
   [acceptance-runtime.md](acceptance-runtime.md).
 
 ## Validator command compatibility
 
 `kapisch-validate --task-dir PATH` is the primary validator interface after
-installing the `kapisch-validation` Python package. It discovers the bundled
+installing the `kapisch-validation` Python package. It discovers bundled
 contracts without relying on the current working directory. The source-tree
-`scripts/validate_kapisch.py` wrapper remains supported and delegates to the
-same entry point; callers may remove their old `--contract-dir
-<plugin-root>/skills/kapisch` argument. An explicit `--contract-dir PATH`
-override remains supported for expert and compatibility use.
+`scripts/validate_kapisch.py` wrapper and explicit expert `--contract-dir PATH`
+override remain supported.
 
 ## Agent profile-set compatibility
 
-KAPISCH 1.1.0 adds `balanced`, `quality`, and `budget` installer-time runtime
-sets without changing profile filenames or identities. A new installation uses
-`balanced` unless the user explicitly selects another set. The `quality` bytes
-preserve the 1.0.1 routing baseline.
+Release 2.0.0 established an intentional local-profile compatibility boundary.
+The runtime is semver-independent: current local state uses
+`profile_state_version = 1` and the switch journal uses schema 3; neither number
+is the plugin version. `balanced`, `quality`, and `budget` remain installer-time
+runtime configurations for the same six identities and do not change durable
+model tiers, approval authority, risk classification, or independent review.
 
-Profile sets resolve runtime model and reasoning effort only. Durable
-`model_tier` values remain logical workflow requirements and never imply a
-concrete model family; approval authority, risk classification, and independent
-review therefore remain identical across sets. Configured runtime values may be
-recorded only as factual observations on the established observability
-surfaces.
+Current records bind the selected profile set, template filename, identity,
+installed path, and digests. Structural diagnosis identifies old records and
+journal schemas 1–2 as legacy, but diagnosis is not ownership: unsupported
+legacy state is rejected without mutation. KAPISCH does not retain historical
+bytes or digest allowlists to claim ownership, and provides no automatic
+migration or recovery for that state.
 
-New local-state records add `profile_set` and store the stable template filename,
-not the plugin cache location. A 1.0.x record without that field is read-only
-compatible when its template provenance names the expected template, its recorded
-template digest matches the current quality template, and its identity,
-installed-profile path, and digests remain valid; inspection reports it as legacy
-`quality` and does not rewrite it. An unknown or unverifiable legacy digest fails
-closed.
+Ordinary install remains non-overwriting. Same-set and routing changes require
+`--install --replace-managed`; identity, catalog, state, installed digest, and
+no-drift checks must all pass. Current schema-3 recovery can restore or finish
+an explicitly authorized interrupted replacement while preserving later user
+edits. User-modified, unrelated, missing, or legacy profiles are never switched
+or removed by KAPISCH.
 
-Ordinary install remains non-overwriting. Switching requires `--install
---replace-managed`, verified KAPISCH identity and state, a matching installed
-digest, and no collision or concurrent change. The transaction stages every new
-profile/state file before replacing any and uses a machine-local
-prepared/committed journal to restore prior bytes after a caught error or on the
-next setup invocation after process interruption. It rechecks target bytes and
-the complete selected identity catalog before committing. User-modified or
-unrelated profiles are never switched or removed. A committed transaction that
-was interrupted during cleanup keeps the selected new set and finishes cleanup
-on the next invocation. A process lock serializes setup operations, and
-recovery preserves profile bytes edited after interruption rather than
-restoring a backup over them.
-Rollback may also be performed by explicitly switching back to the prior set
-after inspection; KAPISCH does not delete profiles.
+## Legacy profile cleanup
+
+When setup lists an unsupported legacy path, back up and remove one exact
+installer-listed path at a time. Do not guess paths.
+
+```bash
+mkdir -p "$HOME/kapisch-profile-backup"
+printf 'Paste one exact path printed by setup: '
+IFS= read -r LEGACY_PATH
+cp -- "$LEGACY_PATH" "$HOME/kapisch-profile-backup/"
+printf 'Inspect the backup, then press Enter to remove the original.'
+IFS= read -r _confirmation
+rm -- "$LEGACY_PATH"
+```
+
+```powershell
+New-Item -ItemType Directory -Force "$HOME\kapisch-profile-backup"
+$LegacyPath = Read-Host "Paste one exact path printed by setup"
+Copy-Item -LiteralPath $LegacyPath -Destination "$HOME\kapisch-profile-backup"
+Read-Host "Inspect the backup, then press Enter to remove the original"
+Remove-Item -LiteralPath $LegacyPath
+```
+
+Repeat the sequence for each printed path. Review every backup before removal,
+and never delete `.kapisch` wholesale. After cleanup, inspect and explicitly
+install the desired current catalog:
+
+```text
+python scripts/setup_profile.py --all --project-dir <consumer-repository>
+python scripts/setup_profile.py --all --project-dir <consumer-repository> --install
+```
 
 ## Compatibility version 1
 

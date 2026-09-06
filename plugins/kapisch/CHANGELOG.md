@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.0.0 - 2026-09-06 (release candidate)
+
+Intentional breaking change for locally managed profile/setup state only.
+
+- Profile-state schema 1 and switch-journal schema 3 are current and independent
+  of plugin semver.
+- Legacy profiles and journal schemas 1–2 are detected and rejected without
+  mutation.
+- Automatic legacy migration/recovery and old compatibility tests were removed.
+- Generated profiles normalize newlines, and current undrifted profiles support
+  explicit same-set and routing updates.
+- The six roles, identities, durable-run compatibility, validator behavior, and
+  workflow authority are unchanged.
+- Release, review, final readiness, and tag creation remain pending.
+
 ## 1.2.1 - 2026-09-04 (release candidate)
 
 - Documented the `researcher` minimum logical tier as `standard` in the
