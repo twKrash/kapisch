@@ -2034,8 +2034,9 @@ class ProfileSetTests(unittest.TestCase):
     def test_structural_legacy_state_is_rejected_without_mutation(self) -> None:
         with TemporaryDirectory() as temporary:
             project = Path(temporary)
+            root = project.resolve()
             self.assertEqual(self._install(project, "quality"), 0)
-            for record in (project / ".kapisch/local-state/profiles").glob("*.toml"):
+            for record in (root / ".kapisch/local-state/profiles").glob("*.toml"):
                 self._remove_profile_state_version(record)
             before = self._snapshot(project)
             output = io.StringIO()
@@ -2044,19 +2045,20 @@ class ProfileSetTests(unittest.TestCase):
             self.assertEqual(self._snapshot(project), before)
             self.assertEqual(output.getvalue().count("status=unsupported-legacy"), 6)
             self.assertEqual(output.getvalue().count("modified=false"), 6)
-            self.assertIn(f"legacy_profile={project / '.codex/agents/kapisch-reviewer.toml'}", output.getvalue())
-            self.assertIn("legacy_state_record=" f"{project / '.kapisch/local-state/profiles/reviewer.toml'}", output.getvalue())
+            self.assertIn(f"legacy_profile={root / '.codex/agents/kapisch-reviewer.toml'}", output.getvalue())
+            self.assertIn("legacy_state_record=" f"{root / '.kapisch/local-state/profiles/reviewer.toml'}", output.getvalue())
             self.assertIn("docs/compatibility.md#legacy-profile-cleanup", output.getvalue().replace("\\", "/"))
 
     def test_legacy_binding_mismatch_is_an_ambiguous_collision(self) -> None:
         with TemporaryDirectory() as temporary:
             project = Path(temporary)
+            root = project.resolve()
             self.assertEqual(self._install(project, "quality"), 0)
-            record = project / ".kapisch/local-state/profiles/reviewer.toml"
+            record = root / ".kapisch/local-state/profiles/reviewer.toml"
             self._remove_profile_state_version(record)
             record.write_text(record.read_text(encoding="utf-8").replace(
-                f'installed_profile="{project / ".codex/agents/kapisch-reviewer.toml"}"',
-                f'installed_profile="{project / ".codex/agents/kapisch-architect.toml"}"',
+                f"installed_profile={setup_profile.toml_basic_string(root / '.codex/agents/kapisch-reviewer.toml')}",
+                f"installed_profile={setup_profile.toml_basic_string(root / '.codex/agents/kapisch-architect.toml')}",
             ), encoding="utf-8")
             before, output = self._snapshot(project), io.StringIO()
             with redirect_stdout(output):
@@ -2068,15 +2070,16 @@ class ProfileSetTests(unittest.TestCase):
     def test_older_profile_state_version_is_legacy(self) -> None:
         with TemporaryDirectory() as temporary:
             project = Path(temporary)
+            root = project.resolve()
             self.assertEqual(setup_profile.main(["--role", "reviewer", "--project-dir", str(project), "--install"]), 0)
-            record = project / ".kapisch/local-state/profiles/reviewer.toml"
+            record = root / ".kapisch/local-state/profiles/reviewer.toml"
             record.write_text(record.read_text(encoding="utf-8").replace("profile_state_version=1", "profile_state_version=0"), encoding="utf-8")
             before, output = self._snapshot(project), io.StringIO()
             with redirect_stdout(output):
                 self.assertEqual(setup_profile.main(["--role", "reviewer", "--project-dir", str(project)]), 2)
             self.assertEqual(self._snapshot(project), before)
             self.assertIn("status=unsupported-legacy", output.getvalue())
-            self.assertIn(f"legacy_profile={project / '.codex/agents/kapisch-reviewer.toml'}", output.getvalue())
+            self.assertIn(f"legacy_profile={root / '.codex/agents/kapisch-reviewer.toml'}", output.getvalue())
             self.assertIn(f"legacy_state_record={record}", output.getvalue())
 
     def test_newer_profile_state_version_is_a_collision(self) -> None:
