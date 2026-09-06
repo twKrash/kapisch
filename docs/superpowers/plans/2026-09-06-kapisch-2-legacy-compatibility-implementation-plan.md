@@ -987,13 +987,12 @@ git commit -m "feat: reject legacy KAPISCH profile state"
 **Interfaces:**
 
 - Consumes: `CURRENT_SWITCH_JOURNAL_VERSION = 3`
-- Produces: `_switch_artifacts(root: Path) -> set[Path]`
-- Produces: `_inspect_switch_state(root: Path) -> dict[str, Any]`
-- Produces: `_read_current_switch_file(root: Path, path: Path) -> tuple[str, list[dict[str, Any]]]`
-- Produces: `_legacy_switch_artifact_paths(root: Path, values: dict[str, Any]) -> set[Path] | None`
-- Preserves: `_read_switch_journal(root: Path) -> tuple[str, list[dict[str, Any]]]` as a wrapper for the fixed journal path and current schema only
-- Preserves: `_recover_interrupted_switch(root: Path) -> tuple[bool, str | None]` for validated current state only
-- Removes: schema-1/schema-2 recovery and deterministic `.recover.tmp` ownership fallback.
+- Produces: `_read_switch_state_version(path: Path) -> int` for the two existing journal/preparation paths only
+- Preserves: `_switch_recovery_needed(root: Path) -> bool`
+- Preserves: `_read_switch_journal(root: Path) -> tuple[str, list[dict[str, Any]]]`, restricted to schema 3
+- Preserves: `_recover_interrupted_switch(root: Path) -> tuple[bool, str | None]`, restricted to schema 3 journals
+- Removes: schema-1/schema-2 recovery and deterministic `.recover.tmp` fallback.
+- Explicitly does not add global orphan discovery, artifact globbing, or new lock architecture.
 
 - [ ] **Step 1: Convert current recovery helpers and assertions to schema 3**
 
@@ -1008,9 +1007,12 @@ Change every existing assertion that treats a newly generated journal as version
 2 to expect version 3. Do not change tests for synthetic legacy rejection added
 below.
 
-- [ ] **Step 2: Add failing journal-version rejection tests**
+- [ ] **Step 2: Add failing fixed-path version-boundary tests**
 
-Add:
+Keep fixtures inline. Do not add historical profile bytes, digest allowlists, or
+artifact scanners.
+
+Add `test_legacy_switch_journal_versions_are_not_recovered`:
 
 ```python
     def test_legacy_switch_journal_versions_are_not_recovered(self) -> None:
@@ -1051,86 +1053,35 @@ Add:
                 self.assertIn(f"legacy_journal={journal}", output.getvalue())
 ```
 
-Add `test_legacy_switch_preparation_is_not_removed`: create the same prepared
-transaction, replace version 3 with version 2, rename `profile-switch.toml` to
-`.profile-switch.prepare.tmp`, snapshot, inspect, and assert exit 2,
-`status=unsupported-legacy`, and exact snapshot equality.
-
-Add `test_incomplete_legacy_switch_journal_is_a_collision`: after a balanced
-install, write parseable `version=1` and `status="prepared"` TOML with no
-`entry`, snapshot, inspect, and assert exit 2, exact snapshot equality,
-`status=collision`, and no `status=unsupported-legacy`.
-
-- [ ] **Step 3: Add failing current preparation and orphan-artifact tests**
-
-Add `test_valid_current_preparation_is_removed_only_when_destinations_are_original`.
-Install one reviewer, construct one schema-3 prepared entry whose destination is
-the reviewer profile, whose original and desired digests both equal its current
-digest, and whose backup/staged/random-token recovery paths are absent. Generate
-bytes with `_switch_journal_text("prepared", [entry])`; in the red test, replace
-a leading `version=2` with `version=3` when necessary so the fixture is current
-before Step 5 changes the writer. Write those bytes to
-`.kapisch/local-state/.profile-switch.prepare.tmp`. Inspection must exit 0,
-print recovery completion, remove only the preparation file, and preserve every
-profile and state byte.
-
-Add `test_invalid_current_preparation_is_preserved`: use the same preparation
-but set `original_sha256` to 64 zeroes. Inspection must exit 2, retain the
-preparation bytes, and retain the full snapshot.
+Add `test_legacy_switch_preparation_versions_are_not_removed` with the same
+`for version in (1, 2)` fixture conversion, but rename the journal to the
+existing `.profile-switch.prepare.tmp` path before snapshotting. Each subtest
+must exit 2, preserve the complete snapshot byte-for-byte, print
+`status=unsupported-legacy`, `modified=false`, and the exact
+`legacy_prepare=<path>`.
 
 Add `test_malformed_and_newer_switch_journals_are_preserved` with two subtests.
-After a balanced install, write either `b"not = valid = toml\n"` or a parseable
-journal with integer `version=4`, snapshot, inspect, and assert exit 2,
-`status=collision`, exact journal bytes, and exact snapshot equality. Do not
-classify either case as legacy.
+After a balanced install, write either syntactically invalid TOML or a copy of a
+current journal with integer `version=4` to `profile-switch.toml`. Inspection
+must exit 2 with `status=collision`, preserve the exact snapshot, and never print
+`status=unsupported-legacy`.
 
-Add `test_orphan_switch_artifacts_are_preserved` with subtests for these exact
-objects:
-
-```python
-project / ".kapisch/local-state/.profile-switch.commit.tmp"
-project / ".codex/agents/.kapisch-reviewer.toml.kapisch-switch.bak"
-project / ".codex/agents/.kapisch-reviewer.toml.kapisch-switch.tmp"
-project / ".codex/agents/.kapisch-reviewer.toml.kapisch-switch.recover.tmp"
-project / ".codex/agents/.kapisch-reviewer.toml.kapisch-switch.recover.0123456789abcdef0123456789abcdef.tmp"
-project / ".kapisch/local-state/profiles/.reviewer.toml.kapisch-switch.bak"
-project / ".kapisch/local-state/profiles/.reviewer.toml.kapisch-switch.tmp"
-```
-
-For each subtest, install `balanced`, write `b"user-owned"` to the orphan path,
-snapshot, inspect, and assert exit 2, exact snapshot equality, and an
-`orphan profile-switch artifact` error.
-
-Add `test_transaction_artifact_created_during_lock_entry_is_classified`.
-Install balanced state, wrap `_switch_lock` with a context manager that enters
-the real lock and then writes an orphan commit-temp before yielding, run ordinary
-inspection, and assert exit 2, exact preservation of the orphan and all profile
-bytes, and `status=collision`. Add
-`from contextlib import contextmanager, redirect_stdout` to the test imports.
-This regression proves classification must happen after lock acquisition rather
-than from an unlocked precheck.
-
-- [ ] **Step 4: Run transaction tests and verify intended failures**
+- [ ] **Step 3: Run the new boundary tests and verify intended failures**
 
 Run from `plugins/kapisch`:
 
 ```bash
 python -m unittest \
   tests.kapisch_validation.test_setup_profile.ProfileSetTests.test_legacy_switch_journal_versions_are_not_recovered \
-  tests.kapisch_validation.test_setup_profile.ProfileSetTests.test_legacy_switch_preparation_is_not_removed \
-  tests.kapisch_validation.test_setup_profile.ProfileSetTests.test_incomplete_legacy_switch_journal_is_a_collision \
-  tests.kapisch_validation.test_setup_profile.ProfileSetTests.test_valid_current_preparation_is_removed_only_when_destinations_are_original \
-  tests.kapisch_validation.test_setup_profile.ProfileSetTests.test_invalid_current_preparation_is_preserved \
+  tests.kapisch_validation.test_setup_profile.ProfileSetTests.test_legacy_switch_preparation_versions_are_not_removed \
   tests.kapisch_validation.test_setup_profile.ProfileSetTests.test_malformed_and_newer_switch_journals_are_preserved \
-  tests.kapisch_validation.test_setup_profile.ProfileSetTests.test_orphan_switch_artifacts_are_preserved \
-  tests.kapisch_validation.test_setup_profile.ProfileSetTests.test_transaction_artifact_created_during_lock_entry_is_classified \
   -v
 ```
 
-Expected: FAIL because schemas 1-2 are still recovered, preparation files are
-removed by pathname alone, and orphan artifacts are not inspected globally.
+Expected: FAIL because schemas 1-2 still enter recovery, the current writer does
+not yet emit schema 3, and legacy preparation files are still removed.
 
-- [ ] **Step 5: Make `_switch_journal_text` emit schema 3 only**
+- [ ] **Step 4: Make `_switch_journal_text` emit schema 3 only**
 
 Replace version inference with the current constant and require every entry to
 carry a recovery path:
@@ -1147,29 +1098,14 @@ def _switch_journal_text(status: str, entries: list[dict[str, Any]]) -> bytes:
 
 Keep the existing eight entry fields and TOML rendering loop.
 
-- [ ] **Step 6: Restrict switch-file parsing to the exact current shape**
+- [ ] **Step 5: Restrict `_read_switch_journal` to schema 3**
 
-Extract the current parser as
-`_read_current_switch_file(root: Path, path: Path)`. It must apply all current
-schema, status, entry-shape, path-containment, and digest checks to the supplied
-regular file. Keep `_read_switch_journal(root)` as this wrapper so existing
-recovery callers remain stable:
+Keep `_read_switch_journal(root)` and its fixed journal path. Replace the
+schema-1/schema-2 version branches with one exact current check:
 
 ```python
-def _read_switch_journal(
-    root: Path,
-) -> tuple[str, list[dict[str, Any]]]:
-    return _read_current_switch_file(root, _switch_journal_path(root))
-```
-
-Inside `_read_current_switch_file`, reject extra/missing top-level fields and
-require exact TOML scalar types before comparing values:
-
-```python
-    if set(values) != {"version", "status", "entries"}:
-        raise OSError("profile-switch journal has unexpected fields")
-    version = values["version"]
-    status = values["status"]
+    version = values.get("version")
+    status = values.get("status")
     if (
         type(version) is not int
         or version != CURRENT_SWITCH_JOURNAL_VERSION
@@ -1179,8 +1115,7 @@ require exact TOML scalar types before comparing values:
         raise OSError("profile-switch journal has an unsupported version or status")
 ```
 
-Require `values["entries"]` to be a non-empty list before iterating it. Use one
-exact field set for every entry:
+Use the current eight-field entry shape unconditionally:
 
 ```python
     expected_fields = {
@@ -1195,128 +1130,54 @@ exact field set for every entry:
     }
 ```
 
-Retain current random-token path, role/kind uniqueness, derived path, and digest
-validation. Remove every `version == 1` or `version == 2` branch.
+Retain the existing non-empty entry, unique role/kind, derived
+profile/state/backup/staged path, random-token recovery path, and digest checks.
+Delete only version-specific schema-1/schema-2 branches; do not redesign current
+schema-3 validation or recovery.
 
-- [ ] **Step 7: Classify transaction artifacts before recovery**
+- [ ] **Step 6: Gate only the existing journal and preparation paths by version**
 
-Add `_switch_artifacts` to enumerate the fixed journal/prepare/commit paths and
-the exact backup/staged/recovery patterns for all six profile and record
-filenames:
-
-```python
-def _switch_artifacts(root: Path) -> set[Path]:
-    artifacts = {
-        _switch_journal_path(root),
-        _switch_prepare_path(root),
-        _switch_journal_path(root).with_name(".profile-switch.commit.tmp"),
-    }
-    destinations = [
-        root / ".codex" / "agents" / f"kapisch-{role}.toml"
-        for role in ROLE_CATALOG
-    ] + [
-        root / ".kapisch" / "local-state" / "profiles" / f"{role}.toml"
-        for role in ROLE_CATALOG
-    ]
-    for destination in destinations:
-        artifacts.add(destination.with_name(f".{destination.name}.kapisch-switch.bak"))
-        artifacts.add(destination.with_name(f".{destination.name}.kapisch-switch.tmp"))
-        artifacts.add(destination.with_name(f".{destination.name}.kapisch-switch.recover.tmp"))
-        if destination.parent.is_dir():
-            artifacts.update(
-                destination.parent.glob(
-                    f".{destination.name}.kapisch-switch.recover.*.tmp"
-                )
-            )
-    return artifacts
-```
-
-Add `_inspect_switch_state(root)` with these exact classifications:
-
-- `none`: no listed artifact exists;
-- `current-journal`: `profile-switch.toml` passes
-  `_read_current_switch_file`; every other transaction artifact that exists is
-  one of the validated entries' derived backup/staged/random-recovery paths;
-- `current-prepare`: only `.profile-switch.prepare.tmp` exists, it passes
-  `_read_current_switch_file`, and its status is `prepared`;
-- `unsupported-legacy`: the journal or preparation is regular parseable TOML,
-  has exact integer version 1 or 2, and passes
-  `_legacy_switch_artifact_paths`;
-- `collision`: symlink, malformed/incomplete/contradictory/unknown/newer version,
-  commit temp without a
-  valid journal, multiple conflicting roots, or any orphan artifact.
-
-Return a dictionary containing `status`, `error`, and safe diagnostic paths.
-Implement `_legacy_switch_artifact_paths` as a recognition-only parser: require
-exact top-level fields `version`, `status`, and `entries`; exact integer version
-1 or 2; string status `prepared` or `committed`; a non-empty `entries` list; exact
-schema-1 entry fields (the current field set minus `recovery`) or exact schema-2
-entry fields; string values; valid 64-character lowercase SHA-256 values; and
-unique known `(role, kind)` pairs. Require each stored destination, backup, and staged path to equal the exact path
-derived from that role/kind under `root`. For schema 2, require the recovery
-field to match only the derived destination's root-contained random-token
-recovery filename pattern; never follow it or use an arbitrary parent. Return
-only validated/re-derived root-contained paths, never unchecked paths from the
-TOML. Any failed requirement returns `None`, which
-`_inspect_switch_state` classifies as `collision`. This helper is never passed
-to recovery code.
-
-- [ ] **Step 8: Route setup through transaction classification under the lock**
-
-Delete `_switch_recovery_needed` and its check-then-lock use in `main`. For every
-install, and for every inspection where `.kapisch/local-state` exists or is a
-symlink, acquire `_switch_lock` first and call `_run_setup` only inside it:
+Add one small parser for the two paths already checked by
+`_switch_recovery_needed`:
 
 ```python
-    state_dir = root / ".kapisch" / "local-state"
-    state_exists = state_dir.exists() or state_dir.is_symlink()
-    if not args.install and not state_exists:
-        return _run_setup(args, root, allow_recovery=False)
-    with _switch_lock(root, create=args.install):
-        return _run_setup(args, root, allow_recovery=True)
+def _read_switch_state_version(path: Path) -> int:
+    if path.is_symlink():
+        raise OSError("profile-switch state is a symbolic link")
+    values = _parse_profile_bytes(path.read_bytes())
+    version = values.get("version")
+    if type(version) is not int:
+        raise OSError("profile-switch state has an invalid version")
+    return version
 ```
 
-Fresh inspections retain the no-directory/no-lock fast path. At the beginning
-of `_run_setup`, always call `_inspect_switch_state(root)`; for any non-`none`
-state reached through an existing state directory, classification therefore
-occurs after lock acquisition. For `unsupported-legacy`, implement the output
-with the classified path rather than a release-specific message:
+In `_run_setup`, after its existing `recovery_needed`/`allow_recovery` guard and
+before `_recover_interrupted_switch`, inspect only `_switch_journal_path(root)`
+and `_switch_prepare_path(root)` when they exist. Keep `main`,
+`_switch_recovery_needed`, and `_switch_lock` unchanged.
 
-```python
-        print("status=unsupported-legacy")
-        print("error=unsupported legacy KAPISCH profile-switch state was detected")
-        print("modified=false")
-        print(f"legacy_journal={switch_state['path']}")
-        print(
-            "action=back up and manually remove the listed legacy files, "
-            "then reinstall"
-        )
-        guidance = (
-            Path(__file__).resolve().parents[1]
-            / "docs"
-            / "compatibility.md"
-        )
-        print(f"guidance={guidance}#legacy-profile-cleanup")
-        return 2
-```
+For either fixed path:
 
-Print additional derived legacy artifact paths only when their roles/kinds
-validate. Do not call `_recover_interrupted_switch` for this branch.
+- version 1 or 2: print `status=unsupported-legacy`, `modified=false`, the exact
+  `legacy_journal=<path>` or `legacy_prepare=<path>`, manual backup/removal
+  guidance, and return 2 before recovery;
+- version 3: continue through existing recovery behavior;
+- malformed TOML, a missing/non-integer version, symlink, or any version other
+  than 1-3: print `status=collision`, `modified=false`, and return 2 without
+  recovery.
 
-For `collision`, print `status=collision`, `modified=false`, the exact safe
-artifact path, and `action=review local state; no profile operation was attempted`.
-Return 2 without deleting anything.
+If both fixed paths exist, inspect both before allowing recovery so a legacy or
+collision preparation file cannot be removed as cleanup for a current journal.
+Do not parse legacy entries, derive their referenced paths, scan sibling
+directories, enumerate backup/staged/recovery artifacts, or introduce a new
+transaction classifier. Current schema-3 journal validation remains in
+`_read_switch_journal`; current schema-3 preparation cleanup retains the
+existing under-lock behavior.
 
-For `current-journal`, invoke current recovery. For `current-prepare`, verify all
-entry destinations still match `original_sha256` and every declared
-backup/staged/recovery path is absent; then remove only the validated preparation
-file and report recovery completion. If any check fails, return collision and
-preserve it.
+- [ ] **Step 7: Remove deterministic schema-1 recovery fallback**
 
-- [ ] **Step 9: Remove deterministic legacy recovery behavior**
-
-In `_recover_interrupted_switch`, delete the branch and comments for entries
-without `recovery`, including deterministic
+In `_recovery_staging_path` and `_recover_interrupted_switch`, delete branches
+and comments for entries without `recovery`, including deterministic
 `.kapisch-switch.recover.tmp` handling. Every recovered entry now gets its
 random-token path from the validated schema-3 journal.
 
@@ -1331,33 +1192,30 @@ Delete from tests:
 
 The new schema-1/schema-2 refusal tests replace those compatibility tests.
 
-- [ ] **Step 10: Run focused and full transaction recovery tests**
+- [ ] **Step 8: Run focused and full transaction recovery tests**
 
 Run from `plugins/kapisch`:
 
 ```bash
 python -m unittest \
   tests.kapisch_validation.test_setup_profile.ProfileSetTests.test_legacy_switch_journal_versions_are_not_recovered \
-  tests.kapisch_validation.test_setup_profile.ProfileSetTests.test_legacy_switch_preparation_is_not_removed \
-  tests.kapisch_validation.test_setup_profile.ProfileSetTests.test_incomplete_legacy_switch_journal_is_a_collision \
-  tests.kapisch_validation.test_setup_profile.ProfileSetTests.test_valid_current_preparation_is_removed_only_when_destinations_are_original \
-  tests.kapisch_validation.test_setup_profile.ProfileSetTests.test_invalid_current_preparation_is_preserved \
+  tests.kapisch_validation.test_setup_profile.ProfileSetTests.test_legacy_switch_preparation_versions_are_not_removed \
   tests.kapisch_validation.test_setup_profile.ProfileSetTests.test_malformed_and_newer_switch_journals_are_preserved \
-  tests.kapisch_validation.test_setup_profile.ProfileSetTests.test_orphan_switch_artifacts_are_preserved \
-  tests.kapisch_validation.test_setup_profile.ProfileSetTests.test_transaction_artifact_created_during_lock_entry_is_classified \
   tests.kapisch_validation.test_setup_profile.ProfileSetTests.test_transaction_owned_partial_recovery_staging_recovers_automatically \
   tests.kapisch_validation.test_setup_profile.ProfileSetTests.test_unverified_recovery_staging_fails_closed \
   tests.kapisch_validation.test_setup_profile.ProfileSetTests.test_interrupted_switch_recovers_at_every_profile_and_state_publish \
   tests.kapisch_validation.test_setup_profile.ProfileSetTests.test_interrupted_switch_preserves_a_later_user_edit \
+  tests.kapisch_validation.test_setup_profile.ProfileSetTests.test_interrupted_journal_publish_recovers_and_commit_publish_finishes \
   -v
 python -m unittest tests.kapisch_validation.test_setup_profile -v
 ```
 
-Expected: all focused and full setup tests PASS. Legacy and ambiguous artifacts
-are byte-for-byte unchanged; current schema-3 recovery still passes interruption,
-external-edit, cleanup, and concurrency coverage.
+Expected: all focused and full setup tests PASS. Schema-1/schema-2 journal and
+preparation files remain byte-for-byte unchanged; malformed/newer journals fail
+closed; existing schema-3 interruption, external-edit, cleanup, and concurrency
+semantics remain green.
 
-- [ ] **Step 11: Commit the transaction boundary reset**
+- [ ] **Step 9: Commit the transaction boundary reset**
 
 ```bash
 git add \
@@ -1906,7 +1764,7 @@ Do not push, open a PR, tag, publish, or release without separate authorization.
 | Removal of unversioned-quality compatibility and old provenance | Task 3 and Final Removal Audit |
 | Journal schemas 1-2 rejected, not recovered | Task 4 |
 | Current journal schema 3 recovery retained | Task 4 |
-| Validated preparation cleanup and orphan preservation | Task 4 |
+| Fixed-path schema-1/schema-2 refusal and malformed/newer journal collision | Task 4 |
 | Removal of deterministic legacy recovery behavior/tests | Task 4 and Final Removal Audit |
 | PR #35 fixtures, hashes, and `.gitattributes` rule remain absent | Tasks 3-4 and Final Removal Audit |
 | Complete current-facing documentation | Task 5 documentation steps and test |
