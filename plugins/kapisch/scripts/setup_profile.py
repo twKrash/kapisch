@@ -277,6 +277,11 @@ def _print_plan(plan: dict[str, Any], scope: str) -> None:
         print("action=profile copied; no existing profile was overwritten")
     elif plan["status"] == "not-installed":
         print("action=rerun with --install after human review")
+    elif plan["status"] == "installed" and plan.get("drift") == "user-modified":
+        print(
+            "action=review or restore the user-modified managed profile; "
+            "--replace-managed is refused while drift remains"
+        )
     elif plan["status"] == "installed" and plan.get("switch_required"):
         print("action=rerun with --install --replace-managed after human review")
     else:
@@ -1185,6 +1190,117 @@ def _switch_lock(root: Path, *, create: bool) -> Iterator[None]:
                 pass
 
 
+def _legacy_switch_residue_paths(root: Path, roles: list[str]) -> list[Path]:
+    found: list[Path] = []
+
+    for role in roles:
+        destinations = (
+            root / ".codex" / "agents" / f"kapisch-{role}.toml",
+            root / ".kapisch" / "local-state" / "profiles" / f"{role}.toml",
+        )
+
+        for destination in destinations:
+            for suffix in (
+                "kapisch-switch.bak",
+                "kapisch-switch.tmp",
+            ):
+                candidate = destination.with_name(
+                    f".{destination.name}.{suffix}"
+                )
+                if candidate.exists() or candidate.is_symlink():
+                    found.append(candidate)
+
+    return sorted(set(found))
+
+def _legacy_switch_residue_requires_refusal(
+    root: Path,
+    roles: list[str],
+) -> bool:
+    paths = _legacy_switch_residue_paths(root, roles)
+    if not paths:
+        return False
+
+    print("status=collision")
+    print("modified=false")
+    print(
+        "error=possible pre-2.0 profile-switch staging artifacts remain"
+    )
+    for path in paths:
+        print(f"legacy_switch_artifact={path}")
+    print(
+        "action=back up and inspect each listed artifact; "
+        "if it belongs to the old KAPISCH installation, "
+        "remove it manually and rerun inspection"
+    )
+    return True
+
+def _legacy_profile_state_requires_refusal(
+    root: Path,
+    *,
+    scope: str,
+    roles: list[str],
+    profile_set: str,
+) -> bool:
+    refused = False
+
+    for role in roles:
+        target = root / ".codex" / "agents" / f"kapisch-{role}.toml"
+        record = (
+            root
+            / ".kapisch"
+            / "local-state"
+            / "profiles"
+            / f"{role}.toml"
+        )
+
+        if (
+            not target.exists()
+            or target.is_symlink()
+            or not record.exists()
+            or record.is_symlink()
+        ):
+            continue
+
+        try:
+            saved = _record_values(record)
+        except ProfileReadError:
+            continue
+
+        state_version = saved.get("profile_state_version")
+        legacy_version = (
+            state_version is None
+            or (
+                type(state_version) is int
+                and state_version < CURRENT_PROFILE_STATE_VERSION
+            )
+        )
+
+        if not legacy_version:
+            continue
+
+        if not _legacy_profile_binding_matches(
+            saved,
+            expected_identity=f"kapisch-{role}",
+            target=target,
+            scope=scope,
+        ):
+            continue
+
+        _print_plan(
+            {
+                "target": target,
+                "status": "unsupported-legacy",
+                "profile_set": profile_set,
+                "legacy_profile": target,
+                "legacy_state_record": record,
+                "error": "unsupported legacy KAPISCH profile state was detected",
+            },
+            scope,
+        )
+        refused = True
+
+    return refused
+
 def _switch_recovery_needed(root: Path) -> bool:
     return (
         _switch_journal_path(root).exists()
@@ -1365,10 +1481,20 @@ def main(argv: list[str] | None = None) -> int:
     if args.replace_managed and not args.install:
         parser.error("--replace-managed requires --install")
 
+    roles = list(ROLE_CATALOG if args.all else (args.role,))
     root = (args.project_dir if args.scope == "project" else args.user_dir).resolve()
     try:
         recovery_needed = _switch_recovery_needed(root)
         if recovery_needed and _fixed_switch_state_requires_refusal(root):
+            return 2
+        if _legacy_profile_state_requires_refusal(
+            root,
+            scope=args.scope,
+            roles=roles,
+            profile_set=args.profile_set,
+        ):
+            return 2
+        if not recovery_needed and _legacy_switch_residue_requires_refusal(root,roles):
             return 2
         if not args.install and not recovery_needed:
             return _run_setup(args, root, allow_recovery=False)

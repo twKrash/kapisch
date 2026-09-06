@@ -61,9 +61,16 @@ python scripts/setup_profile.py --all --scope user --user-dir <user-home>
 
 The list can contain profile files, companion state records, the fixed
 `profile-switch.toml` journal, or the fixed `.profile-switch.prepare.tmp`
-preparation file. Remove only the exact paths listed by setup. Do not infer
+preparation file. Inspector can also return `legacy_switch_artifact=<exact path>`. 
+Remove only the exact paths listed by setup. Do not infer
 ownership from similar names, follow paths embedded in a legacy journal, or add
 nearby files to the cleanup list.
+
+Exact .kapisch-switch.bak/.tmp sibling paths can be reported as possible
+residue from an interrupted pre-2.0 replacement.
+
+Their names are not proof of ownership. Back them up and inspect them.
+Remove them only if they belong to the old KAPISCH installation.
 
 WSL users follow the POSIX procedure below and use Linux paths. For each listed
 path, choose a distinct backup path so profile and state files with the same
