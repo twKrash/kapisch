@@ -1653,6 +1653,194 @@ class ProfileSetTests(unittest.TestCase):
                 output.getvalue(),
             )
 
+    def test_manual_legacy_cleanup_reports_and_clears_interrupted_switch_residue(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary).resolve()
+            self.assertEqual(self._install(project, "balanced"), 0)
+
+            self._interrupt_prepared_switch(project)
+
+            journal = project / ".kapisch/local-state/profile-switch.toml"
+
+            # Turn interrupted current transaction into recognizable pre-2.0 transaction state.
+            journal.write_bytes(
+                journal.read_bytes().replace(
+                    b"version=3\n",
+                    b"version=2\n",
+                    1,
+                )
+            )
+
+            for record in (
+                project / ".kapisch/local-state/profiles"
+            ).glob("*.toml"):
+                self._remove_profile_state_version(record)
+
+            # First cleanup step: legacy transaction state is refused read-only.
+            before = self._snapshot(project)
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(
+                    setup_profile.main(
+                        ["--all", "--project-dir", str(project)]
+                    ),
+                    2,
+                )
+
+            self.assertEqual(self._snapshot(project), before)
+            self.assertIn("status=unsupported-legacy", output.getvalue())
+            self.assertIn(f"legacy_journal={journal}", output.getvalue())
+            self.assertIn("modified=false", output.getvalue())
+
+            # Human removes exact legacy journal reported by inspection.
+            journal.unlink()
+
+            # Next inspection exposes legacy profile/state pairs.
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(
+                    setup_profile.main(
+                        ["--all", "--project-dir", str(project)]
+                    ),
+                    2,
+                )
+
+            self.assertEqual(
+                output.getvalue().count("status=unsupported-legacy"),
+                6,
+            )
+
+            # Human removes only exact profile/state paths reported.
+            for role in setup_profile.ROLE_CATALOG:
+                (
+                    project / f".codex/agents/kapisch-{role}.toml"
+                ).unlink()
+                (
+                    project
+                    / f".kapisch/local-state/profiles/{role}.toml"
+                ).unlink()
+
+            # Old deterministic transaction siblings must now be surfaced.
+            residue = setup_profile._legacy_switch_residue_paths(
+                project,
+                list(setup_profile.ROLE_CATALOG),
+            )
+            self.assertTrue(residue)
+
+            before = self._snapshot(project)
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(
+                    setup_profile.main(
+                        ["--all", "--project-dir", str(project)]
+                    ),
+                    2,
+                )
+
+            self.assertEqual(self._snapshot(project), before)
+            self.assertIn("status=collision", output.getvalue())
+            self.assertIn("modified=false", output.getvalue())
+
+            for path in residue:
+                self.assertIn(
+                    f"legacy_switch_artifact={path}",
+                    output.getvalue(),
+                )
+
+            # Human verifies ownership and removes reported residue.
+            for path in residue:
+                path.unlink()
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(
+                    setup_profile.main(
+                        ["--all", "--project-dir", str(project)]
+                    ),
+                    0,
+                )
+
+            self.assertEqual(
+                output.getvalue().count("status=not-installed"),
+                6,
+            )
+
+            self.assertEqual(self._install(project, "balanced"), 0)
+
+            self.assertEqual(
+                setup_profile.main(
+                    [
+                        "--all",
+                        "--project-dir",
+                        str(project),
+                        "--profile-set",
+                        "quality",
+                        "--install",
+                        "--replace-managed",
+                    ]
+                ),
+                0,
+            )
+
+    def test_legacy_profile_refusal_preserves_stale_lock_for_both_install_forms(
+        self,
+    ) -> None:
+        for replace_managed in (False, True):
+            with (
+                self.subTest(replace_managed=replace_managed),
+                TemporaryDirectory() as temporary,
+            ):
+                project = Path(temporary).resolve()
+                self.assertEqual(self._install(project, "quality"), 0)
+                for record in (
+                    project / ".kapisch/local-state/profiles"
+                ).glob("*.toml"):
+                    self._remove_profile_state_version(record)
+                lock = project / ".kapisch/local-state/profile-switch.lock"
+                lock_bytes = b"pid=999999\n"
+                lock.write_bytes(lock_bytes)
+                before = self._snapshot(project)
+                output = io.StringIO()
+                argv = ["--all", "--project-dir", str(project), "--install"]
+                if replace_managed:
+                    argv.append("--replace-managed")
+                with redirect_stdout(output):
+                    self.assertEqual(setup_profile.main(argv), 2)
+                self.assertEqual(self._snapshot(project), before)
+                self.assertEqual(lock.read_bytes(), lock_bytes)
+                self.assertEqual(output.getvalue().count("status=unsupported-legacy"), 6)
+                self.assertEqual(output.getvalue().count("modified=false"), 6)
+
+    def test_current_user_modified_profile_inspection_reports_refusal(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary).resolve()
+            self.assertEqual(self._install(project, "balanced"), 0)
+            target = project / ".codex/agents/kapisch-reviewer.toml"
+            target.write_bytes(target.read_bytes() + b"# user change\n")
+            before = self._snapshot(project)
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(
+                    setup_profile.main(
+                        ["--role", "reviewer", "--project-dir", str(project)]
+                    ),
+                    0,
+                )
+
+            self.assertEqual(self._snapshot(project), before)
+            self.assertIn("drift=user-modified", output.getvalue())
+            self.assertIn(
+                "--replace-managed is refused while drift remains",
+                output.getvalue(),
+            )
+            self.assertNotIn(
+                "rerun with --install --replace-managed",
+                output.getvalue(),
+            )
+
     def test_legacy_switch_preparation_versions_are_not_removed(self) -> None:
         for version in (1, 2):
             with self.subTest(version=version), TemporaryDirectory() as temporary:
