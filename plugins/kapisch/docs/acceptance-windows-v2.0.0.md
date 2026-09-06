@@ -35,8 +35,8 @@ Tested runtime SHA: `f4204b800e1aca7f0354ebc496561c8181610768`
 CI workflow: `34055905476`
 
 The tested runtime tree completed root discovery (17 tests), plugin validation
-discovery (374 tests), and the portable-package check (374 tests). This is 765
-passed, 0 platform-capability skips. The validator help command also exited 0.
+discovery (374 tests), and the portable-package check (374 tests). This is 765 passed, 0 platform-capability skips. 
+The validator help command also exited 0.
 This record confirms that automated evidence is bound to this exact runtime tree.
 
 ## Native Windows CI result
