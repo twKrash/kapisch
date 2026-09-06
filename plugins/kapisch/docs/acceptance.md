@@ -10,7 +10,7 @@ dispatch, durable execution, and the installed public validator.
 | --- | --- | --- |
 | Marketplace layout and canonical plugin source | passed | root `tests/test_marketplace.py` |
 | Portable package and validator | passed | `scripts/test_portable_package.py` and `tests/kapisch_validation` |
-| 2.0.0 local-profile compatibility candidate | passed for tested runtime tree `b36c5303f2732b136a9764b086e3a998054bcf80`; final release SHA pending | [2.0.0 Windows record](acceptance-windows-v2.0.0.md) |
+| 2.0.0 local-profile compatibility candidate | passed for tested runtime tree `f4204b800e1aca7f0354ebc496561c8181610768`; final release SHA pending | [2.0.0 Windows record](acceptance-windows-v2.0.0.md) |
 | Unix-like release 1.0.0 | historical complete | [historical runtime record](acceptance-runtime.md) |
 | Windows 11 Desktop + WSL2 release baseline | historical complete | [1.0.1 Windows record](acceptance-windows-v1.0.1.md) |
 | 1.0.1 exact release SHA and remote tag | historical complete | [1.0.1 Windows record](acceptance-windows-v1.0.1.md) |
@@ -36,6 +36,17 @@ git diff --check
 
 Project-understanding procedures, role boundaries, handoffs, and independent
 review remain covered by the contract acceptance suite.
+
+## Latest CI evidence
+
+Tested runtime SHA: `f4204b800e1aca7f0354ebc496561c8181610768`
+
+CI workflow: `34055905476`
+
+| Check | Status |
+| --- | --- |
+| Linux CI | PASS |
+| Windows `windows-profile-setup` | PASS |
 
 The suites cover strict manifest versions, lifecycle and previous-snapshot
 compatibility, digest and UTF-8 handling, reviewer invocation evidence, legacy

@@ -1,11 +1,13 @@
 # Windows acceptance record — 2.0.0
 
-**Status: PENDING.** This is the release-candidate acceptance record. Native
-Windows automated CI is required; a separate native-PowerShell live acceptance
-run is optional.
+**Status: PASS for automated CI.** This is the release-candidate acceptance
+record. A separate native-PowerShell live acceptance run is optional.
 
 - Release: `2.0.0`; intended immutable tag: `v2.0.0`.
-- Tested runtime SHA: `b36c5303f2732b136a9764b086e3a998054bcf80`.
+- Tested runtime SHA: `f4204b800e1aca7f0354ebc496561c8181610768`.
+- CI workflow: `34055905476`.
+- Linux CI: `PASS`.
+- Windows `windows-profile-setup`: `PASS`.
 - Final release SHA: pending review, merge, and authorized release preparation.
 - Remote tag verification: pending; do not create or publish the tag during candidate preparation.
 
@@ -28,16 +30,18 @@ python scripts/test_portable_package.py
 
 ## Current candidate evidence — 2026-09-06
 
-The clean Task 4 runtime tree completed root discovery (16 tests), plugin
-validation discovery (370 tests), and the portable-package check (370 tests).
-This is 756 passed, 0 platform-capability skips. The validator help command also
-exited 0. automated evidence is bound to this exact runtime tree.
+Tested runtime SHA: `f4204b800e1aca7f0354ebc496561c8181610768`
 
-## Native Windows CI expectation
+CI workflow: `34055905476`
+
+The tested runtime tree completed root discovery (17 tests), plugin validation
+discovery (374 tests), and the portable-package check (374 tests). This is 765
+passed, 0 platform-capability skips. The validator help command also exited 0.
+
+## Native Windows CI result
 
 The `windows-profile-setup` GitHub Actions job on `windows-latest`, Python 3.11,
-is required before merge or release. It has not been observed for this candidate,
-so this record does not claim native Windows success.
+completed successfully for this candidate. Linux CI also passed.
 
 ## Optional live acceptance
 
