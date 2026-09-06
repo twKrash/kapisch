@@ -574,47 +574,9 @@ class ProfileSetTests(unittest.TestCase):
                     "--replace-managed",
                 ]
             )
-        return before
-
-    def _legacy_prepared_switch(
-        self, project: Path
-    ) -> tuple[dict[Path, bytes], Path, Path]:
-        before = self._snapshot(project)
-        role = "researcher"
-        target = project / f".codex/agents/kapisch-{role}.toml"
-        original = target.read_bytes()
-        desired = setup_profile._render_profile_bytes(
-            (setup_profile.AGENT_DIR / f"kapisch-{role}.toml").read_bytes(),
-            role=role,
-            profile_set="quality",
-        )
-        backup = target.with_name(f".{target.name}.kapisch-switch.bak")
-        staged = target.with_name(f".{target.name}.kapisch-switch.tmp")
-        backup.write_bytes(original)
-        target.write_bytes(desired)
         journal = project / ".kapisch/local-state/profile-switch.toml"
-        setup_profile._write_exclusive(
-            journal,
-            setup_profile._switch_journal_text(
-                "prepared",
-                [
-                    {
-                        "role": role,
-                        "kind": "profile",
-                        "destination": str(target),
-                        "backup": str(backup),
-                        "staged": str(staged),
-                        "original_sha256": hashlib.sha256(original).hexdigest(),
-                        "desired_sha256": hashlib.sha256(desired).hexdigest(),
-                    }
-                ],
-            ),
-        )
-        return (
-            before,
-            journal,
-            target.with_name(f".{target.name}.kapisch-switch.recover.tmp"),
-        )
+        self.assertEqual(tomllib.loads(journal.read_text())["version"], 3)
+        return before
 
     def test_default_install_uses_balanced_and_records_the_set(self) -> None:
         with TemporaryDirectory() as temporary:
@@ -1255,6 +1217,10 @@ class ProfileSetTests(unittest.TestCase):
                 staged = destination.with_name(
                     f".{destination.name}.kapisch-switch.tmp"
                 )
+                recovery = destination.with_name(
+                    f".{destination.name}.kapisch-switch.recover."
+                    "0123456789abcdef0123456789abcdef.tmp"
+                )
                 commit_temporary = journal.with_name(".profile-switch.commit.tmp")
                 prepare = journal.with_name(".profile-switch.prepare.tmp")
                 artifacts = {
@@ -1279,12 +1245,15 @@ class ProfileSetTests(unittest.TestCase):
                                 "destination": str(destination),
                                 "backup": str(backup),
                                 "staged": str(staged),
+                                "recovery": str(recovery),
                                 "original_sha256": destination_digest,
                                 "desired_sha256": destination_digest,
                             }
                         ],
                     ),
                 )
+                if denied_kind == "prepare":
+                    prepare.write_bytes(journal.read_bytes())
                 original_remove_switch_artifact = setup_profile._remove_switch_artifact
                 unlink_paths: list[str] = []
 
@@ -1608,51 +1577,129 @@ class ProfileSetTests(unittest.TestCase):
             self.assertEqual(unrelated.read_bytes(), b"user-owned")
             self.assertEqual(self._snapshot(project), expected)
 
-    def test_legacy_partial_recovery_staging_recovers_automatically(self) -> None:
-        with TemporaryDirectory() as temporary:
-            project = Path(temporary).resolve()
-            self.assertEqual(self._install(project, "balanced"), 0)
-            before, journal, recovery = self._legacy_prepared_switch(project)
-            backup = recovery.with_name(
-                ".kapisch-researcher.toml.kapisch-switch.bak"
-            )
-            recovery.write_bytes(backup.read_bytes()[:1])
-            self.assertEqual(tomllib.loads(journal.read_text())["version"], 1)
-
-            output = io.StringIO()
-            with redirect_stdout(output):
-                self.assertEqual(
-                    setup_profile.main(
-                        ["--all", "--project-dir", str(project), "--profile-set", "balanced"]
-                    ),
-                    0,
+    def test_legacy_switch_journal_versions_are_not_recovered(self) -> None:
+        for version in (1, 2):
+            with self.subTest(version=version), TemporaryDirectory() as temporary:
+                project = Path(temporary).resolve()
+                self.assertEqual(self._install(project, "balanced"), 0)
+                self._interrupt_prepared_switch(project)
+                journal = project / ".kapisch/local-state/profile-switch.toml"
+                legacy_bytes = journal.read_bytes()
+                if version == 1:
+                    legacy_bytes = b"".join(
+                        line
+                        for line in legacy_bytes.splitlines(keepends=True)
+                        if not line.startswith(b"recovery=")
+                    )
+                journal.write_bytes(
+                    legacy_bytes.replace(
+                        b"version=3\n", f"version={version}\n".encode("ascii"), 1
+                    )
                 )
-            self.assertIn(
-                "recovery=completed interrupted managed-profile transaction",
-                output.getvalue(),
-            )
-            self.assertFalse(journal.exists())
-            self.assertFalse(recovery.exists())
-            self.assertEqual(self._snapshot(project), before)
+                before = self._snapshot(project)
+                output = io.StringIO()
 
-    def test_legacy_unverified_recovery_staging_fails_closed(self) -> None:
-        with TemporaryDirectory() as temporary:
-            project = Path(temporary).resolve()
-            self.assertEqual(self._install(project, "balanced"), 0)
-            _, journal, recovery = self._legacy_prepared_switch(project)
-            recovery.write_bytes(b"unrelated user file")
+                with redirect_stdout(output):
+                    self.assertEqual(
+                        setup_profile.main(["--all", "--project-dir", str(project)]), 2
+                    )
 
-            output = io.StringIO()
-            with redirect_stdout(output):
-                self.assertEqual(
-                    setup_profile.main(
-                        ["--all", "--project-dir", str(project), "--profile-set", "balanced"]
-                    ),
-                    2,
+                self.assertEqual(self._snapshot(project), before)
+                self.assertIn("status=unsupported-legacy", output.getvalue())
+                self.assertIn("modified=false", output.getvalue())
+                self.assertIn(f"legacy_journal={journal}", output.getvalue())
+
+    def test_legacy_switch_preparation_versions_are_not_removed(self) -> None:
+        for version in (1, 2):
+            with self.subTest(version=version), TemporaryDirectory() as temporary:
+                project = Path(temporary).resolve()
+                self.assertEqual(self._install(project, "balanced"), 0)
+                self._interrupt_prepared_switch(project)
+                journal = project / ".kapisch/local-state/profile-switch.toml"
+                prepare = project / ".kapisch/local-state/.profile-switch.prepare.tmp"
+                legacy_bytes = journal.read_bytes()
+                if version == 1:
+                    legacy_bytes = b"".join(
+                        line
+                        for line in legacy_bytes.splitlines(keepends=True)
+                        if not line.startswith(b"recovery=")
+                    )
+                journal.unlink()
+                prepare.write_bytes(
+                    legacy_bytes.replace(
+                        b"version=3\n", f"version={version}\n".encode("ascii"), 1
+                    )
                 )
-            self.assertIn("recovery staging path is unsafe", output.getvalue())
-            self.assertEqual(recovery.read_bytes(), b"unrelated user file")
-            self.assertTrue(journal.exists())
+                before = self._snapshot(project)
+                output = io.StringIO()
+
+                with redirect_stdout(output):
+                    self.assertEqual(
+                        setup_profile.main(["--all", "--project-dir", str(project)]), 2
+                    )
+
+                self.assertEqual(self._snapshot(project), before)
+                self.assertIn("status=unsupported-legacy", output.getvalue())
+                self.assertIn("modified=false", output.getvalue())
+                self.assertIn(f"legacy_prepare={prepare}", output.getvalue())
+
+    def test_malformed_and_newer_switch_journals_are_preserved(self) -> None:
+        for malformed in (True, False):
+            with self.subTest(malformed=malformed), TemporaryDirectory() as temporary:
+                project = Path(temporary).resolve()
+                self.assertEqual(self._install(project, "balanced"), 0)
+                self._interrupt_prepared_switch(project)
+                journal = project / ".kapisch/local-state/profile-switch.toml"
+                journal.write_bytes(
+                    b"not valid = ["
+                    if malformed
+                    else journal.read_bytes().replace(b"version=3\n", b"version=4\n", 1)
+                )
+                before = self._snapshot(project)
+                output = io.StringIO()
+
+                with redirect_stdout(output):
+                    self.assertEqual(
+                        setup_profile.main(["--all", "--project-dir", str(project)]), 2
+                    )
+
+                self.assertEqual(self._snapshot(project), before)
+                self.assertIn("status=collision", output.getvalue())
+                self.assertNotIn("status=unsupported-legacy", output.getvalue())
+
+    def test_symlinked_fixed_switch_states_are_preserved_as_collisions(self) -> None:
+        for kind in ("journal", "prepare"):
+            with self.subTest(kind=kind), TemporaryDirectory() as temporary:
+                project = Path(temporary).resolve()
+                self.assertEqual(self._install(project, "balanced"), 0)
+                self._interrupt_prepared_switch(project)
+                journal = project / ".kapisch/local-state/profile-switch.toml"
+                state = (
+                    journal
+                    if kind == "journal"
+                    else project / ".kapisch/local-state/.profile-switch.prepare.tmp"
+                )
+                source = project / f"{kind}-switch-state.toml"
+                source.write_bytes(journal.read_bytes())
+                journal.unlink()
+                try:
+                    state.symlink_to(source)
+                except OSError as exc:
+                    self.skipTest(f"symbolic links are unavailable: {exc}")
+                link_target = state.readlink()
+                before = self._snapshot(project)
+                output = io.StringIO()
+
+                with redirect_stdout(output):
+                    self.assertEqual(
+                        setup_profile.main(["--all", "--project-dir", str(project)]), 2
+                    )
+
+                self.assertEqual(self._snapshot(project), before)
+                self.assertTrue(state.is_symlink())
+                self.assertEqual(state.readlink(), link_target)
+                self.assertIn("status=collision", output.getvalue())
+                self.assertIn("modified=false", output.getvalue())
 
     def test_unverified_recovery_staging_fails_closed(self) -> None:
         with TemporaryDirectory() as temporary:

@@ -583,9 +583,23 @@ def _switch_prepare_path(root: Path) -> Path:
     return root / ".kapisch" / "local-state" / ".profile-switch.prepare.tmp"
 
 
+def _read_switch_state_version(path: Path) -> int:
+    if path.is_symlink():
+        raise OSError("profile-switch state is a symbolic link")
+    values = _parse_profile_bytes(path.read_bytes())
+    version = values.get("version")
+    if type(version) is not int:
+        raise OSError("profile-switch state has an invalid version")
+    return version
+
+
 def _switch_journal_text(status: str, entries: list[dict[str, Any]]) -> bytes:
-    version = 2 if entries and all("recovery" in entry for entry in entries) else 1
-    lines = [f"version={version}\n", f"status={toml_basic_string(status)}\n"]
+    if not entries or any("recovery" not in entry for entry in entries):
+        raise ValueError("current profile-switch entries require recovery paths")
+    lines = [
+        f"version={CURRENT_SWITCH_JOURNAL_VERSION}\n",
+        f"status={toml_basic_string(status)}\n",
+    ]
     fields = (
         "role",
         "kind",
@@ -610,7 +624,13 @@ def _read_switch_journal(root: Path) -> tuple[str, list[dict[str, Any]]]:
         raise OSError("profile-switch journal is a symbolic link")
     values = _parse_profile_bytes(journal.read_bytes())
     version = values.get("version")
-    if version not in {1, 2} or values.get("status") not in {"prepared", "committed"}:
+    status = values.get("status")
+    if (
+        type(version) is not int
+        or version != CURRENT_SWITCH_JOURNAL_VERSION
+        or type(status) is not str
+        or status not in {"prepared", "committed"}
+    ):
         raise OSError("profile-switch journal has an unsupported version or status")
     entries = values.get("entries")
     if not isinstance(entries, list) or not entries:
@@ -621,11 +641,10 @@ def _read_switch_journal(root: Path) -> tuple[str, list[dict[str, Any]]]:
         "destination",
         "backup",
         "staged",
+        "recovery",
         "original_sha256",
         "desired_sha256",
     }
-    if version == 2:
-        expected_fields.add("recovery")
     seen: set[tuple[str, str]] = set()
     checked: list[dict[str, Any]] = []
     for entry in entries:
@@ -654,19 +673,18 @@ def _read_switch_journal(root: Path) -> tuple[str, list[dict[str, Any]]]:
             or entry["staged"] != str(staged)
         ):
             raise OSError("profile-switch journal paths cannot be verified")
-        if version == 2:
-            recovery = Path(entry["recovery"])
-            prefix = f".{destination.name}.kapisch-switch.recover."
-            suffix = ".tmp"
-            token = recovery.name.removeprefix(prefix).removesuffix(suffix)
-            if (
-                recovery.parent != destination.parent
-                or not recovery.name.startswith(prefix)
-                or not recovery.name.endswith(suffix)
-                or len(token) != 32
-                or any(character not in "0123456789abcdef" for character in token)
-            ):
-                raise OSError("profile-switch recovery staging path cannot be verified")
+        recovery = Path(entry["recovery"])
+        prefix = f".{destination.name}.kapisch-switch.recover."
+        suffix = ".tmp"
+        token = recovery.name.removeprefix(prefix).removesuffix(suffix)
+        if (
+            recovery.parent != destination.parent
+            or not recovery.name.startswith(prefix)
+            or not recovery.name.endswith(suffix)
+            or len(token) != 32
+            or any(character not in "0123456789abcdef" for character in token)
+        ):
+            raise OSError("profile-switch recovery staging path cannot be verified")
         for digest_key in ("original_sha256", "desired_sha256"):
             digest_value = entry[digest_key]
             if len(digest_value) != 64 or any(
@@ -689,9 +707,7 @@ def _remove_switch_artifact(path: Path) -> None:
 
 
 def _recovery_staging_path(entry: dict[str, Any], destination: Path) -> Path:
-    return Path(entry["recovery"]) if "recovery" in entry else destination.with_name(
-        f".{destination.name}.kapisch-switch.recover.tmp"
-    )
+    return Path(entry["recovery"])
 
 def _is_owned_recovery_staging(path: Path, contents: bytes) -> bool:
     if path.is_symlink() or not path.is_file():
@@ -765,10 +781,6 @@ def _recover_interrupted_switch(root: Path) -> tuple[bool, str | None]:
                 restore = _recovery_staging_path(entry, destination)
                 if restore.exists() or restore.is_symlink():
                     if _path_digest(restore) != entry["original_sha256"]:
-                        # Version-1 journals used this deterministic sibling path.
-                        # A verified prefix of the authoritative backup is the
-                        # legacy transaction's only staging identity; any other
-                        # object remains fail-closed.
                         if not _is_owned_recovery_staging(restore, backup_bytes):
                             raise OSError(f"recovery staging path is unsafe: {restore}")
                         _remove_switch_artifact(restore)
@@ -783,8 +795,6 @@ def _recover_interrupted_switch(root: Path) -> tuple[bool, str | None]:
                 if _path_digest(destination) != expected_digest:
                     raise OSError(f"recovery verification failed: {destination}")
             for entry in entries:
-                if "recovery" not in entry:
-                    continue
                 restore = _recovery_staging_path(entry, Path(entry["destination"]))
                 if not restore.exists() and not restore.is_symlink():
                     continue
@@ -1196,6 +1206,43 @@ def _run_setup(
         print("error=interrupted managed switch requires serialized recovery")
         print("action=rerun inspection to recover the interrupted transaction")
         return 2
+    if allow_recovery and recovery_needed:
+        states = (
+            ("journal", _switch_journal_path(root)),
+            ("prepare", _switch_prepare_path(root)),
+        )
+        versions: list[tuple[str, Path, int]] = []
+        state_error: str | None = None
+        for kind, path in states:
+            if not path.exists() and not path.is_symlink():
+                continue
+            try:
+                versions.append((kind, path, _read_switch_state_version(path)))
+            except (OSError, ProfileReadError, ValueError) as exc:
+                state_error = str(exc)
+        if state_error is not None or any(
+            version not in {1, 2, CURRENT_SWITCH_JOURNAL_VERSION}
+            for _, _, version in versions
+        ):
+            print("status=collision")
+            print("modified=false")
+            print(
+                "error=profile-switch state cannot be recovered safely: "
+                f"{state_error or 'unsupported version'}"
+            )
+            print("action=review local state; no new profile operation was attempted")
+            return 2
+        legacy = next(
+            ((kind, path) for kind, path, version in versions if version in {1, 2}),
+            None,
+        )
+        if legacy is not None:
+            kind, path = legacy
+            print("status=unsupported-legacy")
+            print("modified=false")
+            print(f"legacy_{kind}={path}")
+            print("action=back up and remove the legacy profile-switch state manually")
+            return 2
     if allow_recovery:
         recovered, recovery_error = _recover_interrupted_switch(root)
         if not recovered:
