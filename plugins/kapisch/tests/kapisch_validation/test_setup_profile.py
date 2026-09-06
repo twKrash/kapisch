@@ -15,6 +15,71 @@ import scripts.setup_profile as setup_profile
 
 
 class SetupProfileSafetyTests(unittest.TestCase):
+    def test_lf_and_crlf_templates_render_identically(self) -> None:
+        role = "reviewer"
+        source = (setup_profile.AGENT_DIR / "kapisch-reviewer.toml").read_bytes()
+        lf = source.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+        crlf = lf.replace(b"\n", b"\r\n")
+
+        self.assertEqual(
+            setup_profile._render_profile_bytes(
+                lf, role=role, profile_set="balanced"
+            ),
+            setup_profile._render_profile_bytes(
+                crlf, role=role, profile_set="balanced"
+            ),
+        )
+        self.assertNotIn(
+            b"\r\n",
+            setup_profile._render_profile_bytes(
+                crlf, role=role, profile_set="balanced"
+            ),
+        )
+
+    def test_lf_and_crlf_template_installs_have_identical_bytes_and_digests(
+        self,
+    ) -> None:
+        source = (setup_profile.AGENT_DIR / "kapisch-reviewer.toml").read_bytes()
+        lf = source.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+        variants = {"lf": lf, "crlf": lf.replace(b"\n", b"\r\n")}
+        results: dict[str, tuple[bytes, str, str]] = {}
+
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for name, template_bytes in variants.items():
+                agent_dir = root / f"{name}-agents"
+                agent_dir.mkdir()
+                (agent_dir / "kapisch-reviewer.toml").write_bytes(template_bytes)
+                project = root / f"{name}-project"
+                with mock.patch.object(setup_profile, "AGENT_DIR", agent_dir):
+                    self.assertEqual(
+                        setup_profile.main(
+                            [
+                                "--role",
+                                "reviewer",
+                                "--project-dir",
+                                str(project),
+                                "--install",
+                            ]
+                        ),
+                        0,
+                    )
+                state = tomllib.loads(
+                    (
+                        project
+                        / ".kapisch/local-state/profiles/reviewer.toml"
+                    ).read_text(encoding="utf-8")
+                )
+                results[name] = (
+                    (
+                        project / ".codex/agents/kapisch-reviewer.toml"
+                    ).read_bytes(),
+                    state["template_sha256"],
+                    state["installed_sha256"],
+                )
+
+        self.assertEqual(results["lf"], results["crlf"])
+
     def test_windows_style_paths_are_toml_safe(self) -> None:
         path = r"C:\Users\Example User\.codex\agents\kapisch-reviewer.toml"
         encoded = setup_profile.toml_basic_string(path)
@@ -444,7 +509,9 @@ class ProfileSetTests(unittest.TestCase):
         expected: dict[Path, bytes] = {}
         for role in setup_profile.ROLE_CATALOG:
             template = setup_profile.AGENT_DIR / f"kapisch-{role}.toml"
-            canonical = template.read_bytes()
+            canonical = setup_profile._normalize_template_bytes(
+                template.read_bytes()
+            )
             target = project / f".codex/agents/kapisch-{role}.toml"
             rendered = setup_profile._render_profile_bytes(
                 canonical, role=role, profile_set=profile_set
@@ -557,11 +624,21 @@ class ProfileSetTests(unittest.TestCase):
             )
             self.assertEqual(researcher["model"], "gpt-5.6-terra")
             self.assertEqual(researcher["model_reasoning_effort"], "medium")
+            self.assertEqual(state["profile_state_version"], 1)
             self.assertEqual(state["profile_set"], "balanced")
+            self.assertEqual(state["installed_model"], "gpt-5.6-terra")
+            self.assertEqual(
+                state["installed_model_reasoning_effort"], "medium"
+            )
             self.assertEqual(
                 state["template_sha256"],
                 hashlib.sha256(
-                    (setup_profile.AGENT_DIR / "kapisch-researcher.toml").read_bytes()
+                    setup_profile._normalize_template_bytes(
+                        (
+                            setup_profile.AGENT_DIR
+                            / "kapisch-researcher.toml"
+                        ).read_bytes()
+                    )
                 ).hexdigest(),
             )
             self.assertEqual(
@@ -597,6 +674,18 @@ class ProfileSetTests(unittest.TestCase):
                     self.assertEqual(values["model_reasoning_effort"], effort)
                     self.assertEqual(
                         values["developer_instructions"], canonical_instructions[role]
+                    )
+                    state = tomllib.loads(
+                        (
+                            project
+                            / f".kapisch/local-state/profiles/{role}.toml"
+                        ).read_text(encoding="utf-8")
+                    )
+                    self.assertEqual(state["profile_state_version"], 1)
+                    self.assertEqual(state["profile_set"], profile_set)
+                    self.assertEqual(state["installed_model"], model)
+                    self.assertEqual(
+                        state["installed_model_reasoning_effort"], effort
                     )
 
     def test_profile_sets_keep_durable_state_model_independent(self) -> None:

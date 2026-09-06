@@ -22,6 +22,9 @@ ROLE_CATALOG = (
     "reviewer",
 )
 PROFILE_SET_CATALOG = ("balanced", "quality", "budget")
+CURRENT_PROFILE_STATE_VERSION = 1
+CURRENT_SWITCH_JOURNAL_VERSION = 3
+
 PROFILE_SET_ROUTING = {
     "balanced": {
         "architect": ("gpt-5.6-sol", "high"),
@@ -66,6 +69,14 @@ def _read_profile(path: Path) -> dict[str, Any]:
     return _parse_profile_bytes(contents)
 
 
+def _normalize_template_bytes(contents: bytes) -> bytes:
+    try:
+        text = contents.decode("utf-8")
+    except UnicodeError as exc:
+        raise ProfileReadError(str(exc)) from exc
+    return text.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
+
+
 def _parse_profile_bytes(contents: bytes) -> dict[str, Any]:
     try:
         value = tomllib.loads(contents.decode("utf-8"))
@@ -78,6 +89,7 @@ def _parse_profile_bytes(contents: bytes) -> dict[str, Any]:
 
 def _render_profile_bytes(canonical: bytes, *, role: str, profile_set: str) -> bytes:
     """Render one deterministic runtime profile from the canonical role contract."""
+    canonical = _normalize_template_bytes(canonical)
     values = _parse_profile_bytes(canonical)
     expected_identity = f"kapisch-{role}"
     if values.get("name") != expected_identity:
@@ -102,12 +114,10 @@ def _render_profile_bytes(canonical: bytes, *, role: str, profile_set: str) -> b
     effort_fields = 0
     for line in lines:
         if line.startswith("model = "):
-            ending = "\r\n" if line.endswith("\r\n") else "\n"
-            rendered.append(f'model = "{model}"{ending}')
+            rendered.append(f'model = "{model}"\n')
             model_fields += 1
         elif line.startswith("model_reasoning_effort = "):
-            ending = "\r\n" if line.endswith("\r\n") else "\n"
-            rendered.append(f'model_reasoning_effort = "{effort}"{ending}')
+            rendered.append(f'model_reasoning_effort = "{effort}"\n')
             effort_fields += 1
         else:
             rendered.append(line)
@@ -202,6 +212,7 @@ def _record_text(
     profile_set: str,
     installed_digest: str,
 ) -> str:
+    installed_model, installed_effort = PROFILE_SET_ROUTING[profile_set][role]
     fields = (
         ("template", template.name),
         ("template_sha256", template_digest),
@@ -209,9 +220,14 @@ def _record_text(
         ("scope", scope),
         ("profile_set", profile_set),
         ("profile_identity", f"kapisch-{role}"),
+        ("installed_model", installed_model),
+        ("installed_model_reasoning_effort", installed_effort),
         ("installed_sha256", installed_digest),
     )
-    return "".join(f"{name}={toml_basic_string(value)}\n" for name, value in fields)
+    return (
+        f"profile_state_version={CURRENT_PROFILE_STATE_VERSION}\n"
+        + "".join(f"{name}={toml_basic_string(value)}\n" for name, value in fields)
+    )
 
 
 def _print_plan(plan: dict[str, Any], scope: str) -> None:
@@ -305,7 +321,7 @@ def _prepare_role(
         "profile_set": profile_set,
     }
     try:
-        template_bytes = template.read_bytes()
+        template_bytes = _normalize_template_bytes(template.read_bytes())
         template_values = _parse_profile_bytes(template_bytes)
         desired_bytes = _render_profile_bytes(
             template_bytes, role=role, profile_set=profile_set
