@@ -2,71 +2,136 @@
 
 ## Compatibility status
 
-Legacy migration and the `default`/`foundry` presentation themes are
-implemented, reviewed, and frozen supported compatibility surfaces. They are
-not scheduled for removal; a separate product decision is required before that
-changes. Their presence alone does not establish runtime acceptance for a Codex
-surface.
+Legacy migration and the `default`/`foundry` presentation themes remain frozen
+supported compatibility surfaces. Their presence alone does not establish runtime
+acceptance for a Codex surface.
 
 ## Platform status
 
-- Windows 11 with Codex Desktop and WSL2 completed the 1.0.1 release-baseline
-  flow. Keep Codex homes and repositories in the WSL Linux filesystem; see
-  [acceptance-windows-v1.0.1.md](acceptance-windows-v1.0.1.md).
-- Native Windows Python 3.11 passes profile setup and portable-package tests.
-  Live no-WSL marketplace and plugin support is not claimed until every live
-  step is observed successfully.
+- Windows 11 with Codex Desktop and WSL2 completed the historical 1.0.1
+  release-baseline flow.
+- Native Windows automated CI is required for 2.0.0; live no-WSL marketplace and
+  plugin support is not claimed until every live step is observed successfully.
 - The immutable Linux 1.0.0 evidence remains historical and unchanged in
   [acceptance-runtime.md](acceptance-runtime.md).
 
 ## Validator command compatibility
 
 `kapisch-validate --task-dir PATH` is the primary validator interface after
-installing the `kapisch-validation` Python package. It discovers the bundled
+installing the `kapisch-validation` Python package. It discovers bundled
 contracts without relying on the current working directory. The source-tree
-`scripts/validate_kapisch.py` wrapper remains supported and delegates to the
-same entry point; callers may remove their old `--contract-dir
-<plugin-root>/skills/kapisch` argument. An explicit `--contract-dir PATH`
-override remains supported for expert and compatibility use.
+`scripts/validate_kapisch.py` wrapper and explicit expert `--contract-dir PATH`
+override remain supported.
 
 ## Agent profile-set compatibility
 
-KAPISCH 1.1.0 adds `balanced`, `quality`, and `budget` installer-time runtime
-sets without changing profile filenames or identities. A new installation uses
-`balanced` unless the user explicitly selects another set. The `quality` bytes
-preserve the 1.0.1 routing baseline.
+Release 2.0.0 established an intentional local-profile compatibility boundary.
+The runtime is semver-independent: current local state uses
+`profile_state_version = 1` and the switch journal uses schema 3; neither number
+is the plugin version. `balanced`, `quality`, and `budget` remain installer-time
+runtime configurations for the same six identities and do not change durable
+model tiers, approval authority, risk classification, or independent review.
 
-Profile sets resolve runtime model and reasoning effort only. Durable
-`model_tier` values remain logical workflow requirements and never imply a
-concrete model family; approval authority, risk classification, and independent
-review therefore remain identical across sets. Configured runtime values may be
-recorded only as factual observations on the established observability
-surfaces.
+Current records bind the selected profile set, template filename, identity,
+installed path, and digests. Structural diagnosis identifies old records and
+journal schemas 1–2 as legacy, but diagnosis is not ownership: unsupported
+legacy state is rejected without mutation. KAPISCH does not retain historical
+bytes or digest allowlists to claim ownership, and provides no automatic
+migration or recovery for that state.
 
-New local-state records add `profile_set` and store the stable template filename,
-not the plugin cache location. A 1.0.x record without that field is read-only
-compatible when its template provenance names the expected template, its recorded
-template digest matches the current quality template, and its identity,
-installed-profile path, and digests remain valid; inspection reports it as legacy
-`quality` and does not rewrite it. An unknown or unverifiable legacy digest fails
-closed.
+Ordinary install remains non-overwriting. Same-set and routing changes require
+`--install --replace-managed`; identity, catalog, state, installed digest, and
+no-drift checks must all pass. Current schema-3 recovery can restore or finish
+an explicitly authorized interrupted replacement while preserving later user
+edits. User-modified, unrelated, missing, or legacy profiles are never switched
+or removed by KAPISCH.
 
-Ordinary install remains non-overwriting. Switching requires `--install
---replace-managed`, verified KAPISCH identity and state, a matching installed
-digest, and no collision or concurrent change. The transaction stages every new
-profile/state file before replacing any and uses a machine-local
-prepared/committed journal to restore prior bytes after a caught error or on the
-next setup invocation after process interruption. It rechecks target bytes and
-the complete selected identity catalog before committing. User-modified or
-unrelated profiles are never switched or removed. A committed transaction that
-was interrupted during cleanup keeps the selected new set and finishes cleanup
-on the next invocation. A process lock serializes setup operations, and
-recovery preserves profile bytes edited after interruption rather than
-restoring a backup over them.
-Rollback may also be performed by explicitly switching back to the prior set
-after inspection; KAPISCH does not delete profiles.
+## Legacy profile cleanup
 
-## Compatibility version 1
+Stop concurrent profile setup processes before inspection or cleanup. Run the
+2.x inspector for the scope being reset and record every path it lists:
+
+```text
+# Project scope
+python scripts/setup_profile.py --all --project-dir <consumer-repository>
+
+# User scope
+python scripts/setup_profile.py --all --scope user --user-dir <user-home>
+```
+
+The list can contain profile files, companion state records, the fixed
+`profile-switch.toml` journal, or the fixed `.profile-switch.prepare.tmp`
+preparation file. Inspector can also return `legacy_switch_artifact=<exact path>`. 
+Remove only the exact paths listed by setup. Do not infer
+ownership from similar names, follow paths embedded in a legacy journal, or add
+nearby files to the cleanup list.
+
+Exact .kapisch-switch.bak/.tmp sibling paths can be reported as possible
+residue from an interrupted pre-2.0 replacement.
+
+Their names are not proof of ownership. Back them up and inspect them.
+Remove them only if they belong to the old KAPISCH installation.
+
+WSL users follow the POSIX procedure below and use Linux paths. For each listed
+path, choose a distinct backup path so profile and state files with the same
+basename cannot overwrite one another:
+
+```bash
+mkdir -p "$HOME/kapisch-profile-backup"
+printf 'Paste one exact path listed by setup: '
+IFS= read -r LEGACY_PATH
+printf 'Enter a distinct backup path under $HOME/kapisch-profile-backup: '
+IFS= read -r BACKUP_PATH
+cp -- "$LEGACY_PATH" "$BACKUP_PATH"
+printf 'Inspect the backup, then press Enter to remove the listed original.'
+IFS= read -r _confirmation
+rm -- "$LEGACY_PATH"
+```
+
+On native Windows PowerShell, repeat this equivalent sequence for each listed
+path:
+
+```powershell
+New-Item -ItemType Directory -Force "$HOME\kapisch-profile-backup"
+$LegacyPath = Read-Host "Paste one exact path listed by setup"
+$BackupPath = Read-Host "Enter a distinct backup path under $HOME\kapisch-profile-backup"
+Copy-Item -LiteralPath $LegacyPath -Destination $BackupPath
+Read-Host "Inspect the backup, then press Enter to remove the listed original"
+Remove-Item -LiteralPath $LegacyPath
+```
+
+Inspect every backup and confirm that it belongs to the installation being
+reset before removing its original. Never delete `.kapisch` wholesale: durable
+run evidence can coexist beneath it.
+
+Optionally remove now-empty KAPISCH setup directories such as the selected
+root's `.kapisch/local-state/profiles/` and
+`.kapisch/local-state/`, but only with a non-recursive empty-directory removal.
+Do not remove the shared `.codex/agents/` directory.
+
+After all listed files are removed, rerun the applicable project or user
+inspection command above. It must report a fresh `not-installed` state before
+reinstallation. Then use the matching ordinary install command:
+
+```text
+# Project reinstall
+python scripts/setup_profile.py --all --project-dir <consumer-repository> --install
+
+# User reinstall
+python scripts/setup_profile.py --all --scope user --user-dir <user-home> --install
+```
+
+Run the matching inspection command once more after reinstall:
+
+- Verify every installed profile has the expected `kapisch-<role>` identity.
+- Verify inspection reports no drift (`drift=none`).
+- Confirm `update_required=false`, proving immediate inspection introduces no
+  state drift.
+
+Plugin uninstall remains a separate operation and does not prove ownership of,
+or remove, optional profile files.
+
+## Durable-run legacy migration
 
 Only `.planning/task-workflow/<task-id>/` is a supported legacy input namespace.
 It is read-only. `scripts/migrate_legacy_run.py` copies that directory byte for
@@ -110,7 +175,7 @@ manifests rather than silently adopted:
 
 Reading an old manifest never creates a route record or delegation fields;
 `.kapisch/runs/<task-id>/delegations/` exists only when a delegation actually
-occurred. The legacy migration described under Compatibility version 1 is
+occurred. The legacy migration described under Durable-run legacy migration is
 unchanged: explicit (`--approve`), byte-preserving, source-retaining, and free
 of new legacy writes; it neither reads nor writes delegation records.
 
@@ -152,7 +217,7 @@ OpenAI public Plugin Directory.
 
 ## Removal boundary and rollback
 
-Remove compatibility version 1 only in a major release after all supported
+Remove durable-run compatibility version 1 only in a major release after all supported
 consumers have either migrated their retained runs or accepted that old runs
 cannot resume. Before removal, publish the final compatible release and keep it
 available for rollback.

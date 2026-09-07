@@ -15,6 +15,71 @@ import scripts.setup_profile as setup_profile
 
 
 class SetupProfileSafetyTests(unittest.TestCase):
+    def test_lf_and_crlf_templates_render_identically(self) -> None:
+        role = "reviewer"
+        source = (setup_profile.AGENT_DIR / "kapisch-reviewer.toml").read_bytes()
+        lf = source.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+        crlf = lf.replace(b"\n", b"\r\n")
+
+        self.assertEqual(
+            setup_profile._render_profile_bytes(
+                lf, role=role, profile_set="balanced"
+            ),
+            setup_profile._render_profile_bytes(
+                crlf, role=role, profile_set="balanced"
+            ),
+        )
+        self.assertNotIn(
+            b"\r\n",
+            setup_profile._render_profile_bytes(
+                crlf, role=role, profile_set="balanced"
+            ),
+        )
+
+    def test_lf_and_crlf_template_installs_have_identical_bytes_and_digests(
+        self,
+    ) -> None:
+        source = (setup_profile.AGENT_DIR / "kapisch-reviewer.toml").read_bytes()
+        lf = source.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+        variants = {"lf": lf, "crlf": lf.replace(b"\n", b"\r\n")}
+        results: dict[str, tuple[bytes, str, str]] = {}
+
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for name, template_bytes in variants.items():
+                agent_dir = root / f"{name}-agents"
+                agent_dir.mkdir()
+                (agent_dir / "kapisch-reviewer.toml").write_bytes(template_bytes)
+                project = root / f"{name}-project"
+                with mock.patch.object(setup_profile, "AGENT_DIR", agent_dir):
+                    self.assertEqual(
+                        setup_profile.main(
+                            [
+                                "--role",
+                                "reviewer",
+                                "--project-dir",
+                                str(project),
+                                "--install",
+                            ]
+                        ),
+                        0,
+                    )
+                state = tomllib.loads(
+                    (
+                        project
+                        / ".kapisch/local-state/profiles/reviewer.toml"
+                    ).read_text(encoding="utf-8")
+                )
+                results[name] = (
+                    (
+                        project / ".codex/agents/kapisch-reviewer.toml"
+                    ).read_bytes(),
+                    state["template_sha256"],
+                    state["installed_sha256"],
+                )
+
+        self.assertEqual(results["lf"], results["crlf"])
+
     def test_windows_style_paths_are_toml_safe(self) -> None:
         path = r"C:\Users\Example User\.codex\agents\kapisch-reviewer.toml"
         encoded = setup_profile.toml_basic_string(path)
@@ -438,13 +503,23 @@ class ProfileSetTests(unittest.TestCase):
             if path.is_file()
         }
 
+    def _remove_profile_state_version(self, record: Path) -> None:
+        lines = [
+            line
+            for line in record.read_text(encoding="utf-8").splitlines()
+            if not line.startswith("profile_state_version=")
+        ]
+        record.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
     def _expected_set_bytes(
         self, project: Path, profile_set: str, scope: str = "project"
     ) -> dict[Path, bytes]:
         expected: dict[Path, bytes] = {}
         for role in setup_profile.ROLE_CATALOG:
             template = setup_profile.AGENT_DIR / f"kapisch-{role}.toml"
-            canonical = template.read_bytes()
+            canonical = setup_profile._normalize_template_bytes(
+                template.read_bytes()
+            )
             target = project / f".codex/agents/kapisch-{role}.toml"
             rendered = setup_profile._render_profile_bytes(
                 canonical, role=role, profile_set=profile_set
@@ -499,47 +574,9 @@ class ProfileSetTests(unittest.TestCase):
                     "--replace-managed",
                 ]
             )
-        return before
-
-    def _legacy_prepared_switch(
-        self, project: Path
-    ) -> tuple[dict[Path, bytes], Path, Path]:
-        before = self._snapshot(project)
-        role = "researcher"
-        target = project / f".codex/agents/kapisch-{role}.toml"
-        original = target.read_bytes()
-        desired = setup_profile._render_profile_bytes(
-            (setup_profile.AGENT_DIR / f"kapisch-{role}.toml").read_bytes(),
-            role=role,
-            profile_set="quality",
-        )
-        backup = target.with_name(f".{target.name}.kapisch-switch.bak")
-        staged = target.with_name(f".{target.name}.kapisch-switch.tmp")
-        backup.write_bytes(original)
-        target.write_bytes(desired)
         journal = project / ".kapisch/local-state/profile-switch.toml"
-        setup_profile._write_exclusive(
-            journal,
-            setup_profile._switch_journal_text(
-                "prepared",
-                [
-                    {
-                        "role": role,
-                        "kind": "profile",
-                        "destination": str(target),
-                        "backup": str(backup),
-                        "staged": str(staged),
-                        "original_sha256": hashlib.sha256(original).hexdigest(),
-                        "desired_sha256": hashlib.sha256(desired).hexdigest(),
-                    }
-                ],
-            ),
-        )
-        return (
-            before,
-            journal,
-            target.with_name(f".{target.name}.kapisch-switch.recover.tmp"),
-        )
+        self.assertEqual(tomllib.loads(journal.read_text())["version"], 3)
+        return before
 
     def test_default_install_uses_balanced_and_records_the_set(self) -> None:
         with TemporaryDirectory() as temporary:
@@ -557,11 +594,21 @@ class ProfileSetTests(unittest.TestCase):
             )
             self.assertEqual(researcher["model"], "gpt-5.6-terra")
             self.assertEqual(researcher["model_reasoning_effort"], "medium")
+            self.assertEqual(state["profile_state_version"], 1)
             self.assertEqual(state["profile_set"], "balanced")
+            self.assertEqual(state["installed_model"], "gpt-5.6-terra")
+            self.assertEqual(
+                state["installed_model_reasoning_effort"], "medium"
+            )
             self.assertEqual(
                 state["template_sha256"],
                 hashlib.sha256(
-                    (setup_profile.AGENT_DIR / "kapisch-researcher.toml").read_bytes()
+                    setup_profile._normalize_template_bytes(
+                        (
+                            setup_profile.AGENT_DIR
+                            / "kapisch-researcher.toml"
+                        ).read_bytes()
+                    )
                 ).hexdigest(),
             )
             self.assertEqual(
@@ -597,6 +644,18 @@ class ProfileSetTests(unittest.TestCase):
                     self.assertEqual(values["model_reasoning_effort"], effort)
                     self.assertEqual(
                         values["developer_instructions"], canonical_instructions[role]
+                    )
+                    state = tomllib.loads(
+                        (
+                            project
+                            / f".kapisch/local-state/profiles/{role}.toml"
+                        ).read_text(encoding="utf-8")
+                    )
+                    self.assertEqual(state["profile_state_version"], 1)
+                    self.assertEqual(state["profile_set"], profile_set)
+                    self.assertEqual(state["installed_model"], model)
+                    self.assertEqual(
+                        state["installed_model_reasoning_effort"], effort
                     )
 
     def test_profile_sets_keep_durable_state_model_independent(self) -> None:
@@ -713,155 +772,271 @@ class ProfileSetTests(unittest.TestCase):
                     ).hexdigest(),
                 )
 
-    def test_recorded_profile_set_must_match_installed_runtime_routing(self) -> None:
-        cases = (
-            ("single inspection", ["--role", "reviewer"], False),
-            ("single replacement", ["--role", "reviewer"], True),
-            ("catalog inspection", ["--all"], False),
-            ("catalog replacement", ["--all"], True),
-        )
-        for name, selector, install in cases:
-            with self.subTest(name=name), TemporaryDirectory() as temporary:
-                project = Path(temporary)
-                self.assertEqual(self._install(project, "balanced"), 0)
-                record = project / ".kapisch/local-state/profiles/reviewer.toml"
-                record.write_text(
-                    record.read_text(encoding="utf-8").replace(
-                        'profile_set="balanced"', 'profile_set="quality"'
-                    ),
-                    encoding="utf-8",
-                )
-                before = self._snapshot(project)
-                argv = [
-                    *selector,
-                    "--project-dir",
-                    str(project),
-                    "--profile-set",
-                    "quality",
-                ]
-                if install:
-                    argv.extend(("--install", "--replace-managed"))
-                output = io.StringIO()
-                with redirect_stdout(output):
-                    self.assertEqual(setup_profile.main(argv), 2)
-                self.assertEqual(self._snapshot(project), before)
-                self.assertIn(
-                    "state record profile set does not match installed profile routing",
-                    output.getvalue(),
-                )
-                self.assertNotIn("installed_profile_set=quality", output.getvalue())
+    def test_same_set_template_update_requires_explicit_replace(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary) / "project"
+            self.assertEqual(self._install(project, "balanced"), 0)
+            before = self._snapshot(project)
+            revised_agents = Path(temporary) / "revised-agents"
+            shutil.copytree(setup_profile.AGENT_DIR, revised_agents)
+            reviewer = revised_agents / "kapisch-reviewer.toml"
+            reviewer.write_bytes(
+                reviewer.read_bytes().replace(b"\r\n", b"\n")
+                + b"# current template revision\n"
+            )
 
-    def test_relocated_template_provenance_keeps_managed_sets_switchable(self) -> None:
+            inspect_output = io.StringIO()
+            with (
+                mock.patch.object(setup_profile, "AGENT_DIR", revised_agents),
+                redirect_stdout(inspect_output),
+            ):
+                self.assertEqual(
+                    setup_profile.main(
+                        [
+                            "--role",
+                            "reviewer",
+                            "--project-dir",
+                            str(project),
+                            "--profile-set",
+                            "balanced",
+                        ]
+                    ),
+                    0,
+                )
+            self.assertEqual(self._snapshot(project), before)
+            self.assertIn("update_required=true", inspect_output.getvalue())
+            self.assertIn(
+                "rerun with --install --replace-managed",
+                inspect_output.getvalue(),
+            )
+
+            with (
+                mock.patch.object(setup_profile, "AGENT_DIR", revised_agents),
+                redirect_stdout(io.StringIO()),
+            ):
+                self.assertEqual(
+                    setup_profile.main(
+                        [
+                            "--role",
+                            "reviewer",
+                            "--project-dir",
+                            str(project),
+                            "--profile-set",
+                            "balanced",
+                            "--install",
+                            "--replace-managed",
+                        ]
+                    ),
+                    0,
+                )
+            self.assertIn(
+                b"# current template revision\n",
+                (project / ".codex/agents/kapisch-reviewer.toml").read_bytes(),
+            )
+
+    def test_changed_current_routing_is_a_supported_update(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            self.assertEqual(self._install(project, "balanced"), 0)
+            routing = {
+                name: dict(values)
+                for name, values in setup_profile.PROFILE_SET_ROUTING.items()
+            }
+            routing["balanced"]["reviewer"] = ("gpt-5.6-terra", "low")
+            before = self._snapshot(project)
+
+            output = io.StringIO()
+            with (
+                mock.patch.object(setup_profile, "PROFILE_SET_ROUTING", routing),
+                redirect_stdout(output),
+            ):
+                self.assertEqual(
+                    setup_profile.main(
+                        [
+                            "--role",
+                            "reviewer",
+                            "--project-dir",
+                            str(project),
+                            "--profile-set",
+                            "balanced",
+                        ]
+                    ),
+                    0,
+                )
+            self.assertEqual(self._snapshot(project), before)
+            self.assertIn("update_required=true", output.getvalue())
+
+            with (
+                mock.patch.object(setup_profile, "PROFILE_SET_ROUTING", routing),
+                redirect_stdout(io.StringIO()),
+            ):
+                self.assertEqual(
+                    setup_profile.main(
+                        [
+                            "--role",
+                            "reviewer",
+                            "--project-dir",
+                            str(project),
+                            "--profile-set",
+                            "balanced",
+                            "--install",
+                            "--replace-managed",
+                        ]
+                    ),
+                    0,
+                )
+            profile = tomllib.loads(
+                (project / ".codex/agents/kapisch-reviewer.toml").read_text(
+                    encoding="utf-8"
+                )
+            )
+            state = tomllib.loads(
+                (project / ".kapisch/local-state/profiles/reviewer.toml").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(profile["model_reasoning_effort"], "low")
+            self.assertEqual(state["installed_model_reasoning_effort"], "low")
+
+    def test_recorded_installed_routing_must_match_the_owned_profile(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            self.assertEqual(self._install(project, "balanced"), 0)
+            record = project / ".kapisch/local-state/profiles/reviewer.toml"
+            record.write_text(
+                record.read_text(encoding="utf-8").replace(
+                    'installed_model_reasoning_effort="high"',
+                    'installed_model_reasoning_effort="low"',
+                ),
+                encoding="utf-8",
+            )
+            before = self._snapshot(project)
+            for install in (False, True):
+                with self.subTest(install=install):
+                    argv = [
+                        "--role", "reviewer", "--project-dir", str(project),
+                        "--profile-set", "balanced",
+                    ]
+                    if install:
+                        argv.extend(("--install", "--replace-managed"))
+                    output = io.StringIO()
+                    with redirect_stdout(output):
+                        self.assertEqual(setup_profile.main(argv), 2)
+                    self.assertEqual(self._snapshot(project), before)
+                    self.assertIn(
+                        "state record installed routing does not match the installed profile",
+                        output.getvalue(),
+                    )
+
+    def test_all_completes_wholly_absent_pairs_beside_current_desired_roles(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            self.assertEqual(
+                setup_profile.main(
+                    [
+                        "--role", "reviewer", "--project-dir", str(project),
+                        "--profile-set", "balanced", "--install",
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(
+                setup_profile.main(
+                    [
+                        "--all", "--project-dir", str(project),
+                        "--profile-set", "balanced", "--install",
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(len(list((project / ".codex/agents").glob("*.toml"))), 6)
+            self.assertEqual(
+                len(list((project / ".kapisch/local-state/profiles").glob("*.toml"))),
+                6,
+            )
+
+    def test_all_rejects_missing_pairs_mixed_with_current_updates(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            self.assertEqual(
+                setup_profile.main(
+                    [
+                        "--role", "reviewer", "--project-dir", str(project),
+                        "--profile-set", "balanced", "--install",
+                    ]
+                ),
+                0,
+            )
+            before = self._snapshot(project)
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(
+                    setup_profile.main(
+                        [
+                            "--all", "--project-dir", str(project),
+                            "--profile-set", "quality", "--install",
+                            "--replace-managed",
+                        ]
+                    ),
+                    2,
+                )
+            self.assertEqual(self._snapshot(project), before)
+            self.assertIn(
+                "cannot combine missing installs with managed replacements",
+                output.getvalue(),
+            )
+
+    def test_current_filename_provenance_survives_plugin_cache_relocation(self) -> None:
         cases = (
-            ("project single current", "project", ["--role", "reviewer"], False),
-            ("project catalog current", "project", ["--all"], False),
-            ("user single current", "user", ["--role", "reviewer"], False),
-            ("user catalog current", "user", ["--all"], False),
-            ("project single legacy", "project", ["--role", "reviewer"], True),
-            ("project catalog legacy", "project", ["--all"], True),
-            ("user single legacy", "user", ["--role", "reviewer"], True),
-            ("user catalog legacy", "user", ["--all"], True),
+            ("project single", "project", ["--role", "reviewer"]),
+            ("project catalog", "project", ["--all"]),
+            ("user single", "user", ["--role", "reviewer"]),
+            ("user catalog", "user", ["--all"]),
         )
-        for name, scope, selector, legacy in cases:
+        for name, scope, selector in cases:
             with self.subTest(name=name), TemporaryDirectory() as temporary:
                 temporary_root = Path(temporary)
-                previous_agents = (
-                    temporary_root / "cache" / "kapisch" / "1.0.1" / "agents"
-                )
-                current_agents = (
-                    temporary_root / "cache" / "kapisch" / "1.1.0" / "agents"
-                )
-                shutil.copytree(setup_profile.AGENT_DIR, previous_agents)
-                shutil.copytree(setup_profile.AGENT_DIR, current_agents)
+                cache_a = temporary_root / "cache-a" / "agents"
+                cache_b = temporary_root / "cache-b" / "agents"
+                shutil.copytree(setup_profile.AGENT_DIR, cache_a)
+                shutil.copytree(setup_profile.AGENT_DIR, cache_b)
                 root = (temporary_root / scope).resolve()
-                root_args = (
-                    ["--project-dir", str(root)]
-                    if scope == "project"
-                    else ["--scope", "user", "--user-dir", str(root)]
-                )
+                root_args = (["--project-dir", str(root)] if scope == "project" else ["--scope", "user", "--user-dir", str(root)])
                 quality_args = [*selector, *root_args, "--profile-set", "quality"]
-                with (
-                    mock.patch.object(setup_profile, "AGENT_DIR", previous_agents),
-                    redirect_stdout(io.StringIO()),
-                ):
+                with mock.patch.object(setup_profile, "AGENT_DIR", cache_a):
                     self.assertEqual(setup_profile.main([*quality_args, "--install"]), 0)
-
                 for record in (root / ".kapisch/local-state/profiles").glob("*.toml"):
                     role = record.stem
-                    contents = record.read_text(encoding="utf-8").replace(
-                        f'template="kapisch-{role}.toml"',
-                        f"template={setup_profile.toml_basic_string(previous_agents / f'kapisch-{role}.toml')}",
-                    )
-                    if legacy:
-                        contents = "\n".join(
-                            line
-                            for line in contents.splitlines()
-                            if not line.startswith("profile_set=")
-                        ) + "\n"
-                    record.write_text(contents, encoding="utf-8")
+                    state = tomllib.loads(record.read_text(encoding="utf-8"))
+                    self.assertEqual(state["template"], f"kapisch-{role}.toml")
                 before = self._snapshot(root)
-
-                with (
-                    mock.patch.object(setup_profile, "AGENT_DIR", current_agents),
-                    redirect_stdout(io.StringIO()),
-                ):
+                with mock.patch.object(setup_profile, "AGENT_DIR", cache_b):
                     self.assertEqual(setup_profile.main(quality_args), 0)
+                    self.assertEqual(
+                        setup_profile.main([*quality_args, "--install", "--replace-managed"]),
+                        0,
+                    )
                 self.assertEqual(self._snapshot(root), before)
 
-                for profile_set in ("balanced", "quality"):
-                    with (
-                        mock.patch.object(setup_profile, "AGENT_DIR", current_agents),
-                        redirect_stdout(io.StringIO()),
-                    ):
-                        self.assertEqual(
-                            setup_profile.main(
-                                [
-                                    *selector,
-                                    *root_args,
-                                    "--profile-set",
-                                    profile_set,
-                                    "--install",
-                                    "--replace-managed",
-                                ]
-                            ),
-                            0,
-                        )
-                    expected = {
-                        path.relative_to(root): contents
-                        for path, contents in self._expected_set_bytes(
-                            root, profile_set, scope
-                        ).items()
-                    }
-                    if selector == ["--role", "reviewer"]:
-                        expected = {
-                            path: contents
-                            for path, contents in expected.items()
-                            if path.name in {"kapisch-reviewer.toml", "reviewer.toml"}
-                        }
-                    self.assertEqual(self._snapshot(root), expected)
-
-    def test_template_provenance_rejects_unrelated_versioned_paths(self) -> None:
-        template = setup_profile.AGENT_DIR / "kapisch-reviewer.toml"
-        self.assertTrue(
-            setup_profile._template_provenance_matches(
-                "/cache/kapisch/1.0.1/agents/kapisch-reviewer.toml", template
+    def test_current_template_provenance_requires_the_stable_filename(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            self.assertEqual(
+                setup_profile.main(["--role", "reviewer", "--project-dir", str(project), "--install"]),
+                0,
             )
-        )
-        self.assertTrue(
-            setup_profile._template_provenance_matches(
-                r"C:\cache\kapisch\1.0.1\agents\kapisch-reviewer.toml", template
+            record = project / ".kapisch/local-state/profiles/reviewer.toml"
+            contents = record.read_text(encoding="utf-8").replace(
+                'template="kapisch-reviewer.toml"',
+                'template="/cache/agents/kapisch-reviewer.toml"',
             )
-        )
-        for value in (
-            "/cache/kapisch/1.0.1/templates/kapisch-reviewer.toml",
-            "/cache/kapisch/1.0.1/agents/kapisch-architect.toml",
-            "kapisch-architect.toml",
-            None,
-        ):
-            with self.subTest(value=value):
-                self.assertFalse(
-                    setup_profile._template_provenance_matches(value, template)
-                )
+            record.write_text(contents, encoding="utf-8")
+            before = self._snapshot(project)
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(setup_profile.main(["--role", "reviewer", "--project-dir", str(project)]), 2)
+            self.assertEqual(self._snapshot(project), before)
+            self.assertIn("state record identity or template provenance cannot be verified", output.getvalue())
 
     def test_switch_refuses_a_user_modified_managed_profile(self) -> None:
         with TemporaryDirectory() as temporary:
@@ -1042,6 +1217,10 @@ class ProfileSetTests(unittest.TestCase):
                 staged = destination.with_name(
                     f".{destination.name}.kapisch-switch.tmp"
                 )
+                recovery = destination.with_name(
+                    f".{destination.name}.kapisch-switch.recover."
+                    "0123456789abcdef0123456789abcdef.tmp"
+                )
                 commit_temporary = journal.with_name(".profile-switch.commit.tmp")
                 prepare = journal.with_name(".profile-switch.prepare.tmp")
                 artifacts = {
@@ -1066,12 +1245,15 @@ class ProfileSetTests(unittest.TestCase):
                                 "destination": str(destination),
                                 "backup": str(backup),
                                 "staged": str(staged),
+                                "recovery": str(recovery),
                                 "original_sha256": destination_digest,
                                 "desired_sha256": destination_digest,
                             }
                         ],
                     ),
                 )
+                if denied_kind == "prepare":
+                    prepare.write_bytes(journal.read_bytes())
                 original_remove_switch_artifact = setup_profile._remove_switch_artifact
                 unlink_paths: list[str] = []
 
@@ -1395,51 +1577,411 @@ class ProfileSetTests(unittest.TestCase):
             self.assertEqual(unrelated.read_bytes(), b"user-owned")
             self.assertEqual(self._snapshot(project), expected)
 
-    def test_legacy_partial_recovery_staging_recovers_automatically(self) -> None:
+    def test_legacy_switch_journal_versions_are_not_recovered(self) -> None:
+        for version in (1, 2):
+            with self.subTest(version=version), TemporaryDirectory() as temporary:
+                project = Path(temporary).resolve()
+                self.assertEqual(self._install(project, "balanced"), 0)
+                self._interrupt_prepared_switch(project)
+                journal = project / ".kapisch/local-state/profile-switch.toml"
+                legacy_bytes = journal.read_bytes()
+                if version == 1:
+                    legacy_bytes = b"".join(
+                        line
+                        for line in legacy_bytes.splitlines(keepends=True)
+                        if not line.startswith(b"recovery=")
+                    )
+                journal.write_bytes(
+                    legacy_bytes.replace(
+                        b"version=3\n", f"version={version}\n".encode("ascii"), 1
+                    )
+                )
+                before = self._snapshot(project)
+                output = io.StringIO()
+
+                with redirect_stdout(output):
+                    self.assertEqual(
+                        setup_profile.main(["--all", "--project-dir", str(project)]), 2
+                    )
+
+                self.assertEqual(self._snapshot(project), before)
+                self.assertIn("status=unsupported-legacy", output.getvalue())
+                self.assertIn("modified=false", output.getvalue())
+                self.assertIn(f"legacy_journal={journal}", output.getvalue())
+
+    def test_legacy_switch_journal_refusal_does_not_clean_a_stale_lock(self) -> None:
         with TemporaryDirectory() as temporary:
             project = Path(temporary).resolve()
             self.assertEqual(self._install(project, "balanced"), 0)
-            before, journal, recovery = self._legacy_prepared_switch(project)
-            backup = recovery.with_name(
-                ".kapisch-researcher.toml.kapisch-switch.bak"
+            self._interrupt_prepared_switch(project)
+            journal = project / ".kapisch/local-state/profile-switch.toml"
+            journal.write_bytes(
+                journal.read_bytes().replace(b"version=3\n", b"version=2\n", 1)
             )
-            recovery.write_bytes(backup.read_bytes()[:1])
-            self.assertEqual(tomllib.loads(journal.read_text())["version"], 1)
-
+            lock = project / ".kapisch/local-state/profile-switch.lock"
+            lock.write_text("pid=999999\n", encoding="ascii")
+            before = self._snapshot(project)
             output = io.StringIO()
+
             with redirect_stdout(output):
                 self.assertEqual(
-                    setup_profile.main(
-                        ["--all", "--project-dir", str(project), "--profile-set", "balanced"]
-                    ),
+                    setup_profile.main(["--all", "--project-dir", str(project)]),
+                    2,
+                )
+
+            self.assertEqual(self._snapshot(project), before)
+            self.assertIn("status=unsupported-legacy", output.getvalue())
+            self.assertIn(f"legacy_journal={journal}", output.getvalue())
+
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary).resolve()
+            self.assertEqual(self._install(project, "balanced"), 0)
+            expected = self._interrupt_prepared_switch(project)
+            lock = project / ".kapisch/local-state/profile-switch.lock"
+            lock.write_text("pid=999999\n", encoding="ascii")
+            output = io.StringIO()
+
+            with redirect_stdout(output):
+                self.assertEqual(
+                    setup_profile.main(["--all", "--project-dir", str(project)]),
                     0,
                 )
+
+            self.assertEqual(self._snapshot(project), expected)
             self.assertIn(
                 "recovery=completed interrupted managed-profile transaction",
                 output.getvalue(),
             )
-            self.assertFalse(journal.exists())
-            self.assertFalse(recovery.exists())
-            self.assertEqual(self._snapshot(project), before)
 
-    def test_legacy_unverified_recovery_staging_fails_closed(self) -> None:
+    def test_manual_legacy_cleanup_reports_and_clears_interrupted_switch_residue(
+        self,
+    ) -> None:
         with TemporaryDirectory() as temporary:
             project = Path(temporary).resolve()
             self.assertEqual(self._install(project, "balanced"), 0)
-            _, journal, recovery = self._legacy_prepared_switch(project)
-            recovery.write_bytes(b"unrelated user file")
+
+            self._interrupt_prepared_switch(project)
+
+            journal = project / ".kapisch/local-state/profile-switch.toml"
+
+            # Turn interrupted current transaction into recognizable pre-2.0 transaction state.
+            journal.write_bytes(
+                journal.read_bytes().replace(
+                    b"version=3\n",
+                    b"version=2\n",
+                    1,
+                )
+            )
+
+            for record in (
+                project / ".kapisch/local-state/profiles"
+            ).glob("*.toml"):
+                self._remove_profile_state_version(record)
+
+            # First cleanup step: legacy transaction state is refused read-only.
+            before = self._snapshot(project)
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(
+                    setup_profile.main(
+                        ["--all", "--project-dir", str(project)]
+                    ),
+                    2,
+                )
+
+            self.assertEqual(self._snapshot(project), before)
+            self.assertIn("status=unsupported-legacy", output.getvalue())
+            self.assertIn(f"legacy_journal={journal}", output.getvalue())
+            self.assertIn("modified=false", output.getvalue())
+
+            # Human removes exact legacy journal reported by inspection.
+            journal.unlink()
+
+            # Next inspection exposes legacy profile/state pairs.
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(
+                    setup_profile.main(
+                        ["--all", "--project-dir", str(project)]
+                    ),
+                    2,
+                )
+
+            self.assertEqual(
+                output.getvalue().count("status=unsupported-legacy"),
+                6,
+            )
+
+            # Human removes only exact profile/state paths reported.
+            for role in setup_profile.ROLE_CATALOG:
+                (
+                    project / f".codex/agents/kapisch-{role}.toml"
+                ).unlink()
+                (
+                    project
+                    / f".kapisch/local-state/profiles/{role}.toml"
+                ).unlink()
+
+            # Old deterministic transaction siblings must now be surfaced.
+            residue = setup_profile._legacy_switch_residue_paths(
+                project,
+                list(setup_profile.ROLE_CATALOG),
+            )
+            self.assertTrue(residue)
+
+            before = self._snapshot(project)
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(
+                    setup_profile.main(
+                        ["--all", "--project-dir", str(project)]
+                    ),
+                    2,
+                )
+
+            self.assertEqual(self._snapshot(project), before)
+            self.assertIn("status=collision", output.getvalue())
+            self.assertIn("modified=false", output.getvalue())
+
+            for path in residue:
+                self.assertIn(
+                    f"legacy_switch_artifact={path}",
+                    output.getvalue(),
+                )
+
+            # Human verifies ownership and removes reported residue.
+            for path in residue:
+                path.unlink()
 
             output = io.StringIO()
             with redirect_stdout(output):
                 self.assertEqual(
                     setup_profile.main(
-                        ["--all", "--project-dir", str(project), "--profile-set", "balanced"]
+                        ["--all", "--project-dir", str(project)]
+                    ),
+                    0,
+                )
+
+            self.assertEqual(
+                output.getvalue().count("status=not-installed"),
+                6,
+            )
+
+            self.assertEqual(self._install(project, "balanced"), 0)
+
+            self.assertEqual(
+                setup_profile.main(
+                    [
+                        "--all",
+                        "--project-dir",
+                        str(project),
+                        "--profile-set",
+                        "quality",
+                        "--install",
+                        "--replace-managed",
+                    ]
+                ),
+                0,
+            )
+
+    def test_legacy_profile_refusal_preserves_stale_lock_for_both_install_forms(
+        self,
+    ) -> None:
+        for replace_managed in (False, True):
+            with (
+                self.subTest(replace_managed=replace_managed),
+                TemporaryDirectory() as temporary,
+            ):
+                project = Path(temporary).resolve()
+                self.assertEqual(self._install(project, "quality"), 0)
+                for record in (
+                    project / ".kapisch/local-state/profiles"
+                ).glob("*.toml"):
+                    self._remove_profile_state_version(record)
+                lock = project / ".kapisch/local-state/profile-switch.lock"
+                lock_bytes = b"pid=999999\n"
+                lock.write_bytes(lock_bytes)
+                before = self._snapshot(project)
+                output = io.StringIO()
+                argv = ["--all", "--project-dir", str(project), "--install"]
+                if replace_managed:
+                    argv.append("--replace-managed")
+                with redirect_stdout(output):
+                    self.assertEqual(setup_profile.main(argv), 2)
+                self.assertEqual(self._snapshot(project), before)
+                self.assertEqual(lock.read_bytes(), lock_bytes)
+                self.assertEqual(output.getvalue().count("status=unsupported-legacy"), 6)
+                self.assertEqual(output.getvalue().count("modified=false"), 6)
+
+    def test_legacy_record_with_custom_target_is_collision_without_mutation(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary).resolve()
+            self.assertEqual(self._install(project, "balanced"), 0)
+            target = project / ".codex/agents/kapisch-reviewer.toml"
+            record = project / ".kapisch/local-state/profiles/reviewer.toml"
+            self._remove_profile_state_version(record)
+            target.write_text('name = "my-custom-reviewer"\n', encoding="utf-8")
+            before = self._snapshot(project)
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(
+                    setup_profile.main(
+                        ["--role", "reviewer", "--project-dir", str(project)]
                     ),
                     2,
                 )
-            self.assertIn("recovery staging path is unsafe", output.getvalue())
-            self.assertEqual(recovery.read_bytes(), b"unrelated user file")
-            self.assertTrue(journal.exists())
+
+            self.assertEqual(self._snapshot(project), before)
+            self.assertIn("status=collision", output.getvalue())
+            self.assertIn("modified=false", output.getvalue())
+
+    def test_legacy_record_with_malformed_target_is_collision_without_mutation(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary).resolve()
+            self.assertEqual(self._install(project, "balanced"), 0)
+            target = project / ".codex/agents/kapisch-reviewer.toml"
+            record = project / ".kapisch/local-state/profiles/reviewer.toml"
+            self._remove_profile_state_version(record)
+            target.write_bytes(b'name = "unterminated\n')
+            before = self._snapshot(project)
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(
+                    setup_profile.main(
+                        ["--role", "reviewer", "--project-dir", str(project)]
+                    ),
+                    2,
+                )
+
+            self.assertEqual(self._snapshot(project), before)
+            self.assertIn("status=collision", output.getvalue())
+            self.assertIn("modified=false", output.getvalue())
+
+    def test_current_user_modified_profile_inspection_reports_refusal(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary).resolve()
+            self.assertEqual(self._install(project, "balanced"), 0)
+            target = project / ".codex/agents/kapisch-reviewer.toml"
+            target.write_bytes(target.read_bytes() + b"# user change\n")
+            before = self._snapshot(project)
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(
+                    setup_profile.main(
+                        ["--role", "reviewer", "--project-dir", str(project)]
+                    ),
+                    0,
+                )
+
+            self.assertEqual(self._snapshot(project), before)
+            self.assertIn("drift=user-modified", output.getvalue())
+            self.assertIn(
+                "--replace-managed is refused while drift remains",
+                output.getvalue(),
+            )
+            self.assertNotIn(
+                "rerun with --install --replace-managed",
+                output.getvalue(),
+            )
+
+    def test_legacy_switch_preparation_versions_are_not_removed(self) -> None:
+        for version in (1, 2):
+            with self.subTest(version=version), TemporaryDirectory() as temporary:
+                project = Path(temporary).resolve()
+                self.assertEqual(self._install(project, "balanced"), 0)
+                self._interrupt_prepared_switch(project)
+                journal = project / ".kapisch/local-state/profile-switch.toml"
+                prepare = project / ".kapisch/local-state/.profile-switch.prepare.tmp"
+                legacy_bytes = journal.read_bytes()
+                if version == 1:
+                    legacy_bytes = b"".join(
+                        line
+                        for line in legacy_bytes.splitlines(keepends=True)
+                        if not line.startswith(b"recovery=")
+                    )
+                journal.unlink()
+                prepare.write_bytes(
+                    legacy_bytes.replace(
+                        b"version=3\n", f"version={version}\n".encode("ascii"), 1
+                    )
+                )
+                before = self._snapshot(project)
+                output = io.StringIO()
+
+                with redirect_stdout(output):
+                    self.assertEqual(
+                        setup_profile.main(["--all", "--project-dir", str(project)]), 2
+                    )
+
+                self.assertEqual(self._snapshot(project), before)
+                self.assertIn("status=unsupported-legacy", output.getvalue())
+                self.assertIn("modified=false", output.getvalue())
+                self.assertIn(f"legacy_prepare={prepare}", output.getvalue())
+
+    def test_malformed_and_newer_switch_journals_are_preserved(self) -> None:
+        for malformed in (True, False):
+            with self.subTest(malformed=malformed), TemporaryDirectory() as temporary:
+                project = Path(temporary).resolve()
+                self.assertEqual(self._install(project, "balanced"), 0)
+                self._interrupt_prepared_switch(project)
+                journal = project / ".kapisch/local-state/profile-switch.toml"
+                journal.write_bytes(
+                    b"not valid = ["
+                    if malformed
+                    else journal.read_bytes().replace(b"version=3\n", b"version=4\n", 1)
+                )
+                before = self._snapshot(project)
+                output = io.StringIO()
+
+                with redirect_stdout(output):
+                    self.assertEqual(
+                        setup_profile.main(["--all", "--project-dir", str(project)]), 2
+                    )
+
+                self.assertEqual(self._snapshot(project), before)
+                self.assertIn("status=collision", output.getvalue())
+                self.assertNotIn("status=unsupported-legacy", output.getvalue())
+
+    def test_symlinked_fixed_switch_states_are_preserved_as_collisions(self) -> None:
+        for kind in ("journal", "prepare"):
+            with self.subTest(kind=kind), TemporaryDirectory() as temporary:
+                project = Path(temporary).resolve()
+                self.assertEqual(self._install(project, "balanced"), 0)
+                self._interrupt_prepared_switch(project)
+                journal = project / ".kapisch/local-state/profile-switch.toml"
+                state = (
+                    journal
+                    if kind == "journal"
+                    else project / ".kapisch/local-state/.profile-switch.prepare.tmp"
+                )
+                source = project / f"{kind}-switch-state.toml"
+                source.write_bytes(journal.read_bytes())
+                journal.unlink()
+                try:
+                    state.symlink_to(source)
+                except OSError as exc:
+                    self.skipTest(f"symbolic links are unavailable: {exc}")
+                link_target = state.readlink()
+                before = self._snapshot(project)
+                output = io.StringIO()
+
+                with redirect_stdout(output):
+                    self.assertEqual(
+                        setup_profile.main(["--all", "--project-dir", str(project)]), 2
+                    )
+
+                self.assertEqual(self._snapshot(project), before)
+                self.assertTrue(state.is_symlink())
+                self.assertEqual(state.readlink(), link_target)
+                self.assertIn("status=collision", output.getvalue())
+                self.assertIn("modified=false", output.getvalue())
 
     def test_unverified_recovery_staging_fails_closed(self) -> None:
         with TemporaryDirectory() as temporary:
@@ -1727,25 +2269,103 @@ class ProfileSetTests(unittest.TestCase):
             self.assertEqual(lock.read_text(encoding="ascii"), contents)
             self.assertEqual(self._snapshot(project), before)
 
-    def test_verified_legacy_state_is_inspectable_as_quality_without_rewrite(self) -> None:
+    def test_structural_legacy_state_is_rejected_without_mutation(self) -> None:
         with TemporaryDirectory() as temporary:
             project = Path(temporary)
+            root = project.resolve()
             self.assertEqual(self._install(project, "quality"), 0)
-            for record in (project / ".kapisch/local-state/profiles").glob("*.toml"):
-                lines = [
-                    line
-                    for line in record.read_text(encoding="utf-8").splitlines()
-                    if not line.startswith("profile_set=")
-                ]
-                record.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            for record in (root / ".kapisch/local-state/profiles").glob("*.toml"):
+                self._remove_profile_state_version(record)
             before = self._snapshot(project)
             output = io.StringIO()
             with redirect_stdout(output):
-                self.assertEqual(
-                    setup_profile.main(
-                        ["--all", "--project-dir", str(project)]
-                    ),
-                    0,
-                )
+                self.assertEqual(setup_profile.main(["--all", "--project-dir", str(project)]), 2)
             self.assertEqual(self._snapshot(project), before)
-            self.assertEqual(output.getvalue().count("installed_profile_set=quality"), 6)
+            self.assertEqual(output.getvalue().count("status=unsupported-legacy"), 6)
+            self.assertEqual(output.getvalue().count("modified=false"), 6)
+            self.assertIn(f"legacy_profile={root / '.codex/agents/kapisch-reviewer.toml'}", output.getvalue())
+            self.assertIn("legacy_state_record=" f"{root / '.kapisch/local-state/profiles/reviewer.toml'}", output.getvalue())
+            self.assertIn("docs/compatibility.md#legacy-profile-cleanup", output.getvalue().replace("\\", "/"))
+
+    def test_legacy_binding_mismatch_is_an_ambiguous_collision(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            root = project.resolve()
+            self.assertEqual(self._install(project, "quality"), 0)
+            record = root / ".kapisch/local-state/profiles/reviewer.toml"
+            self._remove_profile_state_version(record)
+            record.write_text(record.read_text(encoding="utf-8").replace(
+                f"installed_profile={setup_profile.toml_basic_string(root / '.codex/agents/kapisch-reviewer.toml')}",
+                f"installed_profile={setup_profile.toml_basic_string(root / '.codex/agents/kapisch-architect.toml')}",
+            ), encoding="utf-8")
+            before, output = self._snapshot(project), io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(setup_profile.main(["--all", "--project-dir", str(project)]), 2)
+            self.assertEqual(self._snapshot(project), before)
+            self.assertIn("status=collision", output.getvalue())
+            self.assertNotIn("status=unsupported-legacy", output.getvalue())
+
+    def test_older_profile_state_version_is_legacy(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            root = project.resolve()
+            self.assertEqual(setup_profile.main(["--role", "reviewer", "--project-dir", str(project), "--install"]), 0)
+            record = root / ".kapisch/local-state/profiles/reviewer.toml"
+            record.write_text(record.read_text(encoding="utf-8").replace("profile_state_version=1", "profile_state_version=0"), encoding="utf-8")
+            before, output = self._snapshot(project), io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(setup_profile.main(["--role", "reviewer", "--project-dir", str(project)]), 2)
+            self.assertEqual(self._snapshot(project), before)
+            self.assertIn("status=unsupported-legacy", output.getvalue())
+            self.assertIn(f"legacy_profile={root / '.codex/agents/kapisch-reviewer.toml'}", output.getvalue())
+            self.assertIn(f"legacy_state_record={record}", output.getvalue())
+
+    def test_newer_profile_state_version_is_a_collision(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            self.assertEqual(setup_profile.main(["--role", "reviewer", "--project-dir", str(project), "--install"]), 0)
+            record = project / ".kapisch/local-state/profiles/reviewer.toml"
+            record.write_text(record.read_text(encoding="utf-8").replace("profile_state_version=1", "profile_state_version=2"), encoding="utf-8")
+            before, output = self._snapshot(project), io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(setup_profile.main(["--role", "reviewer", "--project-dir", str(project)]), 2)
+            self.assertEqual(self._snapshot(project), before)
+            self.assertIn("status=collision", output.getvalue())
+            self.assertNotIn("status=unsupported-legacy", output.getvalue())
+
+    def test_malformed_profile_state_version_is_a_collision(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            self.assertEqual(setup_profile.main(["--role", "reviewer", "--project-dir", str(project), "--install"]), 0)
+            record = project / ".kapisch/local-state/profiles/reviewer.toml"
+            record.write_text(record.read_text(encoding="utf-8").replace("profile_state_version=1", 'profile_state_version="1"'), encoding="utf-8")
+            before, output = self._snapshot(project), io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(setup_profile.main(["--role", "reviewer", "--project-dir", str(project)]), 2)
+            self.assertEqual(self._snapshot(project), before)
+            self.assertIn("status=collision", output.getvalue())
+            self.assertNotIn("status=unsupported-legacy", output.getvalue())
+
+    def test_mixed_current_and_legacy_catalog_rejects_atomically(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            self.assertEqual(self._install(project, "balanced"), 0)
+            self._remove_profile_state_version(project / ".kapisch/local-state/profiles/reviewer.toml")
+            before = self._snapshot(project)
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(setup_profile.main(["--all", "--project-dir", str(project), "--profile-set", "quality", "--install", "--replace-managed"]), 2)
+            self.assertEqual(self._snapshot(project), before)
+
+    def test_profile_and_record_only_states_are_inconsistent(self) -> None:
+        for missing, error in (("record", "installed profile has no verifiable state record"), ("profile", "state record exists without an installed profile")):
+            with self.subTest(missing=missing), TemporaryDirectory() as temporary:
+                project = Path(temporary)
+                self.assertEqual(setup_profile.main(["--role", "reviewer", "--project-dir", str(project), "--install"]), 0)
+                profile = project / ".codex/agents/kapisch-reviewer.toml"
+                record = project / ".kapisch/local-state/profiles/reviewer.toml"
+                (record if missing == "record" else profile).unlink()
+                before, output = self._snapshot(project), io.StringIO()
+                with redirect_stdout(output):
+                    self.assertEqual(setup_profile.main(["--role", "reviewer", "--project-dir", str(project)]), 2)
+                self.assertEqual(self._snapshot(project), before)
+                self.assertIn(error, output.getvalue())

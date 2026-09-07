@@ -6,7 +6,7 @@ import argparse
 from contextlib import contextmanager
 import hashlib
 import os
-from pathlib import Path, PurePosixPath, PureWindowsPath
+from pathlib import Path
 import secrets
 from typing import Any, Callable, Iterator
 import tomllib
@@ -22,6 +22,9 @@ ROLE_CATALOG = (
     "reviewer",
 )
 PROFILE_SET_CATALOG = ("balanced", "quality", "budget")
+CURRENT_PROFILE_STATE_VERSION = 1
+CURRENT_SWITCH_JOURNAL_VERSION = 3
+
 PROFILE_SET_ROUTING = {
     "balanced": {
         "architect": ("gpt-5.6-sol", "high"),
@@ -58,12 +61,28 @@ def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _is_sha256(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
 def _read_profile(path: Path) -> dict[str, Any]:
     try:
         contents = path.read_bytes()
     except OSError as exc:
         raise ProfileReadError(str(exc)) from exc
     return _parse_profile_bytes(contents)
+
+
+def _normalize_template_bytes(contents: bytes) -> bytes:
+    try:
+        text = contents.decode("utf-8")
+    except UnicodeError as exc:
+        raise ProfileReadError(str(exc)) from exc
+    return text.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
 
 
 def _parse_profile_bytes(contents: bytes) -> dict[str, Any]:
@@ -78,6 +97,7 @@ def _parse_profile_bytes(contents: bytes) -> dict[str, Any]:
 
 def _render_profile_bytes(canonical: bytes, *, role: str, profile_set: str) -> bytes:
     """Render one deterministic runtime profile from the canonical role contract."""
+    canonical = _normalize_template_bytes(canonical)
     values = _parse_profile_bytes(canonical)
     expected_identity = f"kapisch-{role}"
     if values.get("name") != expected_identity:
@@ -102,12 +122,10 @@ def _render_profile_bytes(canonical: bytes, *, role: str, profile_set: str) -> b
     effort_fields = 0
     for line in lines:
         if line.startswith("model = "):
-            ending = "\r\n" if line.endswith("\r\n") else "\n"
-            rendered.append(f'model = "{model}"{ending}')
+            rendered.append(f'model = "{model}"\n')
             model_fields += 1
         elif line.startswith("model_reasoning_effort = "):
-            ending = "\r\n" if line.endswith("\r\n") else "\n"
-            rendered.append(f'model_reasoning_effort = "{effort}"{ending}')
+            rendered.append(f'model_reasoning_effort = "{effort}"\n')
             effort_fields += 1
         else:
             rendered.append(line)
@@ -179,16 +197,17 @@ def _record_values(path: Path) -> dict[str, Any]:
         raise ProfileReadError(f"state record is unreadable or malformed: {exc}") from exc
 
 
-def _template_provenance_matches(saved: object, template: Path) -> bool:
-    if not isinstance(saved, str) or not saved:
-        return False
-    if saved == template.name:
-        return True
-    return any(
-        candidate.is_absolute()
-        and candidate.parent.name == "agents"
-        and candidate.name == template.name
-        for candidate in (PurePosixPath(saved), PureWindowsPath(saved))
+def _legacy_profile_binding_matches(
+    saved: dict[str, Any],
+    *,
+    expected_identity: str,
+    target: Path,
+    scope: str,
+) -> bool:
+    return (
+        saved.get("profile_identity") == expected_identity
+        and saved.get("installed_profile") == str(target)
+        and saved.get("scope") == scope
     )
 
 
@@ -202,6 +221,7 @@ def _record_text(
     profile_set: str,
     installed_digest: str,
 ) -> str:
+    installed_model, installed_effort = PROFILE_SET_ROUTING[profile_set][role]
     fields = (
         ("template", template.name),
         ("template_sha256", template_digest),
@@ -209,9 +229,14 @@ def _record_text(
         ("scope", scope),
         ("profile_set", profile_set),
         ("profile_identity", f"kapisch-{role}"),
+        ("installed_model", installed_model),
+        ("installed_model_reasoning_effort", installed_effort),
         ("installed_sha256", installed_digest),
     )
-    return "".join(f"{name}={toml_basic_string(value)}\n" for name, value in fields)
+    return (
+        f"profile_state_version={CURRENT_PROFILE_STATE_VERSION}\n"
+        + "".join(f"{name}={toml_basic_string(value)}\n" for name, value in fields)
+    )
 
 
 def _print_plan(plan: dict[str, Any], scope: str) -> None:
@@ -228,9 +253,21 @@ def _print_plan(plan: dict[str, Any], scope: str) -> None:
     for key in ("drift", "template_drift", "error", "cleanup"):
         if plan.get(key) is not None:
             print(f"{key}={plan[key]}")
+    if plan.get("update_required") is not None:
+        print("update_required=" + ("true" if plan["update_required"] else "false"))
     for collision in plan.get("collision", ()):
         print(f"identity_collision={collision}")
-    if plan["status"] == "verification-failed":
+    if plan["status"] == "unsupported-legacy":
+        print("modified=false")
+        print(f"legacy_profile={plan['legacy_profile']}")
+        print(f"legacy_state_record={plan['legacy_state_record']}")
+        print(
+            "action=back up and manually remove the listed legacy files, "
+            "then reinstall"
+        )
+        guidance = Path(__file__).resolve().parents[1] / "docs" / "compatibility.md"
+        print(f"guidance={guidance}#legacy-profile-cleanup")
+    elif plan["status"] == "verification-failed":
         print("action=committed transaction needs manual state repair; no profile set is claimed active")
     elif plan["status"] == "installed" and plan.get("cleanup"):
         print("action=committed profile set is active; rerun inspection to finish cleanup")
@@ -240,6 +277,11 @@ def _print_plan(plan: dict[str, Any], scope: str) -> None:
         print("action=profile copied; no existing profile was overwritten")
     elif plan["status"] == "not-installed":
         print("action=rerun with --install after human review")
+    elif plan["status"] == "installed" and plan.get("drift") == "user-modified":
+        print(
+            "action=review or restore the user-modified managed profile; "
+            "--replace-managed is refused while drift remains"
+        )
     elif plan["status"] == "installed" and plan.get("switch_required"):
         print("action=rerun with --install --replace-managed after human review")
     else:
@@ -305,7 +347,7 @@ def _prepare_role(
         "profile_set": profile_set,
     }
     try:
-        template_bytes = template.read_bytes()
+        template_bytes = _normalize_template_bytes(template.read_bytes())
         template_values = _parse_profile_bytes(template_bytes)
         desired_bytes = _render_profile_bytes(
             template_bytes, role=role, profile_set=profile_set
@@ -375,12 +417,46 @@ def _prepare_role(
         except OSError as exc:
             plan.update(status="collision", error=f"state record is unreadable or malformed: {exc}")
             return plan
+        state_version = saved.get("profile_state_version")
+        legacy_version = state_version is None or (
+            type(state_version) is int
+            and state_version < CURRENT_PROFILE_STATE_VERSION
+        )
+        if legacy_version:
+            if _legacy_profile_binding_matches(
+                saved,
+                expected_identity=expected_identity,
+                target=target,
+                scope=scope,
+            ):
+                plan.update(
+                    status="unsupported-legacy",
+                    error="unsupported legacy KAPISCH profile state was detected",
+                    legacy_profile=target,
+                    legacy_state_record=record,
+                )
+            else:
+                plan.update(
+                    status="collision",
+                    error="legacy-looking state bindings cannot be verified",
+                )
+            return plan
+        if (
+            type(state_version) is not int
+            or state_version != CURRENT_PROFILE_STATE_VERSION
+        ):
+            plan.update(
+                status="collision",
+                error="state record has an unsupported profile state version",
+            )
+            return plan
         if (
             saved.get("profile_identity") != expected_identity
             or saved.get("installed_profile") != str(target)
-            or not _template_provenance_matches(saved.get("template"), template)
-            or not isinstance(saved.get("installed_sha256"), str)
-            or not isinstance(saved.get("template_sha256"), str)
+            or saved.get("scope") != scope
+            or saved.get("template") != template.name
+            or not _is_sha256(saved.get("installed_sha256"))
+            or not _is_sha256(saved.get("template_sha256"))
         ):
             plan.update(
                 status="collision",
@@ -388,36 +464,28 @@ def _prepare_role(
             )
             return plan
         recorded_set = saved.get("profile_set")
-        if recorded_set is None:
-            quality_bytes = _render_profile_bytes(
-                template_bytes, role=role, profile_set="quality"
-            )
-            quality_digest = hashlib.sha256(quality_bytes).hexdigest()
-            if (
-                saved.get("template_sha256") != template_digest
-                or saved.get("installed_sha256") != quality_digest
-            ):
-                plan.update(
-                    status="collision",
-                    error="legacy state record does not match the verified quality profile",
-                )
-                return plan
-            installed_profile_set = "quality"
-        elif recorded_set in PROFILE_SET_CATALOG:
+        if recorded_set in PROFILE_SET_CATALOG:
             installed_profile_set = recorded_set
         else:
             plan.update(status="collision", error="state record has an unknown profile set")
             return plan
-        expected_model, expected_effort = PROFILE_SET_ROUTING[installed_profile_set][
-            role
-        ]
+        installed_model = saved.get("installed_model")
+        installed_effort = saved.get("installed_model_reasoning_effort")
         if (
-            installed_values.get("model"),
-            installed_values.get("model_reasoning_effort"),
-        ) != (expected_model, expected_effort):
+            not isinstance(installed_model, str)
+            or not isinstance(installed_effort, str)
+            or (
+                installed_values.get("model"),
+                installed_values.get("model_reasoning_effort"),
+            )
+            != (installed_model, installed_effort)
+        ):
             plan.update(
                 status="collision",
-                error="state record profile set does not match installed profile routing",
+                error=(
+                    "state record installed routing does not match "
+                    "the installed profile"
+                ),
             )
             return plan
         plan.update(
@@ -425,32 +493,47 @@ def _prepare_role(
             installed_bytes=installed_bytes,
             record_original_bytes=record_bytes,
         )
-        plan["drift"] = "none" if saved.get("installed_sha256") == installed_digest else "user-modified"
-        plan["template_drift"] = "none" if saved.get("template_sha256") == template_digest else "updated"
-        if installed_profile_set != profile_set:
-            plan["switch_required"] = True
-            if install and replace_managed:
-                if plan["drift"] != "none":
-                    plan.update(
-                        status="collision",
-                        error="managed replacement refused because the installed profile drifted",
-                    )
-                    return plan
-                try:
-                    plan["record_bytes"] = _record_text(
-                        template=template,
-                        template_digest=template_digest,
-                        target=target,
-                        scope=scope,
-                        role=role,
-                        profile_set=profile_set,
-                        installed_digest=desired_digest,
-                    ).encode("utf-8")
-                except (UnicodeError, ValueError) as exc:
-                    plan.update(status="collision", error=f"state record cannot be encoded safely: {exc}")
-                    return plan
-                plan["status"] = "replace-pending"
+        plan["drift"] = (
+            "none" if saved["installed_sha256"] == installed_digest else "user-modified"
+        )
+        plan["template_drift"] = (
+            "none" if saved["template_sha256"] == template_digest else "updated"
+        )
+        update_required = (
+            installed_profile_set != profile_set
+            or saved["template_sha256"] != template_digest
+            or installed_digest != desired_digest
+        )
+        plan["update_required"] = update_required
+        plan["switch_required"] = update_required
+
+        if install and replace_managed and plan["drift"] != "none":
+            plan.update(
+                status="collision",
+                error=(
+                    "managed replacement refused because "
+                    "the installed profile drifted"
+                ),
+            )
+            return plan
+        if update_required and install and replace_managed:
+            try:
+                plan["record_bytes"] = _record_text(
+                    template=template,
+                    template_digest=template_digest,
+                    target=target,
+                    scope=scope,
+                    role=role,
+                    profile_set=profile_set,
+                    installed_digest=desired_digest,
+                ).encode("utf-8")
+            except (UnicodeError, ValueError) as exc:
+                plan.update(
+                    status="collision", error=f"state record cannot be encoded safely: {exc}"
+                )
                 return plan
+            plan["status"] = "replace-pending"
+            return plan
         plan["status"] = "installed"
         return plan
 
@@ -505,9 +588,23 @@ def _switch_prepare_path(root: Path) -> Path:
     return root / ".kapisch" / "local-state" / ".profile-switch.prepare.tmp"
 
 
+def _read_switch_state_version(path: Path) -> int:
+    if path.is_symlink():
+        raise OSError("profile-switch state is a symbolic link")
+    values = _parse_profile_bytes(path.read_bytes())
+    version = values.get("version")
+    if type(version) is not int:
+        raise OSError("profile-switch state has an invalid version")
+    return version
+
+
 def _switch_journal_text(status: str, entries: list[dict[str, Any]]) -> bytes:
-    version = 2 if entries and all("recovery" in entry for entry in entries) else 1
-    lines = [f"version={version}\n", f"status={toml_basic_string(status)}\n"]
+    if not entries or any("recovery" not in entry for entry in entries):
+        raise ValueError("current profile-switch entries require recovery paths")
+    lines = [
+        f"version={CURRENT_SWITCH_JOURNAL_VERSION}\n",
+        f"status={toml_basic_string(status)}\n",
+    ]
     fields = (
         "role",
         "kind",
@@ -532,7 +629,13 @@ def _read_switch_journal(root: Path) -> tuple[str, list[dict[str, Any]]]:
         raise OSError("profile-switch journal is a symbolic link")
     values = _parse_profile_bytes(journal.read_bytes())
     version = values.get("version")
-    if version not in {1, 2} or values.get("status") not in {"prepared", "committed"}:
+    status = values.get("status")
+    if (
+        type(version) is not int
+        or version != CURRENT_SWITCH_JOURNAL_VERSION
+        or type(status) is not str
+        or status not in {"prepared", "committed"}
+    ):
         raise OSError("profile-switch journal has an unsupported version or status")
     entries = values.get("entries")
     if not isinstance(entries, list) or not entries:
@@ -543,11 +646,10 @@ def _read_switch_journal(root: Path) -> tuple[str, list[dict[str, Any]]]:
         "destination",
         "backup",
         "staged",
+        "recovery",
         "original_sha256",
         "desired_sha256",
     }
-    if version == 2:
-        expected_fields.add("recovery")
     seen: set[tuple[str, str]] = set()
     checked: list[dict[str, Any]] = []
     for entry in entries:
@@ -576,19 +678,18 @@ def _read_switch_journal(root: Path) -> tuple[str, list[dict[str, Any]]]:
             or entry["staged"] != str(staged)
         ):
             raise OSError("profile-switch journal paths cannot be verified")
-        if version == 2:
-            recovery = Path(entry["recovery"])
-            prefix = f".{destination.name}.kapisch-switch.recover."
-            suffix = ".tmp"
-            token = recovery.name.removeprefix(prefix).removesuffix(suffix)
-            if (
-                recovery.parent != destination.parent
-                or not recovery.name.startswith(prefix)
-                or not recovery.name.endswith(suffix)
-                or len(token) != 32
-                or any(character not in "0123456789abcdef" for character in token)
-            ):
-                raise OSError("profile-switch recovery staging path cannot be verified")
+        recovery = Path(entry["recovery"])
+        prefix = f".{destination.name}.kapisch-switch.recover."
+        suffix = ".tmp"
+        token = recovery.name.removeprefix(prefix).removesuffix(suffix)
+        if (
+            recovery.parent != destination.parent
+            or not recovery.name.startswith(prefix)
+            or not recovery.name.endswith(suffix)
+            or len(token) != 32
+            or any(character not in "0123456789abcdef" for character in token)
+        ):
+            raise OSError("profile-switch recovery staging path cannot be verified")
         for digest_key in ("original_sha256", "desired_sha256"):
             digest_value = entry[digest_key]
             if len(digest_value) != 64 or any(
@@ -611,9 +712,7 @@ def _remove_switch_artifact(path: Path) -> None:
 
 
 def _recovery_staging_path(entry: dict[str, Any], destination: Path) -> Path:
-    return Path(entry["recovery"]) if "recovery" in entry else destination.with_name(
-        f".{destination.name}.kapisch-switch.recover.tmp"
-    )
+    return Path(entry["recovery"])
 
 def _is_owned_recovery_staging(path: Path, contents: bytes) -> bool:
     if path.is_symlink() or not path.is_file():
@@ -687,10 +786,6 @@ def _recover_interrupted_switch(root: Path) -> tuple[bool, str | None]:
                 restore = _recovery_staging_path(entry, destination)
                 if restore.exists() or restore.is_symlink():
                     if _path_digest(restore) != entry["original_sha256"]:
-                        # Version-1 journals used this deterministic sibling path.
-                        # A verified prefix of the authoritative backup is the
-                        # legacy transaction's only staging identity; any other
-                        # object remains fail-closed.
                         if not _is_owned_recovery_staging(restore, backup_bytes):
                             raise OSError(f"recovery staging path is unsafe: {restore}")
                         _remove_switch_artifact(restore)
@@ -705,8 +800,6 @@ def _recover_interrupted_switch(root: Path) -> tuple[bool, str | None]:
                 if _path_digest(destination) != expected_digest:
                     raise OSError(f"recovery verification failed: {destination}")
             for entry in entries:
-                if "recovery" not in entry:
-                    continue
                 restore = _recovery_staging_path(entry, Path(entry["destination"]))
                 if not restore.exists() and not restore.is_symlink():
                     continue
@@ -1097,6 +1190,150 @@ def _switch_lock(root: Path, *, create: bool) -> Iterator[None]:
                 pass
 
 
+def _legacy_switch_residue_paths(root: Path, roles: list[str]) -> list[Path]:
+    found: list[Path] = []
+
+    for role in roles:
+        destinations = (
+            root / ".codex" / "agents" / f"kapisch-{role}.toml",
+            root / ".kapisch" / "local-state" / "profiles" / f"{role}.toml",
+        )
+
+        for destination in destinations:
+            for suffix in (
+                "kapisch-switch.bak",
+                "kapisch-switch.tmp",
+            ):
+                candidate = destination.with_name(
+                    f".{destination.name}.{suffix}"
+                )
+                if candidate.exists() or candidate.is_symlink():
+                    found.append(candidate)
+
+    return sorted(set(found))
+
+def _legacy_switch_residue_requires_refusal(
+    root: Path,
+    roles: list[str],
+) -> bool:
+    paths = _legacy_switch_residue_paths(root, roles)
+    if not paths:
+        return False
+
+    print("status=collision")
+    print("modified=false")
+    print(
+        "error=possible pre-2.0 profile-switch staging artifacts remain"
+    )
+    for path in paths:
+        print(f"legacy_switch_artifact={path}")
+    print(
+        "action=back up and inspect each listed artifact; "
+        "if it belongs to the old KAPISCH installation, "
+        "remove it manually and rerun inspection"
+    )
+    return True
+
+def _legacy_profile_state_requires_refusal(
+    root: Path,
+    *,
+    scope: str,
+    roles: list[str],
+    profile_set: str,
+) -> bool:
+    refused = False
+
+    for role in roles:
+        target = root / ".codex" / "agents" / f"kapisch-{role}.toml"
+        record = (
+            root
+            / ".kapisch"
+            / "local-state"
+            / "profiles"
+            / f"{role}.toml"
+        )
+
+        if (
+            not target.exists()
+            or target.is_symlink()
+            or not record.exists()
+            or record.is_symlink()
+        ):
+            continue
+
+        try:
+            saved = _record_values(record)
+        except ProfileReadError:
+            continue
+
+        state_version = saved.get("profile_state_version")
+        legacy_version = (
+            state_version is None
+            or (
+                type(state_version) is int
+                and state_version < CURRENT_PROFILE_STATE_VERSION
+            )
+        )
+
+        if not legacy_version:
+            continue
+
+        expected_identity = f"kapisch-{role}"
+        if not _legacy_profile_binding_matches(
+            saved,
+            expected_identity=expected_identity,
+            target=target,
+            scope=scope,
+        ):
+            continue
+        try:
+            target_values = _read_profile(target)
+        except ProfileReadError as exc:
+            _print_plan(
+                {
+                    "target": target,
+                    "status": "collision",
+                    "profile_set": profile_set,
+                    "expected_identity": expected_identity,
+                    "installed_identity": "unreadable",
+                    "error": f"existing destination is unreadable or malformed: {exc}",
+                },
+                scope,
+            )
+            print("modified=false")
+            refused = True
+            continue
+        if target_values.get("name") != expected_identity:
+            _print_plan(
+                {
+                    "target": target,
+                    "status": "collision",
+                    "profile_set": profile_set,
+                    "expected_identity": expected_identity,
+                    "installed_identity": target_values.get("name"),
+                    "error": "existing destination has unexpected profile identity",
+                },
+                scope,
+            )
+            print("modified=false")
+            refused = True
+            continue
+
+        _print_plan(
+            {
+                "target": target,
+                "status": "unsupported-legacy",
+                "profile_set": profile_set,
+                "legacy_profile": target,
+                "legacy_state_record": record,
+                "error": "unsupported legacy KAPISCH profile state was detected",
+            },
+            scope,
+        )
+        refused = True
+
+    return refused
+
 def _switch_recovery_needed(root: Path) -> bool:
     return (
         _switch_journal_path(root).exists()
@@ -1104,6 +1341,46 @@ def _switch_recovery_needed(root: Path) -> bool:
         or _switch_prepare_path(root).exists()
         or _switch_prepare_path(root).is_symlink()
     )
+
+
+def _fixed_switch_state_requires_refusal(root: Path) -> bool:
+    states = (
+        ("journal", _switch_journal_path(root)),
+        ("prepare", _switch_prepare_path(root)),
+    )
+    versions: list[tuple[str, Path, int]] = []
+    state_error: str | None = None
+    for kind, path in states:
+        if not path.exists() and not path.is_symlink():
+            continue
+        try:
+            versions.append((kind, path, _read_switch_state_version(path)))
+        except (OSError, ProfileReadError, ValueError) as exc:
+            state_error = str(exc)
+    if state_error is not None or any(
+        version not in {1, 2, CURRENT_SWITCH_JOURNAL_VERSION}
+        for _, _, version in versions
+    ):
+        print("status=collision")
+        print("modified=false")
+        print(
+            "error=profile-switch state cannot be recovered safely: "
+            f"{state_error or 'unsupported version'}"
+        )
+        print("action=review local state; no new profile operation was attempted")
+        return True
+    legacy = next(
+        ((kind, path) for kind, path, version in versions if version in {1, 2}),
+        None,
+    )
+    if legacy is not None:
+        kind, path = legacy
+        print("status=unsupported-legacy")
+        print("modified=false")
+        print(f"legacy_{kind}={path}")
+        print("action=back up and remove the legacy profile-switch state manually")
+        return True
+    return False
 
 
 def _run_setup(
@@ -1118,6 +1395,11 @@ def _run_setup(
         print("error=interrupted managed switch requires serialized recovery")
         print("action=rerun inspection to recover the interrupted transaction")
         return 2
+    if allow_recovery and recovery_needed:
+        # Revalidate current fixed transaction state under the setup lock. The
+        # same read-only gate also runs before lock acquisition in main().
+        if _fixed_switch_state_requires_refusal(root):
+            return 2
     if allow_recovery:
         recovered, recovery_error = _recover_interrupted_switch(root)
         if not recovered:
@@ -1158,13 +1440,14 @@ def _run_setup(
                 if plan["status"] != "collision":
                     plan.update(
                         status="collision",
-                        error=(
-                            "complete-catalog operation refused because it would mix "
-                            "new installation and managed switching"
-                        ),
+                        error="cannot combine missing installs with managed replacements",
                     )
 
-    failures = [plan for plan in plans if plan["status"] == "collision"]
+    failures = [
+        plan
+        for plan in plans
+        if plan["status"] in {"collision", "unsupported-legacy"}
+    ]
     cleanup_pending = False
     if args.install and not failures:
         commit_outcome, error = _commit(plans, root=root)
@@ -1175,7 +1458,11 @@ def _run_setup(
                         status="collision",
                         error=f"catalog installation rolled back: {error}",
                     )
-            failures = [plan for plan in plans if plan["status"] == "collision"]
+            failures = [
+                plan
+                for plan in plans
+                if plan["status"] in {"collision", "unsupported-legacy"}
+            ]
         elif commit_outcome == "verification-failed":
             for plan in plans:
                 if plan["status"] in {"install-pending", "replace-pending"}:
@@ -1227,9 +1514,21 @@ def main(argv: list[str] | None = None) -> int:
     if args.replace_managed and not args.install:
         parser.error("--replace-managed requires --install")
 
+    roles = list(ROLE_CATALOG if args.all else (args.role,))
     root = (args.project_dir if args.scope == "project" else args.user_dir).resolve()
     try:
         recovery_needed = _switch_recovery_needed(root)
+        if recovery_needed and _fixed_switch_state_requires_refusal(root):
+            return 2
+        if _legacy_profile_state_requires_refusal(
+            root,
+            scope=args.scope,
+            roles=roles,
+            profile_set=args.profile_set,
+        ):
+            return 2
+        if not recovery_needed and _legacy_switch_residue_requires_refusal(root,roles):
+            return 2
         if not args.install and not recovery_needed:
             return _run_setup(args, root, allow_recovery=False)
         with _switch_lock(root, create=args.install):

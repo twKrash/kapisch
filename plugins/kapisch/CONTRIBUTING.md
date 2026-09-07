@@ -31,6 +31,15 @@ Also run `python -m unittest discover -s tests` and `git diff --check` from the
 repository root. Windows-sensitive changes must pass the profile and portable
 suites on native Windows Python 3.11.
 
+## Profile compatibility policy
+
+Current profile-state formats are independent of plugin semver. Unsupported
+legacy state is diagnostic-only and must not be mutated. Historical profile bytes,
+digest allowlists, and migration fixtures must not be introduced without a
+separately approved compatibility design. Automatic migration is not an acceptable
+substitute. Any future incompatible state-format change requires an
+intentional semver decision and updated Linux and native-Windows tests.
+
 ## Version decisions
 
 Every PR that changes shipped plugin behavior makes an intentional semantic

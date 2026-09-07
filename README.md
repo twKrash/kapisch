@@ -7,11 +7,11 @@ Directory submission.
 
 ## Support
 
-| Surface | Verified status for the 1.2.1 release candidate |
+| Surface | Verified status for the 2.0.0 release candidate |
 | --- | --- |
-| Windows 11 + Codex Desktop + WSL2 | 1.0.1 release baseline passed; 1.2.1 live acceptance remains pending. |
-| Linux | Historical live 1.0.0 flow passed; 1.2.1 automated evidence is recorded separately. |
-| Native Windows, no WSL | Python 3.11 profile and portable-package suites pass; live plugin support is not yet claimed. |
+| Windows 11 + Codex Desktop + WSL2 | Historical 1.0.1 release baseline passed; 2.0.0 live acceptance remains pending. |
+| Linux | Historical live 1.0.0 flow passed; 2.0.0 automated evidence is recorded separately. |
+| Native Windows, no WSL | Native Windows CI is required before release; success is not yet claimed. |
 
 Following [OpenAI's WSL guidance](https://learn.chatgpt.com/docs/windows/wsl),
 keep both `CODEX_HOME` and consumer repositories in the Linux filesystem (for
@@ -19,10 +19,10 @@ example, `~/code`) rather than under `/mnt/c`.
 
 ## Quick start
 
-After the immutable 1.2.1 tag is published, the released installation command is:
+After the immutable 2.0.0 tag is published, the released installation command is:
 
 ```text
-codex plugin marketplace add twKrash/kapisch --ref v1.2.1
+codex plugin marketplace add twKrash/kapisch --ref v2.0.0
 codex plugin add kapisch@kapisch-local
 ```
 
@@ -43,25 +43,23 @@ installation reference.
 
 Plugin installation does not activate the six agent-profile templates. Install
 them explicitly into a consumer repository when approval-capable review or
-specialized routing is needed. From a source checkout's repository root:
+specialized routing is needed. **The legacy profile state is unsupported and is
+not automatically migrated.** Follow the [Manual cleanup procedure](plugins/kapisch/docs/compatibility.md#legacy-profile-cleanup)
+before a fresh inspection and install.
 
 ```text
 python plugins/kapisch/scripts/setup_profile.py --all --project-dir <consumer-repository> --install
 ```
 
 New installations default to the cost-oriented `balanced` runtime profile set.
-Use `--profile-set quality` for the 1.0.1 quality baseline or `--profile-set
-budget` for routine work in well-understood repositories. Profile sets change
-only Codex model/reasoning configuration; KAPISCH risk, permissions, independent
-review, and final-readiness rules do not change. See the [profile-set
-guide](plugins/kapisch/docs/profile-sets.md).
+Profile sets change only Codex model/reasoning configuration; KAPISCH risk,
+permissions, independent review, and final-readiness rules do not change. See
+the [profile-set guide](plugins/kapisch/docs/profile-sets.md).
 
 ## Validator
 
 The validator is read-only, uses the Python 3.11 standard library, and discovers
-its bundled contracts automatically. Install it from the marketplace-cached
-plugin directory or a source checkout; `<plugin-root>` is the directory that
-contains the plugin's `pyproject.toml`:
+its bundled contracts automatically.
 
 ```text
 python -m pip install <plugin-root>
@@ -71,10 +69,10 @@ kapisch-validate --task-dir <consumer-repository>/.kapisch/runs/<task-id> --form
 ## Documentation
 
 - [Plugin guide](plugins/kapisch/README.md)
-- [Windows 1.2.1 acceptance template](plugins/kapisch/docs/acceptance-windows-v1.2.1.md)
+- [Windows 2.0.0 acceptance record](plugins/kapisch/docs/acceptance-windows-v2.0.0.md)
 - [Windows 1.0.1 historical acceptance](plugins/kapisch/docs/acceptance-windows-v1.0.1.md)
 - [Historical Unix 1.0.0 acceptance](plugins/kapisch/docs/acceptance-runtime.md)
-- [Compatibility and rollback](plugins/kapisch/docs/compatibility.md)
+- [Durable-run legacy migration and profile compatibility](plugins/kapisch/docs/compatibility.md)
 - [Acceptance matrix](plugins/kapisch/docs/acceptance.md)
 - [Marketplace catalog](.agents/plugins/marketplace.json)
 

@@ -10,13 +10,12 @@ dispatch, durable execution, and the installed public validator.
 | --- | --- | --- |
 | Marketplace layout and canonical plugin source | passed | root `tests/test_marketplace.py` |
 | Portable package and validator | passed | `scripts/test_portable_package.py` and `tests/kapisch_validation` |
-| Unix-like release 1.0.0 | complete | [historical runtime record](acceptance-runtime.md) |
-| Windows 11 Desktop + WSL2 release baseline | complete | [1.0.1 Windows record](acceptance-windows-v1.0.1.md) |
-| 1.0.1 exact release SHA and remote tag | complete | [1.0.1 Windows record](acceptance-windows-v1.0.1.md) |
-| 1.2.1 v4 controller-view candidate | pending benchmark, independent review, final readiness, and release preparation | [1.2.1 Windows template](acceptance-windows-v1.2.1.md) |
-| 1.1.0 automated profile-set and release gates | passed for tested runtime tree `7ccc2b6a4987cac416f1566debc47e45fc1c2b14`; final release SHA pending | [1.1.0 Windows record](acceptance-windows-v1.1.0.md) |
-| 1.1.0 live balanced-vs-quality acceptance | pending | [1.1.0 Windows template](acceptance-windows-v1.1.0.md) |
-| Native Windows without WSL | automated Python gates passed; live flow not yet claimed | [1.0.1 Windows record](acceptance-windows-v1.0.1.md) |
+| 2.0.0 local-profile compatibility candidate | passed for tested runtime tree `ab0f00708d4baee9ebb8b81005d6f2e3a92c6daa`; final release SHA pending | [2.0.0 Windows record](acceptance-windows-v2.0.0.md) |
+| Unix-like release 1.0.0 | historical complete | [historical runtime record](acceptance-runtime.md) |
+| Windows 11 Desktop + WSL2 release baseline | historical complete | [1.0.1 Windows record](acceptance-windows-v1.0.1.md) |
+| 1.0.1 exact release SHA and remote tag | historical complete | [1.0.1 Windows record](acceptance-windows-v1.0.1.md) |
+| Pre-2.0 Windows/release candidate rows | historical | prior acceptance records |
+| Native Windows without WSL | pending required 2.0.0 automated CI; live flow not claimed | [2.0.0 Windows record](acceptance-windows-v2.0.0.md) |
 | OpenAI public Plugin Directory | out of scope | Git-backed `kapisch-local` is the distribution path |
 
 ## Automated acceptance
@@ -35,41 +34,43 @@ python -m unittest discover -s tests
 git diff --check
 ```
 
+Project-understanding procedures, role boundaries, handoffs, and independent
+review remain covered by the contract acceptance suite.
+
+## Latest CI evidence
+
+Tested runtime SHA: `ab0f00708d4baee9ebb8b81005d6f2e3a92c6daa`
+
+CI workflow: `34055905476`
+
+| Check | Status |
+| --- | --- |
+| Linux CI | PASS |
+| Windows `windows-profile-setup` | PASS |
+
 The suites cover strict manifest versions, lifecycle and previous-snapshot
 compatibility, digest and UTF-8 handling, reviewer invocation evidence, legacy
-migration, profile identity and drift, presentation themes, delegation records,
-installed console-command discovery, and the canonical marketplace source.
-Project-understanding procedures, role boundaries, handoffs, and independent
-review policy remain covered by the extraction-acceptance suite.
-
-For 1.1.0, profile tests additionally cover the three exact model/effort
-matrices, identical role instructions, balanced default, project/user scope,
-inspect-only behavior, explicit managed switching, drift/collision refusal,
-transaction rollback, and verified legacy quality records.
+durable-run migration, profile identity and drift, presentation themes,
+delegation records, installed console-command discovery, and the canonical
+marketplace source. For 2.0.0, profile coverage verifies current schema state,
+explicit managed replacement, drift/collision refusal, legacy refusal with no
+mutation, and rejection of old journal schemas. Historical verified legacy
+quality records are not a current test claim.
 
 ## Live acceptance boundary
 
 A release flow uses a new authenticated `CODEX_HOME`, an unrelated clean
 consumer repository, and a marketplace reference pinned to one full commit SHA.
-It must prove:
+It must prove marketplace resolution, all six optional profile installs, a fresh
+durable `$kapisch` task, independent review and final readiness, a separate
+read-only reviewer, and the installed `kapisch-validate` command returning `[]`.
 
-1. the cached marketplace and installed plugin resolve to that SHA;
-2. all six optional profiles install without collision or drift;
-3. a fresh session completes a durable `$kapisch` task;
-4. named independent review and final readiness return explicit decisions;
-5. a separate read-only reviewer changes no consumer files; and
-6. the installed `kapisch-validate` command returns `[]` and exit code 0 without
-   `--contract-dir`.
-
-Version 1.0.0 completed this flow on Linux. Version 1.0.1 completed it on
-Windows Desktop with WSL2 at the exact release SHA, including remote tag
-verification.
+The 1.0.0 Linux and 1.0.1 Windows Desktop + WSL2 flows are historical evidence;
+they do not establish the pending 2.0.0 native-Windows CI result.
 
 ## Delegation boundary
 
 Read-only `repository-read` and `external-read` delegation records are
 supported for version-3 durable graphs. Delegated `external-write` and
-`destructive` routes fail closed because interrupted external effects cannot be
-reconciled safely. No acceptance result creates an exactly-once guarantee or
-authorizes installation, authentication, commit, push, publication, sending, or
-destructive work.
+`destructive` routes fail closed. No acceptance result authorizes installation,
+authentication, commit, push, publication, sending, or destructive work.
