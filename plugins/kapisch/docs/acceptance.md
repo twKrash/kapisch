@@ -10,7 +10,7 @@ dispatch, durable execution, and the installed public validator.
 | --- | --- | --- |
 | Marketplace layout and canonical plugin source | passed | root `tests/test_marketplace.py` |
 | Portable package and validator | passed | `scripts/test_portable_package.py` and `tests/kapisch_validation` |
-| 2.0.0 local-profile compatibility candidate | passed for tested runtime tree `f4204b800e1aca7f0354ebc496561c8181610768`; final release SHA pending | [2.0.0 Windows record](acceptance-windows-v2.0.0.md) |
+| 2.0.0 local-profile compatibility candidate | passed for tested runtime tree `ab0f00708d4baee9ebb8b81005d6f2e3a92c6daa`; final release SHA pending | [2.0.0 Windows record](acceptance-windows-v2.0.0.md) |
 | Unix-like release 1.0.0 | historical complete | [historical runtime record](acceptance-runtime.md) |
 | Windows 11 Desktop + WSL2 release baseline | historical complete | [1.0.1 Windows record](acceptance-windows-v1.0.1.md) |
 | 1.0.1 exact release SHA and remote tag | historical complete | [1.0.1 Windows record](acceptance-windows-v1.0.1.md) |
@@ -39,7 +39,7 @@ review remain covered by the contract acceptance suite.
 
 ## Latest CI evidence
 
-Tested runtime SHA: `f4204b800e1aca7f0354ebc496561c8181610768`
+Tested runtime SHA: `ab0f00708d4baee9ebb8b81005d6f2e3a92c6daa`
 
 CI workflow: `34055905476`
 
