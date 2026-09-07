@@ -1813,6 +1813,56 @@ class ProfileSetTests(unittest.TestCase):
                 self.assertEqual(output.getvalue().count("status=unsupported-legacy"), 6)
                 self.assertEqual(output.getvalue().count("modified=false"), 6)
 
+    def test_legacy_record_with_custom_target_is_collision_without_mutation(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary).resolve()
+            self.assertEqual(self._install(project, "balanced"), 0)
+            target = project / ".codex/agents/kapisch-reviewer.toml"
+            record = project / ".kapisch/local-state/profiles/reviewer.toml"
+            self._remove_profile_state_version(record)
+            target.write_text('name = "my-custom-reviewer"\n', encoding="utf-8")
+            before = self._snapshot(project)
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(
+                    setup_profile.main(
+                        ["--role", "reviewer", "--project-dir", str(project)]
+                    ),
+                    2,
+                )
+
+            self.assertEqual(self._snapshot(project), before)
+            self.assertIn("status=collision", output.getvalue())
+            self.assertIn("modified=false", output.getvalue())
+
+    def test_legacy_record_with_malformed_target_is_collision_without_mutation(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary).resolve()
+            self.assertEqual(self._install(project, "balanced"), 0)
+            target = project / ".codex/agents/kapisch-reviewer.toml"
+            record = project / ".kapisch/local-state/profiles/reviewer.toml"
+            self._remove_profile_state_version(record)
+            target.write_bytes(b'name = "unterminated\n')
+            before = self._snapshot(project)
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(
+                    setup_profile.main(
+                        ["--role", "reviewer", "--project-dir", str(project)]
+                    ),
+                    2,
+                )
+
+            self.assertEqual(self._snapshot(project), before)
+            self.assertIn("status=collision", output.getvalue())
+            self.assertIn("modified=false", output.getvalue())
+
     def test_current_user_modified_profile_inspection_reports_refusal(self) -> None:
         with TemporaryDirectory() as temporary:
             project = Path(temporary).resolve()

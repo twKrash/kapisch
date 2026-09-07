@@ -1278,12 +1278,45 @@ def _legacy_profile_state_requires_refusal(
         if not legacy_version:
             continue
 
+        expected_identity = f"kapisch-{role}"
         if not _legacy_profile_binding_matches(
             saved,
-            expected_identity=f"kapisch-{role}",
+            expected_identity=expected_identity,
             target=target,
             scope=scope,
         ):
+            continue
+        try:
+            target_values = _read_profile(target)
+        except ProfileReadError as exc:
+            _print_plan(
+                {
+                    "target": target,
+                    "status": "collision",
+                    "profile_set": profile_set,
+                    "expected_identity": expected_identity,
+                    "installed_identity": "unreadable",
+                    "error": f"existing destination is unreadable or malformed: {exc}",
+                },
+                scope,
+            )
+            print("modified=false")
+            refused = True
+            continue
+        if target_values.get("name") != expected_identity:
+            _print_plan(
+                {
+                    "target": target,
+                    "status": "collision",
+                    "profile_set": profile_set,
+                    "expected_identity": expected_identity,
+                    "installed_identity": target_values.get("name"),
+                    "error": "existing destination has unexpected profile identity",
+                },
+                scope,
+            )
+            print("modified=false")
+            refused = True
             continue
 
         _print_plan(
