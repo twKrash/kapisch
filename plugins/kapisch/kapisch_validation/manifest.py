@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import re
+from copy import deepcopy
 from pathlib import Path
 
 from .artifact_io import ArtifactFailure, ArtifactFailureKind, load_toml_artifact
 from .errors import ValidationError, sorted_errors
 from .helpers import is_integer, non_empty_string, nonfinite_float_references, string_list
 from .models import Manifest, Node, ParseResult
-from .path_atoms import is_portable_filename_atom
+from .path_atoms import is_portable_filename_atom, validate_relative_posix_path
+from .canonical_toml import render_toml
 from .vocabulary import (
     ASSIGNMENT_VALUES,
     MANIFEST_VERSION_VALUES,
@@ -19,18 +21,11 @@ from .vocabulary import (
     closed_string_error,
 )
 
-ROOT = {
-    "version",
-    "task_id",
-    "source_plan",
-    "roadmap_item",
-    "base_revision",
-    "policies",
-    "nodes",
-    "waves",
-    "extensions",
-    "controller_view",
-}
+MANIFEST_KEY_ORDER = (
+    "version", "task_id", "source_plan", "roadmap_item", "base_revision",
+    "policies", "nodes", "waves", "controller_view", "extensions",
+)
+ROOT = set(MANIFEST_KEY_ORDER)
 POLICIES = {
     "execution",
     "executor",
@@ -127,6 +122,342 @@ V1 = {
     "max_parallel_agents": 1,
     "max_fix_rounds": 1,
 }
+NODE_REQUIRED = {"id", "sequence", "kind", "status", "depends_on", "brief", "context", "report"}
+NODE_STATUS_VALUES = {
+    "pending", "ready", "running", "implemented", "reviewing",
+    "complete", "blocked", "failed", "cancelled",
+}
+GLOB_META = frozenset("*?[")
+URL_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
+
+
+def _render_error(message: str) -> ValueError:
+    return ValueError(f"invalid manifest: {message}")
+
+
+def _check_path(value: object, reference: str) -> None:
+    if not isinstance(value, str) or value == "unavailable":
+        raise _render_error(f"{reference} must be a portable relative path")
+    try:
+        validate_relative_posix_path(value)
+    except ValueError as error:
+        raise _render_error(f"{reference} must be a portable relative path") from error
+
+
+def _check_path_or_unavailable(value: object, reference: str) -> None:
+    if value == "unavailable":
+        return
+    _check_path(value, reference)
+
+
+def _check_concrete_scope_path(value: str, reference: str) -> None:
+    """Validate concrete repository paths while preserving globs and URLs."""
+    if any(character in value for character in GLOB_META) or URL_RE.match(value):
+        return
+    _check_path(value, reference)
+
+
+def _require(data: dict[str, object], fields: set[str], reference: str) -> None:
+    missing = fields - set(data)
+    if missing:
+        raise _render_error(f"{reference} is missing field {sorted(missing)[0]!r}")
+
+
+def _string(value: object, reference: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise _render_error(f"{reference} must be a non-empty string")
+    return value
+
+
+def _integer(value: object, reference: str, *, minimum: int | None = None) -> int:
+    if not is_integer(value) or (minimum is not None and value < minimum):
+        qualifier = f" at least {minimum}" if minimum is not None else ""
+        raise _render_error(f"{reference} must be an integer{qualifier}")
+    return value
+
+
+def _choice(value: object, choices: object, reference: str) -> str:
+    if not isinstance(value, str) or value not in choices:
+        raise _render_error(f"{reference} has unsupported value {value!r}")
+    return value
+
+
+def _extensions_render(value: object, reference: str) -> dict[str, object]:
+    result = _closed_render(value, set(value) if isinstance(value, dict) else set(), reference)
+    for namespace in result:
+        if not isinstance(namespace, str) or re.fullmatch(
+            r"[a-z0-9-]+(?:\.[a-z0-9-]+)+", namespace
+        ) is None:
+            raise _render_error(f"{reference}.{namespace} must be a reverse-DNS namespace")
+    return result
+
+
+def _normalize_list(
+    value: object, reference: str, *, normalize: bool, unique: bool = False
+) -> list[str]:
+    if not isinstance(value, list):
+        raise _render_error(f"{reference} must be an array")
+    if not all(isinstance(item, str) and item for item in value):
+        raise _render_error(f"{reference} must contain non-empty strings")
+    if unique and len(value) != len(set(value)):
+        raise _render_error(f"{reference} must not contain duplicates")
+    if normalize:
+        return sorted(set(value))
+    return list(value)
+
+
+def _closed_render(data: object, allowed: set[str], reference: str) -> dict[str, object]:
+    if not isinstance(data, dict):
+        raise _render_error(f"{reference} must be a table")
+    unknown = set(data) - allowed
+    if unknown:
+        raise _render_error(f"{reference} has unknown field {sorted(unknown)[0]!r}")
+    return dict(data)
+
+
+def _render_runtime_records(
+    values: object,
+    *,
+    allowed: set[str],
+    required: set[str],
+    reference: str,
+    version: int,
+) -> list[dict[str, object]]:
+    if not isinstance(values, list):
+        raise _render_error(f"{reference} must be an array of tables")
+    records: list[dict[str, object]] = []
+    ids: set[str] = set()
+    for index, value in enumerate(values):
+        item_ref = f"{reference}[{index}]"
+        record = _closed_render(value, allowed, item_ref)
+        _require(record, required, item_ref)
+        record_id = _string(record["id"], f"{item_ref}.id")
+        if record_id in ids:
+            raise _render_error(f"{reference} has duplicate runtime id {record_id!r}")
+        ids.add(record_id)
+        for key, item in record.items():
+            field_ref = f"{item_ref}.{key}"
+            if key in {"context_refs", "verification"}:
+                record[key] = _normalize_list(item, field_ref, normalize=False)
+            else:
+                _string(item, field_ref)
+        records.append(record)
+    return records
+
+
+def _render_node(node: object, *, initial: bool, version: int) -> dict[str, object]:
+    raw = _closed_render(node, NODE, "nodes[]")
+    _require(raw, NODE_REQUIRED, "nodes[]")
+    _string(raw["id"], "nodes[].id")
+    _integer(raw["sequence"], "nodes[].sequence", minimum=0)
+    _string(raw["kind"], "nodes[].kind")
+    _choice(raw["status"], NODE_STATUS_VALUES, "nodes[].status")
+    for key in ("title", "risk", "blocker"):
+        if key in raw:
+            _string(raw[key], f"nodes[].{key}")
+    for key in ("brief", "context", "report", "reviewer_invocation"):
+        if key in raw:
+            _check_path(raw[key], f"nodes[].{key}")
+    for key in ("reads", "writes", "shared_resources"):
+        if key in raw:
+            raw[key] = _normalize_list(raw[key], f"nodes[].{key}", normalize=initial)
+            if key in {"reads", "writes"}:
+                for index, value in enumerate(raw[key]):
+                    _check_concrete_scope_path(value, f"nodes[].{key}[{index}]")
+    for key in ("depends_on", "delegation_ids", "verification", "context_refs"):
+        if key in raw:
+            raw[key] = _normalize_list(
+                raw[key], f"nodes[].{key}", normalize=(key == "depends_on"),
+                unique=key == "delegation_ids" or (key == "depends_on" and not initial),
+            )
+    if version in (1, 2) and "delegation_ids" in raw:
+        raise _render_error("nodes[].delegation_ids is not legal before version 3")
+    if version in (3, 4) and "delegation_ids" not in raw:
+        raise _render_error("nodes[] is missing field 'delegation_ids'")
+    for key, choices in NODE_ROUTING_VALUES.items():
+        if key in raw:
+            _choice(raw[key], choices, f"nodes[].{key}")
+    executor_class = raw.get("executor_class")
+    model_tier = raw.get("model_tier")
+    is_implementation = raw["kind"] not in {"review", "final", "research"}
+    if executor_class == "reviewer" and is_implementation:
+        raise _render_error("nodes[].executor_class reviewer is invalid for implementation")
+    if executor_class == "reviewer" and model_tier != "high":
+        raise _render_error("nodes[].executor_class reviewer requires model_tier='high'")
+    if executor_class == "researcher" and is_implementation:
+        raise _render_error("nodes[].executor_class researcher is advisory only")
+    if raw["kind"] in {"review", "final"} and any(
+        key in raw for key in ("executor_class", "model_tier", "batching")
+    ) and (
+        executor_class != "reviewer"
+        or model_tier != "high"
+        or raw.get("batching") != "off"
+    ):
+        raise _render_error("review/final routing must be reviewer/high/off")
+    if "review_scope" in raw:
+        scope = _closed_render(raw["review_scope"], SCOPE, "nodes[].review_scope")
+        for key, value in list(scope.items()):
+            scope[key] = _normalize_list(
+                value, f"nodes[].review_scope.{key}", normalize=True,
+                unique=not initial,
+            )
+        if any(scope.get(key) for key in ("integrated_wave_ids", "wave_terminal_dependencies")):
+            raise _render_error("nodes[].review_scope contains unsupported operational waves")
+        raw["review_scope"] = scope
+    if "revision" in raw:
+        revision = _closed_render(raw["revision"], REVISION, "nodes[].revision")
+        for key, value in revision.items():
+            _string(value, f"nodes[].revision.{key}")
+        raw["revision"] = revision
+    if "assignment" in raw:
+        assignment = _closed_render(raw["assignment"], ASSIGNMENT, "nodes[].assignment")
+        _require(assignment, ASSIGNMENT_REQUIRED, "nodes[].assignment")
+        _string(assignment["id"], "nodes[].assignment.id")
+        _integer(assignment["schema_version"], "nodes[].assignment.schema_version")
+        _choice(
+            assignment["execution_class"], ASSIGNMENT_VALUES["execution_class"],
+            "nodes[].assignment.execution_class",
+        )
+        _string(assignment["source_revision"], "nodes[].assignment.source_revision")
+        if "reason_codes" in assignment:
+            assignment["reason_codes"] = _normalize_list(
+                assignment["reason_codes"], "nodes[].assignment.reason_codes", normalize=initial
+            )
+        if "context_refs" in assignment:
+            assignment["context_refs"] = _normalize_list(
+                assignment["context_refs"], "nodes[].assignment.context_refs", normalize=False
+            )
+        for key in ("context_fingerprint", "scope_fingerprint"):
+            if key in assignment:
+                _string(assignment[key], f"nodes[].assignment.{key}")
+        attempt_required = ATTEMPT if version == 4 else ATTEMPT - {"outcome_path"}
+        attempts = _render_runtime_records(
+            assignment.get("attempts"), allowed=ATTEMPT, required=attempt_required,
+            reference="nodes[].assignment.attempts", version=version,
+        )
+        for index, attempt in enumerate(attempts):
+            ref = f"nodes[].assignment.attempts[{index}]"
+            _choice(attempt["status"], RUNTIME_RECORD_STATUS_VALUES, f"{ref}.status")
+            if not is_portable_filename_atom(attempt["id"]) and version == 4:
+                raise _render_error(f"{ref}.id must be a portable filename atom")
+            if "outcome_path" in attempt:
+                if version != 4:
+                    raise _render_error(f"{ref}.outcome_path is not legal before version 4")
+                expected = (
+                    UNAVAILABLE_OUTCOME_PATH
+                    if attempt["status"] in {"pending", "running"}
+                    else f"stage-outcomes/{attempt['id']}.toml"
+                )
+                if attempt["outcome_path"] != expected:
+                    raise _render_error(f"{ref}.outcome_path does not match attempt status and id")
+                _check_path_or_unavailable(attempt["outcome_path"], f"{ref}.outcome_path")
+        assignment["attempts"] = attempts
+        escalations = _render_runtime_records(
+            assignment.get("escalations"), allowed=ESCALATION, required=ESCALATION,
+            reference="nodes[].assignment.escalations", version=version,
+        )
+        assignment["escalations"] = escalations
+        raw["assignment"] = assignment
+    if "batch" in raw:
+        batch = _closed_render(raw["batch"], BATCH, "nodes[].batch")
+        _require(batch, BATCH, "nodes[].batch")
+        _string(batch["id"], "nodes[].batch.id")
+        for key in ("member_node_ids", "member_assignment_ids", "member_outcomes"):
+            batch[key] = _normalize_list(batch[key], f"nodes[].batch.{key}", normalize=False)
+        for index, value in enumerate(batch["member_outcomes"]):
+            _choice(value, RUNTIME_RECORD_STATUS_VALUES, f"nodes[].batch.member_outcomes[{index}]")
+        _choice(batch["outcome"], RUNTIME_RECORD_STATUS_VALUES, "nodes[].batch.outcome")
+        raw["batch"] = batch
+    if "verification_evidence" in raw:
+        evidence = _render_runtime_records(
+            raw["verification_evidence"], allowed=VERIFICATION_EVIDENCE,
+            required=VERIFICATION_EVIDENCE, reference="nodes[].verification_evidence",
+            version=version,
+        )
+        for index, record in enumerate(evidence):
+            ref = f"nodes[].verification_evidence[{index}]"
+            nonexecuted = record["result"] in {"not-run", "unavailable"}
+            if version == 4 and nonexecuted:
+                if record["output_sha256"] != "unavailable" or record["evidence_ref"] != "unavailable":
+                    raise _render_error(f"{ref} must use unavailable evidence sentinels")
+            elif re.fullmatch(r"[0-9a-f]{64}", record["output_sha256"]) is None:
+                raise _render_error(f"{ref}.output_sha256 must be a lowercase SHA-256 digest")
+            _check_path_or_unavailable(record["evidence_ref"], f"{ref}.evidence_ref")
+        raw["verification_evidence"] = evidence
+    if initial and "extensions" in raw and raw["extensions"] == {}:
+        del raw["extensions"]
+    elif "extensions" in raw:
+        raw["extensions"] = _extensions_render(raw["extensions"], "nodes[].extensions")
+    return raw
+
+
+def render_manifest(raw: dict[str, object], *, initial: bool) -> bytes:
+    """Return canonical bytes for a newly created or authorized graph snapshot."""
+    data = _closed_render(deepcopy(raw), ROOT, "root")
+    _require(data, {"version", "task_id", "source_plan", "base_revision", "policies", "nodes"}, "root")
+    version = data["version"]
+    if not is_integer(version) or version not in MANIFEST_VERSION_VALUES:
+        raise _render_error("version must be integer 1, 2, 3, or 4")
+    for key in ("task_id", "base_revision", "roadmap_item"):
+        if key in data:
+            _string(data[key], key)
+    if "source_plan" in data:
+        _check_path(data["source_plan"], "source_plan")
+    if version == 4:
+        if data.get("controller_view") != V4_CONTROLLER_VIEW_PATH:
+            raise _render_error(f"controller_view must be {V4_CONTROLLER_VIEW_PATH!r} for version 4")
+    elif "controller_view" in data:
+        raise _render_error("controller_view is not legal before version 4")
+    policies = data.get("policies")
+    data["policies"] = _closed_render(policies, POLICIES, "policies")
+    required_policies = POLICIES if version in (3, 4) else POLICIES - {"ecosystem_routing"}
+    if version == 1:
+        required_policies = set()
+    _require(data["policies"], required_policies, "policies")
+    if version in (1, 2) and "ecosystem_routing" in data["policies"]:
+        raise _render_error("policies.ecosystem_routing is not legal before version 3")
+    for key, value in data["policies"].items():
+        if key == "max_parallel_agents":
+            if value != 1 or not is_integer(value):
+                raise _render_error("policies.max_parallel_agents must be integer 1")
+        elif key == "max_fix_rounds":
+            _integer(value, "policies.max_fix_rounds", minimum=0)
+        elif key in POLICY_VALUES:
+            _choice(value, POLICY_VALUES[key], f"policies.{key}")
+    if "waves" in data:
+        raise _render_error("root.waves is unsupported")
+    nodes = data.get("nodes")
+    if not isinstance(nodes, list):
+        raise _render_error("nodes must be an array")
+    rendered_nodes = [_render_node(node, initial=initial, version=version) for node in nodes]
+    seen_ids: set[object] = set()
+    seen_sequences: set[object] = set()
+    for node in rendered_nodes:
+        node_id, sequence = node.get("id"), node.get("sequence")
+        if node_id in seen_ids:
+            raise _render_error(f"duplicate node id {node_id!r}")
+        if sequence in seen_sequences:
+            raise _render_error(f"duplicate node sequence {sequence!r}")
+        seen_ids.add(node_id)
+        seen_sequences.add(sequence)
+        if (
+            node["kind"] not in {"review", "final", "research"}
+            and data["policies"].get("dispatch") == "single"
+            and ("executor_class" in node or "model_tier" in node)
+            and (
+                node.get("executor_class") != "implementer"
+                or node.get("model_tier") != "standard"
+            )
+        ):
+            raise _render_error(
+                f"node {node_id!r} must use implementer/standard for single dispatch"
+            )
+    data["nodes"] = sorted(rendered_nodes, key=lambda node: (node.get("sequence"), node.get("id")))
+    if "extensions" in data and data["extensions"] == {}:
+        del data["extensions"]
+    elif "extensions" in data:
+        data["extensions"] = _extensions_render(data["extensions"], "extensions")
+    return render_toml(data, key_order=MANIFEST_KEY_ORDER)
 
 
 def _e(c: str, p: Path, r: str, m: str) -> ValidationError:

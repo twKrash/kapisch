@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 from kapisch_validation.canonical_toml import render_toml
 from kapisch_validation.manifest import parse_manifest
-from kapisch_validation.outcomes import _finding_binding_errors, _normalized_claim_errors, _redispatch_errors, _report_authorizes_finding, parse_outcome, validate_outcomes
+from kapisch_validation.outcomes import _finding_binding_errors, _normalized_claim_errors, _redispatch_errors, _report_authorizes_finding, parse_outcome, render_outcome, validate_outcomes
 from kapisch_validation.references import parse_state
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -21,6 +21,25 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 
 class OutcomeTests(unittest.TestCase):
+    def test_outcome_encoder_sorts_findings_and_preserves_verification_order(self) -> None:
+        path = FIXTURES / "valid-v4-controller/stage-outcomes/AT-T01-1.toml"
+        raw = tomllib.loads(path.read_text(encoding="utf-8"))
+        p2 = {"id": "F-2", "severity": "P2", "summary": "later", "evidence_ref": "tasks/T01-report.md"}
+        p0 = {"id": "F-1", "severity": "P0", "summary": "first", "evidence_ref": "tasks/T01-report.md"}
+        raw["findings"] = [p2, p0]
+        raw["verification"] = [
+            {"check": "first", "result": "pass", "evidence_ref": "tasks/T01-report.md", "output_sha256": "1" * 64},
+            {"check": "second", "result": "pass", "evidence_ref": "tasks/T01-report.md", "output_sha256": "2" * 64},
+        ]
+        encoded = render_outcome(raw)
+        parsed = tomllib.loads(encoded.decode("utf-8"))
+        self.assertEqual([finding["id"] for finding in parsed["findings"]], ["F-1", "F-2"])
+        self.assertEqual([record["check"] for record in parsed["verification"]], ["first", "second"])
+        reversed_verification = dict(raw)
+        reversed_verification["verification"] = list(reversed(raw["verification"]))
+        self.assertNotEqual(encoded, render_outcome(reversed_verification))
+        self.assertTrue(encoded.startswith(b'"version" = 1\n"task_id" = '))
+
     def make_v4_task(self, temporary: str) -> tuple[Path, object, object]:
         task_dir = Path(temporary) / "task"
         shutil.copytree(FIXTURES / "valid-v3-durable", task_dir)

@@ -33,3 +33,8 @@ conversation history, broad repository content, secrets, or unrelated durable
 knowledge "just in case." The package is written before the step starts, is
 digest-bound in `00-route.toml`, and is mandatory regardless of `handoff`
 mode.
+
+The controller canonicalizes its own context text before the first digest,
+but preserves returned evidence bytes exactly. After persistence it reads the
+evidence back, hashes those exact bytes, and invokes the route renderer once;
+the renderer orders route steps but never normalizes either evidence file.

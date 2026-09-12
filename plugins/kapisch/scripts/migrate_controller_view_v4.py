@@ -13,11 +13,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from kapisch_validation.canonical_toml import render_toml
 from kapisch_validation.cli import validate
-from kapisch_validation.manifest import parse_manifest
-from kapisch_validation.references import parse_state
-from kapisch_validation.path_atoms import is_portable_filename_atom
+from kapisch_validation.manifest import parse_manifest, render_manifest
+from kapisch_validation.outcomes import render_outcome
+from kapisch_validation.path_atoms import canonical_relative_path, is_portable_filename_atom
+from kapisch_validation.references import parse_state, render_state
 from render_controller_view import main as render_view
 
 
@@ -117,7 +117,7 @@ def main(argv: list[str] | None = None) -> int:
                     destination_path = outcome_destination(staged, attempt_id)
                     if destination_path is None:
                         return 2
-                    outcome_path = destination_path.relative_to(staged).as_posix()
+                    outcome_path = canonical_relative_path(destination_path, root=staged)
                     attempt["outcome_path"] = outcome_path
                     role, invocation = node["executor_class"], node.get("reviewer_invocation")
                     invocation_raw: dict[str, object] = {}
@@ -156,12 +156,12 @@ def main(argv: list[str] | None = None) -> int:
                         {key: record[key] for key in ("check", "result", "evidence_ref", "output_sha256")}
                         for record in evidence
                     ]
-                    destination_path.write_bytes(render_toml(outcome))
-            (staged / "02-execution-graph.toml").write_bytes(render_toml(graph))
+                    destination_path.write_bytes(render_outcome(outcome))
+            (staged / "02-execution-graph.toml").write_bytes(render_manifest(graph, initial=False))
             state_raw = dict(state.raw)
             state_raw["controller_view_path"] = "04-controller-view.toml"
             state_raw["controller_view_sha256"] = "0" * 64
-            (staged / "03-state.toml").write_bytes(render_toml(state_raw))
+            (staged / "03-state.toml").write_bytes(render_state(state_raw))
             if render_view(["--task-dir", str(staged)]) or validate(ROOT / "skills" / "kapisch", staged):
                 return 2
             os.replace(staged, destination)

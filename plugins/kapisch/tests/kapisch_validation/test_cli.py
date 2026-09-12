@@ -83,6 +83,90 @@ class CliTests(unittest.TestCase):
         self.assertNotIn("Traceback", completed.stdout)
         self.assertNotIn("Traceback", completed.stderr)
 
+    def test_json_stdout_is_utf8_lf_and_not_ascii_escaped(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task = Path(temporary) / "répertoire" / "bad"
+            shutil.copytree(FIXTURES / "dependency-cycle", task)
+            command = [
+                sys.executable,
+                str(PLUGIN_ROOT / "scripts/validate_kapisch.py"),
+                "--contract-dir",
+                str(PLUGIN_ROOT / CONTRACT),
+                "--task-dir",
+                str(task),
+            ]
+            result = subprocess.run(
+                [*command, "--format", "json"],
+                capture_output=True,
+                cwd=PLUGIN_ROOT,
+                check=False,
+                timeout=5,
+            )
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("répertoire".encode("utf-8"), result.stdout)
+            self.assertNotIn(b"\\u00e9", result.stdout)
+            self.assertTrue(result.stdout.endswith(b"\n"))
+            self.assertNotIn(b"\r\n", result.stdout)
+
+            text_result = subprocess.run(
+                command,
+                capture_output=True,
+                cwd=PLUGIN_ROOT,
+                check=False,
+                timeout=5,
+            )
+            self.assertEqual(text_result.returncode, 2)
+            self.assertIn("répertoire".encode("utf-8"), text_result.stdout)
+            self.assertTrue(text_result.stdout.endswith(b"\n"))
+            self.assertNotIn(b"\r\n", text_result.stdout)
+
+    def test_successful_text_stdout_is_empty(self) -> None:
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(PLUGIN_ROOT / "scripts/validate_kapisch.py"),
+                "--contract-dir",
+                str(PLUGIN_ROOT / CONTRACT),
+                "--task-dir",
+                str(FIXTURES / "valid-sequential-v2"),
+            ],
+            capture_output=True,
+            cwd=PLUGIN_ROOT,
+            check=False,
+            timeout=5,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr.decode("utf-8"))
+        self.assertEqual(result.stdout, b"")
+
+    @unittest.skipIf(os.name == "nt", "surrogateescaped native paths are POSIX-specific")
+    def test_surrogateescaped_path_diagnostics_are_controlled_utf8(self) -> None:
+        task_dir = os.fsdecode(b"/tmp/kapisch-missing-\xff")
+        command = [
+            sys.executable,
+            str(PLUGIN_ROOT / "scripts/validate_kapisch.py"),
+            "--contract-dir",
+            str(PLUGIN_ROOT / CONTRACT),
+            "--task-dir",
+            task_dir,
+        ]
+        for output_format in ("text", "json"):
+            with self.subTest(output_format=output_format):
+                result = subprocess.run(
+                    [*command, "--format", output_format],
+                    capture_output=True,
+                    cwd=PLUGIN_ROOT,
+                    check=False,
+                    timeout=5,
+                )
+                self.assertEqual(result.returncode, 2, result.stderr)
+                decoded = result.stdout.decode("utf-8")
+                self.assertIn(r"\udcff", decoded)
+                self.assertNotIn("Traceback", decoded)
+                self.assertNotIn(b"\r\n", result.stdout)
+                self.assertTrue(result.stdout.endswith(b"\n"))
+                if output_format == "json":
+                    self.assertIsInstance(json.loads(decoded), list)
+
     def make_running_task(self, task_dir: Path) -> None:
         """Turn the completed fixture into a standalone-valid active T01 snapshot."""
         manifest = task_dir / "02-execution-graph.toml"

@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from copy import deepcopy
 from pathlib import Path
 from kapisch_validation.controller_view import build_controller_view, render_controller_view, state_semantic_sha256
 from kapisch_validation.manifest import parse_manifest
@@ -28,8 +29,17 @@ class ControllerViewTests(unittest.TestCase):
         self.assertEqual(state_semantic_sha256(state), state_semantic_sha256(dict(state, controller_view_sha256="1" * 64)))
 
     def test_renderer_is_byte_deterministic(self) -> None:
-        view = {"version": 1, "task_id": "task", "request": {"scope": "bounded"}, "predecessor_outcomes": []}
+        view = _view()
         self.assertEqual(render_controller_view(view), render_controller_view(view))
+
+    def test_renderer_rejects_unknown_or_missing_view_fields(self) -> None:
+        view = _view()
+        with self.assertRaises(ValueError):
+            render_controller_view(dict(view, unknown="x"))
+        missing = deepcopy(view)
+        missing.pop("request")
+        with self.assertRaises(ValueError):
+            render_controller_view(missing)
 
     def test_view_contains_normal_transition_contract(self) -> None:
         view = _view()

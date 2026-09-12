@@ -132,6 +132,13 @@ The sole canonical reviewer-invocation representation is a pre-dispatch file:
 record in a separate graph collection. The graph/state may reference its stable
 ID and path, but never replace it.
 
+New planned, dispatched, and mutable terminal snapshots use the artifact
+renderer’s declared field order and closed top-level schema. The renderer is
+never used to reformat a completed envelope: completed envelopes preserve
+their persisted bytes, including exact result and Git-state evidence. Persist
+reviewer result bytes first, read them back, and calculate `result_sha256` from
+that exact read-back before publishing the completed envelope.
+
 The controller creates the file with a stable invocation ID before dispatch. It
 uses a closed, flat top-level schema: unknown fields and aliases fail closed,
 and optional runtime or transport metadata belongs only below reverse-DNS
@@ -338,6 +345,26 @@ unredacted tool output.
 Metrics may reference a reviewer invocation but never establish reviewer
 provenance or approve a review.
 
+The controller renders the final file with `render_metrics(records, summary)` as
+UTF-8/LF Markdown containing one compact canonical JSON block:
+
+````text
+# KAPISCH Workflow Metrics
+
+```json
+{"records":[],"summary":{"terminal_count":0}}
+```
+````
+
+Metric records are copied and sorted by their non-empty unique `terminal_id`;
+nested array order and every observed value are preserved. The renderer rejects
+duplicate or malformed terminal IDs and unsupported JSON values. It does not
+inspect the clock, environment, Git, filesystem, locale, timezone, or current
+directory, and never estimates timestamps, IDs, model values, usage, elapsed
+time, or percentages. Controller-authored handoff structure is normalized with
+`canonical_text_bytes` before first publication; returned role, delegate, and
+reviewer evidence is persisted exactly and bypasses both presentation renderers.
+
 Only the controller writes handoff artifacts under
 `.kapisch/runs/<task_id>/`. Planning and review/final roles use
 read-only context and return evidence; implementation roles may write only their
@@ -420,4 +447,11 @@ and reviewer invocation facts where applicable. It excludes transcripts, raw
 tool output, hidden reasoning, and runtime transport fields. Detailed reports
 remain canonical evidence; compact outcomes do not replace review or final
 invocations.
+New terminal outcomes are encoded once with `render_outcome` after the exact
+report, invocation, and verification evidence bytes have been persisted and
+read back for their digests. The renderer emits the declared schema-1 field
+order, sorts findings by severity (`P0` through `P3`), ID, summary, and
+evidence reference, and preserves verification order and all exact bindings.
+Published outcome bytes are immutable: compatible historical outcomes are read
+tolerantly and are never rewritten merely to adopt canonical formatting.
 For a reviewer-finding redispatch, the digest-bound detailed reviewer report records one contiguous canonical finding block: `finding_id`, `finding_severity`, `finding_summary`, and `finding_scope`, one `key: value` field per line in that order. The compact finding must exactly equal one such block; values from separate blocks and prefixes never authorize redispatch.

@@ -13,8 +13,8 @@
 
 ## Global Constraints
 
-- Baseline is current `main`/`origin/main` at `86b715e` (`docs: specify deterministic generated artifacts (#38)`).
-- Baseline verification is green: root discovery 17 tests; plugin discovery 376 tests; portable-package copy 376 tests; validator help exits 0.
+- Baseline is current `main`/`origin/main` at `e3d5035` (`docs: add deterministic artifacts implementation plan (#39)`). The only change from design commit `86b715e` is this implementation plan.
+- Baseline evidence: root discovery passes 17/17; plugin discovery contains 376 tests. A local sandboxed run passed 375 and could not build the wheel-install fixture because isolated pip could not resolve PyPI; that focused test passed with network access. The committed pre-plan CI evidence remains green for plugin discovery, portable-package copy, and validator help.
 - Preserve managed-profile KAPISCH 2.0 compatibility, `profile_state_version = 1`, switch journal schema 3, durable manifests v1-v4, outcome schema 1, controller-view version 1, delegation route schema 1, reviewer invocation compatibility, and knowledge ledger version 1.
 - New KAPISCH-owned writes are canonical. Compatible existing bytes are not rewritten solely for formatting.
 - Exact evidence is hashed from persisted bytes and never normalized after persistence or before its current digest contract.
@@ -22,7 +22,15 @@
 - Event IDs, timestamps, PIDs, random transaction/recovery tokens, and machine-local native paths stay truthful and intentionally variable.
 - No generic serializer, registry, reflection model, daemon, dependency, canonicalization command, startup repair, pre-2.0 migration, bulk rewrite, schema bump, tag, or release.
 - Deferred work remains out of scope: issue #23 lock hardening, generic containment hardening, controller-view symlink policy, broader migration diagnostics, future cache schema, orchestration changes, reviewer provenance redesign, and Pi/Hermes/Codex routing changes.
-- Every behavioral task starts red, makes the smallest production change, runs focused and regression checks, and has one commit boundary.
+- Every behavioral task starts red, makes the smallest production change, runs focused and regression checks, and records one suggested commit boundary.
+
+## Execution and Authority Policy
+
+- Execute Tasks 1-14 sequentially. Each task receives its own implementation report and independent iteration review; after all implementation tasks, run one integrated whole-branch review and one final-readiness review.
+- Use the prescriptive lighter implementation route only where risk permits. Durable-state, profile ownership, migration/recovery, cross-platform acceptance, and release-contract work retain the standard implementer route and deep review even when their steps are fully specified.
+- The user authorized repository edits and delegated implementation. Commits, pushes, branch or PR creation, dependency installation, tags, publication, and releases remain manual. Every `Commit with exact message` line below is a suggested checkpoint to execute only after explicit authorization.
+- Task 12 may prepare and verify the Linux acceptance test and CI configuration locally. Pushing a candidate and obtaining native-Windows CI evidence is a human-gated boundary; do not start Task 13 or Task 14 until exact final-candidate Windows workflow evidence exists.
+- Pre-existing unrelated untracked files are preserved and excluded from implementation scope. They must be resolved by their owner before canonical approving review/final evidence can claim a clean task working tree.
 
 ## Implementation Surface
 
@@ -239,6 +247,8 @@ class CanonicalTomlTests(unittest.TestCase):
 
 Extend `SetupProfileSafetyTests.test_lf_and_crlf_template_installs_have_identical_bytes_and_digests` with LF, CRLF, lone-CR, no-terminal-LF, and excess-terminal-LF variants. Invoke `setup_profile.main(["--role", "reviewer", "--project-dir", str(project), "--install"])` for each and compare installed profile bytes plus `template_sha256`/`installed_sha256`; do not compare location-bound state-record bytes.
 
+Add a public managed-profile regression that reconstructs a valid schema-1 ownership record for profile bytes differing from the newly canonical template only by terminal-newline spelling. Both inspection and `--replace-managed` must leave the installed profile and ownership-record bytes unchanged and report no substantive template drift. Add invalid UTF-8 and BOM template cases and assert a controlled `ProfileReadError` diagnostic with exit 2 rather than an uncaught `UnicodeDecodeError`/`ValueError`.
+
 - [ ] **Run focused tests and confirm red**
 
 ```bash
@@ -256,6 +266,8 @@ Expected before implementation: import failure for `canonical_bytes`/`toml_basic
   - Replace `canonical_toml._string` with public `toml_basic_string`; use the existing setup implementation's explicit escapes and surrogate check.
   - Keep `setup_profile.toml_basic_string` as a compatibility wrapper accepting `str | Path`, delegating scalar spelling to `canonical_toml.toml_basic_string`.
   - Make `_normalize_template_bytes` delegate to `normalize_utf8_text`; do not touch profile ownership or transaction flow.
+  - Compare normalized installed managed bytes with normalized desired template bytes before declaring an update. A terminal-newline-only difference is formatting drift and must not set `update_required` or rewrite current owned profile/state bytes; any substantive byte difference retains the existing drift/refusal/replacement behavior.
+  - Translate strict template normalization failures into the existing controlled `ProfileReadError` path and exit 2.
   - Make `state_semantic_sha256` call `sha256_hex(canonical_json_bytes(filtered_state))`; retain removal of `controller_view_path` and `controller_view_sha256`.
 
 - [ ] **Run focused tests**
@@ -282,7 +294,7 @@ python -m unittest discover -s tests/kapisch_validation -p 'test_*view*.py'
 ```
 
 - [ ] Run `git diff --check`.
-- [ ] Commit with exact message: `feat: add canonical byte primitives`
+- [ ] If explicitly authorized, commit with exact message: `feat: add canonical byte primitives`.
 
 ### Task 2: Encode durable paths from explicit native roots
 
@@ -370,7 +382,7 @@ python -m unittest \
 ```
 
 - [ ] Run `git diff --check`.
-- [ ] Commit with exact message: `feat: canonicalize durable path encoding`
+- [ ] If explicitly authorized, commit with exact message: `feat: canonicalize durable path encoding`.
 
 ## Phase 2 — Artifact-Specific Encoders
 
@@ -510,7 +522,7 @@ python -m unittest \
 ```
 
 - [ ] Run `git diff --check`.
-- [ ] Commit with exact message: `feat: encode manifest and state deterministically`
+- [ ] If explicitly authorized, commit with exact message: `feat: encode manifest and state deterministically`.
 
 ### Task 4: Canonically encode reviewer invocation lifecycle envelopes
 
@@ -592,7 +604,7 @@ python -m unittest \
 ```
 
 - [ ] Run `git diff --check`.
-- [ ] Commit with exact message: `feat: encode reviewer invocations deterministically`
+- [ ] If explicitly authorized, commit with exact message: `feat: encode reviewer invocations deterministically`.
 
 ### Task 5: Canonically encode delegation route state while preserving evidence bytes
 
@@ -679,7 +691,7 @@ python -m unittest \
 ```
 
 - [ ] Run `git diff --check`.
-- [ ] Commit with exact message: `feat: encode delegation routes deterministically`
+- [ ] If explicitly authorized, commit with exact message: `feat: encode delegation routes deterministically`.
 
 ### Task 6: Canonically encode immutable stage outcomes
 
@@ -767,7 +779,7 @@ python -m unittest \
 ```
 
 - [ ] Run `git diff --check`.
-- [ ] Commit with exact message: `feat: encode stage outcomes deterministically`
+- [ ] If explicitly authorized, commit with exact message: `feat: encode stage outcomes deterministically`.
 
 ### Task 7: Close and canonically encode knowledge ledger version 1
 
@@ -879,7 +891,7 @@ python -m unittest \
 ```
 
 - [ ] Run `git diff --check`.
-- [ ] Commit with exact message: `feat: define deterministic knowledge ledger v1`
+- [ ] If explicitly authorized, commit with exact message: `feat: define deterministic knowledge ledger v1`.
 
 ### Task 8: Render deterministic optional state and metrics presentations
 
@@ -931,9 +943,10 @@ class PresentationTests(unittest.TestCase):
     def test_state_markdown_regenerates_from_semantic_state(self) -> None:
         left = {"task_id": "é", "completed_node_ids": ["T02", "T01"], "workflow_status": "running"}
         right = dict(reversed(list(left.items())))
+        right["completed_node_ids"] = ["T01", "T02"]
         expected = (
             '# KAPISCH State\n\n```json\n'
-            '{"completed_node_ids":["T02","T01"],"task_id":"é","workflow_status":"running"}\n'
+            '{"completed_node_ids":["T01","T02"],"task_id":"é","workflow_status":"running"}\n'
             '```\n'
         ).encode("utf-8")
         self.assertEqual(render_state_markdown(left), expected)
@@ -963,6 +976,7 @@ Expected before implementation: `kapisch_validation.presentations` does not exis
 
 - [ ] **Implement minimal production change**
   - Compose fixed ASCII headings/fences with `canonical_json_bytes` and one final LF.
+  - Validate and lexically normalize the five state membership sets (`completed_node_ids`, `running_node_ids`, `ready_node_ids`, `blocked_node_ids`, `failed_node_ids`) before rendering; reject duplicates or malformed raw state rather than preserving invalid semantic order. Permuting a valid set must not change bytes.
   - Sort copied metric records by non-empty unique `terminal_id`; preserve nested array order and values; reject duplicates/unsupported JSON.
   - Do not inspect clock, environment, Git, filesystem, locale, timezone, or current directory.
   - Document deletion/regeneration of `03-state.md`; no state binding or authority.
@@ -988,7 +1002,7 @@ python -m unittest \
 ```
 
 - [ ] Run `git diff --check`.
-- [ ] Commit with exact message: `feat: render deterministic controller presentations`
+- [ ] If explicitly authorized, commit with exact message: `feat: render deterministic controller presentations`.
 
 ## Phase 3 — Executable Writers and Derived Output
 
@@ -1117,7 +1131,7 @@ python -m unittest \
 ```
 
 - [ ] Run `git diff --check`.
-- [ ] Commit with exact message: `fix: make controller view regeneration idempotent`
+- [ ] If explicitly authorized, commit with exact message: `fix: make controller view regeneration idempotent`.
 
 ### Task 10: Produce canonical, relocation-independent v3-to-v4 migration destinations
 
@@ -1203,7 +1217,7 @@ python -m unittest \
 ```
 
 - [ ] Run `git diff --check`.
-- [ ] Commit with exact message: `feat: canonicalize v4 migration output`
+- [ ] If explicitly authorized, commit with exact message: `feat: canonicalize v4 migration output`.
 
 ### Task 11: Emit canonical validator and benchmark machine-output bytes
 
@@ -1265,18 +1279,24 @@ class BenchmarkTests(unittest.TestCase):
             baseline = complete("baseline")
             candidate = complete("candidate")
             baseline[0]["run_id"] = "tâche"
-            for name, rows in (("base.jsonl", baseline), ("candidate.jsonl", candidate)):
-                (root / name).write_text("".join(json.dumps(value, ensure_ascii=False) + "\n" for value in reversed(rows)), encoding="utf-8", newline="\n")
-            result = subprocess.run(
-                [sys.executable, str(ROOT / "scripts/compare_controller_benchmark.py"),
-                 "--baseline", str(root / "base.jsonl"), "--candidate", str(root / "candidate.jsonl")],
-                capture_output=True,
-            )
-            self.assertEqual(result.returncode, 0)
-            self.assertIn("tâche".encode("utf-8"), result.stdout)
-            self.assertNotIn(b"\\u00e2", result.stdout)
-            self.assertTrue(result.stdout.endswith(b"\n"))
-            self.assertNotIn(b"\r\n", result.stdout)
+            outputs = []
+            for suffix, transform in (("original", list), ("reversed", lambda rows: list(reversed(rows)))):
+                base_path = root / f"base-{suffix}.jsonl"
+                candidate_path = root / f"candidate-{suffix}.jsonl"
+                base_path.write_text("".join(json.dumps(value, ensure_ascii=False) + "\n" for value in transform(baseline)), encoding="utf-8", newline="\n")
+                candidate_path.write_text("".join(json.dumps(value, ensure_ascii=False) + "\n" for value in transform(candidate)), encoding="utf-8", newline="\n")
+                result = subprocess.run(
+                    [sys.executable, str(ROOT / "scripts/compare_controller_benchmark.py"),
+                     "--baseline", str(base_path), "--candidate", str(candidate_path)],
+                    capture_output=True,
+                )
+                self.assertEqual(result.returncode, 0)
+                outputs.append(result.stdout)
+            self.assertEqual(outputs[0], outputs[1])
+            self.assertIn("tâche".encode("utf-8"), outputs[0])
+            self.assertNotIn(b"\\u00e2", outputs[0])
+            self.assertTrue(outputs[0].endswith(b"\n"))
+            self.assertNotIn(b"\r\n", outputs[0])
 ```
 
 - [ ] **Run focused tests and confirm red**
@@ -1315,7 +1335,7 @@ python -m unittest discover -s tests/kapisch_validation
 ```
 
 - [ ] Run `git diff --check`.
-- [ ] Commit with exact message: `feat: emit canonical machine-readable JSON`
+- [ ] If explicitly authorized, commit with exact message: `feat: emit canonical machine-readable JSON`.
 
 ## Phase 4 — Cross-Platform Acceptance and Release Integration
 
@@ -1325,6 +1345,7 @@ python -m unittest discover -s tests/kapisch_validation
 
 - Create: `plugins/kapisch/tests/kapisch_validation/test_deterministic_acceptance.py`
 - Create: `plugins/kapisch/tests/kapisch_validation/fixtures/deterministic-generated-artifacts/expected-sha256.json`
+- Modify: `plugins/kapisch/tests/kapisch_validation/test_setup_profile.py`
 - Modify: `.github/workflows/quality.yml`
 
 **Interfaces**
@@ -1336,6 +1357,7 @@ Committed vector:
 
 ```json
 {
+  "benchmark-json": "bf4026fb62f678b51f96158171075547248b11f61b5bbafa8a3c841a2abbd832",
   "canonical-json": "a795d5340c739ba35d94f5d27a8cdab36602c95f209fb83573a3f0a4d463c5aa",
   "controller-view": "485c2a8d083106b9785fef64cbf531e8026b23f71e315368c6727a09c9706c9d",
   "exact-evidence-crlf": "801e597fbfe90fa4d5c41d36640ac24b97a19ad8e7b20daec399d9988c2ff1be",
@@ -1343,9 +1365,14 @@ Committed vector:
   "knowledge": "5a1fea3da6fffedcfb39dfecec16730ec5b0458fe7bcdd9c2fee514d86a7b6aa",
   "manifest": "95c6af2a27854cb1cccdcdd29c27de9ac76b9878a9568e491c24891c90195df1",
   "metrics": "c1235463bf27a1993ba32f01cfe00b5ba602ebf45cb3c9ee4cff49df1584bf24",
-  "outcome": "15832b5a450d45ab3f3691796f9a9617cdaa3b2fe574b2a849b169a930b3e7a3",
+  "migration-tree": "1a011d9b40f704a5771f55f9e4e5cb0c52c76ed9126bd53220081682bced1602",
+  "outcome-at-f01-1": "95abb7ed32ecc9a004b1f6669e6969595c0dd41965b8ec4fdb373f8667958916",
+  "outcome-at-r01-1": "731378076c30eb722dce0d8d3945ae9ee810ebd0862a09ea03ad78baee6458a0",
+  "outcome-at-t01-1": "15832b5a450d45ab3f3691796f9a9617cdaa3b2fe574b2a849b169a930b3e7a3",
+  "outcome-findings": "a561770fcb5434edc5db73b917d7ca4d8f68bd01bd9f27b7ec5ff5534d4980cc",
   "profile": "b1b3c12ccd826a5569eb0b7cbbf29ebf0fe7f04456b239a915033fd7bb86cf73",
-  "review-invocation": "5ca30f9069edcf7d4eb24ac1a18f53937383de89db0ad5fbdc3c3b0fc502ff02",
+  "review-invocation-final": "8ac7bc6a1b13d6eec84842b034eea391a24a1e295ea40bed41124fe3d6f3dbc1",
+  "review-invocation-round-0": "5ca30f9069edcf7d4eb24ac1a18f53937383de89db0ad5fbdc3c3b0fc502ff02",
   "route": "e8bb1435a83094b9209f5127d6c381d57e0db6b7d8fe676c9ff6fc59433cc56d",
   "state": "909cd565f2aa640022cc6e2377011a921d2e2dec420d63389ec3f5c3bec0636f",
   "state-markdown": "642e77c9e446c8afc4830ab55bb1de28a6711a83301f10b2f641ddf02b0a0733"
@@ -1358,11 +1385,14 @@ Generation sequence in `_generate(root: Path, reverse_inputs: bool)` is fixed:
 2. Parse both invocation envelopes; reverse dictionary construction when requested; write `render_reviewer_invocation` bytes.
 3. Update each outcome's `invocation_sha256` from exact newly persisted invocation bytes; write `render_outcome`.
 4. Rebuild each declared path field from the contained native file with `canonical_relative_path(native, root=task_or_repository_root)`, then render route, manifest (`initial=False`), and state; reverse input dictionaries/lists only where contracts classify them unordered.
-5. Invoke `scripts/render_controller_view.py` by absolute script path from `root.parent`, then run full validator.
-6. Copy bundled implementer/researcher profiles into the target `.codex/agents` directory as `alpha.toml`/`omega.toml`, creating them in ascending or descending order according to `reverse_inputs`. Invoke `setup_profile.py --role reviewer --profile-set balanced --install` by absolute script path from `root.parent`; hash installed reviewer profile only, excluding adjacent files and native profile-state bytes.
-7. Render the two-record knowledge sample from Task 7; render the full current state presentation; render metrics from `AT-T01-1`/implementer/12 ms and `AT-F01-1`/reviewer/`unavailable` plus `{"terminal_count": 2}`; render `canonical_json_line({"é": "é", "z": 1})`.
-8. Hash exact `b"status: DONE\n"` and `b"status: DONE\r\n"` separately.
-9. Return the named lowercase SHA-256 map above; assert raw bytes contain no absolute root, profile-switch token prefix, PID field, or temporary directory prefix. Parse canonical TOML and assert every declared portable path field contains `/` separators and no `\\`; do not reject TOML escape backslashes in non-path strings.
+5. Invoke `scripts/render_controller_view.py` by absolute script path from `root.parent`, capture the state/view bytes and metadata, invoke it again, and require the second publication to be a true no-op. Then run the full validator.
+6. Validate a relocated invalid fixture in JSON mode and require a non-empty, direct-UTF-8, LF-terminated diagnostic with the expected exit code; keep its native path out of the platform-neutral vector.
+7. Write complete baseline/candidate benchmark JSONL inputs with direct Unicode and opposite row orders according to `reverse_inputs`. Invoke `scripts/compare_controller_benchmark.py` by absolute path, require complete evidence and canonical LF-framed JSON stdout, and hash that stdout as `benchmark-json`.
+8. Copy an eligible v3 durable fixture, add the required v4 assignment fields, and invoke `scripts/migrate_controller_view_v4.py --approve` by absolute path. Hash the destination tree from sorted portable relative filenames plus exact file-content digests as `migration-tree`.
+9. Copy bundled implementer/researcher profiles into the target `.codex/agents` directory as `alpha.toml`/`omega.toml`, creating them in ascending or descending order according to `reverse_inputs`. Invoke `setup_profile.py --role reviewer --profile-set balanced --install` by absolute script path from `root.parent`; verify the machine-local ownership record semantically, and hash the installed reviewer profile only, excluding adjacent files and native profile-state bytes.
+10. Render the two-record knowledge sample from Task 7; render the full current state presentation; render metrics from `AT-T01-1`/implementer/12 ms and `AT-F01-1`/reviewer/`unavailable` plus `{"terminal_count": 2}`; render `canonical_json_line({"é": "é", "z": 1})`. Perturb every unordered input collection independently when `reverse_inputs` is true, including a non-palindromic duplicated knowledge applicability list, state presentation memberships, metrics records, JSON mapping insertion order, and outcome findings.
+11. Hash exact `b"status: DONE\n"` and `b"status: DONE\r\n"` separately. In dedicated tests, mutate persisted delegation and reviewer evidence from LF to CRLF, require stale-binding diagnostics, update every dependent exact-byte digest, and require validation to pass again.
+12. Return the named lowercase SHA-256 map above. Scan only the portable canonical outputs and assert that they contain no absolute root in native, slash-normalized, or escaped spelling; no profile-switch token prefix; no PID field; and no temporary-directory prefix. Do not scan machine-local profile state. Parse each declared portable path with `validate_relative_posix_path`, assert no backslash/absolute/drive/dot component, and require `/` only for fields whose expected value has multiple components. Do not reject TOML escape backslashes in non-path strings.
 
 **Compatibility**
 
@@ -1390,7 +1420,7 @@ class DeterministicAcceptanceTests(unittest.TestCase):
 
     def test_environment_and_cwd_perturbations_match_vector(self) -> None:
         expected = json.loads((FIXTURES / "deterministic-generated-artifacts/expected-sha256.json").read_text(encoding="utf-8"))
-        locales = _available_locales()  # Includes C plus each additional locale this host accepts.
+        locales = _available_locales()  # C once, plus at most one successfully probed distinct non-C locale.
         with tempfile.TemporaryDirectory() as unrelated:
             cwd_roots = (REPOSITORY_ROOT, PLUGIN_ROOT, Path(unrelated))
             for cwd in cwd_roots:
@@ -1407,6 +1437,8 @@ class DeterministicAcceptanceTests(unittest.TestCase):
         self.assertEqual(sha256_hex(b"status: DONE\r\n"), "801e597fbfe90fa4d5c41d36640ac24b97a19ad8e7b20daec399d9988c2ff1be")
 ```
 
+Add a public setup-profile acceptance test that presents the same adjacent profile collision set through two opposite mocked filesystem enumeration orders. Assert byte-identical ordered diagnostics and an unchanged destination/profile-state snapshot in both runs.
+
 - [ ] **Run focused test and confirm red**
 
 ```bash
@@ -1418,7 +1450,7 @@ Expected before implementation: missing acceptance module/vector; if staged earl
 
 - [ ] **Implement minimal test/CI change**
   - Implement only the fixed `_generate` sequence above plus test-only `_generate_subprocess(cwd, seed, timezone, locale_name, unrelated_value)`: create a fresh root, set `PYTHONPATH` to the absolute plugin root, `PYTHONHASHSEED`, `TZ`, `LC_ALL`, and `KAPISCH_TEST_UNRELATED`, then execute this test file by absolute path with `--emit-digest` from the supplied CWD. That entry point calls `_generate`, writes `canonical_json_line(digest_map)` to stdout, and makes no repository changes.
-  - Implement `_available_locales()` by probing `locale.setlocale(locale.LC_ALL, candidate)` in a saved/restored process state. It returns `C` plus every distinct available candidate from `locale.locale_alias`; a host with no additional locale runs `C` twice. Do not hard-code a locale absent on native Windows.
+  - Implement `_available_locales()` by probing `locale.setlocale(locale.LC_ALL, candidate)` in a saved/restored process state. Return `C` exactly once plus at most the first successfully probed distinct non-C locale in deterministic candidate order. Record an explicit skip/coverage note when no non-C locale is available; do not hard-code a locale absent on native Windows or expand across the entire alias table.
   - Keep expected digests hand-reviewed and static. Subprocesses must run from repository root, plugin root, and a fresh unrelated temporary directory; do not use `tempfile.gettempdir()` as a shared CWD.
   - Add Ubuntu targeted runs under `PYTHONHASHSEED=1` and `PYTHONHASHSEED=8675309` after plugin discovery. The acceptance test itself executes the CWD/environment matrix.
   - Add the same two targeted runs to `windows-profile-setup`; retain setup-profile and portable-package commands.
@@ -1445,8 +1477,8 @@ python scripts/test_portable_package.py
 ```
 
 - [ ] Run `git diff --check`.
-- [ ] Commit with exact message: `test: add cross-platform determinism acceptance`
-- [ ] Push/open the review branch only under normal repository authority, wait for `.github/workflows/quality.yml`, and record the workflow ID and Task 12 commit SHA after both Ubuntu and native-Windows jobs pass. Do not proceed to Task 13 with missing/failed native-Windows evidence.
+- [ ] If explicitly authorized, commit with exact message: `test: add cross-platform determinism acceptance`.
+- [ ] **Human gate:** only with explicit commit/push/PR authority, publish the candidate branch, wait for `.github/workflows/quality.yml`, and record the workflow ID and Task 12 commit SHA after both Ubuntu and native-Windows jobs pass. Without that authority or with missing/failed native-Windows evidence, persist the blocker and do not proceed to Task 13.
 
 ### Task 13: Integrate KAPISCH 2.1.0 release metadata and deterministic-artifact documentation
 
@@ -1531,7 +1563,7 @@ python scripts/test_portable_package.py
 ```
 
 - [ ] Run `git diff --check`.
-- [ ] Commit with exact message: `docs: prepare KAPISCH 2.1.0 deterministic artifacts`
+- [ ] If explicitly authorized, commit with exact message: `docs: prepare KAPISCH 2.1.0 deterministic artifacts`.
 
 ### Task 14: Run complete release-candidate verification gate
 
@@ -1681,7 +1713,7 @@ Resolved ambiguity: knowledge ledger v1 field closure is explicitly authorized b
 
 - [x] Mapped every normative requirement in design sections 7-18.
 - [x] Removed production work for already-compliant lock/journal ownership, exact evidence, legacy migration, artifact reads, and portable-copy behavior.
-- [x] Checked current names against `main` at `86b715e`.
+- [x] Checked current names against `main` at `e3d5035`; the preceding `86b715e..e3d5035` delta contains only this plan.
 - [x] Sequenced task dependencies: 1 -> 2 -> 3-8 -> 9-11 -> 12 -> 13 -> 14.
 - [x] No task consumes an interface before its owning task.
 - [x] Every behavioral change has a named failing test before production edits.

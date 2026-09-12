@@ -8,8 +8,15 @@ import hashlib
 import os
 from pathlib import Path
 import secrets
+import sys
 from typing import Any, Callable, Iterator
 import tomllib
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from kapisch_validation.canonical_bytes import normalize_utf8_text
+from kapisch_validation.canonical_toml import toml_basic_string as _toml_basic_string
 
 
 AGENT_DIR = Path(__file__).resolve().parents[1] / "agents"
@@ -79,10 +86,9 @@ def _read_profile(path: Path) -> dict[str, Any]:
 
 def _normalize_template_bytes(contents: bytes) -> bytes:
     try:
-        text = contents.decode("utf-8")
-    except UnicodeError as exc:
+        return normalize_utf8_text(contents)
+    except ValueError as exc:
         raise ProfileReadError(str(exc)) from exc
-    return text.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
 
 
 def _parse_profile_bytes(contents: bytes) -> dict[str, Any]:
@@ -155,28 +161,7 @@ def profile_name(path: Path) -> str | None:
 
 def toml_basic_string(value: str | Path) -> str:
     """Encode a value as a TOML basic string without a runtime dependency."""
-    text = str(value)
-    escapes = {
-        "\\": "\\\\",
-        '"': '\\"',
-        "\b": "\\b",
-        "\t": "\\t",
-        "\n": "\\n",
-        "\f": "\\f",
-        "\r": "\\r",
-    }
-    result = ['"']
-    for character in text:
-        if character in escapes:
-            result.append(escapes[character])
-        elif ord(character) < 0x20 or ord(character) == 0x7F:
-            result.append(f"\\u{ord(character):04x}")
-        elif 0xD800 <= ord(character) <= 0xDFFF:
-            raise ValueError("TOML strings cannot contain unpaired Unicode surrogates")
-        else:
-            result.append(character)
-    result.append('"')
-    return "".join(result)
+    return _toml_basic_string(str(value))
 
 
 def identity_collisions(agent_dir: Path, expected_name: str, target: Path) -> list[Path]:
@@ -496,13 +481,22 @@ def _prepare_role(
         plan["drift"] = (
             "none" if saved["installed_sha256"] == installed_digest else "user-modified"
         )
+        try:
+            installed_matches_desired = (
+                _normalize_template_bytes(installed_bytes)
+                == _normalize_template_bytes(desired_bytes)
+            )
+        except ProfileReadError as exc:
+            plan.update(status="collision", error=f"existing destination is unreadable or malformed: {exc}")
+            return plan
         plan["template_drift"] = (
-            "none" if saved["template_sha256"] == template_digest else "updated"
+            "none"
+            if installed_matches_desired or saved["template_sha256"] == template_digest
+            else "updated"
         )
         update_required = (
             installed_profile_set != profile_set
-            or saved["template_sha256"] != template_digest
-            or installed_digest != desired_digest
+            or not installed_matches_desired
         )
         plan["update_required"] = update_required
         plan["switch_required"] = update_required

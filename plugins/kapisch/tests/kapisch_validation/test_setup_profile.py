@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
+import subprocess
+import sys
 import tomllib
 import unittest
 import io
@@ -14,7 +16,55 @@ from unittest import mock
 import scripts.setup_profile as setup_profile
 
 
+PLUGIN_ROOT = Path(__file__).resolve().parents[2]
+REPOSITORY_ROOT = PLUGIN_ROOT.parents[1]
+
+
 class SetupProfileSafetyTests(unittest.TestCase):
+    def test_standalone_script_bootstraps_plugin_root(self) -> None:
+        environment = dict(os.environ)
+        environment.pop("PYTHONPATH", None)
+        script = PLUGIN_ROOT / "scripts/setup_profile.py"
+        commands = [([sys.executable, "scripts/setup_profile.py", "--help"], PLUGIN_ROOT)]
+        repository_script = REPOSITORY_ROOT / "plugins/kapisch/scripts/setup_profile.py"
+        if repository_script.is_file():
+            commands.append(
+                ([sys.executable, "plugins/kapisch/scripts/setup_profile.py", "--help"], REPOSITORY_ROOT)
+            )
+        for command, cwd in commands:
+            with self.subTest(command=command, cwd=cwd):
+                result = subprocess.run(
+                    command, cwd=cwd, env=environment, capture_output=True, text=True
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("--replace-managed", result.stdout)
+        with TemporaryDirectory() as temporary:
+            cwd = Path(temporary) / "unrelated"
+            consumer = Path(temporary) / "consumer"
+            cwd.mkdir()
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "--role",
+                    "reviewer",
+                    "--project-dir",
+                    str(consumer),
+                    "--install",
+                ],
+                cwd=cwd,
+                env=environment,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(
+                (consumer / ".codex/agents/kapisch-reviewer.toml").is_file()
+            )
+            self.assertTrue(
+                (consumer / ".kapisch/local-state/profiles/reviewer.toml").is_file()
+            )
+
     def test_lf_and_crlf_templates_render_identically(self) -> None:
         role = "reviewer"
         source = (setup_profile.AGENT_DIR / "kapisch-reviewer.toml").read_bytes()
@@ -41,7 +91,13 @@ class SetupProfileSafetyTests(unittest.TestCase):
     ) -> None:
         source = (setup_profile.AGENT_DIR / "kapisch-reviewer.toml").read_bytes()
         lf = source.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
-        variants = {"lf": lf, "crlf": lf.replace(b"\n", b"\r\n")}
+        variants = {
+            "lf": lf,
+            "crlf": lf.replace(b"\n", b"\r\n"),
+            "lone-cr": lf.replace(b"\n", b"\r"),
+            "no-terminal-lf": lf.rstrip(b"\n"),
+            "excess-terminal-lf": lf + b"\n\n",
+        }
         results: dict[str, tuple[bytes, str, str]] = {}
 
         with TemporaryDirectory() as temporary:
@@ -79,6 +135,75 @@ class SetupProfileSafetyTests(unittest.TestCase):
                 )
 
         self.assertEqual(results["lf"], results["crlf"])
+        for result in results.values():
+            self.assertEqual(result, results["lf"])
+
+    def test_old_terminal_newline_template_provenance_does_not_replace_owned_profile(self) -> None:
+        template = setup_profile.AGENT_DIR / "kapisch-reviewer.toml"
+        canonical = setup_profile._normalize_template_bytes(template.read_bytes())
+        for name, old_template, terminal_spelling in (
+            ("missing", canonical.rstrip(b"\n"), "missing"),
+            ("excess", canonical + b"\n\n", "excess"),
+        ):
+            with self.subTest(name=name), TemporaryDirectory() as temporary:
+                project = Path(temporary) / "project"
+                self.assertEqual(
+                    setup_profile.main(
+                        ["--role", "reviewer", "--project-dir", str(project), "--install"]
+                    ),
+                    0,
+                )
+                target = project / ".codex/agents/kapisch-reviewer.toml"
+                record = project / ".kapisch/local-state/profiles/reviewer.toml"
+                desired = target.read_bytes()
+                installed = (
+                    desired.rstrip(b"\n")
+                    if terminal_spelling == "missing"
+                    else desired + b"\n\n"
+                )
+                target.write_bytes(installed)
+                record.write_text(
+                    setup_profile._record_text(
+                        template=template,
+                        template_digest=hashlib.sha256(old_template).hexdigest(),
+                        target=target,
+                        scope="project",
+                        role="reviewer",
+                        profile_set="balanced",
+                        installed_digest=hashlib.sha256(installed).hexdigest(),
+                    ),
+                    encoding="utf-8",
+                )
+                before = (target.read_bytes(), record.read_bytes())
+                for argv in ([], ["--install", "--replace-managed"]):
+                    output = io.StringIO()
+                    with redirect_stdout(output):
+                        self.assertEqual(
+                            setup_profile.main(
+                                ["--role", "reviewer", "--project-dir", str(project), *argv]
+                            ),
+                            0,
+                        )
+                    self.assertIn("template_drift=none", output.getvalue())
+                    self.assertIn("update_required=false", output.getvalue())
+                    self.assertEqual((target.read_bytes(), record.read_bytes()), before)
+                    self.assertFalse(
+                        (project / ".kapisch/local-state/profile-switch.toml").exists()
+                    )
+
+    def test_invalid_template_encoding_and_bom_fail_through_controlled_path(self) -> None:
+        for name, contents in (("invalid-utf8", b"\xff"), ("bom", b"\xef\xbb\xbfname = \"kapisch-reviewer\"\n")):
+            with self.subTest(name=name), TemporaryDirectory() as temporary:
+                agent_dir = Path(temporary) / "agents"
+                agent_dir.mkdir()
+                (agent_dir / "kapisch-reviewer.toml").write_bytes(contents)
+                output = io.StringIO()
+                with mock.patch.object(setup_profile, "AGENT_DIR", agent_dir), redirect_stdout(output):
+                    self.assertEqual(
+                        setup_profile.main(["--role", "reviewer", "--project-dir", str(Path(temporary) / "project"), "--install"]),
+                        2,
+                    )
+                self.assertIn("source template is unreadable or malformed", output.getvalue())
 
     def test_windows_style_paths_are_toml_safe(self) -> None:
         path = r"C:\Users\Example User\.codex\agents\kapisch-reviewer.toml"
@@ -143,6 +268,57 @@ class SetupProfileSafetyTests(unittest.TestCase):
             self.assertIn("error=adjacent profile safety check failed", output.getvalue())
             self.assertIn("agent directory is unreadable", output.getvalue())
             self.assertFalse((agent_dir / "kapisch-reviewer.toml").exists())
+
+    def test_adjacent_profile_collisions_have_stable_diagnostics_across_enumeration_orders(self) -> None:
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary).resolve()
+            agent_dir = project / ".codex/agents"
+            agent_dir.mkdir(parents=True)
+            (agent_dir / "kapisch-architect.toml").write_text(
+                'name = "wrong-architect"\n', encoding="utf-8"
+            )
+            (agent_dir / "kapisch-implementer.toml").write_text(
+                'name = "wrong-implementer"\n', encoding="utf-8"
+            )
+            before = {
+                path.relative_to(project): path.read_bytes()
+                for path in project.rglob("*")
+                if path.is_file()
+            }
+            original_iterdir = Path.iterdir
+
+            def attempt(reverse: bool) -> tuple[str, dict[Path, bytes]]:
+                def opposite_order(path: Path):
+                    entries = list(original_iterdir(path))
+                    if path == agent_dir and reverse:
+                        entries.reverse()
+                    return iter(entries)
+
+                output = io.StringIO()
+                with (
+                    mock.patch.object(Path, "iterdir", autospec=True, side_effect=opposite_order),
+                    redirect_stdout(output),
+                ):
+                    self.assertEqual(
+                        setup_profile.main(
+                            ["--role", "reviewer", "--project-dir", str(project), "--install"]
+                        ),
+                        2,
+                    )
+                after = {
+                    path.relative_to(project): path.read_bytes()
+                    for path in project.rglob("*")
+                    if path.is_file()
+                }
+                self.assertEqual(after, before)
+                return output.getvalue(), after
+
+            first_output, first_snapshot = attempt(reverse=False)
+            second_output, second_snapshot = attempt(reverse=True)
+            self.assertEqual(first_output, second_output)
+            self.assertEqual(first_snapshot, second_snapshot)
+            self.assertIn("kapisch-architect.toml", first_output)
+            self.assertIn("kapisch-implementer.toml", first_output)
 
     def test_template_filename_with_wrong_internal_name_is_rejected(self) -> None:
         with TemporaryDirectory() as temporary:

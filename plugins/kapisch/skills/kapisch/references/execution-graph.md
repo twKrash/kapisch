@@ -43,8 +43,36 @@ than creating a graph.
 
 `02-execution-graph.toml` and `03-state.toml` are authoritative for durable
 graph state. `03-state.md`, when present, is an optional non-authoritative view.
+The controller may regenerate or delete `03-state.md` at any time; its absence
+never blocks resume or validation and it has no state binding or authority.
+When present, it is produced by `render_state_markdown(raw)` as UTF-8/LF
+Markdown with exactly one compact canonical JSON block:
+
+````text
+# KAPISCH State
+
+```json
+{"task_id":"example","workflow_status":"running"}
+```
+````
+
+The renderer copies semantic state, sorts each of the five membership sets
+(`completed_node_ids`, `running_node_ids`, `ready_node_ids`,
+`blocked_node_ids`, and `failed_node_ids`), and rejects malformed or duplicate
+members. It reads no ambient inputs and generates no IDs, timestamps, model,
+or usage values.
 Review/final and other referenced artifact locations are defined only in
 [handoffs.md](handoffs.md).
+
+Controllers create and mutate these TOML snapshots through the pure
+`render_manifest(raw, initial=...)` and `render_state(raw)` encoders. The
+encoders return canonical UTF-8/LF bytes and never publish files themselves.
+Initial graph creation uses `initial=True`, which sorts and deduplicates the
+new graph's set-like scope and assignment reason-code collections. An
+authorized mutation of an existing snapshot must use `initial=False` so
+persisted scope and history order is retained. Validation and resume are
+read-only operations and never call either renderer; compatible existing bytes
+are not rewritten merely for formatting.
 
 ```toml
 version = 3
