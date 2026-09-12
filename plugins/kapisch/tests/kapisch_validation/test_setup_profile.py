@@ -146,7 +146,7 @@ class SetupProfileSafetyTests(unittest.TestCase):
             ("excess", canonical + b"\n\n", "excess"),
         ):
             with self.subTest(name=name), TemporaryDirectory() as temporary:
-                project = Path(temporary) / "project"
+                project = Path(temporary).resolve() / "project"
                 self.assertEqual(
                     setup_profile.main(
                         ["--role", "reviewer", "--project-dir", str(project), "--install"]
@@ -162,7 +162,7 @@ class SetupProfileSafetyTests(unittest.TestCase):
                     else desired + b"\n\n"
                 )
                 target.write_bytes(installed)
-                record.write_text(
+                record.write_bytes(
                     setup_profile._record_text(
                         template=template,
                         template_digest=hashlib.sha256(old_template).hexdigest(),
@@ -171,8 +171,11 @@ class SetupProfileSafetyTests(unittest.TestCase):
                         role="reviewer",
                         profile_set="balanced",
                         installed_digest=hashlib.sha256(installed).hexdigest(),
-                    ),
-                    encoding="utf-8",
+                    ).encode("utf-8")
+                )
+                self.assertEqual(
+                    tomllib.loads(record.read_text(encoding="utf-8"))["installed_profile"],
+                    str(target),
                 )
                 before = (target.read_bytes(), record.read_bytes())
                 for argv in ([], ["--install", "--replace-managed"]):
