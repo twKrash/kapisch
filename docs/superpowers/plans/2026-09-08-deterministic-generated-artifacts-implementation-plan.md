@@ -1381,7 +1381,7 @@ Committed vector:
 
 Generation sequence in `_generate(root: Path, reverse_inputs: bool)` is fixed:
 
-1. Create `root / "répo with spaces/run"` and copy `valid-v4-controller`.
+1. Resolve the fresh test root once to one native path spelling, then create `root / "répo with spaces/run"` and copy `valid-v4-controller`.
 2. Parse both invocation envelopes; reverse dictionary construction when requested; write `render_reviewer_invocation` bytes.
 3. Update each outcome's `invocation_sha256` from exact newly persisted invocation bytes; write `render_outcome`.
 4. Rebuild each declared path field from the contained native file with `canonical_relative_path(native, root=task_or_repository_root)`, then render route, manifest (`initial=False`), and state; reverse input dictionaries/lists only where contracts classify them unordered.

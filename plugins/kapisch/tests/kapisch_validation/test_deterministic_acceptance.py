@@ -178,6 +178,7 @@ def _assert_portable_paths(manifest: dict[str, object], state: dict[str, object]
 
 
 def _generate(root: Path, reverse_inputs: bool) -> dict[str, str]:
+    root = root.resolve()
     repository = root / "répo with spaces"
     task_dir = repository / "run"
     shutil.copytree(TASK_FIXTURE, task_dir)
