@@ -176,14 +176,13 @@ class SetupProfileSafetyTests(unittest.TestCase):
                 )
                 before = (target.read_bytes(), record.read_bytes())
                 for argv in ([], ["--install", "--replace-managed"]):
-                    output = io.StringIO()
-                    with redirect_stdout(output):
-                        self.assertEqual(
-                            setup_profile.main(
+                    with self.subTest(argv=argv):
+                        output = io.StringIO()
+                        with redirect_stdout(output):
+                            result = setup_profile.main(
                                 ["--role", "reviewer", "--project-dir", str(project), *argv]
-                            ),
-                            0,
-                        )
+                            )
+                        self.assertEqual(result, 0, output.getvalue())
                     self.assertIn("template_drift=none", output.getvalue())
                     self.assertIn("update_required=false", output.getvalue())
                     self.assertEqual((target.read_bytes(), record.read_bytes()), before)
