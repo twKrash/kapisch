@@ -8,6 +8,8 @@ from pathlib import Path
 from .errors import ValidationError, sorted_errors
 from .helpers import is_integer, non_empty_string, nonfinite_float_references
 from .models import Manifest
+from .canonical_toml import render_toml
+from .path_atoms import validate_relative_posix_path
 
 ROUTE_FILE = "delegations/00-route.toml"
 ROUTE_VERSION = 1
@@ -16,32 +18,17 @@ ROUTE_VERSION = 1
 # engine, graph-free delegation, and sophisticated resume/external-effect
 # reconciliation are deferred to later changes backed by demonstrated needs
 # (see docs/change-7-execution-plan.md scope decision).
-ROUTE = {
-    "version",
-    "task_id",
-    "route_id",
-    "source_revision",
-    "steps",
-    "extensions",
-}
-STEP = {
-    "id",
-    "sequence",
-    "parent_node_id",
-    "selection_mode",
-    "capability_kind",
-    "requested_capability",
-    "resolved_capability",
-    "source_plugin",
-    "effect_class",
-    "authority_mode",
-    "authority_ref",
-    "context_path",
-    "context_sha256",
-    "evidence_path",
-    "evidence_sha256",
-    "extensions",
-}
+ROUTE_KEY_ORDER = (
+    "version", "task_id", "route_id", "source_revision", "steps", "extensions",
+)
+ROUTE = set(ROUTE_KEY_ORDER)
+STEP_KEY_ORDER = (
+    "id", "sequence", "parent_node_id", "selection_mode", "capability_kind",
+    "requested_capability", "resolved_capability", "source_plugin", "effect_class",
+    "authority_mode", "authority_ref", "context_path", "context_sha256",
+    "evidence_path", "evidence_sha256", "extensions",
+)
+STEP = set(STEP_KEY_ORDER)
 SELECTION_MODES = {"explicit", "automatic"}
 CAPABILITY_KINDS = {"skill", "plugin-skill", "plugin-tools"}
 EFFECT_CLASSES = {
@@ -58,6 +45,125 @@ UNAVAILABLE = "unavailable"
 STEP_ID_RE = re.compile(r"^D\d{2,}$")
 ROUTE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{2,79}$")
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
+
+
+def _render_error(message: str) -> ValueError:
+    return ValueError(f"invalid delegation route: {message}")
+
+
+def _render_closed(data: object, allowed: set[str], reference: str) -> dict[str, object]:
+    if not isinstance(data, dict):
+        raise _render_error(f"{reference} must be a table")
+    unknown = set(data) - allowed
+    if unknown:
+        raise _render_error(f"{reference} has unknown field {sorted(unknown)[0]!r}")
+    return dict(data)
+
+
+def _render_path(value: object, reference: str) -> None:
+    try:
+        validate_relative_posix_path(value)
+    except ValueError as error:
+        raise _render_error(f"{reference} must be a portable relative path") from error
+
+
+def _render_extensions(value: object, reference: str) -> None:
+    if value is None:
+        return
+    if not isinstance(value, dict):
+        raise _render_error(f"{reference} must be a table")
+    for namespace in value:
+        if not isinstance(namespace, str) or not re.fullmatch(
+            r"[a-z0-9-]+(?:\.[a-z0-9-]+)+", namespace
+        ):
+            raise _render_error(f"{reference} keys must be reverse-DNS namespaces")
+
+
+def _render_step(step: object) -> dict[str, object]:
+    data = _render_closed(step, STEP, "steps[]")
+    required = STEP - {"extensions"}
+    missing = required - set(data)
+    if missing:
+        raise _render_error(f"steps[] is missing field {sorted(missing)[0]!r}")
+    step_id = data["id"]
+    if not isinstance(step_id, str) or STEP_ID_RE.fullmatch(step_id) is None:
+        raise _render_error("steps[].id must match D followed by at least two digits")
+    sequence = data["sequence"]
+    if not is_integer(sequence) or sequence < 0:
+        raise _render_error("steps[].sequence must be a non-negative integer")
+    for field in ("parent_node_id", "requested_capability", "resolved_capability", "authority_ref"):
+        if not isinstance(data[field], str) or not data[field]:
+            raise _render_error(f"steps[].{field} must be a non-empty string")
+    if data["parent_node_id"] == UNAVAILABLE:
+        raise _render_error("steps[].parent_node_id must identify an owning graph node")
+    if data["requested_capability"] == UNAVAILABLE or data["resolved_capability"] == UNAVAILABLE:
+        raise _render_error("step capability fields must not be 'unavailable'")
+    if data["requested_capability"] in {"kapisch", "$kapisch"} or data["resolved_capability"] in {"kapisch", "$kapisch"}:
+        raise _render_error("steps[] may not delegate to KAPISCH")
+    for field, values in (
+        ("selection_mode", SELECTION_MODES),
+        ("capability_kind", CAPABILITY_KINDS),
+        ("effect_class", EFFECT_CLASSES),
+        ("authority_mode", AUTHORITY_MODES),
+    ):
+        if not isinstance(data[field], str) or data[field] not in values:
+            raise _render_error(f"steps[].{field} has an invalid value")
+    if data["source_plugin"] != UNAVAILABLE and (
+        not isinstance(data["source_plugin"], str) or not data["source_plugin"]
+    ):
+        raise _render_error("steps[].source_plugin must be a non-empty string or 'unavailable'")
+    if data["authority_ref"] == UNAVAILABLE:
+        raise _render_error("steps[].authority_ref must not be 'unavailable'")
+    if data["effect_class"] in EXTERNAL_WRITE_CLASSES:
+        raise _render_error("external-write and destructive steps are unsupported")
+    for field in ("context_path", "evidence_path"):
+        _render_path(data[field], f"steps[].{field}")
+        expected = f"delegations/{step_id}/{'00-context.md' if field == 'context_path' else '01-evidence.md'}"
+        if data[field] != expected:
+            raise _render_error(f"steps[].{field} must be {expected}")
+    for field in ("context_sha256", "evidence_sha256"):
+        if not isinstance(data[field], str) or SHA256_RE.fullmatch(data[field]) is None:
+            raise _render_error(f"steps[].{field} must be 64 lowercase hexadecimal characters")
+    extensions = data.get("extensions")
+    _render_extensions(extensions, "steps[].extensions")
+    if extensions == {}:
+        data.pop("extensions")
+    return data
+
+
+def render_route(raw: dict[str, object]) -> bytes:
+    """Return canonical bytes for a newly-created delegation route.
+
+    This encoder never reads context or evidence. Their digests are exact
+    persisted-byte bindings supplied by the controller and are retained as-is.
+    """
+    data = _render_closed(raw, ROUTE, "root")
+    required = ROUTE - {"extensions"}
+    missing = required - set(data)
+    if missing:
+        raise _render_error(f"root is missing field {sorted(missing)[0]!r}")
+    if not is_integer(data["version"]) or data["version"] != ROUTE_VERSION:
+        raise _render_error("version must be integer 1")
+    for field in ("task_id", "source_revision"):
+        if not isinstance(data[field], str) or not data[field]:
+            raise _render_error(f"{field} must be a non-empty string")
+    if not isinstance(data["route_id"], str) or ROUTE_ID_RE.fullmatch(data["route_id"]) is None:
+        raise _render_error("route_id has an invalid value")
+    if not isinstance(data["steps"], list) or not data["steps"]:
+        raise _render_error("steps must be a non-empty array")
+    steps = [_render_step(step) for step in data["steps"]]
+    ids = [step["id"] for step in steps]
+    sequences = [step["sequence"] for step in steps]
+    if len(ids) != len(set(ids)):
+        raise _render_error("step IDs must be unique")
+    if len(sequences) != len(set(sequences)):
+        raise _render_error("step sequence values must be unique")
+    data["steps"] = sorted(steps, key=lambda step: (step["sequence"], step["id"]))
+    extensions = data.get("extensions")
+    _render_extensions(extensions, "root extensions")
+    if extensions == {}:
+        data.pop("extensions")
+    return render_toml(data, key_order=ROUTE_KEY_ORDER)
 
 
 def _e(c: str, p: Path, r: str, m: str) -> ValidationError:

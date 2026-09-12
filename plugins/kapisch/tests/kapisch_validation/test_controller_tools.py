@@ -9,6 +9,15 @@ from kapisch_validation.canonical_toml import render_toml
 FIXTURES=Path(__file__).parent/'fixtures'
 def render(task): return subprocess.run([sys.executable,str(ROOT/'scripts'/'render_controller_view.py'),'--task-dir',str(task)],capture_output=True,text=True)
 class ToolTests(unittest.TestCase):
+ def both_changed_snapshot(self, root):
+  task=root/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task)
+  view=task/'04-controller-view.toml';state=task/'03-state.toml'
+  view.write_bytes(b'stale controller view\n')
+  state.write_text(state.read_text(encoding='utf-8').replace('controller_view_sha256="796c118279979cb80e20179470af63b24a087442b91b741f5bdef08a6f490fdf"','controller_view_sha256="'+'0'*64+'"'),encoding='utf-8')
+  return task,view,state
+ def assert_no_atomic_temporaries(self, task):
+  self.assertEqual(list(task.glob('.04-controller-view.toml.*')),[])
+  self.assertEqual(list(task.glob('.03-state.toml.*')),[])
  def test_help(self):
   for name in ('render_controller_view.py','migrate_controller_view_v4.py'):
    self.assertEqual(subprocess.run([sys.executable,str(ROOT/'scripts'/name),'--help']).returncode,0)
@@ -24,6 +33,25 @@ class ToolTests(unittest.TestCase):
   with tempfile.TemporaryDirectory() as directory:
    task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task)
    self.assertEqual(render(task).returncode,0)
+ def test_current_view_and_noncanonical_state_are_noop(self):
+  with tempfile.TemporaryDirectory() as directory:
+   task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task)
+   state=task/'03-state.toml'
+   state.write_text(state.read_text(encoding='utf-8').replace('base_revision =', '"base_revision" =', 1), encoding='utf-8')
+   before=state.read_bytes(),(task/'04-controller-view.toml').read_bytes()
+   with patch.object(render_controller_view_tool, 'atomic', wraps=render_controller_view_tool.atomic) as atomic:
+    self.assertEqual(render_controller_view_tool.main(['--task-dir',str(task)]),0)
+   self.assertEqual(atomic.call_count,0)
+   self.assertEqual(before,(state.read_bytes(),(task/'04-controller-view.toml').read_bytes()))
+ def test_deleted_current_view_regenerates_without_rewriting_state(self):
+  with tempfile.TemporaryDirectory() as directory:
+   task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task)
+   state=task/'03-state.toml';view=task/'04-controller-view.toml'
+   expected_view=view.read_bytes();expected_state=state.read_bytes()
+   view.unlink()
+   self.assertEqual(render(task).returncode,0)
+   self.assertEqual(view.read_bytes(),expected_view)
+   self.assertEqual(state.read_bytes(),expected_state)
  def test_existing_view_directory_is_rejected_without_writes(self):
   with tempfile.TemporaryDirectory() as directory:
    task = Path(directory) / "task"
@@ -88,6 +116,55 @@ class ToolTests(unittest.TestCase):
    with patch.object(render_controller_view_tool,'validate_snapshot',side_effect=forced_revalidation_failure):
     self.assertEqual(render_controller_view_tool.main(['--task-dir',str(task)]),2)
    self.assertEqual(view.read_bytes(),old_view);self.assertEqual(state.read_bytes(),old_state)
+ def test_state_rebind_failure_restores_only_state(self):
+  with tempfile.TemporaryDirectory() as directory:
+   task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task);view=task/'04-controller-view.toml';state=task/'03-state.toml'
+   state.write_text(state.read_text().replace('controller_view_sha256="796c118279979cb80e20179470af63b24a087442b91b741f5bdef08a6f490fdf"','controller_view_sha256="'+'0'*64+'"'))
+   old_view=view.read_bytes();old_state=state.read_bytes()
+   def forced_revalidation_failure(*args, **kwargs):
+    return [] if kwargs.get('include_controller_view') is False else ['forced failure']
+   with patch.object(render_controller_view_tool,'validate_snapshot',side_effect=forced_revalidation_failure), patch.object(render_controller_view_tool,'atomic',wraps=render_controller_view_tool.atomic) as atomic:
+    self.assertEqual(render_controller_view_tool.main(['--task-dir',str(task)]),2)
+   self.assertEqual(atomic.call_count,2)
+   self.assertEqual(view.read_bytes(),old_view);self.assertEqual(state.read_bytes(),old_state)
+ def test_both_changed_write_failures_restore_original_bytes(self):
+  for failing_write in (1,2):
+   with self.subTest(failing_write=failing_write),tempfile.TemporaryDirectory() as directory:
+    task,view,state=self.both_changed_snapshot(Path(directory));old_view=view.read_bytes();old_state=state.read_bytes();real_fdopen=os.fdopen;writes=0
+    class FailingWriter:
+     def __init__(self,stream): self.stream=stream
+     def __enter__(self): return self
+     def __exit__(self,*args): return self.stream.__exit__(*args)
+     def write(self,data): raise OSError('forced temporary write failure')
+     def flush(self): self.stream.flush()
+     def fileno(self): return self.stream.fileno()
+    def injected_fdopen(*args,**kwargs):
+     nonlocal writes
+     writes+=1;stream=real_fdopen(*args,**kwargs)
+     return FailingWriter(stream) if writes == failing_write else stream
+    with patch.object(render_controller_view_tool.os,'fdopen',side_effect=injected_fdopen):
+     self.assertEqual(render_controller_view_tool.main(['--task-dir',str(task)]),2)
+    self.assertEqual(view.read_bytes(),old_view);self.assertEqual(state.read_bytes(),old_state);self.assert_no_atomic_temporaries(task)
+ def test_both_changed_replace_failures_restore_original_bytes(self):
+  for failing_replace in (1,2):
+   with self.subTest(failing_replace=failing_replace),tempfile.TemporaryDirectory() as directory:
+    task,view,state=self.both_changed_snapshot(Path(directory));old_view=view.read_bytes();old_state=state.read_bytes();real_replace=os.replace;replaces=0
+    def injected_replace(source,destination):
+     nonlocal replaces
+     replaces+=1
+     if replaces == failing_replace: raise OSError('forced replace failure')
+     return real_replace(source,destination)
+    with patch.object(render_controller_view_tool.os,'replace',side_effect=injected_replace):
+     self.assertEqual(render_controller_view_tool.main(['--task-dir',str(task)]),2)
+    self.assertEqual(view.read_bytes(),old_view);self.assertEqual(state.read_bytes(),old_state);self.assert_no_atomic_temporaries(task)
+ def test_both_changed_revalidation_failure_restores_both_files(self):
+  with tempfile.TemporaryDirectory() as directory:
+   task,view,state=self.both_changed_snapshot(Path(directory));old_view=view.read_bytes();old_state=state.read_bytes()
+   def forced_revalidation_failure(*args,**kwargs):
+    return [] if kwargs.get('include_controller_view') is False else ['forced failure']
+   with patch.object(render_controller_view_tool,'validate_snapshot',side_effect=forced_revalidation_failure),patch.object(render_controller_view_tool,'atomic',wraps=render_controller_view_tool.atomic) as atomic:
+    self.assertEqual(render_controller_view_tool.main(['--task-dir',str(task)]),2)
+   self.assertEqual(atomic.call_count,4);self.assertEqual(view.read_bytes(),old_view);self.assertEqual(state.read_bytes(),old_state);self.assert_no_atomic_temporaries(task)
  def test_quoted_state_keys_render_without_duplicates(self):
   with tempfile.TemporaryDirectory() as directory:
    task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task);state=task/'03-state.toml';before=state.read_text();after=before.replace('controller_view_path=','"controller_view_path"=').replace('controller_view_sha256=','"controller_view_sha256"=')
@@ -147,6 +224,23 @@ class ToolTests(unittest.TestCase):
    outcome=tomllib.loads((destination/'stage-outcomes/AT-T01-1.toml').read_text())
    graph=tomllib.loads((destination/'02-execution-graph.toml').read_text())
    self.assertEqual(outcome['verification'],[{key:graph['nodes'][0]['verification_evidence'][0][key] for key in ('check','result','evidence_ref','output_sha256')}])
+ def test_v3_to_v4_migration_is_canonical_relocatable_and_evidence_exact(self):
+  with tempfile.TemporaryDirectory() as directory:
+   root=Path(directory)/'répo with spaces';root.mkdir();source=self.eligible_v3_source(root)
+   before={path.relative_to(source):path.read_bytes() for path in source.rglob('*') if path.is_file()}
+   destinations=[root/'destination-a',root/'destination-b']
+   for destination in destinations:
+    self.assertEqual(migrate_controller_view(['--task-dir',str(source),'--destination-task-dir',str(destination),'--approve']),0)
+   trees=[{path.relative_to(destination):path.read_bytes() for path in destination.rglob('*') if path.is_file()} for destination in destinations]
+   self.assertEqual(trees[0],trees[1])
+   self.assertEqual(before,{path.relative_to(source):path.read_bytes() for path in source.rglob('*') if path.is_file()})
+   for relative,data in before.items():
+    if relative not in {Path('02-execution-graph.toml'),Path('03-state.toml')}:
+     self.assertEqual((destinations[0]/relative).read_bytes(),data)
+   self.assertTrue(trees[0][Path('02-execution-graph.toml')].startswith(b'"version" = 4\n"task_id" = '))
+   self.assertTrue(next(data for path,data in trees[0].items() if path.parts[0] == 'stage-outcomes').startswith(b'"version" = 1\n"task_id" = '))
+   absolute_root=str(root).encode('utf-8')
+   self.assertFalse(any(absolute_root in data or b'kapisch-v4-' in data for data in trees[0].values()))
  def test_indented_root_keys_ignore_indented_extension_keys(self):
   with tempfile.TemporaryDirectory() as directory:
    task=Path(directory)/'task';shutil.copytree(FIXTURES/'valid-v4-controller',task);state=task/'03-state.toml'

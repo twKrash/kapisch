@@ -3,11 +3,11 @@ from __future__ import annotations
 import argparse
 from contextlib import ExitStack
 from importlib import resources
-import json
 from pathlib import Path
 import sys
 
 from .errors import ValidationError, sorted_errors
+from .canonical_bytes import canonical_json_line, canonical_text_bytes
 from .delegations import parse_route, validate_route_references
 from .manifest import parse_manifest
 from .references import parse_state, validate_references
@@ -29,6 +29,23 @@ REQUIRED_CONTRACT_FILES = (
     "references/handoffs.md",
     "references/pressure-scenarios.md",
 )
+
+
+def _write_stdout(data: bytes) -> None:
+    """Write canonical bytes, while supporting StringIO-based callers."""
+    stream = sys.stdout
+    buffer = getattr(stream, "buffer", None)
+    if buffer is not None:
+        buffer.write(data)
+        buffer.flush()
+    else:
+        stream.write(data.decode("utf-8"))
+        stream.flush()
+
+
+def _diagnostic_text(value: str) -> str:
+    """Keep diagnostics valid UTF-8 when native paths use surrogate escapes."""
+    return value.encode("utf-8", errors="backslashreplace").decode("utf-8")
 
 
 def _bundled_contract_resource():
@@ -171,14 +188,15 @@ def main(argv: list[str] | None = None) -> int:
                 return 2
         errors = validate(contract_dir, args.task_dir, args.previous_task_dir)
     if args.format == "json":
-        print(
-            json.dumps(
-                [error.to_dict() for error in errors],
-                sort_keys=True,
-                separators=(",", ":"),
+        records = [
+            {key: _diagnostic_text(value) for key, value in error.to_dict().items()}
+            for error in errors
+        ]
+        _write_stdout(canonical_json_line(records))
+    elif errors:
+        _write_stdout(
+            canonical_text_bytes(
+                "\n".join(_diagnostic_text(str(error)) for error in errors)
             )
         )
-    else:
-        for error in errors:
-            print(error)
     return 2 if errors else 0

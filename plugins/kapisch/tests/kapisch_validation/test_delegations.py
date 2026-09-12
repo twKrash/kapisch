@@ -4,12 +4,14 @@ import hashlib
 import os
 import shutil
 import tempfile
+import copy
+import tomllib
 import unittest
 from unittest import mock
 from pathlib import Path
 
 from kapisch_validation.cli import validate
-from kapisch_validation.delegations import parse_route, validate_route_references
+from kapisch_validation.delegations import parse_route, render_route, validate_route_references
 from kapisch_validation.models import Manifest, Node
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -155,6 +157,25 @@ def make_node(
 
 
 class RouteSchemaTests(unittest.TestCase):
+    def test_route_encoder_orders_steps_and_preserves_exact_digests(self) -> None:
+        path = FIXTURES / "valid-v4-controller/delegations/00-route.toml"
+        raw = tomllib.loads(path.read_text(encoding="utf-8"))
+        first = copy.deepcopy(raw["steps"][0])
+        second = copy.deepcopy(first)
+        second.update(
+            id="D02",
+            sequence=2,
+            context_path="delegations/D02/00-context.md",
+            evidence_path="delegations/D02/01-evidence.md",
+        )
+        left = dict(raw, steps=[second, first])
+        right = dict(reversed(list(dict(raw, steps=[first, second]).items())))
+        self.assertEqual(render_route(left), render_route(right))
+        parsed = tomllib.loads(render_route(left).decode("utf-8"))
+        self.assertEqual([step["id"] for step in parsed["steps"]], ["D01", "D02"])
+        self.assertEqual(parsed["steps"][0]["context_sha256"], first["context_sha256"])
+        self.assertEqual(parsed["steps"][0]["evidence_sha256"], first["evidence_sha256"])
+
     def test_missing_route_record(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             _, errors = parse_route(Path(temporary))

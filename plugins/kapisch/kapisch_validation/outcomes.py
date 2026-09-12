@@ -3,23 +3,26 @@ from __future__ import annotations
 import hashlib
 import re
 from collections import Counter
+from copy import deepcopy
 from pathlib import Path
 from typing import Iterator, cast
 
 from .artifact_io import ArtifactFailure, ArtifactFailureKind, load_toml_artifact, read_utf8_artifact
+from .canonical_toml import render_toml
 from .errors import ValidationError
 from .models import Manifest, Node, State
-from .path_atoms import is_portable_filename_atom
+from .path_atoms import is_portable_filename_atom, validate_relative_posix_path
 from .vocabulary import EXECUTOR_CLASS_VALUES
 
-OUTCOME_FIELDS = {
+OUTCOME_KEY_ORDER = (
     "version", "task_id", "node_id", "role", "assignment_id", "attempt_id",
     "lifecycle", "role_status", "base_revision", "head_revision",
     "working_tree_state_sha256", "report_path", "report_sha256", "invocation_path",
     "invocation_id", "invocation_sha256", "reviewer_decision", "redispatch_reason",
     "predecessor_attempt_id", "retry_budget_delta", "next_action_reason", "findings",
     "verification",
-}
+)
+OUTCOME_FIELDS = set(OUTCOME_KEY_ORDER)
 LIFECYCLE_VALUES = ("complete", "blocked", "failed")
 ROLE_STATUS_VALUES = ("done", "done-with-concerns", "needs-context", "blocked", "failed")
 SEVERITY_VALUES = ("P0", "P1", "P2", "P3")
@@ -38,6 +41,55 @@ RETRY_DELTAS = {
     "approved-amendment": 1,
 }
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
+
+
+def _render_error(message: str) -> ValueError:
+    return ValueError(f"invalid stage outcome: {message}")
+
+
+def _render_path(value: object, reference: str, *, unavailable: bool = False) -> None:
+    if unavailable and value == "unavailable":
+        return
+    try:
+        validate_relative_posix_path(value)
+    except ValueError as error:
+        raise _render_error(f"{reference} must be a portable relative path") from error
+
+
+def render_outcome(raw: dict[str, object]) -> bytes:
+    """Return immutable canonical bytes for a complete schema-1 outcome.
+
+    The renderer performs no evidence reads or digest normalization. Exact
+    report, invocation, and verification bindings supplied by the controller
+    are retained byte-for-byte; only the finding collection has a canonical
+    content order.
+    """
+    if not isinstance(raw, dict):
+        raise _render_error("root must be a table")
+    errors = _schema_errors(raw, Path("<outcome>"))
+    if errors:
+        first = errors[0]
+        raise _render_error(f"{first.reference}: {first.message}")
+
+    data = deepcopy(raw)
+    _render_path(data["report_path"], "report_path")
+    _render_path(data["invocation_path"], "invocation_path", unavailable=True)
+    for index, finding in enumerate(data["findings"]):
+        _render_path(finding["evidence_ref"], f"findings[{index}].evidence_ref")
+    for index, record in enumerate(data["verification"]):
+        _render_path(record["evidence_ref"], f"verification[{index}].evidence_ref", unavailable=True)
+
+    severity_rank = {severity: index for index, severity in enumerate(SEVERITY_VALUES)}
+    data["findings"] = sorted(
+        data["findings"],
+        key=lambda finding: (
+            severity_rank[finding["severity"]],
+            finding["id"],
+            finding["summary"],
+            finding["evidence_ref"],
+        ),
+    )
+    return render_toml(data, key_order=OUTCOME_KEY_ORDER)
 
 
 def _e(code: str, path: Path, reference: str, message: str) -> ValidationError:

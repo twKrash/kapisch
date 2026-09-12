@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import subprocess
+import tomllib
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -16,6 +17,7 @@ from kapisch_validation.references import parse_state
 from kapisch_validation.review_evidence import (
     CANONICAL_REVIEWER_PROFILE,
     LEGACY_REVIEWER_PROFILE,
+    render_reviewer_invocation,
     validate_review_evidence,
 )
 
@@ -32,6 +34,70 @@ def state_payload(head: str, marker: str = EMPTY_SHA256) -> str:
 
 
 class ReviewEvidenceTests(unittest.TestCase):
+    def test_reviewer_invocation_encoder_is_canonical_and_preserves_exact_bindings(self) -> None:
+        path = FIXTURES / "valid-v4-controller/reviews/round-0/00-review-invocation.toml"
+        raw = tomllib.loads(path.read_text(encoding="utf-8"))
+        reordered = dict(reversed(list(raw.items())))
+        encoded = render_reviewer_invocation(raw)
+        self.assertEqual(encoded, render_reviewer_invocation(reordered))
+        self.assertTrue(
+            encoded.startswith(b'"invocation_id" = "I-REVIEW"\n"mode" = "review"\n')
+        )
+        parsed = tomllib.loads(encoded.decode("utf-8"))
+        self.assertEqual(parsed["result_sha256"], raw["result_sha256"])
+        self.assertEqual(parsed["working_tree_state"], raw["working_tree_state"])
+        with self.assertRaises(ValueError):
+            render_reviewer_invocation(dict(raw, unknown="field"))
+
+    def test_reviewer_invocation_encoder_rejects_schema_and_lifecycle_invalid_envelopes(self) -> None:
+        path = FIXTURES / "valid-v4-controller/reviews/round-0/00-review-invocation.toml"
+        valid = tomllib.loads(path.read_text(encoding="utf-8"))
+        cases: list[dict[str, object]] = []
+        missing = dict(valid)
+        del missing["dispatching_controller"]
+        cases.append(missing)
+        cases.append(dict(valid, lifecycle_status="complete"))
+        cases.append(dict(valid, reviewer_selection_attested="false"))
+        cases.append(dict(valid, result_sha256="ABC"))
+        cases.append(dict(valid, expected_result_path="../outside.md"))
+        stale = dict(valid)
+        stale["post_review_working_tree_state"] = state_payload("different")
+        stale["post_review_state_digest"] = hashlib.sha256(
+            stale["post_review_working_tree_state"].encode()
+        ).hexdigest()
+        cases.append(stale)
+        for raw in cases:
+            with self.subTest(raw=raw):
+                with self.assertRaises(ValueError):
+                    render_reviewer_invocation(raw)
+
+    def test_reviewer_invocation_encoder_validates_without_reading_result_evidence(self) -> None:
+        path = FIXTURES / "valid-v4-controller/reviews/round-0/00-review-invocation.toml"
+        raw = tomllib.loads(path.read_text(encoding="utf-8"))
+        with mock.patch(
+            "kapisch_validation.review_evidence.read_utf8_artifact",
+            side_effect=AssertionError("renderer must not read evidence"),
+        ):
+            render_reviewer_invocation(raw)
+
+    def test_completed_invocation_requires_matching_result_paths(self) -> None:
+        path = FIXTURES / "valid-v4-controller/reviews/round-0/00-review-invocation.toml"
+        raw = tomllib.loads(path.read_text(encoding="utf-8"))
+        raw["produced_result_path"] = "reviews/different.md"
+        with self.assertRaises(ValueError):
+            render_reviewer_invocation(raw)
+
+    def test_reviewer_invocation_encoder_enforces_noncompleted_sentinels(self) -> None:
+        path = FIXTURES / "valid-v4-controller/reviews/round-0/00-review-invocation.toml"
+        raw = tomllib.loads(path.read_text(encoding="utf-8"))
+        for lifecycle in ("planned", "dispatched", "blocked", "failed"):
+            invalid = dict(raw)
+            invalid.update(self.noncompleted_overrides(lifecycle, "unavailable"))
+            invalid["result_sha256"] = raw["result_sha256"]
+            with self.subTest(lifecycle=lifecycle):
+                with self.assertRaises(ValueError):
+                    render_reviewer_invocation(invalid)
+
     def write_invocation(
         self,
         root: Path,
