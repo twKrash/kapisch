@@ -8,3 +8,4 @@ __pycache__/
 /plugins/kapisch/dist/
 node_modules/
 .omp/
+graphify-out/
