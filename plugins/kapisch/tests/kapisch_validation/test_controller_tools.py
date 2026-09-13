@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, shutil, stat, subprocess, sys, tempfile, tomllib, unittest
+import contextlib, io, os, shutil, stat, subprocess, sys, tempfile, tomllib, unittest
 from pathlib import Path
 from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[2]; sys.path.insert(0,str(ROOT/'scripts'))
@@ -224,6 +224,18 @@ class ToolTests(unittest.TestCase):
    outcome=tomllib.loads((destination/'stage-outcomes/AT-T01-1.toml').read_text())
    graph=tomllib.loads((destination/'02-execution-graph.toml').read_text())
    self.assertEqual(outcome['verification'],[{key:graph['nodes'][0]['verification_evidence'][0][key] for key in ('check','result','evidence_ref','output_sha256')}])
+ def test_migration_reports_legacy_noncanonical_path_rejection(self):
+  with tempfile.TemporaryDirectory() as directory:
+   root=Path(directory);source=self.eligible_v3_source(root);destination=root/'destination'
+   graph=tomllib.loads((source/'02-execution-graph.toml').read_text())
+   graph['nodes'][0]['writes']=['src\\out.py']
+   (source/'02-execution-graph.toml').write_bytes(render_toml(graph))
+   stderr=io.StringIO()
+   with contextlib.redirect_stderr(stderr):
+    result=migrate_controller_view(['--task-dir',str(source),'--destination-task-dir',str(destination),'--approve'])
+   self.assertEqual(result,2)
+   self.assertFalse(destination.exists())
+   self.assertIn('migration rejected legacy artifact:',stderr.getvalue())
  def test_v3_to_v4_migration_is_canonical_relocatable_and_evidence_exact(self):
   with tempfile.TemporaryDirectory() as directory:
    root=Path(directory)/'répo with spaces';root.mkdir();source=self.eligible_v3_source(root)

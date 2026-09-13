@@ -456,6 +456,7 @@ def _generate(root: Path, reverse_inputs: bool) -> dict[str, str]:
         state_markdown, metrics, canonical_json, outcome_findings,
         benchmark.stdout,
         *invocation_outputs, *outcome_outputs,
+        installed_profile.read_bytes(),
         *(path.read_bytes() for path in migration_destination.rglob("*") if path.is_file()),
     )
     local_path_needles = {
@@ -470,7 +471,7 @@ def _generate(root: Path, reverse_inputs: bool) -> dict[str, str]:
     for output in portable_outputs:
         if (
             any(needle in output for needle in local_path_needles)
-            or b"kapisch-switch-" in output
+            or b"kapisch-switch." in output
             or b'"pid"' in output
             or b"pid=" in output
         ):

@@ -221,7 +221,6 @@ def _render_runtime_records(
     allowed: set[str],
     required: set[str],
     reference: str,
-    version: int,
 ) -> list[dict[str, object]]:
     if not isinstance(values, list):
         raise _render_error(f"{reference} must be an array of tables")
@@ -333,7 +332,7 @@ def _render_node(node: object, *, initial: bool, version: int) -> dict[str, obje
         attempt_required = ATTEMPT if version == 4 else ATTEMPT - {"outcome_path"}
         attempts = _render_runtime_records(
             assignment.get("attempts"), allowed=ATTEMPT, required=attempt_required,
-            reference="nodes[].assignment.attempts", version=version,
+            reference="nodes[].assignment.attempts",
         )
         for index, attempt in enumerate(attempts):
             ref = f"nodes[].assignment.attempts[{index}]"
@@ -354,7 +353,7 @@ def _render_node(node: object, *, initial: bool, version: int) -> dict[str, obje
         assignment["attempts"] = attempts
         escalations = _render_runtime_records(
             assignment.get("escalations"), allowed=ESCALATION, required=ESCALATION,
-            reference="nodes[].assignment.escalations", version=version,
+            reference="nodes[].assignment.escalations",
         )
         assignment["escalations"] = escalations
         raw["assignment"] = assignment
@@ -372,7 +371,6 @@ def _render_node(node: object, *, initial: bool, version: int) -> dict[str, obje
         evidence = _render_runtime_records(
             raw["verification_evidence"], allowed=VERIFICATION_EVIDENCE,
             required=VERIFICATION_EVIDENCE, reference="nodes[].verification_evidence",
-            version=version,
         )
         for index, record in enumerate(evidence):
             ref = f"nodes[].verification_evidence[{index}]"

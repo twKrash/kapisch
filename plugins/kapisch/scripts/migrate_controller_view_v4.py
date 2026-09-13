@@ -165,7 +165,10 @@ def main(argv: list[str] | None = None) -> int:
             if render_view(["--task-dir", str(staged)]) or validate(ROOT / "skills" / "kapisch", staged):
                 return 2
             os.replace(staged, destination)
-        except (OSError, ValueError, tomllib.TOMLDecodeError):
+        except ValueError as error:
+            print(f"migration rejected legacy artifact: {error}", file=sys.stderr)
+            return 2
+        except (OSError, tomllib.TOMLDecodeError):
             return 2
     return 0
 
