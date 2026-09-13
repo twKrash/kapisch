@@ -17,6 +17,16 @@ def compare(base,candidate):
   result=subprocess.run([sys.executable,str(ROOT/'scripts/compare_controller_benchmark.py'),'--baseline',str(left),'--candidate',str(right)],capture_output=True,text=True)
  return result.returncode,json.loads(result.stdout) if result.returncode==0 else result.stdout
 class BenchmarkTests(unittest.TestCase):
+ def test_json_stdout_is_canonical_under_row_reordering_and_unicode(self):
+  with tempfile.TemporaryDirectory() as directory:
+   root=Path(directory);baseline=complete('baseline');candidate=complete('candidate');baseline[0]['run_id']='tâche';outputs=[]
+   for suffix,transform in (('original',list),('reversed',lambda rows:list(reversed(rows)))):
+    base_path=root/f'base-{suffix}.jsonl';candidate_path=root/f'candidate-{suffix}.jsonl'
+    base_path.write_text(''.join(json.dumps(value,ensure_ascii=False)+'\n' for value in transform(baseline)),encoding='utf-8',newline='\n')
+    candidate_path.write_text(''.join(json.dumps(value,ensure_ascii=False)+'\n' for value in transform(candidate)),encoding='utf-8',newline='\n')
+    result=subprocess.run([sys.executable,str(ROOT/'scripts/compare_controller_benchmark.py'),'--baseline',str(base_path),'--candidate',str(candidate_path)],capture_output=True,check=False,timeout=5)
+    self.assertEqual(result.returncode,0,result.stderr.decode('utf-8'));outputs.append(result.stdout)
+   self.assertEqual(outputs[0],outputs[1]);self.assertIn('tâche'.encode('utf-8'),outputs[0]);self.assertNotIn(b'\\u00e2',outputs[0]);self.assertTrue(outputs[0].endswith(b'\n'));self.assertNotIn(b'\r\n',outputs[0])
  def test_unavailable_metrics_never_produce_delta(self):
   for baseline,candidate in ((10,None),(None,8),(None,None)):
    with self.subTest(baseline=baseline,candidate=candidate):
@@ -81,3 +91,26 @@ class BenchmarkTests(unittest.TestCase):
     baseline=row('baseline');baseline[field]=value
     code,_=compare([baseline],[row('candidate')])
     self.assertEqual(code,2)
+ def test_surrogate_strings_fail_cleanly_before_comparison(self):
+  for paired in (False,True):
+   with self.subTest(paired=paired), tempfile.TemporaryDirectory() as directory:
+    root=Path(directory);baseline=complete('baseline');candidate=complete('candidate')
+    baseline[0]['run_id']='bad\udcff'
+    if paired: candidate[0]['run_id']='bad\udcff'
+    left=root/'base.jsonl';right=root/'candidate.jsonl'
+    left.write_text(''.join(json.dumps(value)+'\n' for value in baseline),encoding='utf-8',newline='\n')
+    right.write_text(''.join(json.dumps(value)+'\n' for value in candidate),encoding='utf-8',newline='\n')
+    result=subprocess.run([sys.executable,str(ROOT/'scripts/compare_controller_benchmark.py'),'--baseline',str(left),'--candidate',str(right)],capture_output=True,check=False,timeout=5)
+    self.assertEqual(result.returncode,2);self.assertNotIn(b'Traceback',result.stderr);result.stdout.decode('utf-8')
+ def test_direct_unicode_line_separators_remain_inside_json_records(self):
+  outputs=[]
+  for run_id in ('line\u2028separator','paragraph\u2029separator','next\u0085line'):
+   with self.subTest(run_id=run_id), tempfile.TemporaryDirectory() as directory:
+    root=Path(directory);baseline=complete('baseline');candidate=complete('candidate')
+    baseline[0]['run_id']=run_id;candidate[0]['run_id']=run_id
+    left=root/'base.jsonl';right=root/'candidate.jsonl'
+    left.write_text(''.join(json.dumps(value,ensure_ascii=False)+'\n' for value in baseline),encoding='utf-8',newline='\n')
+    right.write_text(''.join(json.dumps(value,ensure_ascii=False)+'\n' for value in candidate),encoding='utf-8',newline='\n')
+    result=subprocess.run([sys.executable,str(ROOT/'scripts/compare_controller_benchmark.py'),'--baseline',str(left),'--candidate',str(right)],capture_output=True,check=False,timeout=5)
+    self.assertEqual(result.returncode,0,result.stderr.decode('utf-8'));outputs.append(json.loads(result.stdout))
+  self.assertTrue(all(output['pairing_complete'] for output in outputs))

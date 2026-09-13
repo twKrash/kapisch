@@ -1,17 +1,20 @@
 from __future__ import annotations
 import json, math
 
-def _string(value: str) -> str:
+def toml_basic_string(value: str) -> str:
     # JSON escapes TOML's C0 controls, but permits raw DEL (U+007F).
+    if not isinstance(value, str): raise ValueError('TOML strings must be strings')
+    if any(0xD800 <= ord(character) <= 0xDFFF for character in value):
+        raise ValueError('TOML strings cannot contain unpaired Unicode surrogates')
     return json.dumps(value, ensure_ascii=False).replace("\x7f", "\\u007f")
 
 
 def _key(key: str) -> str:
-    return _string(key)
+    return toml_basic_string(key)
 
 
 def _value(value: object) -> str:
-    if isinstance(value, str): return _string(value)
+    if isinstance(value, str): return toml_basic_string(value)
     if isinstance(value, bool): return 'true' if value else 'false'
     if isinstance(value, int): return str(value)
     if isinstance(value, float):

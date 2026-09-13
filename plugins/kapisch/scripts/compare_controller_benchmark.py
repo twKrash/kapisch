@@ -3,22 +3,44 @@ from __future__ import annotations
 import argparse, json
 from collections import defaultdict
 from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from kapisch_validation.canonical_bytes import canonical_json_bytes, canonical_json_line, canonical_text_bytes
 ROLES={"parent","mechanic","implementer-lite","implementer","architect","researcher","reviewer"}
 NUMERIC=("input_tokens","output_tokens","cache_read_tokens","turns","elapsed_ms")
 REQUIRED={"run_id","scenario","variant","role","invocation",*NUMERIC,"workflow_outcome","validator_exit","review_decision","review_findings","test_result","resume_result"}
 REQUIRED_COMPARISON={"input_tokens","turns"}
+SCENARIO_ORDER={"behavioral":0,"durable-fix":1,"worker-reviewer-resume":2}
+
+def write_bytes(data):
+ stream=sys.stdout; buffer=getattr(stream,"buffer",None)
+ if buffer is not None: buffer.write(data); buffer.flush()
+ else: stream.write(data.decode("utf-8")); stream.flush()
+
+def write_json_line(value):
+ write_bytes(canonical_json_line(value))
+
+def write_text(text):
+ write_bytes(canonical_text_bytes(text))
+
 def load(path, variant):
  rows=[]; seen=set()
- for number,line in enumerate(Path(path).read_text().splitlines(),1):
+ with Path(path).open("r", encoding="utf-8", newline="") as source:
+  lines=list(source)
+ for number,line in enumerate(lines,1):
   row=json.loads(line)
   if not isinstance(row,dict) or set(row) != REQUIRED: raise ValueError(f"bad record {number}")
+  try: canonical_json_bytes(row)
+  except ValueError as error: raise ValueError(f"bad record {number}") from error
   if any(not isinstance(row[field],str) or not row[field] for field in ("run_id","scenario","role","workflow_outcome","review_decision","test_result","resume_result")) or row["variant"] != variant or row["role"] not in ROLES or row["scenario"] not in {"behavioral","durable-fix","worker-reviewer-resume"} or not isinstance(row["invocation"],int) or isinstance(row["invocation"],bool) or row["invocation"] < 1 or not isinstance(row["validator_exit"],int) or isinstance(row["validator_exit"],bool) or row["validator_exit"] < 0 or not isinstance(row["review_findings"],int) or isinstance(row["review_findings"],bool) or row["review_findings"] < 0: raise ValueError(f"bad record {number}")
   key=(row["run_id"],row["scenario"],row["role"],row["invocation"])
   if key in seen: raise ValueError(f"duplicate {key}")
   seen.add(key)
   if any(value is not None and (not isinstance(value,int) or isinstance(value,bool) or value < 0) for value in (row[key] for key in NUMERIC)): raise ValueError(f"bad numeric {number}")
   rows.append(row)
- return rows
+ return sorted(rows, key=lambda row: (row["run_id"], SCENARIO_ORDER[row["scenario"]], row["invocation"], row["role"]))
 def aggregate(rows):
  result=defaultdict(lambda: defaultdict(lambda:{"observed_count":0,"unavailable_count":0,"total":0}))
  for row in rows:
@@ -77,7 +99,7 @@ def coverage(rows):
 def main(argv=None):
  parser=argparse.ArgumentParser(); parser.add_argument("--baseline",required=True); parser.add_argument("--candidate",required=True); parser.add_argument("--format",choices=("json",),default="json"); args=parser.parse_args(argv)
  try: baseline=load(args.baseline,"baseline"); candidate=load(args.candidate,"candidate")
- except (OSError,json.JSONDecodeError,ValueError) as error: print(str(error)); return 2
+ except (OSError,json.JSONDecodeError,ValueError) as error: write_text(str(error)); return 2
  base,cand=aggregate(baseline),aggregate(candidate)
  base_keys={(row["run_id"],row["scenario"],row["role"],row["invocation"]) for row in baseline}; candidate_keys={(row["run_id"],row["scenario"],row["role"],row["invocation"]) for row in candidate}
  unmatched_baseline=sorted(base_keys-candidate_keys); unmatched_candidate=sorted(candidate_keys-base_keys); pairing_complete=not unmatched_baseline and not unmatched_candidate
@@ -90,5 +112,6 @@ def main(argv=None):
  )
  coverage_complete=all(coverage(rows) for rows in (baseline,candidate))
  required=pairing_complete and coverage_complete and semantic_evidence_present and all(data[role][metric]["comparable"] for role in roles for metric in REQUIRED_COMPARISON)
- print(json.dumps({"roles":data,"aggregates":{"baseline":scenario_aggregates(baseline),"candidate":scenario_aggregates(candidate)},"required_evidence_present":required,"semantic_evidence_present":semantic_evidence_present,"coverage_complete":coverage_complete,"pairing_complete":pairing_complete,"unmatched_baseline":unmatched_baseline,"unmatched_candidate":unmatched_candidate},sort_keys=True)); return 0
+ output={"roles":data,"aggregates":{"baseline":scenario_aggregates(baseline),"candidate":scenario_aggregates(candidate)},"required_evidence_present":required,"semantic_evidence_present":semantic_evidence_present,"coverage_complete":coverage_complete,"pairing_complete":pairing_complete,"unmatched_baseline":[list(key) for key in unmatched_baseline],"unmatched_candidate":[list(key) for key in unmatched_candidate]}
+ write_json_line(output); return 0
 if __name__ == "__main__": raise SystemExit(main())

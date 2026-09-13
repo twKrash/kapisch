@@ -6,19 +6,27 @@ import tomllib
 from pathlib import Path
 
 from .artifact_io import read_utf8_artifact
+from .canonical_bytes import canonical_json_bytes, sha256_hex
 from .canonical_toml import render_toml
 from .errors import ValidationError
 from .outcomes import parse_outcome
 from .transitions import determine_next_action
 
 VIEW_PATH = "04-controller-view.toml"
+VIEW_KEY_ORDER = (
+    "version", "task_id", "source_manifest_sha256", "source_state_sha256",
+    "workflow_status", "current_revision", "next_action", "validator_status",
+    "validator_error_count", "active_node_id", "next_node_id",
+    "current_fix_round", "max_fix_rounds", "active_assignment",
+    "blocking_reason", "gates", "predecessor_outcomes", "request",
+)
 
 
 def state_semantic_sha256(state_raw: dict[str, object]) -> str:
     raw = dict(state_raw)
     raw.pop("controller_view_path", None)
     raw.pop("controller_view_sha256", None)
-    return hashlib.sha256(json.dumps(raw, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+    return sha256_hex(canonical_json_bytes(raw))
 
 
 def _outcome_records(manifest, task_dir: Path) -> dict[str, dict[str, object]]:
@@ -110,14 +118,19 @@ def _quote(value: object) -> str:
 
 
 def render_controller_view(view: dict[str, object]) -> bytes:
+    if not isinstance(view, dict):
+        raise ValueError("controller view must be a table")
+    fields = set(view)
+    expected_fields = set(VIEW_KEY_ORDER)
+    if fields != expected_fields:
+        unknown = fields - expected_fields
+        missing = expected_fields - fields
+        field = sorted(unknown or missing)[0]
+        kind = "unknown" if unknown else "missing"
+        raise ValueError(f"controller view has {kind} field {field!r}")
     return render_toml(
         view,
-        key_order=(
-            "version", "task_id", "source_manifest_sha256", "source_state_sha256",
-            "workflow_status", "current_revision", "next_action", "validator_status",
-            "validator_error_count", "active_node_id", "next_node_id",
-            "current_fix_round", "max_fix_rounds",
-        ),
+        key_order=VIEW_KEY_ORDER,
     )
 
 

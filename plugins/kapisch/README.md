@@ -8,10 +8,10 @@ Codex continues to own agent dispatch, model selection, and sandboxing.
 
 This plugin is distributed through the Git-backed `kapisch-local` marketplace,
 not the OpenAI public Plugin Directory. After an authorized maintainer publishes
-the immutable `v2.0.0` tag, install it with:
+the immutable `v2.1.0` tag, install it with:
 
 ```text
-codex plugin marketplace add twKrash/kapisch --ref v2.0.0
+codex plugin marketplace add twKrash/kapisch --ref v2.1.0
 codex plugin add kapisch@kapisch-local
 ```
 
@@ -80,6 +80,11 @@ kapisch-validate --task-dir <consumer-repository>/.kapisch/runs/example --format
 python <plugin-root>/scripts/validate_kapisch.py --task-dir <consumer-repository>/.kapisch/runs/example
 ```
 
+KAPISCH-owned generated artifacts use a documented deterministic write
+contract while compatible historical inputs remain readable. See
+[deterministic artifacts](docs/deterministic-artifacts.md) for the portable,
+exact-evidence, and machine-local boundaries.
+
 ## Compatibility
 
 Version-1 through version-4 durable manifests remain readable. Version-4
@@ -92,9 +97,9 @@ only through the explicit approved command:
 python scripts/migrate_legacy_run.py --project-dir <consumer-repository> --task-id <task-id> --approve
 ```
 
-Windows 11
-with Codex Desktop and WSL2 is the release-blocking Windows surface. Native
-Windows CI is required before release; live no-WSL support is not yet claimed.
+Windows 11 with Codex Desktop and WSL2 remains the live release baseline.
+Native Windows CI passes for the tested 2.1.0 candidate runtime; live no-WSL
+support is not yet claimed.
 See [compatibility.md](docs/compatibility.md).
 
 ## Development checks
@@ -111,6 +116,7 @@ From the repository root, also run `python -m unittest discover -s tests` and
 ## More documentation
 
 - [Public workflow contract](skills/kapisch/SKILL.md)
+- [Deterministic generated-artifact contract](docs/deterministic-artifacts.md)
 - [Acceptance status](docs/acceptance.md)
 - [Durable-run legacy migration and profile compatibility](docs/compatibility.md)
 - [Profile sets and switching](docs/profile-sets.md)

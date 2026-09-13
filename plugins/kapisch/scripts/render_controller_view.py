@@ -8,11 +8,10 @@ import sys
 import tempfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]; sys.path.insert(0,str(ROOT))
-from kapisch_validation.canonical_toml import render_toml
 from kapisch_validation.cli import validate_snapshot
 from kapisch_validation.controller_view import _outcome_records, build_controller_view, render_controller_view
 from kapisch_validation.manifest import parse_manifest
-from kapisch_validation.references import parse_state
+from kapisch_validation.references import parse_state, render_state
 
 def atomic(path: Path, data: bytes) -> None:
     fd,tmp=tempfile.mkstemp(dir=path.parent,prefix=f'.{path.name}.')
@@ -54,23 +53,52 @@ def main(argv=None):
         old_view = _existing_view_bytes(d / "04-controller-view.toml")
     except OSError:
         return 2
-    state_raw = dict(state.raw)
-    state_raw["controller_view_path"] = "04-controller-view.toml"
-    state_raw["controller_view_sha256"] = hashlib.sha256(view).hexdigest()
+    expected_path = "04-controller-view.toml"
+    expected_digest = hashlib.sha256(view).hexdigest()
+    binding_is_current = (
+        state.controller_view_path == expected_path
+        and state.controller_view_sha256 == expected_digest
+    )
+    view_changed = old_view != view
+    state_changed = not binding_is_current
+    if not view_changed and not state_changed:
+        publication = "noop"
+    elif not state_changed:
+        publication = "view_only"
+    else:
+        publication = "view_and_state"
+    if publication == "noop":
+        return 0
+
+    rendered_state = old_state
+    if publication == "view_and_state":
+        state_raw = dict(state.raw)
+        state_raw["controller_view_path"] = expected_path
+        state_raw["controller_view_sha256"] = expected_digest
+        try:
+            rendered_state = render_state(state_raw)
+        except ValueError:
+            return 2
+    published_view = False
+    published_state = False
     try:
-        rendered_state = render_toml(state_raw)
-    except ValueError:
-        return 2
-    try:
-        atomic(d/'04-controller-view.toml',view); atomic(d/'03-state.toml',rendered_state)
+        if view_changed:
+            atomic(d/'04-controller-view.toml',view)
+            published_view = True
+        if state_changed:
+            atomic(d/'03-state.toml',rendered_state)
+            published_state = True
         rebound=parse_manifest(d/'02-execution-graph.toml'); rebound_state,rebound_state_errors=parse_state(d/'03-state.toml')
         if rebound.manifest is None or rebound_state is None or rebound.errors or rebound_state_errors or validate_snapshot(rebound.manifest,rebound_state,d,contract_dir):
             raise ValueError("rendered snapshot does not validate")
     except BaseException:
-        if old_view is not None: atomic(d/'04-controller-view.toml',old_view)
-        else:
-            try: (d/'04-controller-view.toml').unlink()
-            except FileNotFoundError: pass
-        atomic(d/'03-state.toml',old_state); return 2
+        if published_view:
+            if old_view is not None: atomic(d/'04-controller-view.toml',old_view)
+            else:
+                try: (d/'04-controller-view.toml').unlink()
+                except FileNotFoundError: pass
+        if published_state:
+            atomic(d/'03-state.toml',old_state)
+        return 2
     return 0
 if __name__=='__main__': raise SystemExit(main())

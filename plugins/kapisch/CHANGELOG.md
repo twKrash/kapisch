@@ -1,5 +1,29 @@
 # Changelog
 
+## 2.1.0 - 2026-09-13 (release candidate)
+
+Deterministic generated-artifact update with no durable schema or digest-domain
+changes.
+
+- Added canonical new writes for KAPISCH-owned TOML, JSON, text, profile,
+  presentation, route, outcome, knowledge, and controller-view artifacts while
+  keeping tolerant reads for compatible historical bytes.
+- Defined stable field ordering, semantic-set ordering, UTF-8/LF newline rules,
+  and portable relative POSIX paths. Ordered histories retain their supplied
+  order, and semantically current artifacts receive no formatting-only rewrite.
+- Kept report and verification digests bound to exact persisted evidence bytes;
+  LF and CRLF evidence intentionally produce different digests.
+- Kept profile ownership paths, recovery journals, process IDs, and switch
+  tokens machine-local rather than treating them as portable artifacts.
+- Added a committed digest vector exercised under two hash seeds, relocated
+  roots, varied working directories/locales/time zones, Linux, and native
+  Windows.
+- Made eligible v3-to-v4 migration fail closed with a diagnostic when legacy
+  concrete paths cannot be represented canonically.
+- Preserved durable manifests v1-v4, outcome schema 1, controller-view version
+  1, route schema 1, profile-state schema 1, switch-journal schema 3, and all
+  existing digest meanings.
+
 ## 2.0.0 - 2026-09-06 (release candidate)
 
 Intentional breaking change for locally managed profile/setup state only.

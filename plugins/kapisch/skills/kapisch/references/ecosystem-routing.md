@@ -223,6 +223,17 @@ its maximum effect class. `resolved_capability` is required (not
 their intent can be diagnosed precisely, but default validation rejects them;
 `authority_mode = "explicit-step"` does not override that restriction.
 
+New route records are encoded once with the `render_route` artifact renderer.
+It emits root fields in the order `version`, `task_id`, `route_id`,
+`source_revision`, `steps`, and `extensions`, and orders steps by
+`(sequence, id)`. The renderer validates the closed schema, portable
+run-relative context/evidence paths, IDs, sequences, enums, and exact
+lowercase digest spellings. It never reads, normalizes, or rewrites context or
+evidence: the controller persists each file, reads its bytes back, computes
+the digest over those exact bytes, and then supplies that digest to the
+renderer. Existing route records remain tolerant reads and are not republished
+solely for formatting.
+
 ### `Dnn/00-context.md`
 
 The controller writes a self-contained, focused context containing:

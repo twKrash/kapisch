@@ -17,6 +17,24 @@ PLUGIN = ROOT / "plugins/kapisch"
 
 
 class MarketplaceTests(unittest.TestCase):
+    def test_current_release_documents_deterministic_generation(self) -> None:
+        manifest = json.loads(
+            (PLUGIN / ".codex-plugin/plugin.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(manifest["version"], "2.1.0")
+        contract = (PLUGIN / "docs/deterministic-artifacts.md").read_text(
+            encoding="utf-8"
+        )
+        for phrase in (
+            "canonical new writes",
+            "tolerant reads",
+            "exact persisted evidence bytes",
+            "machine-local native paths",
+            "no formatting-only rewrite",
+            "durable manifests v1-v4",
+        ):
+            self.assertIn(phrase, contract)
+
     def assert_release_provenance(self, matrix: str, acceptance: str) -> None:
         match = re.search(
             r"^- Tested runtime SHA: `([0-9a-f]{40})`\.$",

@@ -17,6 +17,10 @@ jobs:
       - run: python -m unittest discover -s tests
       - run: python -m unittest discover -s tests/kapisch_validation
         working-directory: plugins/kapisch
+      - run: PYTHONHASHSEED=1 python -m unittest tests.kapisch_validation.test_deterministic_acceptance -v
+        working-directory: plugins/kapisch
+      - run: PYTHONHASHSEED=8675309 python -m unittest tests.kapisch_validation.test_deterministic_acceptance -v
+        working-directory: plugins/kapisch
       - run: python scripts/test_portable_package.py
         working-directory: plugins/kapisch
       - run: python scripts/validate_kapisch.py --help
@@ -30,6 +34,10 @@ jobs:
         with:
           python-version: '3.11'
       - run: python -m unittest discover -s tests/kapisch_validation -p test_setup_profile.py
+        working-directory: plugins/kapisch
+      - run: $env:PYTHONHASHSEED='1'; python -m unittest tests.kapisch_validation.test_deterministic_acceptance -v
+        working-directory: plugins/kapisch
+      - run: $env:PYTHONHASHSEED='8675309'; python -m unittest tests.kapisch_validation.test_deterministic_acceptance -v
         working-directory: plugins/kapisch
       - run: python scripts/test_portable_package.py
         working-directory: plugins/kapisch

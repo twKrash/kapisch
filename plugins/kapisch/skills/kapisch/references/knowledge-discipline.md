@@ -26,6 +26,38 @@ when applicable, applicability conditions, and supersession/expiry information
 when applicable. Supported scopes include `task:<id>`, `milestone:<id>`,
 `module:<name>`, `repository`, and `workflow:kapisch`.
 
+The version-1 ledger is a closed schema. Its root fields are `version` (required
+integer `1`), `records` (required array), and optional reverse-DNS `extensions`.
+Each record preserves append history and has these required fields:
+
+| Field | Type/values |
+| --- | --- |
+| `id` | non-empty unique string |
+| `kind` | `fact`, `decision`, `tradeoff`, `hint`, `shortcut`, `pitfall`, or `question` |
+| `scope` | `task:<id>`, `milestone:<id>`, `module:<name>`, `repository`, or `workflow:kapisch` |
+| `authority` | `binding`, `advisory`, or `informational` |
+| `status` | `candidate`, `verified`, `promoted`, `rejected`, `superseded`, or `expired` |
+| `statement` | non-empty string |
+| `source` | non-empty string |
+| `applies_when` | array of strings; duplicate values are removed and the remainder is sorted lexically |
+
+Optional record fields are `verified_at_revision`, `superseded_by`,
+`expires_at_revision`, `preconditions`, `forbidden_cases`,
+`required_verification`, `fallback_executor`, `fallback_behavior`, and
+reverse-DNS `extensions`. All scalar fields are non-empty strings and the three
+condition/verification fields are arrays of strings; their declared order is
+preserved. `superseded` requires `superseded_by`, `expired` requires
+`expires_at_revision`, and `shortcut` requires non-empty `preconditions`,
+`forbidden_cases`, `required_verification`, plus `fallback_executor` or
+`fallback_behavior`. Unknown fields, unsupported values, duplicate IDs, invalid
+extensions, and missing conditional fields are rejected.
+
+Writers must use the pure renderer
+`kapisch_validation.knowledge.render_knowledge_records(raw)` and persist its
+returned UTF-8 bytes. The renderer emits canonical TOML with root order
+`version`, `records`, `extensions`; record order is append order, and no
+selection, history, or repair behavior is performed by the validator.
+
 Implementers may propose candidates. Only `verified` or `promoted` records are
 eligible for selection. Context selection is deterministic, in this order:
 explicit node `context_refs`; applicable scoped binding records; verified
