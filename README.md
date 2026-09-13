@@ -7,11 +7,11 @@ Directory submission.
 
 ## Support
 
-| Surface | Verified status for the 2.0.0 release candidate |
+| Surface | Verified status for the 2.1.0 release candidate |
 | --- | --- |
-| Windows 11 + Codex Desktop + WSL2 | Historical 1.0.1 release baseline passed; 2.0.0 live acceptance remains pending. |
-| Linux | Historical live 1.0.0 flow passed; 2.0.0 automated evidence is recorded separately. |
-| Native Windows, no WSL | Native Windows CI is required before release; success is not yet claimed. |
+| Windows 11 + Codex Desktop + WSL2 | Historical 1.0.1 release baseline passed; 2.1.0 live acceptance remains pending. |
+| Linux | Historical live 1.0.0 flow passed; 2.1.0 automated evidence is recorded separately. |
+| Native Windows, no WSL | 2.1.0 automated CI passed for the tested runtime; live no-WSL support is not claimed. |
 
 Following [OpenAI's WSL guidance](https://learn.chatgpt.com/docs/windows/wsl),
 keep both `CODEX_HOME` and consumer repositories in the Linux filesystem (for
@@ -19,10 +19,10 @@ example, `~/code`) rather than under `/mnt/c`.
 
 ## Quick start
 
-After the immutable 2.0.0 tag is published, the released installation command is:
+After the immutable 2.1.0 tag is published, the released installation command is:
 
 ```text
-codex plugin marketplace add twKrash/kapisch --ref v2.0.0
+codex plugin marketplace add twKrash/kapisch --ref v2.1.0
 codex plugin add kapisch@kapisch-local
 ```
 
@@ -43,8 +43,9 @@ installation reference.
 
 Plugin installation does not activate the six agent-profile templates. Install
 them explicitly into a consumer repository when approval-capable review or
-specialized routing is needed. **The legacy profile state is unsupported and is
-not automatically migrated.** Follow the [Manual cleanup procedure](plugins/kapisch/docs/compatibility.md#legacy-profile-cleanup)
+specialized routing is needed. **The v2.0.0 legacy profile boundary remains:
+legacy profile state is unsupported and is not automatically migrated.** Follow
+the [Manual cleanup procedure](plugins/kapisch/docs/compatibility.md#legacy-profile-cleanup)
 before a fresh inspection and install.
 
 ```text
@@ -69,7 +70,9 @@ kapisch-validate --task-dir <consumer-repository>/.kapisch/runs/<task-id> --form
 ## Documentation
 
 - [Plugin guide](plugins/kapisch/README.md)
-- [Windows 2.0.0 acceptance record](plugins/kapisch/docs/acceptance-windows-v2.0.0.md)
+- [Deterministic generated-artifact contract](plugins/kapisch/docs/deterministic-artifacts.md)
+- [Windows 2.1.0 acceptance record](plugins/kapisch/docs/acceptance-windows-v2.1.0.md)
+- [Windows 2.0.0 historical candidate record](plugins/kapisch/docs/acceptance-windows-v2.0.0.md)
 - [Windows 1.0.1 historical acceptance](plugins/kapisch/docs/acceptance-windows-v1.0.1.md)
 - [Historical Unix 1.0.0 acceptance](plugins/kapisch/docs/acceptance-runtime.md)
 - [Durable-run legacy migration and profile compatibility](plugins/kapisch/docs/compatibility.md)
