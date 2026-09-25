@@ -64,7 +64,29 @@ class ReviewContractTests(unittest.TestCase):
         self.assertIn("authorization migration", scenarios)
         self.assertIn("without a material review question", scenarios)
 
+    def test_semantic_bundles_remain_internal_to_one_review(self) -> None:
+        review = contract("skills/kapisch/references/review.md")
+        profile = contract("agents/kapisch-reviewer.toml")
+        scenarios = contract("skills/kapisch/references/pressure-scenarios.md")
+
+        for invariant in (
+            "optional reviewer-internal organization",
+            "Each changed file belongs to exactly one primary bundle",
+            "one global cross-bundle pass",
+            "one reviewer invocation",
+            "stales the complete review",
+            "No separate artifact or schema is created",
+        ):
+            self.assertIn(invariant, review)
+
+        self.assertIn("producer/consumer or import/dependency edges", review)
+        self.assertIn("lexical repository path", review)
+        self.assertIn("Never dispatch one reviewer per bundle", profile)
+        self.assertIn("one root-cause finding", scenarios)
+        self.assertIn("stales the complete review", scenarios)
+
 
 if __name__ == "__main__":
+    unittest.main()
 
     unittest.main()

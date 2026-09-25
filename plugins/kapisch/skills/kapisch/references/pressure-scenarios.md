@@ -514,3 +514,16 @@ Negative scenarios:
 196. A requested quick authorization migration remains high-risk deep review;
      authorization migration keeps permissions, migration, recovery, and tests
      lenses and records the trigger for raising depth.
+
+197. A broad whole-branch diff uses deterministic internal bundles: every changed
+     file has one primary bundle, every hunk is inspected, and one global
+     cross-bundle contract/invariant pass precedes one decision.
+198. A bundle reveals a shared persistence dependency with another bundle: merge
+     them and record the observed dependency reason in the change inventory.
+199. The same defect appears through several bundle-local paths: emit one root-cause finding before applying bounded transport limits.
+200. One bundle appears complete while a changed public contract crosses into
+     another: approval remains blocked until the global cross-bundle trace is
+     complete; bundle completion has no authority.
+201. A relevant revision or working-tree delta follows bundled approval: it
+     stales the complete review, not one bundle, and requires the existing fresh
+     whole-branch review path.

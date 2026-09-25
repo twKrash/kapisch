@@ -104,6 +104,34 @@ sufficiently verified, represented by one concrete causal finding, or recorded
 as a material trace or coverage gap that determines the decision. Do not trace
 to eliminate non-material uncertainty. Do not apply hard file, reference, tool-call, or token caps; correctness and safety still win.
 
+## Semantic bundles
+
+Semantic bundles are optional reviewer-internal organization for a cognitively
+broad diff. They are not graph nodes, invocations, review scopes, approval
+units, lifecycle states, or retry boundaries. No automatic threshold is
+normative until measurement establishes one.
+
+When used, create initial bundles from these deterministic signals in order:
+changed producer/consumer or import/dependency edges; changed source with its
+changed tests; participation in one changed public contract, schema, migration,
+persistence path, or state machine; module/directory adjacency; then lexical repository path as tie-breaker. Each changed file belongs to exactly one primary bundle,
+so all its hunks have one inspection owner. Other bundles may reference
+the file as supporting evidence without duplicate ownership.
+
+Merge initial bundles only when observed repository evidence establishes a
+stronger dependency, and record that dependency reason in the change inventory.
+Then perform one global cross-bundle pass over changed public contracts,
+permissions, identity, state, persistence, schemas, migrations, recovery,
+external effects, and compatibility where applicable. Merge duplicate symptoms
+into one root-cause finding. Required Behavioral branch and Invariant evidence
+matrices still cover the complete applicable review scope.
+
+Bundles produce one reviewer invocation, one globally ordered report, and one
+decision. Transport limits apply after global deduplication. Retry, resume,
+remediation, approval, and final readiness remain review-wide. Any relevant
+revision or working-tree change stales the complete review. When bundles are
+used, record membership and merge reasons in the existing change inventory. No separate artifact or schema is created.
+
 ## Automatic policy
 
 | Work or boundary | Independent review | Separate final readiness |
@@ -237,8 +265,9 @@ controller must inspect current workspace evidence and determine:
    state; and
 6. whether the returned review contains all evidence required for its applicable
    scope, including caller/consumer coverage, verification and explicit
-   omissions, coverage gaps, residual risk, and any required Invariant evidence
-   matrix; and
+   omissions, coverage gaps, residual risk, complete changed-file ownership and
+   global cross-bundle checks when bundles were used, and any required Invariant
+   evidence matrix; and
 7. whether the returned decision is `approve` or `ready`, as applicable.
 
 If any required answer is no, unknown, unavailable, stale, or unsupported by
