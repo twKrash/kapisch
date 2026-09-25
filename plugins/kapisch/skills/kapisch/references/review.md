@@ -23,10 +23,13 @@ local regressions. It approves only the iteration delta.
 An iteration review does not require complete PR-diff review, repository-wide
 caller reconstruction, a whole-branch invariant evidence matrix, final-readiness
 assessment, or repetition of previously approved unrelated work. Out-of-delta
-findings may be observations and must not silently expand scope. If one is
-blocking for the iteration's safety, return
-`do-not-approve` with blocker `material-scope-expansion` and request a user
-decision.
+findings may be observations and must not silently expand scope. A pre-existing
+defect is in scope when the bound diff invokes it, broadens its inputs, changes
+its preconditions, depends on its incorrect result, or makes its effects newly
+observable; classify it under the causal policy below, and it is not
+automatically `material-scope-expansion`. Use `material-scope-expansion` only
+when safety cannot be determined without examining or changing a materially
+larger product area outside approved scope and a user decision is required.
 
 A **whole-branch review** is bound to `merge_base...final_head` and runs after
 all approved iterations or at an explicit integration or delivery/final-readiness

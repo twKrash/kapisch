@@ -30,6 +30,17 @@ class ReviewContractTests(unittest.TestCase):
         self.assertIn("Unchanged repository material may prove a finding", review)
         self.assertIn("An unrelated pre-existing defect is an observation", review)
         self.assertIn("is not automatically `material-scope-expansion`", review)
+
+        iteration_start = review.index("An **iteration review** is bound")
+        whole_branch_start = review.index("A **whole-branch review**")
+        iteration_scope = " ".join(review[iteration_start:whole_branch_start].split())
+        self.assertIn(
+            "A pre-existing defect is in scope when the bound diff invokes it",
+            iteration_scope,
+        )
+        self.assertIn("not automatically `material-scope-expansion`", iteration_scope)
+        self.assertNotIn("If one is blocking for the iteration's safety", iteration_scope)
+
         self.assertIn("New code reaches a pre-existing defective path", scenarios)
         self.assertIn("Unrelated pre-existing defect", scenarios)
 
@@ -41,6 +52,8 @@ class ReviewContractTests(unittest.TestCase):
         context_packages = contract("skills/kapisch/references/context-packages.md")
         profile = contract("agents/kapisch-reviewer.toml")
         scenarios = contract("skills/kapisch/references/pressure-scenarios.md")
+        risk_normalized = " ".join(risk.split())
+        profile_normalized = " ".join(profile.split())
 
         self.assertLess(
             review.index("### Mandatory discovery"),
@@ -60,6 +73,25 @@ class ReviewContractTests(unittest.TestCase):
         self.assertIn("Deep adds to standard", risk)
         self.assertIn("The controller resolves risk, depth, and active lenses", risk)
         self.assertIn("cannot replace mandatory discovery", context_packages)
+        for required in (
+            "Quick is valid only when there is no production behavior",
+            "Standard adds to quick: trace directly affected callers and consumers",
+            "Deep adds to standard: apply every active lens",
+            "produce required Behavioral branch and Invariant evidence matrices",
+            "a quick review still blocks discovered P0/P1 defects",
+        ):
+            self.assertIn(required, risk_normalized)
+
+        for required in (
+            "Quick inspects every hunk, changed symbols, directly affected tests",
+            "Quick is valid only when no production behavior, public contract, persistent state, permission, privacy, or external side effect changes",
+            "Standard adds affected callers/consumers, contract and compatibility edges, negative/error paths, and regression adequacy",
+            "Deep adds every active lens, adversarial negative paths, cross-boundary invariants",
+            "produces required Behavioral branch and Invariant evidence matrices",
+            "Every depth blocks discovered P0/P1 defects",
+        ):
+            self.assertIn(required, profile_normalized)
+
         self.assertIn("question-driven", profile)
         self.assertIn("authorization migration", scenarios)
         self.assertIn("without a material review question", scenarios)
@@ -87,6 +119,4 @@ class ReviewContractTests(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
-
     unittest.main()
