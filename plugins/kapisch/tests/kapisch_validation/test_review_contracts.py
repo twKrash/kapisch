@@ -96,6 +96,24 @@ class ReviewContractTests(unittest.TestCase):
         self.assertIn("authorization migration", scenarios)
         self.assertIn("without a material review question", scenarios)
 
+    def test_raised_risk_recomputes_derived_lenses(self) -> None:
+        risk = " ".join(contract("skills/kapisch/references/risk.md").split())
+        profile = " ".join(contract("agents/kapisch-reviewer.toml").split())
+
+        for required in (
+            "When mandatory discovery raises risk or depth, recompute derived lenses from the discovered trigger",
+            "union them with the controller-supplied active lenses",
+            "never reuse a stale active-lens set",
+        ):
+            self.assertIn(required, risk)
+
+        for required in (
+            "When discovery raises risk or depth, recompute derived lenses from the discovered trigger",
+            "union them with existing active lenses",
+            "never reuse stale active lenses",
+        ):
+            self.assertIn(required, profile)
+
     def test_semantic_bundles_remain_internal_to_one_review(self) -> None:
         review = contract("skills/kapisch/references/review.md")
         profile = contract("agents/kapisch-reviewer.toml")

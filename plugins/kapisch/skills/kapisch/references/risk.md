@@ -19,7 +19,11 @@ a quick review still blocks discovered P0/P1 defects.
 
 The controller resolves risk, depth, and active lenses before dispatch. The
 reviewer records those values and may raise risk or depth when mandatory
-discovery reveals a concrete trigger; record that trigger. The existing rule for
+discovery reveals a concrete trigger; record that trigger. When mandatory
+discovery raises risk or depth, recompute derived lenses from the discovered
+trigger and union them with the controller-supplied active lenses; never reuse a
+stale active-lens set or remove controller-supplied coverage. Record the trigger
+and resolved lens set. The existing rule for
 lowering automatic risk still applies. Depth changes breadth, not severity or
 approval correctness: every depth blocks a discovered P0/P1 defect.
 
