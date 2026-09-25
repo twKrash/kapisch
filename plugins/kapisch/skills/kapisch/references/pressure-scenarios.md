@@ -482,3 +482,54 @@ Negative scenarios:
      beyond the approved context: treated as material scope expansion and
      blocked for a user decision; the capability never renormalizes the
      top-level request or takes ownership of later gates.
+
+186. A changed shared function breaks an unchanged caller: the blocking finding
+     cites the changed function, caller contract, and `introduced` or
+     `made unsafe` causal relationship; unchanged evidence is not scope
+     expansion.
+187. New code reaches a pre-existing defective path: the finding is blocking as
+     `newly reachable`, with the new caller or input edge cited.
+188. A changed guard exposes a previously contained defect: the finding is
+     blocking as `exposed`, with the removed or weakened guard cited.
+189. Unrelated pre-existing defect appears during review: record it as an
+     observation; it does not alter approval or authorize a fix in this scope.
+190. Safety of changed behavior cannot be determined without materially broader
+     product work: return `material-scope-expansion` for a user decision rather
+     than treating that label as a substitute for causal evidence.
+
+191. Review begins with a hypothesis before inspecting all changed hunks: refuse
+     the shortcut; bind scope, inspect every hunk, inventory changed behavior,
+     and perform the initial impact search first.
+192. After discovery, a repository-wide search without a material review question
+     is skipped; targeted lookups continue only for a trace, matrix row,
+     regression check, suspected finding, or decision.
+193. An unchanged caller is needed to establish a changed public contract's
+     impact: follow it despite advisory reference budgets because it is required
+     supporting evidence.
+194. A verified mechanical rename with no production behavior or public boundary
+     uses quick depth while still inspecting every hunk and directly affected
+     test.
+195. A medium-risk API fix uses standard depth and covers affected consumers,
+     compatibility, negative paths, and regression adequacy.
+196. A requested quick authorization migration remains high-risk deep review;
+     authorization migration keeps permissions, migration, recovery, and tests
+     lenses and records the trigger for raising depth.
+
+197. A broad whole-branch diff uses deterministic internal bundles: every changed
+     file has one primary bundle, every hunk is inspected, and one global
+     cross-bundle contract/invariant pass precedes one decision.
+198. A bundle reveals a shared persistence dependency with another bundle: merge
+     them and record the observed dependency reason in the change inventory.
+199. The same defect appears through several bundle-local paths: emit one root-cause finding before applying bounded transport limits.
+200. One bundle appears complete while a changed public contract crosses into
+     another: approval remains blocked until the global cross-bundle trace is
+     complete; bundle completion has no authority.
+201. A relevant revision or working-tree delta follows bundled approval: it
+     stales the complete review, not one bundle, and requires the existing fresh
+     whole-branch review path.
+202. `focus=auto` is enabled and discovery reveals a same-level trigger: recompute
+     derived lenses from every discovered trigger, retain explicit additions, and
+     record the complete resolved set even when risk and depth do not change.
+203. Explicit-only `focus=security,permissions` is active and discovery reveals a
+     migration trigger: preserve exactly the named lenses, do not add derived
+     migration/data/recovery lenses, and still check obvious P0/P1 issues.

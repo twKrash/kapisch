@@ -23,10 +23,13 @@ local regressions. It approves only the iteration delta.
 An iteration review does not require complete PR-diff review, repository-wide
 caller reconstruction, a whole-branch invariant evidence matrix, final-readiness
 assessment, or repetition of previously approved unrelated work. Out-of-delta
-findings may be observations and must not silently expand scope. If one is
-blocking for the iteration's safety, return
-`do-not-approve` with blocker `material-scope-expansion` and request a user
-decision.
+findings may be observations and must not silently expand scope. A pre-existing
+defect is in scope when the bound diff invokes it, broadens its inputs, changes
+its preconditions, depends on its incorrect result, or makes its effects newly
+observable; classify it under the causal policy below, and it is not
+automatically `material-scope-expansion`. Use `material-scope-expansion` only
+when safety cannot be determined without examining or changing a materially
+larger product area outside approved scope and a user decision is required.
 
 A **whole-branch review** is bound to `merge_base...final_head` and runs after
 all approved iterations or at an explicit integration or delivery/final-readiness
@@ -48,6 +51,89 @@ iteration never approves a later one, and the reviewer must not edit files. A
 whole-branch review, including a final whole-branch re-review after fixes, must
 use a fresh independent reviewer context. Fresh context is mandatory for
 whole-branch review and final readiness, not for every bounded iteration.
+
+## Diff-causal finding scope
+
+The bound diff defines review scope; changed and unchanged repository material
+may supply evidence. Every blocking finding must state how the bound diff
+`introduced`, `exposed`, made `newly reachable`, or `made unsafe` the reported
+behavior. Its trigger and evidence identify the changed hunk, symbol, contract,
+state transition, or dependency edge that creates that relationship.
+
+Unchanged repository material may prove a finding. It cannot independently make
+an unrelated pre-existing defect blocking. A pre-existing defect is in scope
+when the diff invokes it, broadens its inputs, changes its preconditions, depends
+on its incorrect result, or makes its effects newly observable; classify the
+causal relationship. Such a finding is not automatically `material-scope-expansion`.
+
+An unrelated pre-existing defect is an observation. It does not affect the
+current `approve` or `ready` decision and does not authorize remediation in the
+current review. Use `material-scope-expansion` only when safety of changed
+behavior cannot be determined without examining or changing a materially larger
+product area outside approved scope and a user decision is required. It is not
+a substitute for causal evidence.
+
+One finding still represents one root cause. Merge same-cause symptoms found in
+multiple files or review passes.
+
+## Discovery and retrieval
+
+### Mandatory discovery
+
+Before narrowing retrieval, bind the exact scope and working-tree state; inspect
+diff statistics and every changed hunk; inventory changed files and symbols;
+identify changed entry points, public contracts, state transitions, permissions,
+persistence/recovery, migrations, configuration, and external effects; perform
+the initial caller/consumer and changed-test impact search required by the
+review scope; and resolve or confirm risk, depth, and active lenses. This is
+impact discovery, not unrelated repository browsing.
+
+### Question-driven retrieval
+
+After mandatory discovery, every additional lookup answers a material review question
+that can affect scope binding, risk/depth/lenses, a required trace or
+matrix row, regression coverage, finding classification, or the decision.
+Typical questions ask which consumers rely on a changed contract; whether a path
+reaches a different identity, permission, state, or side effect; what survives
+failure, cancellation, retry, or resume; whether regression coverage fails
+without the change; whether a schema, migration, API, configuration, or
+compatibility boundary contradicts the change; whether a suspected finding is
+supported; or what evidence completes a required matrix row.
+
+The reviewer need not persist a query ledger or narrate each lookup. Retrieval
+and index summaries remain leads; findings cite current source, tests, commands,
+or repository policy. Stop tracing a material changed behavior when it is
+sufficiently verified, represented by one concrete causal finding, or recorded
+as a material trace or coverage gap that determines the decision. Do not trace
+to eliminate non-material uncertainty. Do not apply hard file, reference, tool-call, or token caps; correctness and safety still win.
+
+## Semantic bundles
+
+Semantic bundles are optional reviewer-internal organization for a cognitively
+broad diff. They are not graph nodes, invocations, review scopes, approval
+units, lifecycle states, or retry boundaries. No automatic threshold is
+normative until measurement establishes one.
+
+When used, create initial bundles from these deterministic signals in order:
+changed producer/consumer or import/dependency edges; changed source with its
+changed tests; participation in one changed public contract, schema, migration,
+persistence path, or state machine; module/directory adjacency; then lexical repository path as tie-breaker. Each changed file belongs to exactly one primary bundle,
+so all its hunks have one inspection owner. Other bundles may reference
+the file as supporting evidence without duplicate ownership.
+
+Merge initial bundles only when observed repository evidence establishes a
+stronger dependency, and record that dependency reason in the change inventory.
+Then perform one global cross-bundle pass over changed public contracts,
+permissions, identity, state, persistence, schemas, migrations, recovery,
+external effects, and compatibility where applicable. Merge duplicate symptoms
+into one root-cause finding. Required Behavioral branch and Invariant evidence
+matrices still cover the complete applicable review scope.
+
+Bundles produce one reviewer invocation, one globally ordered report, and one
+decision. Transport limits apply after global deduplication. Retry, resume,
+remediation, approval, and final readiness remain review-wide. Any relevant
+revision or working-tree change stales the complete review. When bundles are
+used, record membership and merge reasons in the existing change inventory. No separate artifact or schema is created.
 
 ## Automatic policy
 
@@ -133,6 +219,10 @@ interprets written findings and recommendations. Python provides structural
 evidence only and does not authoritatively establish review scope, dependency
 coverage, reviewer identity, or approval.
 
+Every blocking finding also records one diff-causal relationship and the changed
+evidence edge that establishes it; missing causal evidence makes the semantic
+review evidence incomplete and requires `do-not-approve`.
+
 Every whole-branch review and final-readiness decision records this complete
 checklist:
 
@@ -178,8 +268,9 @@ controller must inspect current workspace evidence and determine:
    state; and
 6. whether the returned review contains all evidence required for its applicable
    scope, including caller/consumer coverage, verification and explicit
-   omissions, coverage gaps, residual risk, and any required Invariant evidence
-   matrix; and
+   omissions, coverage gaps, residual risk, complete changed-file ownership and
+   global cross-bundle checks when bundles were used, and any required Invariant
+   evidence matrix; and
 7. whether the returned decision is `approve` or `ready`, as applicable.
 
 If any required answer is no, unknown, unavailable, stale, or unsupported by
@@ -207,8 +298,9 @@ whole-branch review evidence, not a substitute for the two passes or checklist.
 7. Reviewed revision and working-tree state
 8. Residual risk
 
-Each finding has stable ID, severity, confidence, location, trigger, impact,
-evidence, required fix, and required regression coverage. See
+Each finding has stable ID, severity, confidence, location, trigger, causal
+relationship, impact, evidence, required fix, and required regression coverage.
+See
 [severity.md](severity.md).
 
 ## User-visible review status
