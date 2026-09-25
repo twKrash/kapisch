@@ -527,3 +527,9 @@ Negative scenarios:
 201. A relevant revision or working-tree delta follows bundled approval: it
      stales the complete review, not one bundle, and requires the existing fresh
      whole-branch review path.
+202. `focus=auto` is enabled and discovery reveals a same-level trigger: recompute
+     derived lenses from every discovered trigger, retain explicit additions, and
+     record the complete resolved set even when risk and depth do not change.
+203. Explicit-only `focus=security,permissions` is active and discovery reveals a
+     migration trigger: preserve exactly the named lenses, do not add derived
+     migration/data/recovery lenses, and still check obvious P0/P1 issues.

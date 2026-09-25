@@ -20,10 +20,13 @@ a quick review still blocks discovered P0/P1 defects.
 The controller resolves risk, depth, and active lenses before dispatch. The
 reviewer records those values and may raise risk or depth when mandatory
 discovery reveals a concrete trigger; record that trigger. When mandatory
-discovery raises risk or depth, recompute derived lenses from the discovered
-trigger and union them with the controller-supplied active lenses; never reuse a
-stale active-lens set or remove controller-supplied coverage. Record the trigger
-and resolved lens set. The existing rule for
+discovery reveals a trigger, recompute derived lenses from all discovered
+triggers whenever `focus=auto` is enabled, even when risk and depth remain
+unchanged; union them with controller-supplied active lenses and any explicit
+additions, never reuse stale active-lens state, and record the resolved lens set.
+With explicit-only focus, preserve exactly named lenses and do not add derived
+lenses; manual focus still cannot suppress obvious P0/P1 issues. The existing
+rule for
 lowering automatic risk still applies. Depth changes breadth, not severity or
 approval correctness: every depth blocks a discovered P0/P1 defect.
 
