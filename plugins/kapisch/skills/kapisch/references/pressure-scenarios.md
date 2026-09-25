@@ -482,3 +482,17 @@ Negative scenarios:
      beyond the approved context: treated as material scope expansion and
      blocked for a user decision; the capability never renormalizes the
      top-level request or takes ownership of later gates.
+
+186. A changed shared function breaks an unchanged caller: the blocking finding
+     cites the changed function, caller contract, and `introduced` or
+     `made unsafe` causal relationship; unchanged evidence is not scope
+     expansion.
+187. New code reaches a pre-existing defective path: the finding is blocking as
+     `newly reachable`, with the new caller or input edge cited.
+188. A changed guard exposes a previously contained defect: the finding is
+     blocking as `exposed`, with the removed or weakened guard cited.
+189. Unrelated pre-existing defect appears during review: record it as an
+     observation; it does not alter approval or authorize a fix in this scope.
+190. Safety of changed behavior cannot be determined without materially broader
+     product work: return `material-scope-expansion` for a user decision rather
+     than treating that label as a substitute for causal evidence.

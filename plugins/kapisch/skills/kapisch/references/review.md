@@ -49,6 +49,30 @@ whole-branch review, including a final whole-branch re-review after fixes, must
 use a fresh independent reviewer context. Fresh context is mandatory for
 whole-branch review and final readiness, not for every bounded iteration.
 
+## Diff-causal finding scope
+
+The bound diff defines review scope; changed and unchanged repository material
+may supply evidence. Every blocking finding must state how the bound diff
+`introduced`, `exposed`, made `newly reachable`, or `made unsafe` the reported
+behavior. Its trigger and evidence identify the changed hunk, symbol, contract,
+state transition, or dependency edge that creates that relationship.
+
+Unchanged repository material may prove a finding. It cannot independently make
+an unrelated pre-existing defect blocking. A pre-existing defect is in scope
+when the diff invokes it, broadens its inputs, changes its preconditions, depends
+on its incorrect result, or makes its effects newly observable; classify the
+causal relationship. Such a finding is not automatically `material-scope-expansion`.
+
+An unrelated pre-existing defect is an observation. It does not affect the
+current `approve` or `ready` decision and does not authorize remediation in the
+current review. Use `material-scope-expansion` only when safety of changed
+behavior cannot be determined without examining or changing a materially larger
+product area outside approved scope and a user decision is required. It is not
+a substitute for causal evidence.
+
+One finding still represents one root cause. Merge same-cause symptoms found in
+multiple files or review passes.
+
 ## Automatic policy
 
 | Work or boundary | Independent review | Separate final readiness |
@@ -133,6 +157,10 @@ interprets written findings and recommendations. Python provides structural
 evidence only and does not authoritatively establish review scope, dependency
 coverage, reviewer identity, or approval.
 
+Every blocking finding also records one diff-causal relationship and the changed
+evidence edge that establishes it; missing causal evidence makes the semantic
+review evidence incomplete and requires `do-not-approve`.
+
 Every whole-branch review and final-readiness decision records this complete
 checklist:
 
@@ -207,8 +235,9 @@ whole-branch review evidence, not a substitute for the two passes or checklist.
 7. Reviewed revision and working-tree state
 8. Residual risk
 
-Each finding has stable ID, severity, confidence, location, trigger, impact,
-evidence, required fix, and required regression coverage. See
+Each finding has stable ID, severity, confidence, location, trigger, causal
+relationship, impact, evidence, required fix, and required regression coverage.
+See
 [severity.md](severity.md).
 
 ## User-visible review status
