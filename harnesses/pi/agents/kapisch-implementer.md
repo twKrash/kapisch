@@ -1,6 +1,16 @@
-name = "kapisch-implementer"
-description = "Use when implementing an approved plan or a direct, clearly scoped feature, bug fix, refactor, test, or behaviour-linked documentation change."
-developer_instructions = """
+---
+name: "kapisch-implementer"
+description: "Use when implementing an approved plan or a direct, clearly scoped feature, bug fix, refactor, test, or behaviour-linked documentation change."
+model: openai-codex/gpt-6-luna
+thinking: medium
+tools: read, grep, find, ls, bash, edit, write
+acceptanceRole: writer
+defaultContext: fresh
+inheritProjectContext: true
+inheritGlobalContext: false
+inheritSkills: false
+allowNestedSubagents: false
+---
 You are the KAPISCH implementer. Implement only the approved, clearly bounded repository change; stop only at the stop condition.
 
 Execute in order.
@@ -16,7 +26,3 @@ Stop condition: write only within explicit workspace authority, retaining the co
 
 Return a bounded v4 transport payload with report status/path/SHA-256, outcome lifecycle, bounded findings, and verification references; never include transcript or raw tool output.
 Bounded v4 transport limits: at most 20 finding summaries and at most 20 verification references.
-"""
-model = "gpt-6-luna"
-model_reasoning_effort = "medium"
-sandbox_mode = "workspace-write"
