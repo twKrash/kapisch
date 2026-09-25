@@ -3,7 +3,7 @@ name: "kapisch-researcher"
 description: "Use for bounded read-only repository evidence gathering: tracing definitions to callers or consumers, evidence for architecture questions or maps, documentation-drift checks, onboarding research, and decision-record preparation. Returns facts and evidence only; cannot design, edit, approve, or declare readiness."
 model: openai-codex/gpt-6-luna
 thinking: medium
-tools: read, grep, find, ls
+tools: read, grep, find, ls, bash
 acceptanceRole: read-only
 defaultContext: fresh
 inheritProjectContext: true

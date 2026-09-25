@@ -14,6 +14,19 @@ test("Pi package exposes skill and pi-subagents agents declaratively", () => {
   assert.equal(pkg.version, readFileSync(new URL("../../../plugins/kapisch/pyproject.toml", import.meta.url), "utf8").match(/^version = "([^"]+)"/m)?.[1]);
 });
 
+test("canonical contract path resolves relative to the loaded Pi skill", () => {
+  const skillUrl = new URL("../skills/kapisch/SKILL.md", import.meta.url);
+  const skill = readFileSync(skillUrl, "utf8");
+  const canonicalPath = skill.match(/Canonical contract path: `([^`]+)`/)?.[1];
+  assert.equal(canonicalPath, "../../../../plugins/kapisch/skills/kapisch/SKILL.md");
+  assert.ok(canonicalPath);
+
+  const resolved = new URL(canonicalPath, skillUrl);
+  const expected = new URL("../../../plugins/kapisch/skills/kapisch/SKILL.md", import.meta.url);
+  assert.equal(fileURLToPath(resolved), fileURLToPath(expected));
+  assert.match(readFileSync(resolved, "utf8"), /^---\nname: kapisch\n/);
+});
+
 test("skill activation stays explicitly opt-in", () => {
   const skill = readFileSync(new URL("../skills/kapisch/SKILL.md", import.meta.url), "utf8");
   const description = skill.match(/^description:\s*([\s\S]*?)(?=\n\S|$)/m)?.[1] ?? "";

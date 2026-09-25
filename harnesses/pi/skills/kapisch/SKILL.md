@@ -5,7 +5,7 @@ description: Use only when the user explicitly requests KAPISCH or repository-lo
 
 # KAPISCH Pi adapter
 
-The discovered canonical KAPISCH contract owns workflow and artifact semantics. Read its current `SKILL.md` and task-applicable normative references before KAPISCH-controlled execution. This adapter owns only Pi execution mechanics.
+The discovered canonical KAPISCH contract owns workflow and artifact semantics. Canonical contract path: `../../../../plugins/kapisch/skills/kapisch/SKILL.md`, resolved relative to this loaded Pi skill's directory. Read its current contents and resolve canonical normative references relative to that canonical skill directory; do not copy or duplicate canonical workflow instructions here. This adapter owns only Pi execution mechanics.
 
 KAPISCH is explicitly opt-in. Ordinary Pi work MUST NOT activate KAPISCH just because it is complex or may benefit from planning, architecture work, or review. Activate it only when the user explicitly requests KAPISCH or authoritative repository-local instructions explicitly require it.
 

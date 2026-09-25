@@ -24,6 +24,15 @@ test("Pi capability classes match canonical responsibilities", () => {
   }
 });
 
+test("researcher and reviewer receive Bash without mutation tools", () => {
+  for (const name of ["kapisch-researcher", "kapisch-reviewer"] as const) {
+    assert.ok(agentPolicy[name].tools.includes("bash"));
+    assert.ok(!agentPolicy[name].tools.includes("edit"));
+    assert.ok(!agentPolicy[name].tools.includes("write"));
+  }
+  assert.ok(!agentPolicy["kapisch-architect"].tools.includes("bash"));
+});
+
 test("capability policy owns no canonical descriptions or model routing", () => {
   for (const policy of Object.values(agentPolicy)) {
     assert.equal("model" in policy, false);

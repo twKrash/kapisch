@@ -12,6 +12,7 @@ export type PiAgentPolicy = {
 };
 
 const readOnlyTools = ["read", "grep", "find", "ls"] as const;
+const gitEvidenceTools = [...readOnlyTools, "bash"] as const;
 const writerTools = [...readOnlyTools, "bash", "edit", "write"] as const;
 const readOnlyPermissions = { edit: "deny", write: "deny" } as const;
 
@@ -23,13 +24,13 @@ export const agentPolicy = {
     allowNestedSubagents: false,
   },
   "kapisch-researcher": {
-    capabilityClass: "read-only", tools: readOnlyTools, excludeTools: ["edit", "write"],
+    capabilityClass: "read-only", tools: gitEvidenceTools, excludeTools: ["edit", "write"],
     permissions: readOnlyPermissions, acceptanceRole: "read-only", defaultContext: "fresh",
     inheritProjectContext: true, inheritGlobalContext: false, inheritSkills: false,
     allowNestedSubagents: false,
   },
   "kapisch-reviewer": {
-    capabilityClass: "read-only", tools: [...readOnlyTools, "bash"], excludeTools: ["edit", "write"],
+    capabilityClass: "read-only", tools: gitEvidenceTools, excludeTools: ["edit", "write"],
     permissions: readOnlyPermissions, acceptanceRole: "read-only", defaultContext: "fresh",
     inheritProjectContext: true, inheritGlobalContext: false, inheritSkills: false,
     allowNestedSubagents: false,

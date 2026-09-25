@@ -9,6 +9,7 @@ Prerequisites: Pi 0.87.1 or later, pi-subagents 0.71.0 or later, and a local KAP
 From the consumer project, install project-locally so Pi does not change `~/.pi/agent/settings.json`:
 
 ```sh
+cd /path/to/consumer
 pi install --local /absolute/path/to/kapisch/harnesses/pi
 ```
 
@@ -22,7 +23,7 @@ Canonical model IDs become Pi `openai-codex/<model-id>` IDs; reasoning effort ma
 
 ## Capabilities and limitations
 
-Read-only roles omit Pi `edit` and `write` tools and deny those tools through native child permissions. Writers receive `edit` and `write`; no role enables nested subagents. Reviewer also receives Bash for Git and focused verification. pi-subagents cannot gate Bash commands, so it cannot enforce shell-level read-only behavior; the canonical reviewer instructions and operator authority still apply. No user-specific extension or discovery tool is required. Optional tools may aid navigation but are not canonical evidence or authority.
+Read-only roles omit Pi `edit` and `write` tools and deny those tools through native child permissions. Writers receive `edit` and `write`; no role enables nested subagents. Researcher and reviewer receive Bash for required Git/history and focused evidence operations. pi-subagents cannot constrain Bash commands, so Bash is not shell-level read-only and must not be described as enforced read-only behavior. No user-specific extension or discovery tool is required. Optional tools may aid navigation but are not canonical evidence or authority.
 
 ## Generate and validate
 
