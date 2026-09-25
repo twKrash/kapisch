@@ -33,6 +33,38 @@ class ReviewContractTests(unittest.TestCase):
         self.assertIn("New code reaches a pre-existing defective path", scenarios)
         self.assertIn("Unrelated pre-existing defect", scenarios)
 
+    def test_discovery_precedes_question_driven_retrieval_and_depth_is_incremental(
+        self,
+    ) -> None:
+        review = contract("skills/kapisch/references/review.md")
+        risk = contract("skills/kapisch/references/risk.md")
+        context_packages = contract("skills/kapisch/references/context-packages.md")
+        profile = contract("agents/kapisch-reviewer.toml")
+        scenarios = contract("skills/kapisch/references/pressure-scenarios.md")
+
+        self.assertLess(
+            review.index("### Mandatory discovery"),
+            review.index("### Question-driven retrieval"),
+        )
+        for required in (
+            "every changed hunk",
+            "initial caller/consumer",
+            "material review question",
+            "Do not apply hard file, reference, tool-call, or token caps",
+        ):
+            self.assertIn(required, review)
+
+        for depth in ("### Quick", "### Standard", "### Deep"):
+            self.assertIn(depth, risk)
+        self.assertIn("Standard adds to quick", risk)
+        self.assertIn("Deep adds to standard", risk)
+        self.assertIn("The controller resolves risk, depth, and active lenses", risk)
+        self.assertIn("cannot replace mandatory discovery", context_packages)
+        self.assertIn("question-driven", profile)
+        self.assertIn("authorization migration", scenarios)
+        self.assertIn("without a material review question", scenarios)
+
 
 if __name__ == "__main__":
+
     unittest.main()

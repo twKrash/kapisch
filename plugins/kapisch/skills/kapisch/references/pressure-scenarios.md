@@ -496,3 +496,21 @@ Negative scenarios:
 190. Safety of changed behavior cannot be determined without materially broader
      product work: return `material-scope-expansion` for a user decision rather
      than treating that label as a substitute for causal evidence.
+
+191. Review begins with a hypothesis before inspecting all changed hunks: refuse
+     the shortcut; bind scope, inspect every hunk, inventory changed behavior,
+     and perform the initial impact search first.
+192. After discovery, a repository-wide search without a material review question
+     is skipped; targeted lookups continue only for a trace, matrix row,
+     regression check, suspected finding, or decision.
+193. An unchanged caller is needed to establish a changed public contract's
+     impact: follow it despite advisory reference budgets because it is required
+     supporting evidence.
+194. A verified mechanical rename with no production behavior or public boundary
+     uses quick depth while still inspecting every hunk and directly affected
+     test.
+195. A medium-risk API fix uses standard depth and covers affected consumers,
+     compatibility, negative paths, and regression adequacy.
+196. A requested quick authorization migration remains high-risk deep review;
+     authorization migration keeps permissions, migration, recovery, and tests
+     lenses and records the trigger for raising depth.

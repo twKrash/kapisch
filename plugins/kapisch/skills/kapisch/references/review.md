@@ -73,6 +73,37 @@ a substitute for causal evidence.
 One finding still represents one root cause. Merge same-cause symptoms found in
 multiple files or review passes.
 
+## Discovery and retrieval
+
+### Mandatory discovery
+
+Before narrowing retrieval, bind the exact scope and working-tree state; inspect
+diff statistics and every changed hunk; inventory changed files and symbols;
+identify changed entry points, public contracts, state transitions, permissions,
+persistence/recovery, migrations, configuration, and external effects; perform
+the initial caller/consumer and changed-test impact search required by the
+review scope; and resolve or confirm risk, depth, and active lenses. This is
+impact discovery, not unrelated repository browsing.
+
+### Question-driven retrieval
+
+After mandatory discovery, every additional lookup answers a material review question
+that can affect scope binding, risk/depth/lenses, a required trace or
+matrix row, regression coverage, finding classification, or the decision.
+Typical questions ask which consumers rely on a changed contract; whether a path
+reaches a different identity, permission, state, or side effect; what survives
+failure, cancellation, retry, or resume; whether regression coverage fails
+without the change; whether a schema, migration, API, configuration, or
+compatibility boundary contradicts the change; whether a suspected finding is
+supported; or what evidence completes a required matrix row.
+
+The reviewer need not persist a query ledger or narrate each lookup. Retrieval
+and index summaries remain leads; findings cite current source, tests, commands,
+or repository policy. Stop tracing a material changed behavior when it is
+sufficiently verified, represented by one concrete causal finding, or recorded
+as a material trace or coverage gap that determines the decision. Do not trace
+to eliminate non-material uncertainty. Do not apply hard file, reference, tool-call, or token caps; correctness and safety still win.
+
 ## Automatic policy
 
 | Work or boundary | Independent review | Separate final readiness |

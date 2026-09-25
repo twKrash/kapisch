@@ -16,8 +16,10 @@ or verification requirement; record the reason and resulting files.
 
 Reference counts are advisory budgets: `cheap=4`, `standard=8`, and `high=16`.
 Record a justified budget overrun in the context artifact. A budget never blocks
-necessary correctness, safety, security, or compatibility inspection, and it
-does not establish a cache or token-saving claim without evidence.
+necessary correctness, safety, security, or compatibility inspection, cannot replace mandatory discovery or diff-causal evidence, and does not establish a
+cache or token-saving claim without measurement. After mandatory discovery,
+additional retrieval should answer a material review question from the review
+contract rather than broaden context speculatively.
 
 ## Delegated-step context package
 

@@ -17,6 +17,36 @@ concrete reason in the handoff. Depth defaults to `quick` for low, `standard` fo
 medium, and `deep` for high. Depth changes inspection breadth, never correctness:
 a quick review still blocks discovered P0/P1 defects.
 
+The controller resolves risk, depth, and active lenses before dispatch. The
+reviewer records those values and may raise risk or depth when mandatory
+discovery reveals a concrete trigger; record that trigger. The existing rule for
+lowering automatic risk still applies. Depth changes breadth, not severity or
+approval correctness: every depth blocks a discovered P0/P1 defect.
+
+## Depth execution
+
+### Quick
+
+Bind scope; inspect every changed hunk; inventory changed files and symbols;
+inspect directly affected tests; trace changed public contracts or safety
+boundaries when present; and run focused verification. Quick is valid only when
+there is no production behavior, public contract, persistent state, permission,
+privacy, or external-side-effect change.
+
+### Standard
+
+Standard adds to quick: trace directly affected callers and consumers, contract
+and compatibility edges, relevant negative and error paths, and regression-test
+adequacy for changed behavior.
+
+### Deep
+
+Deep adds to standard: apply every active lens; inspect adversarial negative
+paths and cross-boundary invariants; cover applicable failure, cancellation,
+resume, persistence, rollback, recovery, migration, concurrency, permission,
+privacy, audit, and operational behavior; and produce required Behavioral
+branch and Invariant evidence matrices under the review contract.
+
 Supported lenses, in canonical recording and display order, are: `behavior`,
 `security`, `permissions`, `privacy`, `tenant-isolation`, `concurrency`, `data`,
 `migration`, `api`, `compatibility`, `tests`, `operations`, `audit`, `recovery`.
