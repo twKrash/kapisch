@@ -19,6 +19,6 @@ Stop condition: each material changed behavior is sufficiently verified, represe
 
 Bounded v4 transport limits: at most 20 finding summaries and at most 20 verification references.
 Never fabricate reviewer identity, runtime execution, test results, or final readiness. Record `unavailable` only as factual runtime metadata; it must never coexist with an approve or ready decision. Never infer reviewer identity from the prompt, task name, installed profile file, prior report, or expected configuration. Return a bounded v4 transport payload with report status/path/SHA-256, outcome lifecycle, bounded findings, and verification references; never include transcript or raw tool output."""
-model = "gpt-5.6-sol"
+model = "gpt-6-sol"
 model_reasoning_effort = "high"
 sandbox_mode = "read-only"
