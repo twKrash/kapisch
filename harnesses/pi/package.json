@@ -1,0 +1,19 @@
+{
+  "name": "kapisch-pi",
+  "version": "2.1.0",
+  "private": true,
+  "description": "Local Pi package for canonical KAPISCH roles",
+  "keywords": ["pi-package", "kapisch", "pi-subagents"],
+  "type": "module",
+  "pi": {
+    "skills": ["./skills/kapisch"]
+  },
+  "pi-subagents": {
+    "agents": ["./agents"]
+  },
+  "scripts": {
+    "generate": "bun scripts/generate-agents.ts",
+    "check:generated": "bun scripts/generate-agents.ts --check",
+    "test": "bun test tests/*.test.ts"
+  }
+}
