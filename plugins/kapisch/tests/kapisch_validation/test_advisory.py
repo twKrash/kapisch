@@ -16,7 +16,7 @@ REVISION = "a" * 40
 def write_advisory(task_dir: Path) -> tuple[Path, str]:
     task_dir.mkdir(parents=True)
     proposal_content = "# Session history architecture\n\nKeep history in durable storage.\n"
-    (task_dir / "01-architecture.md").write_text(proposal_content, encoding="utf-8")
+    (task_dir / "01-architecture.md").write_bytes(proposal_content.encode("utf-8"))
     decision = {
         "id": "D01",
         "kind": "architecture",
@@ -206,6 +206,99 @@ class AdvisoryArtifactTests(unittest.TestCase):
 
                 self.assertIn("ADV-DECISION-KIND", {error.code for error in errors})
 
+    def test_duplicate_snapshot_id_with_different_reference_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task_dir = Path(temporary) / ".kapisch" / "runs" / "session-history-design"
+            state_path, _ = write_advisory(task_dir)
+            state = tomllib.loads(state_path.read_text(encoding="utf-8"))
+            original = state["accepted_architectures"][0]
+            original_path = task_dir / original["path"]
+            snapshot = tomllib.loads(original_path.read_text(encoding="utf-8"))
+            content = snapshot["architecture_content"] + "\nA second accepted version.\n"
+            snapshot["architecture_content"] = content
+            snapshot["content_sha256"] = hashlib.sha256(content.encode("utf-8")).hexdigest()
+            snapshot_bytes = render_toml(snapshot)
+            digest = hashlib.sha256(snapshot_bytes).hexdigest()
+            alternate_path = task_dir / "architectures" / f"{original['id']}-{digest}.toml"
+            alternate_path.write_bytes(snapshot_bytes)
+            alternate = {"id": original["id"], "path": alternate_path.relative_to(task_dir).as_posix(), "digest": digest}
+            state["accepted_architectures"].append(alternate)
+            state_path.write_bytes(render_toml(state))
+
+            errors = validate_advisory(task_dir)
+
+            self.assertIn("ADV-SNAPSHOT-REFERENCE", {error.code for error in errors})
+
+    def test_malformed_enum_values_return_diagnostics(self) -> None:
+        for field, value in (("status", ["accepted"]), ("proposal_status", {"bad": "value"})):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as temporary:
+                task_dir = Path(temporary) / ".kapisch" / "runs" / "session-history-design"
+                state_path, _ = write_advisory(task_dir)
+                state = tomllib.loads(state_path.read_text(encoding="utf-8"))
+                state[field] = value
+                state_path.write_bytes(render_toml(state))
+                expected_code = "ADV-STATE-STATUS" if field == "status" else "ADV-PROPOSAL-STATUS"
+                self.assertIn(expected_code, {error.code for error in validate_advisory(task_dir)})
+
+    def test_malformed_recommendation_returns_diagnostic(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task_dir = Path(temporary) / ".kapisch" / "runs" / "session-history-design"
+            state_path, _ = write_advisory(task_dir)
+            state = tomllib.loads(state_path.read_text(encoding="utf-8"))
+            state["status"] = "decision-required"
+            state["unresolved_decisions"] = [{"id": "Q01", "kind": "architecture", "problem": "p", "why": "w", "decision_required": "d", "options": [], "recommendation": ["O1"]}]
+            state_path.write_bytes(render_toml(state))
+            self.assertIn("ADV-DECISION-RECOMMENDATION", {error.code for error in validate_advisory(task_dir)})
+
+    def test_list_snapshot_digest_returns_diagnostic(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task_dir = Path(temporary) / ".kapisch" / "runs" / "session-history-design"
+            state_path, _ = write_advisory(task_dir)
+            state = tomllib.loads(state_path.read_text(encoding="utf-8"))
+            state["accepted_architectures"][0]["digest"] = ["bad"]
+            state_path.write_bytes(render_toml(state))
+
+            errors = validate_advisory(task_dir)
+
+            self.assertIn("ADV-SNAPSHOT-DIGEST", {error.code for error in errors})
+
+    def test_off_path_accepted_snapshot_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task_dir = Path(temporary) / ".kapisch" / "runs" / "session-history-design"
+            state_path, _ = write_advisory(task_dir)
+            state = tomllib.loads(state_path.read_text(encoding="utf-8"))
+            snapshot_ref = state["accepted_architectures"][0]
+            off_path = task_dir / "elsewhere" / Path(snapshot_ref["path"]).name
+            off_path.parent.mkdir()
+            off_path.write_bytes((task_dir / snapshot_ref["path"]).read_bytes())
+            snapshot_ref["path"] = off_path.relative_to(task_dir).as_posix()
+            state_path.write_bytes(render_toml(state))
+
+            errors = validate_advisory(task_dir)
+
+            self.assertIn("ADV-SNAPSHOT-REFERENCE", {error.code for error in errors})
+
+    def test_empty_decisions_remain_valid_for_human_accepted_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task_dir = Path(temporary) / ".kapisch" / "runs" / "session-history-design"
+            state_path, _ = write_advisory(task_dir)
+            state = tomllib.loads(state_path.read_text(encoding="utf-8"))
+            reference = state["accepted_architectures"][0]
+            snapshot_path = task_dir / reference["path"]
+            snapshot = tomllib.loads(snapshot_path.read_text(encoding="utf-8"))
+            snapshot["decisions"] = []
+            snapshot_bytes = render_toml(snapshot)
+            digest = hashlib.sha256(snapshot_bytes).hexdigest()
+            accepted_path = snapshot_path.with_name(f"A01-{digest}.toml")
+            accepted_path.write_bytes(snapshot_bytes)
+            snapshot_path.unlink()
+            reference["path"] = accepted_path.relative_to(task_dir).as_posix()
+            reference["digest"] = digest
+            state["decisions"] = []
+            state_path.write_bytes(render_toml(state))
+
+            self.assertEqual(validate_advisory(task_dir), [])
+
     def test_advisory_schema_does_not_grant_implementation_authority(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             task_dir = Path(temporary) / ".kapisch" / "runs" / "session-history-design"
@@ -213,9 +306,7 @@ class AdvisoryArtifactTests(unittest.TestCase):
             state = tomllib.loads(state_path.read_text(encoding="utf-8"))
             state["implementation_authorized"] = True
             state_path.write_bytes(render_toml(state))
-
             errors = validate_advisory(task_dir)
-
             self.assertIn("ADV-SCHEMA-UNKNOWN-FIELD", {error.code for error in errors})
 
 

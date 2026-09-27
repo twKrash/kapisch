@@ -207,7 +207,9 @@ def _validate_packets(
                     errors.append(_error("ADV-DECISION-OPTIONS", path, option_ref, "option IDs must be unique"))
                 option_ids.add(option_id)
         recommendation = packet.get("recommendation", "unavailable")
-        if recommendation != "unavailable" and recommendation not in option_ids:
+        if recommendation != "unavailable" and (
+            not isinstance(recommendation, str) or recommendation not in option_ids
+        ):
             errors.append(
                 _error("ADV-DECISION-RECOMMENDATION", path, f"{reference}.recommendation", "must name a listed option or be unavailable")
             )
@@ -228,11 +230,15 @@ def _validate_snapshot(
     errors.extend(_closed(entry, frozenset({"id", "path", "digest"}), state_path, field))
     snapshot_id = _string(entry, "id", state_path, errors)
     relative = _string(entry, "path", state_path, errors)
+    if snapshot_id is not None and ("/" in snapshot_id or "\\" in snapshot_id):
+        errors.append(_error("ADV-SNAPSHOT-IDENTITY", state_path, f"{field}.id", "must be a single path component"))
     digest = entry.get("digest")
     if not _digest(digest):
         errors.append(
             _error("ADV-SNAPSHOT-DIGEST", state_path, f"{field}.digest", "must be 64 lowercase hexadecimal characters")
         )
+    if not isinstance(relative, str) or relative != f"architectures/{snapshot_id}-{digest}.toml":
+        errors.append(_error("ADV-SNAPSHOT-REFERENCE", state_path, f"{field}.path", "accepted snapshot path must be canonical and content-addressed"))
     snapshot_path = _safe_file(task_dir, relative)
     if snapshot_path is None:
         errors.append(
@@ -272,10 +278,14 @@ def _validate_snapshot(
     return snapshot
 
 
-def _snapshot_identity(value: object) -> tuple[object, object, object] | None:
+def _snapshot_identity(value: object) -> tuple[str, str, str] | None:
     if not isinstance(value, dict):
         return None
-    return value.get("id"), value.get("path"), value.get("digest")
+    snapshot_id, path, digest = value.get("id"), value.get("path"), value.get("digest")
+    if not isinstance(snapshot_id, str) or not isinstance(path, str) or not isinstance(digest, str):
+        return None
+    return snapshot_id, path, digest
+
 
 
 def validate_advisory(
@@ -303,7 +313,7 @@ def validate_advisory(
         errors.append(_error("ADV-STATE-IDENTITY", state_path, "task_id", "must match the run directory name"))
         task_id = task_dir.name
     _string(state, "repository_revision", state_path, errors)
-    if state.get("status") not in STATUSES:
+    if not isinstance(state.get("status"), str) or state.get("status") not in STATUSES:
         errors.append(_error("ADV-STATE-STATUS", state_path, "status", "unsupported advisory lifecycle status"))
     _string(state, "intent", state_path, errors)
     for field_name in ("scope", "exclusions"):
@@ -318,7 +328,7 @@ def validate_advisory(
         errors.append(_error("ADV-PROPOSAL-MISSING", state_path, "proposal_path", "proposal must exist beneath the run directory"))
     elif hashlib.sha256(proposal_path.read_bytes()).hexdigest() != state.get("proposal_sha256"):
         errors.append(_error("ADV-PROPOSAL-DIGEST", proposal_path, "proposal_sha256", "proposal bytes do not match advisory state"))
-    if state.get("proposal_status") not in {"draft", "proposed", "accepted", "rejected", "superseded"}:
+    if not isinstance(state.get("proposal_status"), str) or state.get("proposal_status") not in {"draft", "proposed", "accepted", "rejected", "superseded"}:
         errors.append(_error("ADV-PROPOSAL-STATUS", state_path, "proposal_status", "unsupported proposal status"))
     if not isinstance(state.get("evidence_refs"), list):
         errors.append(_error("ADV-STATE-SCHEMA", state_path, "evidence_refs", "must be an array"))
@@ -327,7 +337,7 @@ def validate_advisory(
     if not isinstance(snapshots, list):
         errors.append(_error("ADV-STATE-SCHEMA", state_path, "accepted_architectures", "must be an array of tables"))
         snapshots = []
-    if state.get("status") in {"accepted", "implementation-planning"}:
+    if isinstance(state.get("status"), str) and state.get("status") in {"accepted", "implementation-planning"}:
         if not snapshots:
             errors.append(_error("ADV-STATE-ACCEPTANCE", state_path, "accepted_architectures", "accepted or implementation-planning lifecycle requires an immutable accepted snapshot"))
         if state.get("proposal_status") != "accepted":
@@ -339,13 +349,18 @@ def validate_advisory(
         if isinstance(decision, dict) and isinstance(decision.get("id"), str)
     } if isinstance(state_decisions, list) else {}
     identities: set[tuple[object, object, object]] = set()
+    snapshot_ids: set[str] = set()
     for index, entry in enumerate(snapshots):
         snapshot = _validate_snapshot(task_dir, task_id, entry, index, errors)
         identity = _snapshot_identity(entry)
+        if identity is not None and (
+            identity in identities or identity[0] in snapshot_ids
+        ):
+            errors.append(_error("ADV-SNAPSHOT-REFERENCE", state_path, f"accepted_architectures[{index}]", "snapshot references must be unique"))
         if identity is not None:
-            if identity in identities:
-                errors.append(_error("ADV-SNAPSHOT-REFERENCE", state_path, f"accepted_architectures[{index}]", "snapshot references must be unique"))
             identities.add(identity)
+            snapshot_ids.add(identity[0])
+
         snapshot_decisions = snapshot.get("decisions") if snapshot is not None else None
         if isinstance(snapshot_decisions, list):
             for decision in snapshot_decisions:

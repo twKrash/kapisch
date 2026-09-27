@@ -132,6 +132,19 @@ def validate(
     if advisory_state.is_file():
         advisory_errors.extend(validate_advisory(task_dir))
         if not (task_dir / "02-execution-graph.toml").is_file():
+            if (task_dir / "03-state.toml").exists():
+                return sorted_errors(advisory_errors + [ValidationError(
+                    "TWV-GRAPH-MISSING", str(task_dir / "02-execution-graph.toml"), "graph",
+                    "execution state requires its execution graph",
+                )])
+            if previous_task_dir is not None and (
+                (previous_task_dir / "02-execution-graph.toml").is_file()
+                or (previous_task_dir / "03-state.toml").is_file()
+            ):
+                return sorted_errors(advisory_errors + [ValidationError(
+                    "TWV-GRAPH-MISSING", str(task_dir / "02-execution-graph.toml"), "graph",
+                    "prior execution history requires an execution graph",
+                )])
             return sorted_errors(validate_advisory(task_dir, previous_task_dir))
     parsed = parse_manifest(task_dir / "02-execution-graph.toml")
     errors = advisory_errors + list(parsed.errors)
@@ -141,6 +154,15 @@ def validate(
     errors.extend(state_errors)
     if state is None:
         return sorted_errors(errors)
+    if previous_task_dir is not None and (
+        previous_task_dir / "03-state.toml"
+    ).is_file() and not (previous_task_dir / "02-execution-graph.toml").is_file():
+        errors.append(ValidationError(
+            "TWV-GRAPH-MISSING",
+            str(previous_task_dir / "02-execution-graph.toml"),
+            "graph",
+            "prior execution state requires its execution graph",
+        ))
     current_advisory = advisory_state.is_file()
     previous_advisory = (
         previous_task_dir is not None
@@ -172,6 +194,11 @@ def validate(
     advisory_source = (
         task_dir if current_advisory else previous_task_dir if previous_advisory else None
     )
+    if needs_advisory_authority and parsed.manifest.version not in {3, 4}:
+        errors.append(ValidationError(
+            "ADV-GRAPH-VERSION", str(task_dir / "02-execution-graph.toml"), "version",
+            "advisory-authorized execution requires graph version 3 or 4",
+        ))
     if needs_advisory_authority and (
         not isinstance(source_plan, str) or not source_plan.startswith("plans/")
     ):
@@ -198,7 +225,8 @@ def validate(
                 prior_failure is None
                 and prior is not None
                 and (
-                    prior.get("status") not in {"accepted", "implementation-planning"}
+                    not isinstance(prior.get("status"), str)
+                    or prior.get("status") not in {"accepted", "implementation-planning"}
                     or not isinstance(prior_architectures, list)
                     or not prior_architectures
                 )

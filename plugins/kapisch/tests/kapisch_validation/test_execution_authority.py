@@ -105,7 +105,7 @@ class ExecutionAuthorityTests(unittest.TestCase):
     ) -> tuple[Path, Path, str]:
         task_dir = root / ".kapisch" / "runs" / task_id
         task_dir.mkdir(parents=True, exist_ok=True)
-        (task_dir / "01-architecture.md").write_text("Draft architecture.\n", encoding="utf-8")
+        (task_dir / "01-architecture.md").write_bytes(b"Draft architecture.\n")
         path, digest = write_snapshot(
             task_dir, "A01", "Accepted architecture.\n", dependencies=dependencies
         )
@@ -158,7 +158,13 @@ class ExecutionAuthorityTests(unittest.TestCase):
         state_path.write_bytes(render_toml(state_data))
         state_path.write_bytes(render_toml(state_data))
 
-    def test_cli_validates_v4_graph_against_bound_advisory_plan(self) -> None:
+    def test_cli_rejects_missing_graph_when_execution_state_survives(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task_dir, _, _ = self.make_run(Path(temporary), task_id="valid")
+            (task_dir / "03-state.toml").write_bytes(b"state = true\\n")
+            errors = validate(Path(__file__).resolve().parents[2] / "skills/kapisch", task_dir)
+            self.assertIn("TWV-GRAPH-MISSING", {error.code for error in errors})
+
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             task_dir = root / ".kapisch" / "runs" / "valid"
@@ -352,6 +358,31 @@ class ExecutionAuthorityTests(unittest.TestCase):
             self.assertIn("ADV-AUTHORITY-STALE", {error.code for error in errors})
             self.assertEqual(validate_advisory(task_dir), [])
 
+    def test_nested_snapshot_id_cannot_bypass_supersession_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            predecessor_dir, predecessor, predecessor_digest = self.make_run(root, task_id="predecessor")
+            plan_path = write_plan(predecessor_dir, predecessor, "A01", predecessor_digest)
+            successor_dir, _, _ = self.make_run(root, task_id="successor")
+            successor, successor_digest = write_snapshot(
+                successor_dir,
+                "A/B",
+                "Superseding architecture.\n",
+                relationships=[
+                    {
+                        "kind": "supersedes",
+                        "target_path": predecessor.relative_to(root).as_posix(),
+                        "target_digest": predecessor_digest,
+                        "decision_id": "D/B",
+                    }
+                ],
+            )
+            add_snapshot_to_state(successor_dir, "A/B", successor, successor_digest)
+
+            errors = validate_plan_authority(predecessor_dir, plan_path)
+
+            self.assertIn("ADV-SNAPSHOT-IDENTITY", {error.code for error in errors})
+
     def test_changed_decision_dependency_stales_approved_plan(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -376,6 +407,139 @@ class ExecutionAuthorityTests(unittest.TestCase):
             errors = validate_plan_authority(task_dir, plan_path)
 
             self.assertIn("ADV-AUTHORITY-STALE", {error.code for error in errors})
+
+    def test_plan_dependency_kind_array_returns_diagnostic(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            dependency_path = root / "docs" / "adr.md"
+            dependency_path.parent.mkdir()
+            dependency_path.write_text("Accepted decision.\n", encoding="utf-8")
+            digest = hashlib.sha256(dependency_path.read_bytes()).hexdigest()
+            dependency = {
+                "decision_id": "D01", "kind": ["repository-file"],
+                "path": "docs/adr.md", "digest": digest,
+            }
+            task_dir, snapshot_path, snapshot_digest = self.make_run(root, [dependency])
+            plan_path = write_plan(task_dir, snapshot_path, "A01", snapshot_digest, [dependency])
+            errors = validate_plan_authority(task_dir, plan_path)
+            self.assertIn("ADV-PLAN-DEPENDENCY", {error.code for error in errors})
+
+    def test_malformed_architecture_binding_returns_diagnostic(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task_dir, snapshot_path, digest = self.make_run(Path(temporary))
+            plan_path = write_plan(task_dir, snapshot_path, "A01", digest)
+            plan_file = task_dir / plan_path
+            data = plan_file.read_bytes().replace(b'"A01"', b'["A01"]', 1)
+            plan_file.write_bytes(data)
+            # Re-address the changed plan, preserving syntactically valid TOML.
+            new_digest = hashlib.sha256(data).hexdigest()
+            renamed = task_dir / "plans" / f"{new_digest}.md"
+            plan_file.rename(renamed)
+
+            errors = validate_plan_authority(task_dir, renamed.relative_to(task_dir).as_posix())
+
+            self.assertIn("ADV-PLAN-BINDINGS", {error.code for error in errors})
+
+    def test_relationship_kind_table_returns_diagnostic_through_plan_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            task_dir, predecessor, predecessor_digest = self.make_run(root)
+            plan_path = write_plan(task_dir, predecessor, "A01", predecessor_digest)
+            successor_dir, _, _ = self.make_run(root, task_id="successor")
+            successor, _ = write_snapshot(successor_dir, "A02", "successor", relationships=[{"kind": "supersedes", "target_path": predecessor.relative_to(root).as_posix(), "target_digest": predecessor_digest, "decision_id": "D02"}])
+            snapshot = tomllib.loads(successor.read_text(encoding="utf-8"))
+            snapshot["relationships"][0]["kind"] = {"bad": "kind"}
+            encoded = render_toml(snapshot)
+            new_digest = hashlib.sha256(encoded).hexdigest()
+            new_successor = successor.with_name(f"A02-{new_digest}.toml")
+            new_successor.write_bytes(encoded)
+            successor.unlink()
+            add_snapshot_to_state(successor_dir, "A02", new_successor, new_digest)
+
+            errors = validate_plan_authority(task_dir, plan_path)
+
+            self.assertIn("ADV-AUTHORITY-INVALID", {error.code for error in errors})
+
+    def test_cli_rejects_array_status_in_prior_graph_free_advisory(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            prior, _, _ = self.make_run(root, task_id="prior")
+            prior_state_path = prior / "00-advisory.toml"
+            prior_state = tomllib.loads(prior_state_path.read_text(encoding="utf-8"))
+            prior_state["status"] = ["accepted"]
+            prior_state_path.write_bytes(render_toml(prior_state))
+
+            task_dir = root / ".kapisch" / "runs" / "current"
+            shutil.copytree(Path(__file__).parent / "fixtures/valid-v4-controller", task_dir)
+            errors = validate(
+                Path(__file__).resolve().parents[2] / "skills/kapisch", task_dir, prior
+            )
+
+            self.assertIn("ADV-STATE-STATUS", {error.code for error in errors})
+
+    def test_cli_rejects_prior_state_without_graph(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            prior, _, _ = self.make_run(root, task_id="prior", status="accepted")
+            (prior / "03-state.toml").write_text("state = true\n", encoding="utf-8")
+            current = root / ".kapisch" / "runs" / "current"
+            shutil.copytree(Path(__file__).parent / "fixtures/valid-v4-controller", current)
+
+            errors = validate(Path(__file__).resolve().parents[2] / "skills/kapisch", current, prior)
+
+            self.assertIn("TWV-GRAPH-MISSING", {error.code for error in errors})
+
+
+    def test_cli_rejects_missing_graph_with_prior_durable_execution(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            current, _, _ = self.make_run(root, task_id="current", status="accepted")
+            prior, _, _ = self.make_run(root, task_id="prior")
+            (prior / "03-state.toml").write_text("state = true\n", encoding="utf-8")
+            errors = validate(Path(__file__).resolve().parents[2] / "skills/kapisch", current, prior)
+            self.assertIn("TWV-GRAPH-MISSING", {error.code for error in errors})
+
+    def test_cli_rejects_promotion_of_legacy_graph_versions(self) -> None:
+        fixtures = Path(__file__).parent / "fixtures"
+        skill_dir = Path(__file__).resolve().parents[2] / "skills/kapisch"
+        for version, fixture in (
+            (1, "valid-v1-defaults"),
+            (2, "valid-sequential-v2"),
+            (3, "valid-v3-durable"),
+            (4, "valid-v4-controller"),
+        ):
+            with self.subTest(version=version), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                task_dir = root / ".kapisch" / "runs" / "valid"
+                shutil.copytree(fixtures / fixture, task_dir)
+                self.assertEqual(validate(skill_dir, task_dir), ())
+                if version == 4:
+                    task_dir, snapshot, digest = self.make_run(
+                        root, task_id="valid", status="implementation-planning"
+                    )
+                    plan = write_plan(task_dir, snapshot, "A01", digest)
+                    self.update_graph_source_plan(task_dir, plan)
+                else:
+                    task_dir, snapshot, digest = self.make_run(
+                        root, task_id="valid", status="implementation-planning"
+                    )
+                    plan = write_plan(task_dir, snapshot, "A01", digest)
+                    manifest_path = task_dir / "02-execution-graph.toml"
+                    manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+                    manifest["source_plan"] = plan
+                    manifest_path.write_bytes(render_toml(manifest))
+                    state_path = task_dir / "03-state.toml"
+                    state = tomllib.loads(state_path.read_text(encoding="utf-8"))
+                    state["source_plan"] = plan
+                    state_path.write_bytes(render_toml(state))
+                errors = validate(skill_dir, task_dir)
+                codes = {error.code for error in errors}
+                if version in (1, 2):
+                    self.assertIn("ADV-GRAPH-VERSION", codes)
+                else:
+                    self.assertNotIn("ADV-GRAPH-VERSION", codes)
+                    self.assertEqual(errors, ())
+
 
     def test_plan_requires_explicit_dependency_review(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -86,9 +86,15 @@ def _record_accepted_snapshot(
     if snapshot_path is None:
         errors.append(_error("ADV-AUTHORITY-MISSING", plan_path, field, "accepted architecture reference must exist inside repository"))
         return None
+    if not isinstance(snapshot_path, Path):
+        return None
     if not isinstance(snapshot_id, str) or not isinstance(digest, str) or DIGEST_RE.fullmatch(digest) is None:
         errors.append(_error("ADV-AUTHORITY-IDENTITY", snapshot_path, field, "snapshot ID and 64-character digest are required"))
         return None
+
+        return None
+        return None
+
     actual_digest = hashlib.sha256(snapshot_path.read_bytes()).hexdigest()
     if actual_digest != digest or not snapshot_path.name.endswith(f"-{digest}.toml"):
         errors.append(_error("ADV-AUTHORITY-STALE", snapshot_path, field, "accepted architecture bytes differ from bound digest"))
@@ -133,12 +139,12 @@ def _is_superseded(
     # ponytail: scan accepted run snapshots per validation; add an index only if run count makes this costly.
     validation_cache: dict[Path, list[ValidationError]] = {}
     reported_invalid_owners: set[Path] = set()
-    for candidate in sorted(runs_dir.glob("*/architectures/*.toml")):
+    for candidate in sorted(runs_dir.glob("*/architectures/**/*.toml")):
         try:
             candidate.resolve(strict=True).relative_to(runs_dir.resolve())
         except (OSError, RuntimeError, ValueError):
             continue
-        owner_dir = candidate.parent.parent
+        owner_dir = runs_dir / candidate.relative_to(runs_dir).parts[0]
         owner_state, state_failure = load_toml_artifact(owner_dir / STATE_PATH)
         if state_failure is not None or not isinstance(owner_state, dict):
             continue
@@ -175,7 +181,8 @@ def _is_superseded(
             if set(relation) != RELATION_FIELDS:
                 errors.append(_error("ADV-AUTHORITY-INVALID", candidate, "relationships", "relationship must contain kind, target_path, target_digest, and decision_id only"))
                 continue
-            if relation.get("kind") not in {"amends", "supersedes"}:
+            kind = relation.get("kind")
+            if not isinstance(kind, str) or kind not in {"amends", "supersedes"}:
                 errors.append(_error("ADV-AUTHORITY-INVALID", candidate, "relationships.kind", "must be amends or supersedes"))
                 continue
             snapshot_decisions = snapshot.get("decisions")
@@ -217,7 +224,7 @@ def _validate_dependency(
     )
     if not isinstance(decision_id, str) or decision_id not in snapshot_decisions:
         errors.append(_error("ADV-PLAN-DEPENDENCY", project_root, f"{field}.decision_id", "must reference a decision in a bound accepted architecture"))
-    if kind not in {"repository-file", "accepted-architecture"}:
+    if not isinstance(kind, str) or kind not in {"repository-file", "accepted-architecture"}:
         errors.append(_error("ADV-PLAN-DEPENDENCY", project_root, f"{field}.kind", "must be repository-file or accepted-architecture"))
     if not isinstance(digest, str) or DIGEST_RE.fullmatch(digest) is None:
         errors.append(_error("ADV-PLAN-DEPENDENCY", project_root, f"{field}.digest", "must be 64 lowercase hexadecimal characters"))
@@ -332,6 +339,8 @@ def validate_plan_authority(
         digest = binding.get("digest")
         if not isinstance(snapshot_id, str) or not snapshot_id or not isinstance(relative, str):
             errors.append(_error("ADV-PLAN-BINDINGS", plan_path, field, "snapshot_id and path are required"))
+            continue
+
             continue
         if snapshot_id in binding_ids or relative in binding_paths:
             errors.append(_error("ADV-PLAN-BINDINGS", plan_path, field, "architecture bindings must be unique"))
