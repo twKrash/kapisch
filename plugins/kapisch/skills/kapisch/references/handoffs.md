@@ -35,8 +35,12 @@ implementation artifacts. Store every review and final artifact under
 ```text
 .kapisch/runs/<task_id>/
   00-research.md       # project-understanding research when requested
+  00-advisory.toml     # controller-owned graph-free advisory state
   00-context.md
   01-plan.md
+  01-architecture.md   # graph-free architecture proposal
+  architectures/       # immutable accepted architecture snapshots
+  plans/               # content-addressed promotion plans
   02-execution-graph.toml  # optional durable execution
   03-state.toml            # optional durable execution
   03-state.md              # optional non-authoritative rendered view
@@ -54,6 +58,60 @@ implementation artifacts. Store every review and final artifact under
     final/00-final-invocation.toml
     final/05-final.md
 ```
+
+## Graph-free advisory artifacts
+
+`workflow=advisory` uses the run directory without creating
+`02-execution-graph.toml`, `03-state.toml`, task nodes, or sequential execution
+state. The controller creates `00-advisory.toml` before dispatch and owns all
+state and report writes; researcher and architect return evidence and proposals
+only. Create `01-architecture.md` at that point as a `draft` placeholder so the
+state's `proposal_path` and digest already resolve; after the architect returns,
+persist the exact proposal and update its SHA-256 before changing its status.
+`00-research.md` records repository evidence, and `01-architecture.md`
+records bounded options, trade-offs, risks, dependencies, and unresolved human
+decisions. Keep status explicit: `intent-interrogation`, `research`,
+`architecture`, `decision-required`, `review`, `proposal-ready`, `accepted`,
+`rejected`, `stopped`, or `implementation-planning`.
+
+The state is a closed TOML schema with `schema_version=1`, `task_id`,
+`repository_revision`, `status`, `intent`, `scope`, `exclusions`,
+`evidence_refs`, `decisions`, `unresolved_decisions`, `proposal_path`,
+`proposal_sha256`, `proposal_status`, and `accepted_architectures`. `proposal_path`
+and each accepted-architecture `path` are relative to that run; the proposal's
+SHA-256 is checked against its bytes. `proposal_status` is `draft`, `proposed`,
+`accepted`, `rejected`, or `superseded`. Decisions
+record `{id, kind, answer, source="human"}`. An unresolved decision packet
+records `{id, kind, problem, why, decision_required, options, recommendation}`;
+each option records `{id, description, consequences}`. Each packet has at most
+three materially different options; `recommendation` names a listed option or
+is `unavailable`. Never record an agent recommendation as a human decision.
+
+Acceptance writes an immutable snapshot under
+`architectures/<snapshot-id>-<sha256>.toml` and binds its exact path and byte
+digest from `accepted_architectures`. The snapshot records schema/task/snapshot
+identity, `status="accepted"`, source revision, architecture content and its
+SHA-256, human decisions, evidence references, decision dependencies, and
+`amends`/`supersedes` relationships. Later decisions create new snapshots;
+accepted bytes and decisions are never rewritten. Resume preserves task intent,
+scope, exclusions, decisions, and the ordered snapshot history. Acceptance is
+advisory only; it grants no implementation, review, or readiness authority.
+
+A separate explicit human request may promote an accepted architecture. The
+controller prepares a content-addressed `plans/<sha256>.md` with TOML
+frontmatter: `schema_version=1`, matching `task_id`, `status="approved"`,
+`approval_source="human"`, non-empty `source_revision`,
+`decision_dependencies_reviewed=true`, `architecture_bindings`, and
+`decision_dependencies`. Each architecture binding records
+`{snapshot_id, path, digest}`; plan binding and dependency paths are relative to
+the repository root. Each reviewed dependency records
+`{decision_id, kind, path, digest}` and, for `kind="accepted-architecture"`,
+`snapshot_id`; dependencies must match those recorded by the bound snapshot.
+The validator checks path containment, content digests, accepted ownership, and
+staleness. Only after human approval of this plan may the controller create a
+supported version-3 or version-4 execution graph that references it from
+`03-state.toml.source_plan`. Do not treat accepted advisory state or a plan
+proposal as permission to start implementation.
 
 `round=0` is the independent reviewer’s initial review. A user-approved follow-up
 uses `round=1`; later rounds increment from there. The controller persists the

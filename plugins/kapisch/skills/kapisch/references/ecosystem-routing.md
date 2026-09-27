@@ -80,7 +80,10 @@ LLM/controller's interpretation, never a separate entry point.
 - Do not choose a capability from name similarity alone. Use its current
   documented description and exposed actions.
 
-Graph-free workflows do not delegate in the current scope. An explicit
+Graph-free workflows do not use ecosystem capability delegation in the current
+scope. This limit does not disable the bounded KAPISCH `researcher`/`architect`
+role dispatch permitted by `workflow=advisory`; those roles cannot invoke an
+external capability on the controller's behalf. An explicit
 capability constraint in a graph-free workflow blocks and asks the user to
 promote the work to a supported durable version-3 or version-4 graph or to relax
 the constraint before native execution. An automatic selection may use the

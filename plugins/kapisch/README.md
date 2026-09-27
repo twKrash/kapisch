@@ -70,9 +70,10 @@ legacy outcomes.
 
 ## Validator
 
-The validator uses only the Python 3.11 standard library. It reads durable TOML
-evidence; it never dispatches agents, writes artifacts, invokes Git, or grants
-approval.
+The validator uses only the Python 3.11 standard library. It reads graph-free
+advisory state, content-addressed architecture snapshots and promotion plans,
+and durable TOML execution evidence; it never dispatches agents, writes
+artifacts, invokes Git, or grants approval.
 
 ```text
 python -m pip install <plugin-root>

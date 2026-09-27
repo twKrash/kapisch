@@ -103,6 +103,46 @@ decision record for evidence fidelity and repository consistency without
 approving the decision itself. Never label a prepared or proposed record as
 accepted.
 
+## Graph-free advisory architecture
+
+Use `workflow=advisory` for bounded repository research and architecture advice
+that must not execute implementation. This workflow remains separate from
+`workflow=task` and `workflow=milestone`: it does not create an execution graph,
+manifest, task nodes, or implementation-ready state. It may dispatch only the
+bounded read-only `researcher` and `architect` roles; the controller remains the
+sole writer of all artifacts. Ecosystem/plugin capability delegation follows
+[ecosystem-routing.md](ecosystem-routing.md) and still requires a supported
+durable graph.
+
+The controller records the bounded question, repository revision, scope,
+exclusions, human decisions, unresolved decision packets, proposal status, and
+accepted snapshot references in `.kapisch/runs/<task_id>/00-advisory.toml`.
+Store research in `00-research.md` and the architecture proposal in
+`01-architecture.md`. Proposals present evidence, constraints, trade-offs,
+consequences, risks, dependencies, unresolved questions, and at most three
+materially different options per decision packet. A recommendation is advice,
+not a decision. Researcher and architect never write the artifacts, accept an
+option, or approve implementation.
+
+Human acceptance of a proposal is recorded as an immutable, content-addressed
+snapshot in `architectures/<snapshot-id>-<sha256>.toml`. A changed accepted
+decision requires a new snapshot and an explicit superseding relationship; never
+rewrite an accepted snapshot or its decision. Resume must preserve task intent,
+scope, exclusions, accepted decisions, and snapshot history. A proposal or
+snapshot marked accepted means only that the human selected an architecture; it
+does not grant implementation authority, establish review/readiness, or create
+an execution graph.
+
+Implementation requires a separate explicit human request to promote the
+accepted architecture. The controller creates a content-addressed plan at
+`plans/<sha256>.md`, binds the exact accepted snapshot references and reviewed
+decision dependencies, and records human plan approval. Only after that plan is
+approved may the controller create a supported version-3 or version-4 execution
+graph under `workflow=task` or `workflow=milestone`. No graph, implementation
+dispatch, or readiness claim may be inferred from an accepted advisory artifact.
+The durable artifact schemas and single-writer guarantees are owned by
+[handoffs.md](handoffs.md).
+
 ## Research handoff
 
 For `handoff=file|both`, the controller owns the durable

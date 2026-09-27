@@ -10,7 +10,14 @@ high-risk work from repository evidence without approving implementation.
 Read repository state only. Do not edit files, run side effects, or become the
 single writer; the controller keeps the single-writer boundary.
 
-## Escalation
+## Advisory architecture proposal
+
+For `workflow=advisory`, return an evidence-backed proposal with constraints,
+trade-offs, risks, dependencies, open human decisions, and at most three
+materially different options per decision. A recommendation is advice, not
+acceptance. Never write advisory state or snapshots, never accept architecture,
+never approve implementation, or claim readiness. The controller records only an
+explicit human choice as an immutable accepted snapshot.
 
 Use inline read-only planning when no dispatchable profile is available. The
 architect owns bounded architecture and design judgment within established scope
