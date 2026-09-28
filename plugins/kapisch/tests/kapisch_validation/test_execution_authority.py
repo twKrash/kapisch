@@ -28,6 +28,7 @@ def write_snapshot(
     content: str,
     relationships: list[dict[str, str]] | None = None,
     dependencies: list[dict[str, str]] | None = None,
+    include_decision: bool = True,
 ) -> tuple[Path, str]:
     decision_id = f"D{snapshot_id[1:]}"
     snapshot = {
@@ -38,9 +39,11 @@ def write_snapshot(
         "source_revision": REVISION,
         "architecture_content": content,
         "content_sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
-        "decisions": [
-            {"id": decision_id, "kind": "architecture", "answer": content, "source": "human"}
-        ],
+        "decisions": (
+            [{"id": decision_id, "kind": "architecture", "answer": content, "source": "human"}]
+            if include_decision
+            else []
+        ),
         "evidence_refs": [],
         "dependencies": dependencies or [],
         "relationships": relationships or [],
@@ -103,12 +106,17 @@ class ExecutionAuthorityTests(unittest.TestCase):
         dependencies: list[dict[str, str]] | None = None,
         task_id: str = "session-history-design",
         status: str = "accepted",
+        include_decision: bool = True,
     ) -> tuple[Path, Path, str]:
         task_dir = root / ".kapisch" / "runs" / task_id
         task_dir.mkdir(parents=True, exist_ok=True)
         (task_dir / "01-architecture.md").write_bytes(b"Draft architecture.\n")
         path, digest = write_snapshot(
-            task_dir, "A01", "Accepted architecture.\n", dependencies=dependencies
+            task_dir,
+            "A01",
+            "Accepted architecture.\n",
+            dependencies=dependencies,
+            include_decision=include_decision,
         )
         decision = {
             "id": "D01",
@@ -125,7 +133,7 @@ class ExecutionAuthorityTests(unittest.TestCase):
             "scope": ["history"],
             "exclusions": ["implementation"],
             "evidence_refs": [],
-            "decisions": [decision],
+            "decisions": [decision] if include_decision else [],
             "unresolved_decisions": [],
             "proposal_path": "01-architecture.md",
             "proposal_sha256": hashlib.sha256(b"Draft architecture.\n").hexdigest(),
@@ -465,6 +473,162 @@ class ExecutionAuthorityTests(unittest.TestCase):
             errors = validate_plan_authority(task_dir, plan_path)
 
             self.assertIn("ADV-AUTHORITY-STALE", {error.code for error in errors})
+
+    def test_repository_file_authority_dependency_without_human_decision_validates(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            authority = root / "AGENTS.md"
+            authority.write_text("Use repository policy.\n", encoding="utf-8")
+            dependency = {
+                "kind": "repository-file",
+                "path": "AGENTS.md",
+                "digest": hashlib.sha256(authority.read_bytes()).hexdigest(),
+            }
+            task_dir, snapshot_path, snapshot_digest = self.make_run(
+                root, [dependency], include_decision=False
+            )
+            plan_path = write_plan(
+                task_dir, snapshot_path, "A01", snapshot_digest, [dependency]
+            )
+
+            self.assertEqual(validate_plan_authority(task_dir, plan_path), [])
+            state = tomllib.loads(
+                (task_dir / "00-advisory.toml").read_text(encoding="utf-8")
+            )
+            snapshot = tomllib.loads(snapshot_path.read_text(encoding="utf-8"))
+            self.assertEqual(state["decisions"], [])
+            self.assertEqual(snapshot["decisions"], [])
+
+            plan_without_authority = write_plan(
+                task_dir, snapshot_path, "A01", snapshot_digest, []
+            )
+            errors = validate_plan_authority(task_dir, plan_without_authority)
+            self.assertIn(
+                "ADV-PLAN-DEPENDENCY-MISMATCH", {error.code for error in errors}
+            )
+
+    def test_changed_authority_dependency_stales_plan_not_accepted_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            authority = root / "AGENTS.md"
+            authority.write_text("Use repository policy.\n", encoding="utf-8")
+            dependency = {
+                "kind": "repository-file",
+                "path": "AGENTS.md",
+                "digest": hashlib.sha256(authority.read_bytes()).hexdigest(),
+            }
+            task_dir, snapshot_path, snapshot_digest = self.make_run(
+                root, [dependency], include_decision=False
+            )
+            plan_path = write_plan(
+                task_dir, snapshot_path, "A01", snapshot_digest, [dependency]
+            )
+            authority.write_text("Changed repository policy.\n", encoding="utf-8")
+
+            self.assertEqual(validate_advisory(task_dir), [])
+            errors = validate_plan_authority(task_dir, plan_path)
+            self.assertEqual(
+                {error.code for error in errors}, {"ADV-AUTHORITY-STALE"}
+            )
+
+    def test_invalid_decision_id_still_fails_dependency_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            authority = root / "policy.md"
+            authority.write_text("Accepted requirement.\n", encoding="utf-8")
+            dependency = {
+                "decision_id": "D-missing",
+                "kind": "repository-file",
+                "path": "policy.md",
+                "digest": hashlib.sha256(authority.read_bytes()).hexdigest(),
+            }
+            task_dir, snapshot_path, snapshot_digest = self.make_run(
+                root, [dependency]
+            )
+            plan_path = write_plan(
+                task_dir, snapshot_path, "A01", snapshot_digest, [dependency]
+            )
+
+            errors = validate_plan_authority(task_dir, plan_path)
+
+            self.assertIn("ADV-PLAN-DEPENDENCY", {error.code for error in errors})
+
+    def test_accepted_architecture_authority_requires_valid_binding_without_decision_id(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            owner_dir, authority_path, authority_digest = self.make_run(
+                root, task_id="governing-authority", include_decision=False
+            )
+            dependency = {
+                "kind": "accepted-architecture",
+                "path": authority_path.relative_to(root).as_posix(),
+                "digest": authority_digest,
+                "snapshot_id": "A01",
+            }
+            task_dir, snapshot_path, snapshot_digest = self.make_run(
+                root,
+                [dependency],
+                task_id="authority-dependent",
+                include_decision=False,
+            )
+            plan_path = write_plan(
+                task_dir, snapshot_path, "A01", snapshot_digest, [dependency]
+            )
+            self.assertEqual(validate_plan_authority(task_dir, plan_path), [])
+
+            decision_bound = {**dependency, "decision_id": "D01"}
+            bound_dir, bound_path, bound_digest = self.make_run(
+                root, [decision_bound], task_id="decision-bound"
+            )
+            bound_plan = write_plan(
+                bound_dir, bound_path, "A01", bound_digest, [decision_bound]
+            )
+            self.assertEqual(validate_plan_authority(bound_dir, bound_plan), [])
+
+            wrong_id = {**dependency, "snapshot_id": "A99"}
+            wrong_id_plan = write_plan(
+                task_dir, snapshot_path, "A01", snapshot_digest, [wrong_id]
+            )
+            errors = validate_plan_authority(task_dir, wrong_id_plan)
+            self.assertIn("ADV-AUTHORITY-IDENTITY", {error.code for error in errors})
+
+            wrong_digest = {**dependency, "digest": "0" * 64}
+            wrong_digest_plan = write_plan(
+                task_dir, snapshot_path, "A01", snapshot_digest, [wrong_digest]
+            )
+            errors = validate_plan_authority(task_dir, wrong_digest_plan)
+            self.assertIn("ADV-AUTHORITY-STALE", {error.code for error in errors})
+
+            owner_state_path = owner_dir / "00-advisory.toml"
+            owner_state = tomllib.loads(owner_state_path.read_text(encoding="utf-8"))
+            owner_state["accepted_architectures"] = []
+            owner_state_path.write_bytes(render_toml(owner_state))
+            unowned_plan = write_plan(
+                task_dir, snapshot_path, "A01", snapshot_digest, [dependency]
+            )
+            errors = validate_plan_authority(task_dir, unowned_plan)
+            self.assertIn("ADV-AUTHORITY-UNACCEPTED", {error.code for error in errors})
+
+    def test_decision_bound_repository_file_dependency_still_validates(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            authority = root / "docs" / "adr.md"
+            authority.parent.mkdir()
+            authority.write_text("Accepted storage decision.\n", encoding="utf-8")
+            dependency = {
+                "decision_id": "D01",
+                "kind": "repository-file",
+                "path": "docs/adr.md",
+                "digest": hashlib.sha256(authority.read_bytes()).hexdigest(),
+            }
+            task_dir, snapshot_path, snapshot_digest = self.make_run(
+                root, [dependency]
+            )
+            plan_path = write_plan(
+                task_dir, snapshot_path, "A01", snapshot_digest, [dependency]
+            )
+
+            self.assertEqual(validate_plan_authority(task_dir, plan_path), [])
 
     def test_plan_dependency_kind_array_returns_diagnostic(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

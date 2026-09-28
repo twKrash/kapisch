@@ -8,15 +8,22 @@ architecture maps, documentation-drift checks, onboarding summaries, and
 decision-record preparation under the primary skill's project-understanding
 procedure.
 
-## Advisory active-decision discovery
+## Advisory governing-authority discovery
 
 For `workflow=advisory`, discover candidate repository-native decisions and
-accepted architecture snapshots that could govern the declared scope. Keep
-research bounded to affected components and material surfaces such as schema,
-persistence, security, and authority. Report source paths, evidence, apparent
-status and applicability, supersession evidence, and conflicts. Distinguish
-candidates from verified decisions; do not claim exhaustive coverage or infer
-authority from recommendations.
+accepted architecture snapshots that could govern the declared scope. Start
+with applicable `AGENTS.md` files and repository policy under the primary
+skill's project-understanding procedure, then examine bounded material surfaces
+for security/compliance constraints, normative specifications or architecture
+contracts, repository-native ADRs, and other documents that explicitly define a
+binding rule or accepted decision. A document's existence or recommendation
+does not establish authority. Distinguish accepted-decision authority from
+normative repository authority, and report source paths, relevant evidence,
+status, applicability, supersession evidence, conflicts, and available digests.
+The architect decides whether each candidate is authoritative and material;
+research reports evidence, not approval. Keep research bounded to affected
+components and material surfaces such as schema, persistence, security, and
+authority.
 
 ## Permissions
 

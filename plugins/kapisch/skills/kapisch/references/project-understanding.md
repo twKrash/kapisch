@@ -131,7 +131,11 @@ rewrite an accepted snapshot or its decision. Resume must preserve task intent,
 scope, exclusions, accepted decisions, and snapshot history. A proposal or
 snapshot marked accepted means only that the human selected an architecture; it
 does not grant implementation authority, establish review/readiness, or create
-an execution graph.
+an execution graph. A material conflict with active governing authority is a
+hard stop; applicable repository instructions and normative constraints cannot
+be overridden by conversational acceptance. See
+[handoffs.md](handoffs.md) for source classes, conflict handling, and dependency
+records.
 
 Implementation requires a separate explicit human request to promote the
 accepted architecture. The controller creates a content-addressed plan at

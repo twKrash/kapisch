@@ -206,7 +206,9 @@ def _validate_dependency(
         record.get("path"),
         record.get("digest"),
     )
-    if not isinstance(decision_id, str) or decision_id not in snapshot_decisions:
+    if "decision_id" in record and (
+        not isinstance(decision_id, str) or decision_id not in snapshot_decisions
+    ):
         errors.append(_error("ADV-PLAN-DEPENDENCY", project_root, f"{field}.decision_id", "must reference a decision in a bound accepted architecture"))
     if not isinstance(kind, str) or kind not in {"repository-file", "accepted-architecture"}:
         errors.append(_error("ADV-PLAN-DEPENDENCY", project_root, f"{field}.kind", "must be repository-file or accepted-architecture"))

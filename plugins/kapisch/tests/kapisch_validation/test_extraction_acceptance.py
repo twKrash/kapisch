@@ -421,6 +421,53 @@ class ExtractionAcceptanceTests(unittest.TestCase):
         )
         self.assertIn("Confirm dependency coverage", architect)
 
+    def test_advisory_governing_authority_gate_and_dependency_modes_are_explicit(self) -> None:
+        handoffs = " ".join(
+            (ROOT / "skills/kapisch/references/handoffs.md")
+            .read_text(encoding="utf-8")
+            .split()
+        )
+        project_understanding = " ".join(
+            (ROOT / "skills/kapisch/references/project-understanding.md")
+            .read_text(encoding="utf-8")
+            .split()
+        )
+        researcher = " ".join(
+            (ROOT / "roles/researcher.md").read_text(encoding="utf-8").split()
+        )
+        architect = " ".join(
+            (ROOT / "roles/architect.md").read_text(encoding="utf-8").split()
+        )
+
+        for source in (
+            "applicable `AGENTS.md` files",
+            "repository policy",
+            "security/compliance constraints",
+            "normative specifications or architecture contracts",
+            "a document is not authoritative merely because it exists",
+            "Accepted decision authority",
+            "Normative repository authority",
+            "General desire to accept a conflicting proposal is not authorization",
+            "cannot be overridden by a conversational answer",
+            "Until the source artifact has actually changed",
+            "blocks proposal-ready, acceptance, and implementation planning",
+            "`problem` identifies the source path",
+            "`why` explains why they cannot both be satisfied",
+            "`recommendation` names a listed option or is `unavailable`",
+            "A direct repository-file authority is `{kind=\"repository-file\", path, digest}`",
+            "a direct accepted-architecture authority is `{kind=\"accepted-architecture\", path, digest, snapshot_id}`",
+            "`decision_id` is optional",
+            "leaves `schema_version=1` unchanged",
+        ):
+            self.assertIn(source, handoffs)
+        self.assertIn(
+            "applicable repository instructions and normative constraints cannot be overridden",
+            project_understanding,
+        )
+        self.assertIn("Start with applicable `AGENTS.md` files and repository policy", researcher)
+        self.assertIn("does not establish authority", researcher)
+        self.assertIn("A material unresolved conflict keeps the run at `decision-required`", architect)
+
     def test_profile_identity_collision_is_not_adopted_or_changed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp)

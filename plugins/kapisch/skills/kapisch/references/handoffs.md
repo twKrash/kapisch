@@ -106,26 +106,70 @@ cannot be mapped to exactly one packet, do not record a human decision or
 remove that packet. Preserve scope, keep or return the run to
 `decision-required`, and ask a focused question.
 
-### Active decision discovery
+### Governing-authority discovery and conflict gate
 
-Before setting status to `proposal-ready` or recording human acceptance, the
-controller ensures bounded discovery of repository-native ADRs, specifications,
-and architecture decisions, plus accepted KAPISCH architecture snapshots,
-within the declared scope and affected material architecture surfaces. The
-controller owns discovery completeness and may perform the discovery or assign
-bounded evidence work to the researcher. Record candidates and authoritative
-evidence in existing research/evidence references; do not scan unrelated
-history.
+Before setting status to `proposal-ready` or recording human acceptance, and
+before entering `implementation-planning`, the controller ensures bounded
+discovery of
+repository-native ADRs, specifications, and architecture decisions, plus accepted
+KAPISCH architecture snapshots, within the declared scope and affected material
+architecture surfaces. Candidate sources also include applicable `AGENTS.md`
+files, repository policy, security/compliance constraints, normative
+specifications or architecture contracts, and other repository documents that
+explicitly define a binding rule or accepted decision. Follow existing
+repository instruction precedence without changing it; start discovery with
+applicable `AGENTS.md` and repository policy as directed in
+[project-understanding.md](project-understanding.md); a document is not
+authoritative merely because it exists. The controller owns discovery
+completeness and may perform discovery or assign bounded evidence work to the
+researcher. Record candidates and authoritative evidence in existing
+research/evidence references; do not scan unrelated history.
 
 The architect verifies each candidate's authority, active status, applicability,
 supersession, and conflicts. Every relevant active decision appears in the
-proposal dependency list and accepted snapshot `dependencies`. Exclude a
+proposal dependency list and accepted snapshot `dependencies`; every material
+direct governing-authority source also appears in those dependencies. Exclude a
 superseded or inapplicable candidate only with authoritative evidence. Resolve
-conflicts within established scope where possible; an unresolved material
-contradiction keeps the run at `decision-required` and blocks proposal-ready or
-acceptance. Only an explicit human decision can authorize superseding an
-accepted snapshot. The validator checks structural fields and bindings; it does
-not prove semantic dependency coverage or discovery completeness.
+conflicts within established scope where possible.
+
+Treat verified sources according to their authority:
+
+- Accepted decision authority, including repository-native accepted decisions
+  and accepted KAPISCH snapshots, may be amended or superseded only through an
+  explicit human decision naming the affected decision. General desire to accept
+  a conflicting proposal is not authorization. Record KAPISCH snapshot changes
+  in a new immutable snapshot with the appropriate relationship.
+- Normative repository authority, including applicable instructions, policy,
+  security/compliance requirements, and normative specifications or contracts,
+  cannot be overridden by a conversational answer. Make the proposal comply, or
+  request separate explicit authorization to change the source through its
+  normal repository workflow. Until the source artifact has actually changed or
+  authoritative evidence shows it is no longer applicable, it remains active
+  and blocks a contradictory proposal. Advisory work never changes that source.
+
+An unresolved material contradiction keeps the run at `decision-required` and
+blocks proposal-ready, acceptance, and implementation planning. Do not accept
+architecture while the conflict remains. Use the existing unresolved-decision
+packet: `problem` identifies the source path and relevant requirement and the
+contradicting proposal; `why` explains why they cannot both be satisfied;
+`options` contains at most three materially different paths; and
+`recommendation` names a listed option or is `unavailable`. Do not infer
+supersession from a general request. The validator checks structural fields and
+bindings; it does not prove semantic dependency coverage or discovery
+completeness.
+
+Authority dependencies do not require fabricated human decisions. The existing
+`decision_dependencies` field retains its name and carries the same records as
+the accepted snapshot's `dependencies`. A direct repository-file authority is
+`{kind="repository-file", path, digest}`; a direct accepted-architecture
+authority is `{kind="accepted-architecture", path, digest, snapshot_id}`.
+`decision_id` is optional: omit it for a direct authority reference; when
+present, it must name a human decision in the bound accepted architecture.
+`repository-file` does not take `snapshot_id`; `accepted-architecture` requires
+it and still requires matching accepted ownership and digest. This backward-
+compatible optionality leaves `schema_version=1` unchanged. A changed authority
+file makes the approved plan/execution authority stale; it does not invalidate
+the historical accepted snapshot itself.
 
 Acceptance writes an immutable snapshot under
 `architectures/<snapshot-id>-<sha256>.toml` and binds its exact path and byte
@@ -147,14 +191,16 @@ frontmatter: `schema_version=1`, matching `task_id`, `status="approved"`,
 `decision_dependencies_reviewed=true`, `architecture_bindings`, and
 `decision_dependencies`. Each architecture binding records
 `{snapshot_id, path, digest}`; plan binding and dependency paths are relative to
-the repository root. Each reviewed dependency records
-`{decision_id, kind, path, digest}` and, for `kind="accepted-architecture"`,
-`snapshot_id`; dependencies must match those recorded by the bound snapshot.
-The validator checks path containment, content digests, accepted ownership, and
-staleness. Only after human approval of this plan may the controller create a
-supported version-3 or version-4 execution graph that references it from
-`03-state.toml.source_plan`. Do not treat accepted advisory state or a plan
-proposal as permission to start implementation.
+the repository root. Each reviewed dependency records `{kind, path, digest}`,
+with optional `decision_id` and, for `kind="accepted-architecture"`, required
+`snapshot_id`. When present, `decision_id` must reference a human decision in a
+bound accepted architecture; omit it for direct governing-authority
+references. Dependencies must exactly match those recorded by the bound
+snapshot. The validator checks path containment, content digests, accepted
+ownership, and staleness. Only after human approval of this plan may the
+controller create a supported version-3 or version-4 execution graph that
+references it from `03-state.toml.source_plan`. Do not treat accepted advisory
+state or a plan proposal as permission to start implementation.
 
 `round=0` is the independent reviewer’s initial review. A user-approved follow-up
 uses `round=1`; later rounds increment from there. The controller persists the
