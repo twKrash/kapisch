@@ -26,7 +26,6 @@ BINDING_FIELDS = frozenset({"snapshot_id", "path", "digest"})
 DEPENDENCY_FIELDS = frozenset(
     {"decision_id", "kind", "path", "digest", "snapshot_id"}
 )
-RELATION_FIELDS = frozenset({"kind", "target_path", "target_digest", "decision_id"})
 DIGEST_RE = re.compile(r"[0-9a-f]{64}\Z")
 PLAN_PATH_RE = re.compile(r"plans/([0-9a-f]{64})\.md\Z")
 
@@ -133,6 +132,10 @@ def _record_accepted_snapshot(
 def _is_superseded(
     project_root: Path, target_path: str, target_digest: str, errors: list[ValidationError]
 ) -> bool:
+    resolved_root = project_root.resolve()
+    target_file = _safe_file(resolved_root, target_path)
+    if target_file is not None:
+        target_path = target_file.relative_to(resolved_root).as_posix()
     runs_dir = project_root / ".kapisch" / "runs"
     if not runs_dir.is_dir():
         return False
@@ -172,35 +175,16 @@ def _is_superseded(
             continue
         relations = snapshot.get("relationships", [])
         if not isinstance(relations, list):
-            errors.append(_error("ADV-AUTHORITY-INVALID", candidate, "relationships", "must be an array"))
             continue
         for relation in relations:
             if not isinstance(relation, dict):
-                errors.append(_error("ADV-AUTHORITY-INVALID", candidate, "relationships", "relationship must be a table"))
                 continue
-            if set(relation) != RELATION_FIELDS:
-                errors.append(_error("ADV-AUTHORITY-INVALID", candidate, "relationships", "relationship must contain kind, target_path, target_digest, and decision_id only"))
-                continue
-            kind = relation.get("kind")
-            if not isinstance(kind, str) or kind not in {"amends", "supersedes"}:
-                errors.append(_error("ADV-AUTHORITY-INVALID", candidate, "relationships.kind", "must be amends or supersedes"))
-                continue
-            snapshot_decisions = snapshot.get("decisions")
-            decision_ids = {
-                item.get("id")
-                for item in snapshot_decisions
-                if isinstance(item, dict) and isinstance(item.get("id"), str)
-            } if isinstance(snapshot_decisions, list) else set()
-            if not isinstance(relation.get("decision_id"), str) or relation["decision_id"] not in decision_ids:
-                errors.append(_error("ADV-AUTHORITY-INVALID", candidate, "relationships.decision_id", "must reference a decision in the accepted snapshot"))
-                continue
-            if not isinstance(relation.get("target_path"), str) or not relation["target_path"].strip():
-                errors.append(_error("ADV-AUTHORITY-INVALID", candidate, "relationships.target_path", "must be non-empty text"))
-                continue
-            if not isinstance(relation.get("target_digest"), str) or DIGEST_RE.fullmatch(relation["target_digest"]) is None:
-                errors.append(_error("ADV-AUTHORITY-INVALID", candidate, "relationships.target_digest", "must be a SHA-256 digest"))
-                continue
-            if relation.get("target_path") == target_path and relation.get("target_digest") == target_digest:
+            relation_target = _safe_file(project_root, relation.get("target_path"))
+            if (
+                relation_target is not None
+                and relation_target.relative_to(resolved_root).as_posix() == target_path
+                and relation.get("target_digest") == target_digest
+            ):
                 return True
     return False
 
@@ -323,8 +307,8 @@ def validate_plan_authority(
     if not isinstance(bindings, list):
         errors.append(_error("ADV-PLAN-BINDINGS", plan_path, "architecture_bindings", "must be an array of accepted snapshot references"))
         bindings = []
-    elif expected_advisory_dir is not None and not bindings:
-        errors.append(_error("ADV-PLAN-BINDINGS", plan_path, "architecture_bindings", "promoted advisory requires at least one accepted architecture binding"))
+    elif not bindings:
+        errors.append(_error("ADV-PLAN-BINDINGS", plan_path, "architecture_bindings", "content-addressed promotion plan requires at least one accepted architecture binding"))
     expected_dependencies: set[tuple[str, str, str, str, str]] = set()
     binding_ids: set[str] = set()
     binding_paths: set[str] = set()

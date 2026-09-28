@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import shutil
 import tempfile
 import tomllib
@@ -236,6 +237,26 @@ class ExecutionAuthorityTests(unittest.TestCase):
 
             self.assertIn("ADV-PLAN-BINDINGS", {error.code for error in errors})
 
+    def test_cli_rejects_unbound_content_addressed_plan_without_advisory(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            task_dir = root / ".kapisch" / "runs" / "valid"
+            shutil.copytree(Path(__file__).parent / "fixtures/valid-v4-controller", task_dir)
+            plan_path = write_plan(
+                task_dir,
+                task_dir / "unused.toml",
+                "A01",
+                "0" * 64,
+                architecture_bindings=[],
+            )
+            self.update_graph_source_plan(task_dir, plan_path)
+
+            errors = validate(
+                Path(__file__).resolve().parents[2] / "skills/kapisch", task_dir
+            )
+
+            self.assertIn("ADV-PLAN-BINDINGS", {error.code for error in errors})
+
     def test_cli_rejects_binding_from_another_advisory_run(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -332,6 +353,43 @@ class ExecutionAuthorityTests(unittest.TestCase):
             errors = validate_plan_authority(task_dir, plan_path)
 
             self.assertIn("ADV-SNAPSHOT-DIGEST", {error.code for error in errors})
+
+    @unittest.skipIf(os.name == "nt", "symlink creation requires privileges on Windows")
+    def test_supersession_rejects_symlink_alias_in_plan_binding(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            task_dir, snapshot_path, snapshot_digest = self.make_run(root)
+            old_path = snapshot_path.relative_to(root).as_posix()
+            alias_path = task_dir / "accepted-alias.toml"
+            alias_path.symlink_to(snapshot_path)
+            alias = alias_path.relative_to(root).as_posix()
+            new_path, new_digest = write_snapshot(
+                task_dir,
+                "A02",
+                "Amended architecture.\n",
+                relationships=[
+                    {
+                        "kind": "supersedes",
+                        "target_path": old_path,
+                        "target_digest": snapshot_digest,
+                        "decision_id": "D02",
+                    }
+                ],
+            )
+            add_snapshot_to_state(task_dir, "A02", new_path, new_digest)
+            plan_path = write_plan(
+                task_dir,
+                snapshot_path,
+                "A01",
+                snapshot_digest,
+                architecture_bindings=[
+                    {"snapshot_id": "A01", "path": alias, "digest": snapshot_digest}
+                ],
+            )
+
+            errors = validate_plan_authority(task_dir, plan_path)
+
+            self.assertIn("ADV-AUTHORITY-STALE", {error.code for error in errors})
 
     def test_superseding_architecture_stales_plan_bound_to_predecessor(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

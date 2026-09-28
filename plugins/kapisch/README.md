@@ -8,10 +8,10 @@ Codex continues to own agent dispatch, model selection, and sandboxing.
 
 This plugin is distributed through the Git-backed `kapisch-local` marketplace,
 not the OpenAI public Plugin Directory. After an authorized maintainer publishes
-the immutable `v2.1.0` tag, install it with:
+the immutable `v2.2.0` tag, install it with:
 
 ```text
-codex plugin marketplace add twKrash/kapisch --ref v2.1.0
+codex plugin marketplace add twKrash/kapisch --ref v2.2.0
 codex plugin add kapisch@kapisch-local
 ```
 
@@ -73,7 +73,9 @@ legacy outcomes.
 The validator uses only the Python 3.11 standard library. It reads graph-free
 advisory state, content-addressed architecture snapshots and promotion plans,
 and durable TOML execution evidence; it never dispatches agents, writes
-artifacts, invokes Git, or grants approval.
+artifacts, invokes Git, or grants approval. Advisory acceptance is not execution
+authority: graph promotion requires a separately approved, content-addressed
+plan bound to accepted snapshots and reviewed decision dependencies.
 
 ```text
 python -m pip install <plugin-root>
@@ -99,8 +101,9 @@ python scripts/migrate_legacy_run.py --project-dir <consumer-repository> --task-
 ```
 
 Windows 11 with Codex Desktop and WSL2 remains the live release baseline.
-Native Windows CI passes for the tested 2.1.0 candidate runtime; live no-WSL
-support is not yet claimed.
+PR #44's native Windows `windows-profile-setup` check passed for implementation
+head `25818d8`; checks for the 2.2.0 version/docs update are pending. Live
+no-WSL support is not yet claimed.
 See [compatibility.md](docs/compatibility.md).
 
 ## Development checks
@@ -119,6 +122,7 @@ From the repository root, also run `python -m unittest discover -s tests` and
 - [Public workflow contract](skills/kapisch/SKILL.md)
 - [Deterministic generated-artifact contract](docs/deterministic-artifacts.md)
 - [Acceptance status](docs/acceptance.md)
+- [Windows 2.2.0 candidate acceptance record](docs/acceptance-windows-v2.2.0.md)
 - [Durable-run legacy migration and profile compatibility](docs/compatibility.md)
 - [Profile sets and switching](docs/profile-sets.md)
 - [Changelog](CHANGELOG.md)

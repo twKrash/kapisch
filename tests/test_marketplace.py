@@ -21,7 +21,7 @@ class MarketplaceTests(unittest.TestCase):
         manifest = json.loads(
             (PLUGIN / ".codex-plugin/plugin.json").read_text(encoding="utf-8")
         )
-        self.assertEqual(manifest["version"], "2.1.0")
+        self.assertEqual(manifest["version"], "2.2.0")
         contract = (PLUGIN / "docs/deterministic-artifacts.md").read_text(
             encoding="utf-8"
         )

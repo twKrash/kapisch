@@ -92,7 +92,10 @@ Acceptance writes an immutable snapshot under
 digest from `accepted_architectures`. The snapshot records schema/task/snapshot
 identity, `status="accepted"`, source revision, architecture content and its
 SHA-256, human decisions, evidence references, decision dependencies, and
-`amends`/`supersedes` relationships. Later decisions create new snapshots;
+`amends`/`supersedes` relationships. Each relationship targets another accepted
+snapshot by canonical repository-relative path and byte digest; validation checks
+its existence, accepted-owner binding, and bytes before applying supersession.
+Later decisions create new snapshots;
 accepted bytes and decisions are never rewritten. Resume preserves task intent,
 scope, exclusions, decisions, and the ordered snapshot history. Acceptance is
 advisory only; it grants no implementation, review, or readiness authority.

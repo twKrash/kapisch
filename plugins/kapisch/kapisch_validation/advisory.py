@@ -57,6 +57,7 @@ STATUSES = frozenset(
     }
 )
 DECISION_FIELDS = frozenset({"id", "kind", "answer", "source"})
+RELATION_FIELDS = frozenset({"kind", "target_path", "target_digest", "decision_id"})
 PACKET_FIELDS = frozenset(
     {"id", "kind", "problem", "why", "decision_required", "options", "recommendation"}
 )
@@ -153,7 +154,123 @@ def _validate_decisions(
             seen.add(decision_id)
 
 
+def _relationship_target_is_valid(
+    project_root: Path,
+    current_snapshot: Path,
+    target_path: str,
+    target_digest: str,
+) -> bool:
+    target = _safe_file(project_root, target_path)
+    if target is None:
+        return False
+    root = project_root.resolve()
+    try:
+        relative_path = target.relative_to(root).as_posix()
+        if relative_path != target_path or target == current_snapshot.resolve():
+            return False
+    except (OSError, RuntimeError, ValueError):
+        return False
+    parts = target.relative_to(root).parts
+    if len(parts) != 5 or parts[:2] != (".kapisch", "runs") or parts[3] != "architectures":
+        return False
+    snapshot, failure = load_toml_artifact(target)
+    if failure is not None or not isinstance(snapshot, dict):
+        return False
+    snapshot_id = snapshot.get("snapshot_id")
+    owner_dir = target.parent.parent
+    if (
+        not isinstance(snapshot_id, str)
+        or snapshot.get("status") != "accepted"
+        or snapshot.get("task_id") != owner_dir.name
+        or target.name != f"{snapshot_id}-{target_digest}.toml"
+    ):
+        return False
+    try:
+        actual_digest = hashlib.sha256(target.read_bytes()).hexdigest()
+    except OSError:
+        return False
+    if actual_digest != target_digest:
+        return False
+    owner_state_path = _safe_file(owner_dir, STATE_PATH)
+    if owner_state_path is None or owner_state_path != owner_dir.resolve() / STATE_PATH:
+        return False
+    owner_state, failure = load_toml_artifact(owner_state_path)
+    if failure is not None or not isinstance(owner_state, dict):
+        return False
+    expected_path = target.relative_to(owner_dir).as_posix()
+    accepted = owner_state.get("accepted_architectures")
+    accepted_here = isinstance(accepted, list) and any(
+        isinstance(entry, dict)
+        and entry.get("id") == snapshot_id
+        and entry.get("path") == expected_path
+        and entry.get("digest") == target_digest
+        for entry in accepted
+    )
+    if not accepted_here:
+        return False
+    owner_run = owner_dir.resolve()
+    current_run = current_snapshot.parent.parent.resolve()
+    # ponytail: revalidate owner per relationship; memoize only if run counts grow.
+    return owner_run == current_run or not validate_advisory(
+        owner_dir, _validate_relationship_targets=False
+    )
+
+
+def _validate_relationships(
+    value: object,
+    decisions: object,
+    path: Path,
+    project_root: Path,
+    validate_targets: bool,
+    errors: list[ValidationError],
+) -> None:
+    if not isinstance(value, list):
+        return
+    decision_ids = {
+        decision.get("id")
+        for decision in decisions
+        if isinstance(decision, dict) and isinstance(decision.get("id"), str)
+    } if isinstance(decisions, list) else set()
+    for index, relation in enumerate(value):
+        field = f"relationships[{index}]"
+        if not isinstance(relation, dict):
+            errors.append(_error("ADV-AUTHORITY-INVALID", path, field, "must be a table"))
+            continue
+        if set(relation) != RELATION_FIELDS:
+            errors.append(_error("ADV-AUTHORITY-INVALID", path, field, "must contain kind, target_path, target_digest, and decision_id only"))
+        kind = relation.get("kind")
+        if not isinstance(kind, str) or kind not in {"amends", "supersedes"}:
+            errors.append(_error("ADV-AUTHORITY-INVALID", path, f"{field}.kind", "must be amends or supersedes"))
+        if not isinstance(relation.get("decision_id"), str) or relation["decision_id"] not in decision_ids:
+            errors.append(_error("ADV-AUTHORITY-INVALID", path, f"{field}.decision_id", "must reference a decision in the accepted snapshot"))
+        target_path = relation.get("target_path")
+        path_valid = isinstance(target_path, str) and bool(target_path.strip())
+        if not path_valid:
+            errors.append(_error("ADV-AUTHORITY-INVALID", path, f"{field}.target_path", "must be a non-empty relative POSIX path"))
+        else:
+            try:
+                validate_relative_posix_path(target_path)
+            except ValueError:
+                path_valid = False
+                errors.append(_error("ADV-AUTHORITY-INVALID", path, f"{field}.target_path", "must be a non-empty relative POSIX path"))
+        target_digest = relation.get("target_digest")
+        digest_valid = isinstance(target_digest, str) and DIGEST_RE.fullmatch(target_digest) is not None
+        if not digest_valid:
+            errors.append(_error("ADV-AUTHORITY-INVALID", path, f"{field}.target_digest", "must be a 64-character lowercase SHA-256 digest"))
+        if (
+            isinstance(target_path, str)
+            and path_valid
+            and isinstance(target_digest, str)
+            and digest_valid
+            and validate_targets
+            and not _relationship_target_is_valid(project_root, path, target_path, target_digest)
+        ):
+            errors.append(_error("ADV-AUTHORITY-INVALID", path, f"{field}.target_path", "must reference another accepted architecture snapshot whose bytes match target_digest"))
+
+
+
 def _validate_packets(
+
     value: object, path: Path, errors: list[ValidationError]
 ) -> None:
     if not isinstance(value, list):
@@ -217,6 +334,8 @@ def _validate_packets(
 
 def _validate_snapshot(
     task_dir: Path,
+    project_root: Path,
+    validate_relationship_targets: bool,
     task_id: str,
     entry: object,
     index: int,
@@ -275,6 +394,10 @@ def _validate_snapshot(
     for field_name in ("evidence_refs", "dependencies", "relationships"):
         if not isinstance(snapshot.get(field_name), list):
             errors.append(_error("ADV-SNAPSHOT-SCHEMA", snapshot_path, field_name, "must be an array"))
+    if isinstance(snapshot.get("relationships"), list):
+        _validate_relationships(
+            snapshot["relationships"], snapshot.get("decisions"), snapshot_path, project_root, validate_relationship_targets, errors
+        )
     return snapshot
 
 
@@ -289,12 +412,16 @@ def _snapshot_identity(value: object) -> tuple[str, str, str] | None:
 
 
 def validate_advisory(
-    task_dir: Path, previous_task_dir: Path | None = None
+    task_dir: Path,
+    previous_task_dir: Path | None = None,
+    *,
+    _validate_relationship_targets: bool = True,
 ) -> list[ValidationError]:
     """Validate graph-free advisory state, accepted snapshots, and resume history."""
     task_dir = Path(task_dir)
     state_path = task_dir / STATE_PATH
-    if repository_root(task_dir) is None:
+    project_root = repository_root(task_dir)
+    if project_root is None:
         return [_error("ADV-STATE-ROOT", state_path, "task_dir", "run must be beneath <repository>/.kapisch/runs/<task-id>")]
     state, failure = load_toml_artifact(state_path)
     if failure is not None or state is None:
@@ -351,7 +478,7 @@ def validate_advisory(
     identities: set[tuple[object, object, object]] = set()
     snapshot_ids: set[str] = set()
     for index, entry in enumerate(snapshots):
-        snapshot = _validate_snapshot(task_dir, task_id, entry, index, errors)
+        snapshot = _validate_snapshot(task_dir, project_root, _validate_relationship_targets, task_id, entry, index, errors)
         identity = _snapshot_identity(entry)
         if identity is not None and (
             identity in identities or identity[0] in snapshot_ids
@@ -371,7 +498,10 @@ def validate_advisory(
     if previous_task_dir is not None:
         previous_task_dir = Path(previous_task_dir)
         previous_path = previous_task_dir / STATE_PATH
-        prior_errors = validate_advisory(previous_task_dir)
+        prior_errors = validate_advisory(
+            previous_task_dir,
+            _validate_relationship_targets=_validate_relationship_targets,
+        )
         previous, previous_failure = load_toml_artifact(previous_path)
         if prior_errors or previous_failure is not None or previous is None:
             errors.append(_error("ADV-RESUME-PRIOR-INVALID", previous_path, "state", "prior advisory snapshot must validate before resume"))

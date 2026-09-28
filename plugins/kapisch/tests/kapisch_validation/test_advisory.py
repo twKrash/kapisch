@@ -13,7 +13,9 @@ from kapisch_validation.cli import validate
 REVISION = "a" * 40
 
 
-def write_advisory(task_dir: Path) -> tuple[Path, str]:
+def write_advisory(
+    task_dir: Path, relationships: list[dict[str, str]] | None = None
+) -> tuple[Path, str]:
     task_dir.mkdir(parents=True)
     proposal_content = "# Session history architecture\n\nKeep history in durable storage.\n"
     (task_dir / "01-architecture.md").write_bytes(proposal_content.encode("utf-8"))
@@ -35,7 +37,7 @@ def write_advisory(task_dir: Path) -> tuple[Path, str]:
         "decisions": [decision],
         "evidence_refs": [],
         "dependencies": [],
-        "relationships": [],
+        "relationships": relationships or [],
     }
     snapshot_bytes = render_toml(snapshot)
     digest = hashlib.sha256(snapshot_bytes).hexdigest()
@@ -76,6 +78,156 @@ class AdvisoryArtifactTests(unittest.TestCase):
             self.assertEqual(errors, [])
             self.assertEqual(list(cli_errors), [])
             self.assertFalse((task_dir / "02-execution-graph.toml").exists())
+
+    def test_malformed_accepted_relationship_is_rejected_graph_free(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            task_dir = Path(temporary) / ".kapisch" / "runs" / "session-history-design"
+            write_advisory(
+                task_dir,
+                relationships=[
+                    {
+                        "kind": "replaces",
+                        "target_path": "architectures/A00-" + "0" * 64 + ".toml",
+                        "target_digest": "0" * 64,
+                        "decision_id": "D01",
+                    }
+                ],
+            )
+
+            errors = validate_advisory(task_dir)
+
+            self.assertIn("ADV-AUTHORITY-INVALID", {error.code for error in errors})
+
+    def test_relationship_digest_must_bind_accepted_target_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            predecessor_dir = root / ".kapisch" / "runs" / "predecessor"
+            predecessor_state_path, predecessor_digest = write_advisory(predecessor_dir)
+            predecessor_state = tomllib.loads(predecessor_state_path.read_text(encoding="utf-8"))
+            target = predecessor_dir / predecessor_state["accepted_architectures"][0]["path"]
+            wrong_digest = "0" * 64 if predecessor_digest != "0" * 64 else "f" * 64
+            successor_dir = root / ".kapisch" / "runs" / "successor"
+            write_advisory(
+                successor_dir,
+                relationships=[
+                    {
+                        "kind": "supersedes",
+                        "target_path": target.relative_to(root).as_posix(),
+                        "target_digest": wrong_digest,
+                        "decision_id": "D01",
+                    }
+                ],
+            )
+
+            errors = validate_advisory(successor_dir)
+
+            self.assertIn("ADV-AUTHORITY-INVALID", {error.code for error in errors})
+
+    def test_relationship_target_must_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            successor_dir = root / ".kapisch" / "runs" / "successor"
+            write_advisory(
+                successor_dir,
+                relationships=[
+                    {
+                        "kind": "amends",
+                        "target_path": ".kapisch/runs/predecessor/architectures/A01-" + "0" * 64 + ".toml",
+                        "target_digest": "0" * 64,
+                        "decision_id": "D01",
+                    }
+                ],
+            )
+
+            errors = validate_advisory(successor_dir)
+
+            self.assertIn("ADV-AUTHORITY-INVALID", {error.code for error in errors})
+
+    def test_relationship_target_must_be_accepted_by_owner(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            predecessor_dir = root / ".kapisch" / "runs" / "predecessor"
+            predecessor_state_path, predecessor_digest = write_advisory(predecessor_dir)
+            predecessor_state = tomllib.loads(predecessor_state_path.read_text(encoding="utf-8"))
+            target = predecessor_dir / predecessor_state["accepted_architectures"][0]["path"]
+            predecessor_state["accepted_architectures"] = []
+            predecessor_state_path.write_bytes(render_toml(predecessor_state))
+            successor_dir = root / ".kapisch" / "runs" / "successor"
+            write_advisory(
+                successor_dir,
+                relationships=[
+                    {
+                        "kind": "amends",
+                        "target_path": target.relative_to(root).as_posix(),
+                        "target_digest": predecessor_digest,
+                        "decision_id": "D01",
+                    }
+                ],
+            )
+
+            errors = validate_advisory(successor_dir)
+
+            self.assertIn("ADV-AUTHORITY-INVALID", {error.code for error in errors})
+
+    def test_relationship_target_content_digest_must_validate(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            predecessor_dir = root / ".kapisch" / "runs" / "predecessor"
+            predecessor_state_path, _ = write_advisory(predecessor_dir)
+            predecessor_state = tomllib.loads(predecessor_state_path.read_text(encoding="utf-8"))
+            entry = predecessor_state["accepted_architectures"][0]
+            original_target = predecessor_dir / entry["path"]
+            snapshot = tomllib.loads(original_target.read_text(encoding="utf-8"))
+            snapshot["content_sha256"] = "0" * 64
+            snapshot_bytes = render_toml(snapshot)
+            target_digest = hashlib.sha256(snapshot_bytes).hexdigest()
+            target = original_target.with_name(f"A01-{target_digest}.toml")
+            target.write_bytes(snapshot_bytes)
+            entry["path"] = target.relative_to(predecessor_dir).as_posix()
+            entry["digest"] = target_digest
+            predecessor_state_path.write_bytes(render_toml(predecessor_state))
+            successor_dir = root / ".kapisch" / "runs" / "successor"
+            write_advisory(
+                successor_dir,
+                relationships=[
+                    {
+                        "kind": "supersedes",
+                        "target_path": target.relative_to(root).as_posix(),
+                        "target_digest": target_digest,
+                        "decision_id": "D01",
+                    }
+                ],
+            )
+
+            errors = validate_advisory(successor_dir)
+
+            self.assertIn("ADV-AUTHORITY-INVALID", {error.code for error in errors})
+
+    def test_relationship_target_owner_state_must_validate(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            predecessor_dir = root / ".kapisch" / "runs" / "predecessor"
+            predecessor_state_path, predecessor_digest = write_advisory(predecessor_dir)
+            predecessor_state = tomllib.loads(predecessor_state_path.read_text(encoding="utf-8"))
+            target = predecessor_dir / predecessor_state["accepted_architectures"][0]["path"]
+            predecessor_state["schema_version"] = 2
+            predecessor_state_path.write_bytes(render_toml(predecessor_state))
+            successor_dir = root / ".kapisch" / "runs" / "successor"
+            write_advisory(
+                successor_dir,
+                relationships=[
+                    {
+                        "kind": "amends",
+                        "target_path": target.relative_to(root).as_posix(),
+                        "target_digest": predecessor_digest,
+                        "decision_id": "D01",
+                    }
+                ],
+            )
+
+            errors = validate_advisory(successor_dir)
+
+            self.assertIn("ADV-AUTHORITY-INVALID", {error.code for error in errors})
 
     def test_advisory_state_must_live_under_repository_run_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
