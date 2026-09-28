@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -77,4 +77,25 @@ test("skill activation stays explicitly opt-in", () => {
   assert.match(skill, /implementer-lite\s*->\s*kapisch-implementer-lite/);
   assert.match(skill, /mechanic\s*->\s*kapisch-mechanic/);
   assert.match(skill, /reviewer\s*->\s*kapisch-reviewer/);
+});
+
+test("internal-script guide resolves paths from the loaded KAPISCH skill", () => {
+  const canonicalUrl = new URL("../../../plugins/kapisch/skills/kapisch/SKILL.md", import.meta.url);
+  const canonical = readFileSync(canonicalUrl, "utf8");
+  const readme = readFileSync(new URL("../../../plugins/kapisch/README.md", import.meta.url), "utf8");
+  const guideUrl = new URL("references/internal-scripts.md", canonicalUrl);
+
+  assert.equal(existsSync(fileURLToPath(guideUrl)), true, "canonical skill links to an existing script guide");
+  const guide = readFileSync(guideUrl, "utf8");
+  const scriptUrl = new URL("../../scripts/validate_kapisch.py", canonicalUrl);
+
+  assert.match(canonical, /references\/internal-scripts\.md/);
+  assert.match(readme, /skills\/kapisch\/references\/internal-scripts\.md/);
+  assert.match(guide, /Pi includes each discovered skill's path in its system prompt/i);
+  assert.match(guide, /current working directory/i);
+  assert.match(guide, /consumer repository[\s\S]{0,60}may differ from the command's current working directory/i);
+  assert.match(guide, /interrupted managed-profile switch[\s\S]{0,120}without `--install`[\s\S]{0,100}restor.*managed profile files/i);
+  assert.match(guide, /resolve `\.\.\/\.\.` from that directory/i);
+  assert.doesNotMatch(guide, /\/home\/|\/Users\/|[A-Z]:\\/);
+  assert.equal(existsSync(fileURLToPath(scriptUrl)), true);
 });

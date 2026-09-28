@@ -21,7 +21,7 @@ class MarketplaceTests(unittest.TestCase):
         manifest = json.loads(
             (PLUGIN / ".codex-plugin/plugin.json").read_text(encoding="utf-8")
         )
-        self.assertEqual(manifest["version"], "2.3.0")
+        self.assertEqual(manifest["version"], "2.3.1")
         contract = (PLUGIN / "docs/deterministic-artifacts.md").read_text(
             encoding="utf-8"
         )
@@ -301,14 +301,22 @@ class MarketplaceTests(unittest.TestCase):
             .read_text(encoding="utf-8")
             .split()
         )
+        guide = " ".join(
+            (PLUGIN / "skills/kapisch/references/internal-scripts.md")
+            .read_text(encoding="utf-8")
+            .split()
+        )
+        self.assertIn("internal script usage guide", readme)
+        self.assertIn("current working directory", guide)
+        self.assertIn("resolve `../..` from that directory", guide)
         self.assertIn(
-            "python scripts/setup_profile.py --role reviewer --project-dir "
+            "python <plugin-root>/scripts/setup_profile.py --role reviewer --project-dir "
             "<consumer-repository>",
             readme,
         )
         for profile_set in ("balanced", "quality", "budget"):
             self.assertIn(
-                "python scripts/setup_profile.py --all --project-dir "
+                "python <plugin-root>/scripts/setup_profile.py --all --project-dir "
                 f"<consumer-repository> --profile-set {profile_set} --install",
                 readme,
             )
@@ -317,7 +325,7 @@ class MarketplaceTests(unittest.TestCase):
             readme,
         )
         self.assertIn(
-            "python scripts/migrate_legacy_run.py --project-dir "
+            "python <plugin-root>/scripts/migrate_legacy_run.py --project-dir "
             "<consumer-repository> --task-id <task-id> --approve",
             readme,
         )

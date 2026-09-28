@@ -12,19 +12,22 @@ description: >-
 
 ## Durable artifact validation
 
-For read-only structural validation of KAPISCH advisory or sequential durable
-TOML artifacts, run the installed validator with `--task-dir` rooted in the
-consumer repository:
+For read-only structural validation of KAPISCH advisory or sequential TOML
+artifacts, invoke the bundled script with the plugin root resolved from the
+active KAPISCH skill path, not a path relative to the consumer repository's
+working directory. See [internal script usage](references/internal-scripts.md)
+for runtime path resolution:
 
 ```text
-kapisch-validate --task-dir <consumer-repository>/.kapisch/runs/<task-id>
+python <plugin-root>/scripts/validate_kapisch.py --task-dir <consumer-repository>/.kapisch/runs/<task-id>
 ```
 
-The installed command discovers its bundled contracts independently of the
-working directory. `--contract-dir PATH` is an expert override, not required
-for normal use. See the [validator section in the repository
-README](../../README.md#validator). The validator does not dispatch, repair,
-schedule, or approve work.
+If `kapisch-validate` is already installed and available on `PATH`, it can also
+be used; do not assume it is installed by Pi or another host. The bundled
+validator discovers its contracts independently of the working directory.
+`--contract-dir PATH` is an expert override, not required for normal use. See
+the [validator section in the repository README](../../README.md#validator).
+The validator does not dispatch, repair, schedule, or approve work.
 
 Validator exit 0 is necessary structural evidence only; validator errors are
 blocking. Exit 0 does not establish iteration or whole-branch scope, dependency
