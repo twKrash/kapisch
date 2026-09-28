@@ -10,14 +10,14 @@ dispatch, durable execution, and the installed public validator.
 | --- | --- | --- |
 | Marketplace layout and canonical plugin source | passed | root `tests/test_marketplace.py` |
 | Portable package and validator | passed | `scripts/test_portable_package.py` and `tests/kapisch_validation` |
-| 2.2.0 graph-free advisory candidate | Prior PR #44 CI passed for tested runtime tree `25818d8f1b9162d89d05ea8458ca1ce44a73480d`; authority fixes and version/docs update CI are pending | [2.2.0 candidate record](acceptance-windows-v2.2.0.md), [PR #44 checks](https://github.com/twKrash/kapisch/pull/44/checks) |
+| 2.2.0 graph-free advisory candidate | CI passed for tested runtime tree `1c2631f2c4e691d436d3822e8a0bafd02a91d651` on push and PR runs; final release SHA pending | [2.2.0 candidate record](acceptance-windows-v2.2.0.md), [PR #44 checks](https://github.com/twKrash/kapisch/pull/44/checks) |
 | 2.1.0 deterministic-artifact candidate (prior candidate) | passed for tested runtime tree `804957019eaee45116201202d463dc9f7345b312`; final release SHA pending | [2.1.0 Windows record](acceptance-windows-v2.1.0.md) |
 | 2.0.0 local-profile compatibility candidate | historical automated pass for tested runtime tree `ab0f00708d4baee9ebb8b81005d6f2e3a92c6daa` | [2.0.0 Windows record](acceptance-windows-v2.0.0.md) |
 | Unix-like release 1.0.0 | historical complete | [historical runtime record](acceptance-runtime.md) |
 | Windows 11 Desktop + WSL2 release baseline | historical complete | [1.0.1 Windows record](acceptance-windows-v1.0.1.md) |
 | 1.0.1 exact release SHA and remote tag | historical complete | [1.0.1 Windows record](acceptance-windows-v1.0.1.md) |
 | Pre-2.0 Windows/release candidate rows | historical | prior acceptance records |
-| Native Windows without WSL | PR #44 `windows-profile-setup` passed on implementation head `25818d8f1b9162d89d05ea8458ca1ce44a73480d`; live flow not claimed | [PR #44 Windows check](https://github.com/twKrash/kapisch/actions/runs/36356059919) |
+| Native Windows without WSL | PR #44 automated `windows-profile-setup` passed on corrected head `1c2631f2c4e691d436d3822e8a0bafd02a91d651`; live flow not claimed | [PR #44 Windows check](https://github.com/twKrash/kapisch/actions/runs/36362504465) |
 | OpenAI public Plugin Directory | out of scope | Git-backed `kapisch-local` is the distribution path |
 
 ## Automated acceptance
@@ -39,19 +39,18 @@ git diff --check
 Project-understanding procedures, role boundaries, handoffs, and independent
 review remain covered by the contract acceptance suite.
 
-## Latest CI evidence — PR #44 implementation candidate
+## Latest CI evidence — 2.2.0 candidate
 
-Tested implementation SHA: `25818d8f1b9162d89d05ea8458ca1ce44a73480d`.
+Tested runtime SHA: `1c2631f2c4e691d436d3822e8a0bafd02a91d651`.
 
 | Workflow run | Event | Result |
 | --- | --- | --- |
-| [36356057859](https://github.com/twKrash/kapisch/actions/runs/36356057859) | push | `ci` and `windows-profile-setup`: PASS |
-| [36356059919](https://github.com/twKrash/kapisch/actions/runs/36356059919) | pull_request | `ci` and `windows-profile-setup`: PASS |
+| [36362502034](https://github.com/twKrash/kapisch/actions/runs/36362502034) | push | `ci` and `windows-profile-setup`: PASS |
+| [36362504465](https://github.com/twKrash/kapisch/actions/runs/36362504465) | pull_request | `ci` and `windows-profile-setup`: PASS |
 
-These runs predate the current 2.2.0 version/docs update. The version-policy
-check and Pi package lockstep test passed locally after that update; CI for the
-updated commit is pending. Native Windows evidence is automated only; no live
-no-WSL marketplace flow is claimed.
+Both workflows passed on the corrected branch head, including the authority
+validation fixes and synchronized 2.2.0 metadata. Native Windows evidence is
+automated only; no live no-WSL marketplace flow is claimed.
 
 ### Historical 2.1.0 CI evidence
 
@@ -88,7 +87,8 @@ read-only reviewer, and the installed `kapisch-validate` command returning `[]`.
 
 The 1.0.0 Linux and 1.0.1 Windows Desktop + WSL2 flows are historical evidence.
 The 2.2.0 PR #44 native-Windows result is automated CI evidence, not a live
-no-WSL support claim. CI for the current version/docs update is pending.
+no-WSL support claim. Both `ci` and `windows-profile-setup` passed on corrected
+head `1c2631f2c4e691d436d3822e8a0bafd02a91d651`.
 
 ## Delegation boundary
 
