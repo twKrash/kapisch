@@ -37,6 +37,16 @@ boundary. It inspects the accumulated branch using the complete review contract
 below and is the only review that can approve the branch for final readiness.
 Any implementation change after its approval makes that approval stale.
 
+The **standalone graph-free review** uses `workflow=review` for a review-only
+request. It binds the requested diff or working-tree scope, dispatches one fresh
+read-only reviewer, and returns findings only, with evidence (severity,
+confidence, location, impact, and suggested remediation), to the
+parent/orchestrator. The reviewer does not approve, reject, or declare ready; the
+parent/orchestrator judges the findings. This path creates no durable graph,
+manifest, invocation artifact, or review result artifact. It does not replace
+iteration or whole-branch review within a task or milestone, whose canonical
+evidence and approval rules remain unchanged.
+
 For an ordinary one-step task, `task_base...task_head` is the entire task diff,
 so its task review may be the whole-branch review; do not require two identical
 reviews. For milestone work, review each completed node as its own iteration,
@@ -257,8 +267,14 @@ generic analysis, or an invocation from another mode remain advisory.
 
 ## Controller approval-reporting check
 
-Before reporting a workflow as approved, ready, or successfully reviewed, the
-controller must inspect current workspace evidence and determine:
+A standalone `workflow=review` response is complete when findings are returned.
+It creates no review record and is not an approval or final-readiness result.
+The following evidence checks govern durable task/milestone review and all
+approval, ready, or final-readiness claims; they do not gate a completed
+standalone findings-only response.
+
+Before reporting a durable workflow as approved, ready, or successfully reviewed,
+the controller must inspect current workspace evidence and determine:
 
 1. whether independent review or final readiness was required;
 2. whether the configured reviewer was invoked;

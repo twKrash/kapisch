@@ -21,7 +21,7 @@ class MarketplaceTests(unittest.TestCase):
         manifest = json.loads(
             (PLUGIN / ".codex-plugin/plugin.json").read_text(encoding="utf-8")
         )
-        self.assertEqual(manifest["version"], "2.2.0")
+        self.assertEqual(manifest["version"], "2.3.0")
         contract = (PLUGIN / "docs/deterministic-artifacts.md").read_text(
             encoding="utf-8"
         )
@@ -50,7 +50,7 @@ class MarketplaceTests(unittest.TestCase):
         self.assertIn("final release SHA pending", matrix)
         self.assertNotIn("current uncommitted candidate worktree", matrix)
         self.assertIn(
-            "automated evidence is bound to this exact runtime tree",
+            "Automated runtime evidence is bound to this exact source tree",
             acceptance,
         )
         self.assertRegex(

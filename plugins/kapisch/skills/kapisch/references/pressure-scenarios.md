@@ -24,7 +24,7 @@ did not run because `Get-Content` was unavailable before any reasoning.
 8. `focus=auto,concurrency` for a public API change: retain the auto-derived
    `api`, `behavior`, `compatibility`, and `tests` lenses, add `concurrency`, and
    record the deduplicated resolved set in canonical order.
-9. “Review my current branch before I open a PR”: resolve `mode=review`,
+9. “Review my current branch before I open a PR”: resolve `workflow=review`,
    `review_target=branch`, `base=origin/main`, `risk=auto`, and `focus=auto`
    without unnecessary clarification.
 10. “Review the household permission changes and check that data cannot cross
@@ -203,11 +203,13 @@ test failures.
      terminal ID once. Resume never double-counts an existing ID.
 104. Without persisted `workflow_metrics=final`, metrics stay disabled. A logical
      tier never implies a runtime model; unavailable usage is never estimated.
-105. An explicit graph-free `mode=review` or `mode=final` request creates its
-     pre-dispatch canonical invocation record and routes only to
-     `.codex/agents/kapisch-reviewer.toml` through one supported dispatch mode;
-     unavailable modes return blocked, `do-not-approve`, or `not-ready`, never
-     controller self-review.
+105. An explicit graph-free `workflow=review` dispatches one fresh reviewer,
+     returns findings only, and creates no canonical invocation or result
+     artifacts. This findings-only route is distinct from explicit `mode=review`
+     or `mode=final` approval/final operations, which still create a pre-dispatch
+     canonical invocation and route to `.codex/agents/kapisch-reviewer.toml`
+     through one supported dispatch mode; unavailable modes return blocked,
+     `do-not-approve`, or `not-ready`, never controller self-review.
 106. A non-trivial graph-free implementation completes: a controller or generic
      subagent cannot approve it; a fresh configured review and a separate fresh
      configured final invocation are required.

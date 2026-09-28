@@ -22,6 +22,12 @@ Use `pi-subagents` and the exact canonical role selected by KAPISCH. Do not subs
 
 If a mapped agent is unavailable, follow the canonical contract's blocking or escalation behavior; do not silently choose a different role.
 
+For `workflow=review`, dispatch exactly one fresh `kapisch-reviewer` child with
+an explicit `review_mode=standalone` marker, the requested review scope, and
+criteria. Do not create a durable graph or review-evidence artifacts; return the
+reviewer's findings to the parent/orchestrator for judgment. This mode is
+separate from reviewer dispatch inside task/milestone execution.
+
 ## Execution boundary
 
 Use fresh child contexts by default. Send bounded task packets and canonical artifact references, not full parent history or duplicated reports. Keep canonical evidence and artifact contracts authoritative; Pi transcripts are not portable evidence unless KAPISCH says otherwise. Record only observable Pi provenance and do not invent evidence equivalence.
