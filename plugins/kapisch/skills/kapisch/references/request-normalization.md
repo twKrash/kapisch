@@ -4,9 +4,9 @@ The LLM/controller owns interpretation of natural-language repository requests.
 Repository Python has no request parser, routing API, intent schema, or rule
 engine.
 
-Explicit controls such as `workflow=advisory`, `workflow=task`,
-`review=always`, `mode=review`, `risk=high`, `theme=foundry`, and
-`ecosystem=off` constrain the LLM/controller's interpretation.
+Explicit controls such as `workflow=advisory`, `workflow=review`,
+`workflow=task`, `review=always`, `mode=review`, `risk=high`, `theme=foundry`,
+and `ecosystem=off` constrain the LLM/controller's interpretation.
 When controls and prose conflict, explicit controls take precedence; explicit
 prose constraints, active durable context, repository evidence, and safe
 defaults follow. Material ambiguity about scope, authority, active task, public
@@ -28,6 +28,15 @@ or selection action instead of ignoring the mention or delegating anyway. The
 selection, fallback, and fail-closed rules for delegated steps are owned by
 [ecosystem-routing.md](ecosystem-routing.md).
 
+A review-only request selects `workflow=review` (also available as the explicit
+`workflow=review` control). This is a first-class graph-free path, not a task
+workflow exception or an ecosystem capability delegation. It dispatches exactly
+one fresh read-only `reviewer` for the requested scope, returns findings to the
+parent/orchestrator, and creates no graph, manifest, durable run directory, or
+review-evidence artifacts. The parent/orchestrator judges findings and owns
+follow-up actions. A request that also asks for implementation is not review-only
+and must use the applicable task or milestone workflow.
+
 The current graph-free `workflow=task` surface does not support delegation. A
 mandated capability therefore blocks for a user choice to promote the work to a
 supported durable version-3 or version-4 graph or relax the constraint; it is
@@ -35,16 +44,19 @@ never silently executed natively. An automatic capability selection may use
 native execution only when the approved outcome remains unchanged, otherwise it
 asks whether to promote the work to a durable graph.
 
-The LLM/controller selects `advisory`, `task`, or `milestone`, logical roles,
-risk, review needs, and whether a request is read-only. Select `advisory` for
-bounded research or architecture advice that must not execute implementation;
-select `task` for a bounded implementation/execution request; select
-`milestone` only for approved multi-step durable execution. `workflow=advisory`
-and `workflow=task` are both graph-free but have distinct authority: advisory
-may dispatch bounded read-only `researcher`/`architect` roles and never creates
-an execution graph or implementation authorization; task follows its ordinary
-non-delegating contract. The controller records only durable facts needed by
-the artifact contract. Operational waves remain unsupported.
+The LLM/controller selects `advisory`, `review`, `task`, or `milestone`, logical
+roles, risk, review needs, and whether a request is read-only. Select `advisory`
+for bounded research or architecture advice that must not execute implementation;
+select `review` for a request that only asks for independent review; select
+`task` for a bounded implementation/execution request; select `milestone` only
+for approved multi-step durable execution. `workflow=advisory` and
+`workflow=task` are graph-free but have distinct authority: advisory may
+dispatch bounded read-only `researcher`/`architect` roles and never creates an
+execution graph or implementation authorization; task follows its ordinary
+non-delegating contract. `workflow=review` creates no execution graph or durable
+evidence and permits only the independent reviewer dispatch. The controller
+records only durable facts needed by the artifact contract. Operational waves
+remain unsupported.
 
 The validator parses those persisted TOML artifacts and validates their schema,
 paths, transitions, and factual consistency. It does not re-derive or second

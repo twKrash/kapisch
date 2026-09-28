@@ -7,9 +7,9 @@ Directory submission.
 
 ## Support
 
-| Surface | Verified status for the 2.2.0 release candidate |
+| Surface | Verified status for the 2.3.0 release candidate |
 | --- | --- |
-| Windows 11 + Codex Desktop + WSL2 | Historical 1.0.1 release baseline passed; 2.2.0 live acceptance remains pending. |
+| Windows 11 + Codex Desktop + WSL2 | Historical 1.0.1 release baseline passed; 2.3.0 live acceptance remains pending. |
 | Linux | Historical live 1.0.0 flow passed; PR #44 CI passed for implementation head `25818d8`; version/docs commit CI is pending. |
 | Native Windows, no WSL | [PR #44 CI](https://github.com/twKrash/kapisch/actions/runs/36356059919) passed for implementation head `25818d8`; live no-WSL support is not claimed. |
 
@@ -19,10 +19,10 @@ example, `~/code`) rather than under `/mnt/c`.
 
 ## Quick start
 
-After the immutable 2.2.0 tag is published, the released installation command is:
+After the immutable 2.3.0 tag is published, the released installation command is:
 
 ```text
-codex plugin marketplace add twKrash/kapisch --ref v2.2.0
+codex plugin marketplace add twKrash/kapisch --ref v2.3.0
 codex plugin add kapisch@kapisch-local
 ```
 
@@ -71,7 +71,7 @@ kapisch-validate --task-dir <consumer-repository>/.kapisch/runs/<task-id> --form
 
 - [Plugin guide](plugins/kapisch/README.md)
 - [Deterministic generated-artifact contract](plugins/kapisch/docs/deterministic-artifacts.md)
-- [Windows 2.2.0 candidate acceptance record](plugins/kapisch/docs/acceptance-windows-v2.2.0.md)
+- [Windows 2.3.0 candidate acceptance record](plugins/kapisch/docs/acceptance-windows-v2.3.0.md)
 - [Windows 2.1.0 historical acceptance record](plugins/kapisch/docs/acceptance-windows-v2.1.0.md)
 - [Windows 2.0.0 historical candidate record](plugins/kapisch/docs/acceptance-windows-v2.0.0.md)
 - [Windows 1.0.1 historical acceptance](plugins/kapisch/docs/acceptance-windows-v1.0.1.md)

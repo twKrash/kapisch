@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.3.0 - 2026-09-28 (release candidate)
+
+- Added graph-free `workflow=review` for fresh, independent, findings-only review.
+- Preserved durable task and milestone review evidence and approval behavior.
+- Synchronized Codex plugin, Python validator, and Pi harness package versions at 2.3.0.
+
 ## 2.2.0 - 2026-09-27 (release candidate)
 
 Backward-compatible feature release adding graph-free architecture advice and

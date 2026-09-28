@@ -9,13 +9,18 @@ Use `handoff=both` by default: the controller writes a durable handoff and
 summarizes it in chat. `handoff=file` writes without the chat summary.
 `handoff=chat` suppresses optional research/plan/implementation/mechanic delivery
 files, but an approving review or final still requires its canonical invocation
-and result artifacts. A chat-only review/final without those artifacts is
-advisory only and cannot approve.
+and result artifacts. A chat-only approving review/final without those artifacts
+is advisory only and cannot approve.
 
-The controller must never infer that `workflow=task`, graph-free execution,
-`handoff=chat`, read-only subagents, an unchanged working tree, or the absence
-of a durable execution graph waives canonical review or final artifact
-requirements.
+A standalone `workflow=review` is findings-only, creates no canonical reviewer
+invocation or result artifacts, and cannot approve or establish final readiness.
+This exception does not apply to review or final work within a durable task or
+milestone.
+
+Outside standalone `workflow=review`, the controller must never infer that
+`workflow=task`, other graph-free execution, `handoff=chat`, read-only
+subagents, an unchanged working tree, or the absence of a durable execution
+graph waives canonical review or final artifact requirements.
 
 When required invocation or result artifacts are absent from the current
 workspace, treat them as not created. Conversation summaries, subagent claims,

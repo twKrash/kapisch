@@ -54,7 +54,7 @@ The seven normal controls are optional and have safe defaults:
 
 | Control | Values and default |
 | --- | --- |
-| `workflow` | `auto|advisory|task|milestone` (`auto`) |
+| `workflow` | `auto|advisory|task|review|milestone` (`auto`) |
 | `review` | `auto|always` (`auto`) |
 | `handoff` | `chat|file|both` (`both`) |
 | `fix_policy` | `manual|blocking` (`manual`) |
@@ -86,21 +86,25 @@ review depth, gates, or side-effect authority. See
 ## What happens
 
 The LLM/controller interprets natural language, applies explicit controls, and
-selects `advisory`, `task`, or `milestone` from the conversation and repository
-context. `workflow=advisory` provides graph-free, read-only research and
-architecture advice; it creates advisory artifacts but no execution graph and
-cannot authorize implementation. `workflow=task` is graph-free implementation
-or other bounded execution; `workflow=milestone` requires an explicitly
-approved multi-step plan and durable sequential artifacts. Material scope growth
-stops for a user decision rather than reusing narrower approval.
+selects `advisory`, `review`, `task`, or `milestone` from the conversation and
+repository context. `workflow=advisory` provides graph-free, read-only research
+and architecture advice; it creates advisory artifacts but no execution graph
+and cannot authorize implementation. `workflow=review` performs a graph-free,
+read-only independent review: dispatch one fresh `kapisch-reviewer` and return
+findings for the parent/orchestrator to judge; create no graph or durable review
+artifacts. `workflow=task` is graph-free implementation or other bounded
+execution; `workflow=milestone` requires an explicitly approved multi-step plan
+and durable sequential artifacts. Material scope growth stops for a user
+decision rather than reusing narrower approval.
 Graph-free means that no execution graph, manifest, durable task nodes, or
-sequential execution state is required. It does not mean artifact-free.
-`workflow=advisory` may assign bounded `researcher` and `architect` roles;
-`workflow=task` does not delegate in the current scope. A mandated skill or
-plugin blocks for a user choice to promote the work to a supported durable
-version-3 or version-4 graph or relax the capability constraint; an automatic
-selection may use the disclosed native fallback only when the approved outcome
-is unchanged.
+sequential execution state is required. It does not mean artifact-free for
+advisory work. `workflow=advisory` may assign bounded `researcher` and
+`architect` roles; `workflow=review` permits only its single independent
+`reviewer` dispatch; `workflow=task` does not delegate in the current scope.
+A mandated skill or plugin blocks for a user choice to promote the work to a
+supported durable version-3 or version-4 graph or relax the capability
+constraint; an automatic selection may use the disclosed native fallback only
+when the approved outcome is unchanged.
 
 Before reporting approval or readiness, apply the controller
 approval-reporting check defined in [review.md](references/review.md).
@@ -111,10 +115,12 @@ and applicable normative references before any later classification, dispatch,
 review/final decision, or completion report. See [request
 normalization](references/request-normalization.md).
 
-When independent review or final readiness is required, the controller must
-still create the canonical pre-dispatch invocation artifact and persist the
-returned reviewer result. Without those artifacts, the result is advisory only
-and cannot be reported as approve or ready.
+When independent review or final readiness is required within a task or
+milestone workflow, the controller must create the canonical pre-dispatch
+invocation artifact and persist the returned reviewer result. Without those
+artifacts, the result is advisory only and cannot be reported as approve or
+ready. Standalone `workflow=review` is separate: it returns findings to the
+parent/orchestrator and does not claim approval or readiness.
 Risk is independent of workflow shape. Behavioral tasks receive independent
 review. An ordinary reviewed local task may end after independent review when
 no delivery boundary applies. High risk strengthens review depth and lenses;

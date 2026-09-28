@@ -1,6 +1,6 @@
 {
   "name": "kapisch-pi",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "private": true,
   "description": "Local Pi package for canonical KAPISCH roles",
   "keywords": ["pi-package", "kapisch", "pi-subagents"],
