@@ -87,6 +87,46 @@ each option records `{id, description, consequences}`. Each packet has at most
 three materially different options; `recommendation` names a listed option or
 is `unavailable`. Never record an agent recommendation as a human decision.
 
+### Human decision continuation
+
+When the user gives an unambiguous human answer to an outstanding decision packet,
+the controller records the answer in `decisions` as
+`{id, kind, answer, source="human"}` and removes only the matching packet from
+`unresolved_decisions`. It updates and persists `00-advisory.toml` before
+dispatch. This automatically resumes the same graph-free advisory run; do not
+ask the user to repeat the answer or separately say “continue.” Dispatch
+`researcher` only when the answer creates a concrete evidence gap that must be
+established before design can continue; otherwise dispatch `architect`. After
+research, the controller gives its evidence to the architect in the same run.
+This continues design only; it does not accept the proposal or authorize
+implementation, review, or readiness.
+
+If the answer is ambiguous, introduces a new material unresolved constraint, or
+cannot be mapped to exactly one packet, do not record a human decision or
+remove that packet. Preserve scope, keep or return the run to
+`decision-required`, and ask a focused question.
+
+### Active decision discovery
+
+Before setting status to `proposal-ready` or recording human acceptance, the
+controller ensures bounded discovery of repository-native ADRs, specifications,
+and architecture decisions, plus accepted KAPISCH architecture snapshots,
+within the declared scope and affected material architecture surfaces. The
+controller owns discovery completeness and may perform the discovery or assign
+bounded evidence work to the researcher. Record candidates and authoritative
+evidence in existing research/evidence references; do not scan unrelated
+history.
+
+The architect verifies each candidate's authority, active status, applicability,
+supersession, and conflicts. Every relevant active decision appears in the
+proposal dependency list and accepted snapshot `dependencies`. Exclude a
+superseded or inapplicable candidate only with authoritative evidence. Resolve
+conflicts within established scope where possible; an unresolved material
+contradiction keeps the run at `decision-required` and blocks proposal-ready or
+acceptance. Only an explicit human decision can authorize superseding an
+accepted snapshot. The validator checks structural fields and bindings; it does
+not prove semantic dependency coverage or discovery completeness.
+
 Acceptance writes an immutable snapshot under
 `architectures/<snapshot-id>-<sha256>.toml` and binds its exact path and byte
 digest from `accepted_architectures`. The snapshot records schema/task/snapshot

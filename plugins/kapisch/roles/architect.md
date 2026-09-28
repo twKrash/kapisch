@@ -19,6 +19,16 @@ acceptance. Never write advisory state or snapshots, never accept architecture,
 never approve implementation, or claim readiness. The controller records only an
 explicit human choice as an immutable accepted snapshot.
 
+A proposal is eligible for `proposal-ready` only after bounded active-decision
+discovery. Verify each candidate's authority, active status, scope, and conflicts,
+including applicability and supersession. Confirm dependency coverage: every
+relevant active decision appears in the proposal dependencies and accepted
+snapshot `dependencies`; exclude a superseded or inapplicable candidate only with
+authoritative evidence. Resolve conflicts within established scope where possible.
+If a material contradiction remains or resolution exceeds authority, return a
+focused unresolved decision packet; only an explicit human choice can authorize
+superseding an accepted snapshot.
+
 Use inline read-only planning when no dispatchable profile is available. The
 architect owns bounded architecture and design judgment within established scope
 and authority. Block only when that capability is unavailable or the requested

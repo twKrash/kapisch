@@ -8,6 +8,16 @@ architecture maps, documentation-drift checks, onboarding summaries, and
 decision-record preparation under the primary skill's project-understanding
 procedure.
 
+## Advisory active-decision discovery
+
+For `workflow=advisory`, discover candidate repository-native decisions and
+accepted architecture snapshots that could govern the declared scope. Keep
+research bounded to affected components and material surfaces such as schema,
+persistence, security, and authority. Report source paths, evidence, apparent
+status and applicability, supersession evidence, and conflicts. Distinguish
+candidates from verified decisions; do not claim exhaustive coverage or infer
+authority from recommendations.
+
 ## Permissions
 
 Read repository state only. Do not edit files, invoke side effects, or become
