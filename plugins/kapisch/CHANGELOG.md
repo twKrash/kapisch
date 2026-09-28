@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.3.1 - 2026-09-28 (unreleased)
+
+- Added agent-facing cross-working-directory discovery and safe invocation
+guidance for bundled scripts.
+
 ## 2.3.0 - 2026-09-28 (release candidate)
 
 - Added graph-free `workflow=review` for fresh, independent, findings-only review.

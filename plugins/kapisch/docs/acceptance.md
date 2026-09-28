@@ -10,6 +10,7 @@ dispatch, durable execution, and the installed public validator.
 | --- | --- | --- |
 | Marketplace layout and canonical plugin source | passed | root `tests/test_marketplace.py` |
 | Portable package and validator | passed | `scripts/test_portable_package.py` and `tests/kapisch_validation` |
+| 2.3.1 agent-script invocation candidate | Local tests passed against tested runtime tree `66234d7e3d98bbba25d7c61cf65b1c889494cee4`; CI, native Windows, live marketplace, and final release SHA pending | [2.3.1 candidate record](acceptance-windows-v2.3.1.md) |
 | 2.3.0 standalone-review candidate | Local tests passed against tested runtime tree `594cb899b855ef3489204a26885ee3595eefde27`; CI, native Windows, live marketplace, and final release SHA pending | [2.3.0 candidate record](acceptance-windows-v2.3.0.md) |
 | 2.2.0 graph-free advisory candidate | CI passed for tested runtime tree `1c2631f2c4e691d436d3822e8a0bafd02a91d651` on push and PR runs; final release SHA pending | [2.2.0 candidate record](acceptance-windows-v2.2.0.md), [PR #44 checks](https://github.com/twKrash/kapisch/pull/44/checks) |
 | 2.1.0 deterministic-artifact candidate (prior candidate) | passed for tested runtime tree `804957019eaee45116201202d463dc9f7345b312`; final release SHA pending | [2.1.0 Windows record](acceptance-windows-v2.1.0.md) |
