@@ -49,9 +49,13 @@ capability, new durable version, or material runtime behavior; patch is a
 backward-compatible bug fix. No bump is limited to non-shipping planning,
 documentation, fixtures, tests, or unrelated metadata and must be explicit.
 
+The same release version is shared by `harnesses/pi/package.json`; keep it
+identical to `plugins/kapisch/.codex-plugin/plugin.json` and
+`plugins/kapisch/pyproject.toml`. Run `bun test harnesses/pi/tests/package.test.ts`
+to verify this three-way lockstep.
+
 The shipped path set is `skills/`, `roles/`, `agents/`,
-`kapisch_validation/`, `scripts/`, and `.codex-plugin/`. Run
-`python ../../scripts/check_plugin_version.py --base <base-ref>` from this
-directory (or the equivalent root command). It requires synchronized
-`plugin.json`/`pyproject.toml` versions and a current changelog entry; a material
-shipped-path change must increase the version.
+`kapisch_validation/`, `scripts/`, and `.codex-plugin/`. From the repository root,
+run `python scripts/check_plugin_version.py --base <base-ref>`. It requires
+synchronized `plugin.json`/`pyproject.toml` versions and a current changelog
+entry; a material shipped-path change must increase the version.

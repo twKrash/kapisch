@@ -335,6 +335,139 @@ class ExtractionAcceptanceTests(unittest.TestCase):
                     f"broken local Markdown target in {document}: {target}",
                 )
 
+    def test_advisory_answers_resume_the_same_design_workflow(self) -> None:
+        handoffs = " ".join(
+            (ROOT / "skills/kapisch/references/handoffs.md")
+            .read_text(encoding="utf-8")
+            .split()
+        )
+        self.assertIn(
+            "an unambiguous human answer to an outstanding decision packet",
+            handoffs,
+        )
+        self.assertIn(
+            'records the answer in `decisions` as `{id, kind, answer, source="human"}`',
+            handoffs,
+        )
+        self.assertIn(
+            "removes only the matching packet from `unresolved_decisions`",
+            handoffs,
+        )
+        self.assertIn("persists `00-advisory.toml` before dispatch", handoffs)
+        self.assertIn(
+            "automatically resumes the same graph-free advisory run", handoffs
+        )
+        self.assertIn(
+            "do not ask the user to repeat the answer or separately say “continue.”",
+            handoffs,
+        )
+        self.assertIn(
+            "Dispatch `researcher` only when the answer creates a concrete evidence gap",
+            handoffs,
+        )
+        self.assertIn("otherwise dispatch `architect`", handoffs)
+        self.assertIn(
+            "does not accept the proposal or authorize implementation, review, or readiness",
+            handoffs,
+        )
+        self.assertIn(
+            "ambiguous, introduces a new material unresolved constraint", handoffs
+        )
+
+    def test_advisory_proposals_discover_and_bind_active_decisions(self) -> None:
+        handoffs = " ".join(
+            (ROOT / "skills/kapisch/references/handoffs.md")
+            .read_text(encoding="utf-8")
+            .split()
+        )
+        researcher = " ".join(
+            (ROOT / "roles/researcher.md").read_text(encoding="utf-8").split()
+        )
+        architect = " ".join(
+            (ROOT / "roles/architect.md").read_text(encoding="utf-8").split()
+        )
+        self.assertIn(
+            "Before setting status to `proposal-ready` or recording human acceptance",
+            handoffs,
+        )
+        self.assertIn(
+            "bounded discovery of repository-native ADRs, specifications, and architecture decisions",
+            handoffs,
+        )
+        self.assertIn("accepted KAPISCH architecture snapshots", handoffs)
+        self.assertIn(
+            "within the declared scope and affected material architecture surfaces",
+            handoffs,
+        )
+        self.assertIn(
+            "Every relevant active decision appears in the proposal dependency list and accepted snapshot `dependencies`",
+            handoffs,
+        )
+        self.assertIn(
+            "superseded or inapplicable candidate only with authoritative evidence", handoffs
+        )
+        self.assertIn(
+            "unresolved material contradiction keeps the run at `decision-required`",
+            handoffs,
+        )
+        self.assertIn("does not prove semantic dependency coverage", handoffs)
+        self.assertIn(
+            "discover candidate repository-native decisions and accepted architecture snapshots",
+            researcher,
+        )
+        self.assertIn(
+            "Verify each candidate's authority, active status, scope, and conflicts",
+            architect,
+        )
+        self.assertIn("Confirm dependency coverage", architect)
+
+    def test_advisory_governing_authority_gate_and_dependency_modes_are_explicit(self) -> None:
+        handoffs = " ".join(
+            (ROOT / "skills/kapisch/references/handoffs.md")
+            .read_text(encoding="utf-8")
+            .split()
+        )
+        project_understanding = " ".join(
+            (ROOT / "skills/kapisch/references/project-understanding.md")
+            .read_text(encoding="utf-8")
+            .split()
+        )
+        researcher = " ".join(
+            (ROOT / "roles/researcher.md").read_text(encoding="utf-8").split()
+        )
+        architect = " ".join(
+            (ROOT / "roles/architect.md").read_text(encoding="utf-8").split()
+        )
+
+        for source in (
+            "applicable `AGENTS.md` files",
+            "repository policy",
+            "security/compliance constraints",
+            "normative specifications or architecture contracts",
+            "a document is not authoritative merely because it exists",
+            "Accepted decision authority",
+            "Normative repository authority",
+            "General desire to accept a conflicting proposal is not authorization",
+            "cannot be overridden by a conversational answer",
+            "Until the source artifact has actually changed",
+            "blocks proposal-ready, acceptance, and implementation planning",
+            "`problem` identifies the source path",
+            "`why` explains why they cannot both be satisfied",
+            "`recommendation` names a listed option or is `unavailable`",
+            "A direct repository-file authority is `{kind=\"repository-file\", path, digest}`",
+            "a direct accepted-architecture authority is `{kind=\"accepted-architecture\", path, digest, snapshot_id}`",
+            "`decision_id` is optional",
+            "leaves `schema_version=1` unchanged",
+        ):
+            self.assertIn(source, handoffs)
+        self.assertIn(
+            "applicable repository instructions and normative constraints cannot be overridden",
+            project_understanding,
+        )
+        self.assertIn("Start with applicable `AGENTS.md` files and repository policy", researcher)
+        self.assertIn("does not establish authority", researcher)
+        self.assertIn("A material unresolved conflict keeps the run at `decision-required`", architect)
+
     def test_profile_identity_collision_is_not_adopted_or_changed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp)

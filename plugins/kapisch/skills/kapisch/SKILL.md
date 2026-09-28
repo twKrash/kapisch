@@ -2,18 +2,19 @@
 name: kapisch
 description: >-
   Use when a repository task needs repeatable planning, implementation,
-  independent review, final-readiness, narrow mechanical cleanup, or bounded
-  read-only project understanding such as architecture questions and maps,
+  independent review, final-readiness, narrow mechanical cleanup, bounded
+  read-only project understanding including architecture questions and maps,
   documentation-drift checks, onboarding summaries, and decision-record
-  preparation.
+  preparation; graph-free architecture advice and human-gated decisions.
 ---
 
 # KAPISCH Workflow
 
 ## Durable artifact validation
 
-For read-only structural validation of a sequential durable TOML artifact tree,
-run the installed validator with `--task-dir` rooted in the consumer repository:
+For read-only structural validation of KAPISCH advisory or sequential durable
+TOML artifacts, run the installed validator with `--task-dir` rooted in the
+consumer repository:
 
 ```text
 kapisch-validate --task-dir <consumer-repository>/.kapisch/runs/<task-id>
@@ -53,7 +54,7 @@ The seven normal controls are optional and have safe defaults:
 
 | Control | Values and default |
 | --- | --- |
-| `workflow` | `auto|task|milestone` (`auto`) |
+| `workflow` | `auto|advisory|task|milestone` (`auto`) |
 | `review` | `auto|always` (`auto`) |
 | `handoff` | `chat|file|both` (`both`) |
 | `fix_policy` | `manual|blocking` (`manual`) |
@@ -64,6 +65,7 @@ The seven normal controls are optional and have safe defaults:
 Structured syntax is for expert and compatibility use only:
 
 ```text
+$kapisch workflow=advisory task_id=architecture-map
 $kapisch workflow=task review=auto task_id=reconnect
 $kapisch mode=review base=origin/main review_target=branch
 $kapisch theme=foundry workflow=task
@@ -84,13 +86,17 @@ review depth, gates, or side-effect authority. See
 ## What happens
 
 The LLM/controller interprets natural language, applies explicit controls, and
-selects `task` or `milestone` from the conversation and repository context.
-`workflow=task` is graph-free; `workflow=milestone` requires an explicitly
+selects `advisory`, `task`, or `milestone` from the conversation and repository
+context. `workflow=advisory` provides graph-free, read-only research and
+architecture advice; it creates advisory artifacts but no execution graph and
+cannot authorize implementation. `workflow=task` is graph-free implementation
+or other bounded execution; `workflow=milestone` requires an explicitly
 approved multi-step plan and durable sequential artifacts. Material scope growth
 stops for a user decision rather than reusing narrower approval.
 Graph-free means that no execution graph, manifest, durable task nodes, or
 sequential execution state is required. It does not mean artifact-free.
-Graph-free workflows do not delegate in the current scope. A mandated skill or
+`workflow=advisory` may assign bounded `researcher` and `architect` roles;
+`workflow=task` does not delegate in the current scope. A mandated skill or
 plugin blocks for a user choice to promote the work to a supported durable
 version-3 or version-4 graph or relax the capability constraint; an automatic
 selection may use the disclosed native fallback only when the approved outcome
@@ -197,9 +203,10 @@ semantics in [model-tiers.md](references/model-tiers.md); risk in
 [review.md](references/review.md); durable artifacts and invocation envelopes in
 [handoffs.md](references/handoffs.md); sequential schema in
 [execution-graph.md](references/execution-graph.md); and recovery in
-[resume.md](references/resume.md). Bounded repository understanding and its
-evidence/write/review separation are owned by
-[project-understanding.md](references/project-understanding.md). Ecosystem
+[resume.md](references/resume.md). Bounded repository understanding and its evidence/write/review separation are
+owned by [project-understanding.md](references/project-understanding.md),
+including graph-free advisory architecture proposals and their human-approval
+boundary. Ecosystem
 capability selection and delegated-step behavior are owned by
 [ecosystem-routing.md](references/ecosystem-routing.md).
 Presentation vocabulary and its strict separation from workflow semantics are
