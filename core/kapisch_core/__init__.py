@@ -6,8 +6,8 @@ from .domain import (
     EvidenceRef,
     ExecutionClass,
     Gate,
-    GateDecision,
     LogicalTier,
+    PolicyEvaluation,
     ProposedAction,
     ReviewDepth,
     ReviewScope,
@@ -19,7 +19,7 @@ from .domain import (
     TransitionKind,
     Workflow,
 )
-from .policy import decide
+from .policy import evaluate_action_policy
 
 __all__ = [
     "AttemptRecord",
@@ -31,8 +31,8 @@ __all__ = [
     "EvidenceRef",
     "ExecutionClass",
     "Gate",
-    "GateDecision",
     "LogicalTier",
+    "PolicyEvaluation",
     "ProposedAction",
     "ReviewDepth",
     "ReviewScope",
@@ -43,5 +43,5 @@ __all__ = [
     "Transition",
     "TransitionKind",
     "Workflow",
-    "decide",
+    "evaluate_action_policy",
 ]

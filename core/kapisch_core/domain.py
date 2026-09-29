@@ -148,9 +148,9 @@ class ProposedAction:
 
 
 @dataclass(frozen=True)
-class GateDecision:
-    allowed: bool
-    reasons: tuple[str, ...] = ()
+class PolicyEvaluation:
+    admissible: bool
+    violations: tuple[str, ...] = ()
 
 
 __all__ = [
@@ -160,7 +160,6 @@ __all__ = [
     "EvidenceRef",
     "ExecutionClass",
     "Gate",
-    "GateDecision",
     "LogicalTier",
     "ProposedAction",
     "ReviewDepth",
