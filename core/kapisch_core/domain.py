@@ -149,8 +149,11 @@ class ProposedAction:
 
 @dataclass(frozen=True)
 class PolicyEvaluation:
-    admissible: bool
     violations: tuple[str, ...] = ()
+
+    @property
+    def admissible(self) -> bool:
+        return not self.violations
 
 
 __all__ = [
@@ -161,6 +164,7 @@ __all__ = [
     "ExecutionClass",
     "Gate",
     "LogicalTier",
+    "PolicyEvaluation",
     "ProposedAction",
     "ReviewDepth",
     "ReviewScope",

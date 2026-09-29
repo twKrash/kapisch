@@ -392,6 +392,36 @@ class Stage1DomainTests(unittest.TestCase):
         self.assert_violation(approval, "standalone-review-is-findings-only")
         self.assertIn("approval-not-admissible-for-workflow", approval.violations)
 
+    def test_review_scope_matches_workflow(self) -> None:
+        for scope in (domain.ReviewScope.ITERATION, domain.ReviewScope.WHOLE_BRANCH):
+            result = evaluate(
+                domain.Workflow.REVIEW,
+                domain.Stage.REVIEW,
+                domain.Role.REVIEWER,
+                tier=domain.LogicalTier.HIGH,
+                review_scope=scope,
+            )
+            self.assert_violation(result, "standalone-review-requires-standalone-scope")
+
+        for workflow in (domain.Workflow.TASK, domain.Workflow.MILESTONE):
+            standalone = evaluate(
+                workflow,
+                domain.Stage.REVIEW,
+                domain.Role.REVIEWER,
+                tier=domain.LogicalTier.HIGH,
+                review_scope=domain.ReviewScope.STANDALONE,
+            )
+            self.assert_violation(standalone, "task-or-milestone-review-requires-scoped-review")
+            for scope in (domain.ReviewScope.ITERATION, domain.ReviewScope.WHOLE_BRANCH):
+                scoped = evaluate(
+                    workflow,
+                    domain.Stage.REVIEW,
+                    domain.Role.REVIEWER,
+                    tier=domain.LogicalTier.HIGH,
+                    review_scope=scope,
+                )
+                self.assertTrue(scoped.admissible, scoped.violations)
+
     def test_repository_write_requires_enforced_capability(self) -> None:
         effect = domain.CapabilityEffect.REPOSITORY_WRITE
         action_fields = {
@@ -540,6 +570,18 @@ class Stage1DomainTests(unittest.TestCase):
             ),
             "side-effect-capability-not-enforced",
         )
+
+    def test_policy_evaluation_derives_admissibility(self) -> None:
+        admissible = domain.PolicyEvaluation()
+        blocked = domain.PolicyEvaluation(("blocked",))
+
+        self.assertTrue(admissible.admissible)
+        self.assertFalse(blocked.admissible)
+        self.assertEqual(
+            {field.name for field in dataclasses.fields(domain.PolicyEvaluation)},
+            {"violations"},
+        )
+        self.assertIn("PolicyEvaluation", domain.__all__)
 
     def test_invalid_policy_inputs_fail_closed(self) -> None:
         action = domain.ProposedAction(stage=domain.Stage.IMPLEMENT, role=domain.Role.IMPLEMENTER)

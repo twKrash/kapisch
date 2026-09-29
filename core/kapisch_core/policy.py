@@ -80,7 +80,7 @@ def evaluate_action_policy(
 ) -> PolicyEvaluation:
     """Evaluate static semantic admissibility; persisted authority is checked elsewhere."""
     if not _valid_policy_inputs(workflow, action, capabilities):
-        return PolicyEvaluation(False, ("invalid-policy-input",))
+        return PolicyEvaluation(("invalid-policy-input",))
 
     violations = (
         *workflow_violations(workflow, action),
@@ -88,7 +88,7 @@ def evaluate_action_policy(
         *review_violations(workflow, action, capabilities),
         *effect_violations(action, capabilities),
     )
-    return PolicyEvaluation(not violations, violations)
+    return PolicyEvaluation(violations)
 
 
 def workflow_violations(workflow: Workflow, action: ProposedAction) -> tuple[str, ...]:
@@ -175,6 +175,11 @@ def review_violations(
     capabilities: CapabilityClaims,
 ) -> tuple[str, ...]:
     violations: list[str] = []
+    if action.stage is Stage.REVIEW:
+        if workflow is Workflow.REVIEW and action.review_scope is not ReviewScope.STANDALONE:
+            violations.append("standalone-review-requires-standalone-scope")
+        if workflow in _APPROVAL_WORKFLOWS and action.review_scope is ReviewScope.STANDALONE:
+            violations.append("task-or-milestone-review-requires-scoped-review")
     if action.stage is Stage.FINAL and action.review_scope is not ReviewScope.WHOLE_BRANCH:
         violations.append("final-requires-whole-branch-review")
     if (
