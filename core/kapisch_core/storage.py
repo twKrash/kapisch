@@ -11,10 +11,11 @@ from .bundle import CoreBundle, verify_bundle
 
 
 _DIRECTORY_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
-_FILE_FLAGS = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+_FILE_FLAGS = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
 _REQUIRED_SUPPORT = (
     hasattr(os, "O_DIRECTORY")
     and hasattr(os, "O_NOFOLLOW")
+    and hasattr(os, "O_NONBLOCK")
     and os.open in os.supports_dir_fd
     and os.mkdir in os.supports_dir_fd
     and os.unlink in os.supports_dir_fd

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import stat
 import subprocess
 import sys
 import tempfile
@@ -131,6 +132,51 @@ class StorageTests(unittest.TestCase):
             with self.assertRaises(OSError):
                 store_bundle(repo, original)
             self.assertEqual(external.read_bytes(), original)
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFO creation is unsupported on this platform")
+    def test_load_and_store_reject_fifo_digest_leaf_without_blocking(self) -> None:
+        from kapisch_core.storage import store_bundle
+
+        original, _ = _bundles()
+        digest = hashlib.sha256(original).hexdigest()
+        script = """
+import sys
+from pathlib import Path
+from kapisch_core.storage import load_bundle, store_bundle
+
+repo = Path(sys.argv[1])
+digest = sys.argv[2]
+try:
+    if sys.argv[3] == "load":
+        load_bundle(repo, digest)
+    else:
+        store_bundle(repo, Path(sys.argv[4]).read_bytes())
+except ValueError as error:
+    assert str(error) == "retained bundle is not a regular file", str(error)
+else:
+    raise AssertionError("FIFO digest leaf was accepted")
+"""
+        for operation in ("load", "store"):
+            with self.subTest(operation=operation), tempfile.TemporaryDirectory() as directory:
+                repo = Path(directory)
+                store_bundle(repo, original)
+                leaf = repo / ".kapisch/v3/bundles" / f"{digest}.json"
+                leaf.unlink()
+                os.mkfifo(leaf)
+                try:
+                    run = subprocess.run(
+                        [sys.executable, "-c", script, str(repo), digest, operation,
+                         str(ROOT / "core/dist/core-bundle.json")],
+                        cwd=ROOT,
+                        env={**os.environ, "PYTHONPATH": str(ROOT / "core")},
+                        capture_output=True,
+                        text=True,
+                        timeout=2,
+                    )
+                    self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+                finally:
+                    self.assertTrue(stat.S_ISFIFO(leaf.lstat().st_mode))
+                    self.assertEqual(list(leaf.parent.iterdir()), [leaf])
 
     def test_store_rejects_dangling_authority_symlinks(self) -> None:
         from kapisch_core.storage import load_bundle, store_bundle
