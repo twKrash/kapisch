@@ -80,10 +80,12 @@ Every stage is separately reviewable, starts with a failing focused test/fixture
 
 **Goal/prerequisites:** Stages 1–2. **Files/scope:** Create `tooling/conformance/adapter.py`, `tests/conformance/{fake_adapter,test_fake_adapter}.py` and minimal fixtures. Private adapter contract accepts bundle + separate runtime profile, emits byte-stable assets/manifest, declares enforced/advisory/unknown/unsupported capabilities; fake has no Codex/Pi code. Keep private Python interface out of public protocol documentation.
 
-- [ ] Red: fake compiles six roles from unchanged bundle, rejects altered digest, cannot read either host directory (deny/mock file access); an unsupported effect, absent reviewer, unknown capability or receipt lacking host-observed origin/target binding blocks rather than auto-downgrades. Re-run Stage 1 boundary scanner against fake and adapters.
-- [ ] Green: implement fake and conformance runner; `PYTHONPATH=core python -m unittest discover -s tests/conformance -v` passes without importing either adapter. Add fixture matrix later as state/review protocol grows.
+**Metadata boundary:** Workflow metadata compiled into the bundle is descriptive only; it is not an independent source of execution authority and must not select, weaken, or override Stage 1 static policy. The adapter consumes Stage 1 policy results as controlling decisions; metadata labels cannot grant capabilities or authorize actions.
 
-**Invariants:** §27.1–4, .11–12. **Acceptance:** third harness compiles/claims capability without core modification; no real adapter used as proof. **Non-goals:** real dispatch or public SDK. **Cutover/rollback:** inactive, no v2 changes. **Depends on:** Stages 1–2.
+- [ ] Red: fake compiles six roles from unchanged bundle, rejects altered digest, cannot read either host directory (deny/mock file access); an unsupported effect, absent reviewer, unknown capability or receipt lacking host-observed origin/target binding blocks rather than auto-downgrades. Add `test_metadata_cannot_override_stage1_static_policy`: absent, unknown, conflicting, and permission-shaped metadata cannot authorize an action denied by Stage 1 static policy. Re-run Stage 1 boundary scanner against fake and adapters.
+- [ ] Green: implement fake and conformance runner; `PYTHONPATH=core python -m unittest discover -s tests/conformance -v` passes without importing either adapter. Pass `test_metadata_cannot_override_stage1_static_policy` with metadata absent/unknown/conflicting/permission-shaped; Stage 1 allowed/denied outcomes remain controlling. Add fixture matrix later as state/review protocol grows.
+
+**Invariants:** §27.1–4, .11–12. **Acceptance:** third harness compiles/claims capability without core modification; adversarial metadata cannot override Stage 1 static policy; no real adapter used as proof. **Non-goals:** real dispatch or public SDK. **Cutover/rollback:** inactive, no v2 changes. **Depends on:** Stages 1–2.
 
 ### Stage 4 — New v3 authority protocol, retained bundles and cold validation base
 
@@ -91,6 +93,24 @@ Every stage is separately reviewable, starts with a failing focused test/fixture
 
 - [ ] Red: corrupt/missing/same-protocol-different bundle, symlink/path traversal, bad version/unknown fields, incomplete history and v2 resume fail; retained old bundle validates after staged distribution upgrade; graph-free authority cannot pass with missing validator. Fault-inject crash between immutable file publication and state pointer, test orphan ignored; concurrent writers cannot both publish.
 - [ ] Green: implement `store_bundle`, `load_bundle`, `validate_run` and CLI base (unsupported future gate always blocks); add packaged `kapisch-validate` only when CLI exists; `PYTHONPATH=core python -m unittest discover -s tests/core -p 'test_*protocol.py' -v`, `-p test_storage.py`, `-p test_validation.py`, `-p test_cli.py`, `-p test_package.py` pass. Verify current persisted state alone suffices without optional previous snapshot.
+
+#### Stage 4.0 — Mandatory durable identity design gate (before Stage 4.1)
+
+This is a design-only gate. Do not implement persistence or any later-stage behavior here. Stage 4.1 is blocked until the identity decisions below are written into this plan (or an explicitly linked, versioned design record) and approved:
+
+| Name | Required definition |
+| --- | --- |
+| `stage_kind` | Stage 2 category from the canonical vocabulary; descriptive label, not identity or authority. |
+| `stage_id` | Stage 2 v3 schema currently calls this a “stable stage-attempt identity.” Explicitly decide whether that meaning remains or changes relative to `attempt_id`; do not silently reinterpret it. |
+| `attempt_id` | One execution attempt; define generation, uniqueness scope, parent references, append-only history, and relation to `stage_id`. |
+| `node_id` | One milestone-graph node; define uniqueness, references to run/stage/attempt, cardinality, and representation or absence in graph-free tasks. |
+| `operation_id` | One adapter dispatch/reconciliation operation; define uniqueness and reference to its attempt; preserve its identity across read-only reconciliation. |
+
+Freeze the uniqueness domain for every identifier, its single producer/generation point, reference/cardinality rules, and rejection of duplicate, missing, orphaned, or mismatched IDs. Specify retry semantics (which IDs remain stable and which are new) and resume semantics (which exact attempt/operation IDs are reused, and when dispatch must block pending reconciliation). Include graph-free task and milestone-graph examples, retry/resume/dispatch-uncertain traces, and negative test vectors; never infer or regenerate identity from conversational memory.
+
+Define schema compatibility against the Stage 2 v3 `stage.json` contract and persisted run protocol: required/optional fields, versioning, validation of existing records, and any permitted migration or fail-closed behavior. No silent rename, reinterpretation, fabricated default, or assumed backward compatibility.
+
+**Gate acceptance:** identity definitions, uniqueness/relationships, retry/resume semantics, schema compatibility matrix, tests, and producer ownership are frozen and explicitly human-approved in this plan before any Stage 4.1 persistence implementation. Stage 4.1 consumes this contract unchanged.
 
 #### Execution tasks (one PR; each commit boundary is future-only)
 
@@ -188,12 +208,13 @@ Before implementing `transitions.py`:
 6. Annotate transitions requiring human authority, reviewer evidence, verification, or dispatch reconciliation.
 7. Verify the matrix against cold-restart and `dispatch-uncertain` invariants.
 8. Obtain explicit human approval of the matrix and record it in this plan before Stage 7.1 implementation.
+9. Reuse the Stage 4.0 frozen identity definitions, uniqueness scopes, relationships, and retry/resume rules verbatim; Stage 7 must not rename or reinterpret them.
 
 Do not implement Stage 7 behavior now.
 
-**Goal/prerequisites:** Stages 3–6. **Files/scope:** Create `core/kapisch_core/{transitions,dispatch,delegations,controller_view}.py`, `tests/core/test_{transitions,dispatch}.py`; extend validator/conformance fake fixtures. Task remains graph-free; milestone graph has approved nodes, explicit dependencies and ordered attempt history. Controller records assignment/request and unique operation ID, atomically publishes `dispatch-uncertain` **before** `adapter.dispatch`; only adapter produces observed receipt, only reviewer produces judgment; controller persists exact results and verification. One active writer, monotonic ordered attempts, prior complete work never repeats. Optional `reconcile(operation_id)` is read-only and must observe exact same operation, never re-invoke; provider external-write/destructive effect is unsupported without separate safe protocol. Controller view regenerates from validated state and is not authority.
+**Goal/prerequisites:** Stages 3–6 and the approved Stage 4.0 identity contract. **Files/scope:** Create `core/kapisch_core/{transitions,dispatch,delegations,controller_view}.py`, `tests/core/test_{transitions,dispatch}.py`; extend validator/conformance fake fixtures. Task remains graph-free; milestone graph has approved nodes, explicit dependencies and ordered attempt history. Controller records assignment/request and unique operation ID, atomically publishes `dispatch-uncertain` **before** `adapter.dispatch`; only adapter produces observed receipt, only reviewer produces judgment; controller persists exact results and verification. One active writer, monotonic ordered attempts, prior complete work never repeats. Optional `reconcile(operation_id)` is read-only and must observe exact same operation, never re-invoke; provider external-write/destructive effect is unsupported without separate safe protocol. Controller view regenerates from validated state and is not authority.
 
-- [ ] Red: fault-inject immediately before/after marker, before/after adapter call, and before/after receipt/state publication; all ambiguous cases block, duplicate result/unknown op ID cannot unblock, completed verified operation never redispatches. Cold restart with no prior-memory/previous snapshot validates producer order and rejects orphan evidence, mutable outcome rewrite, missing reviewer/human/fingerprint, unsupported effect; graph-free authoritative task still validates without artificial graph.
+- [ ] Red: fault-inject immediately before/after marker, before/after adapter call, and before/after receipt/state publication; all ambiguous cases block, duplicate result/unknown op ID cannot unblock, completed verified operation never redispatches. Verify retry, resume, and reconciliation preserve/create identities exactly as Stage 4.0 specifies. Cold restart with no prior-memory/previous snapshot validates producer order and rejects orphan evidence, mutable outcome rewrite, missing reviewer/human/fingerprint, unsupported effect; graph-free authoritative task still validates without artificial graph.
 - [ ] Green: implement monotonic transitions and fake-dispatch conformance; `PYTHONPATH=core python -m unittest discover -s tests/core -p 'test_dispatch.py' -v`, `-p test_transitions.py` and `-s tests/conformance -v` pass. View deletion/regeneration leaves decision unchanged.
 
 #### Execution tasks (one PR; each commit boundary is future-only)
