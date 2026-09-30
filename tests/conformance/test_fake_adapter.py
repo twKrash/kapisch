@@ -255,6 +255,7 @@ class FakeAdapterTests(unittest.TestCase):
             "2026-09-30T00:00:00-04:00",
             "2016-12-31T23:59:60Z",
             "2017-01-01T00:59:60+01:00",
+            "2017-01-01T00:59:60.123+01:00",
         ):
             with self.subTest(timestamp=timestamp):
                 self.assertTrue(human_receipt_matches(replace(valid, observed_at=timestamp), target))
@@ -275,6 +276,7 @@ class FakeAdapterTests(unittest.TestCase):
             "2016-12-30T23:59:60Z",
             "0001-01-01T00:00:60+00:01",
             "9999-12-31T23:59:60-00:01",
+            "2017-01-01T00:59:60.123+02:00",
         ):
             with self.subTest(invalid_timestamp=timestamp):
                 self.assertFalse(human_receipt_matches(replace(valid, observed_at=timestamp), target))
