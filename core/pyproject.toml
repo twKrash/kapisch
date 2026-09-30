@@ -12,3 +12,6 @@ dependencies = []
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["kapisch_core*"]
+
+[tool.setuptools.package-data]
+kapisch_core = ["resources/*.json"]

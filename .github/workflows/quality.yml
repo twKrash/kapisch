@@ -20,6 +20,8 @@ jobs:
       - run: python -m unittest discover -s tests
       - run: PYTHONPATH=core python -m unittest discover -s tests/core -p test_domain.py -v
       - run: PYTHONPATH=core python -m unittest discover -s tests/conformance -p test_boundary.py -v
+      - run: PYTHONPATH=core python -m unittest discover -s tests/core -p test_bundle.py -v
+      - run: PYTHONPATH=core python tooling/build/build_bundle.py --check
       - run: python -m unittest discover -s tests/kapisch_validation
         working-directory: plugins/kapisch
       - run: PYTHONHASHSEED=1 python -m unittest tests.kapisch_validation.test_deterministic_acceptance -v
