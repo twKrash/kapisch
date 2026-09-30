@@ -171,7 +171,13 @@ def _valid_rfc3339_timestamp(value: str) -> bool:
     normalized = value[:10] + "T" + value[11:]
     if normalized[-1] in "Zz":
         normalized = normalized[:-1] + "+00:00"
-    if int(normalized[-2:]) >= 60:
+    if (
+        int(normalized[11:13]) > 23
+        or int(normalized[14:16]) > 59
+        or int(normalized[17:19]) > 60
+        or int(normalized[-5:-3]) > 23
+        or int(normalized[-2:]) > 59
+    ):
         return False
 
     leap_second = normalized[17:19] == "60"
