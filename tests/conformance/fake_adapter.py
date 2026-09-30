@@ -42,10 +42,12 @@ class FakeHarnessAdapter:
         )
         manifest = AdapterManifest(
             adapter_id="fake",
+            adapter_version="1.0.0",
             protocol_version=bundle.protocol_version,
+            supported_protocol_range=(3, 3),
             bundle_digest=bundle_digest,
             profile_id=profile.profile_id,
-            assets=tuple(
+            asset_digests=tuple(
                 (asset.path, _digest(asset.content)) for asset in assets
             ),
             capabilities=self.capabilities,

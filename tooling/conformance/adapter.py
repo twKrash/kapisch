@@ -1,14 +1,17 @@
 from __future__ import annotations
 
-import json
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Protocol
 
+from kapisch_core.bundle import canonical_json
 from kapisch_core.capabilities import CapabilityClaims
 from kapisch_core.domain import CapabilityEffect, PolicyEvaluation, ProposedAction, Workflow
+
+
+_DIGEST = re.compile(r"[0-9a-f]{64}")
 
 
 @dataclass(frozen=True)
@@ -28,23 +31,68 @@ class GeneratedAsset:
 
 @dataclass(frozen=True)
 class AdapterManifest:
+    """Private manifest; supported protocol bounds are inclusive."""
+
     adapter_id: str
+    adapter_version: str
     protocol_version: int
+    supported_protocol_range: tuple[int, int]
     bundle_digest: str
     profile_id: str
-    assets: tuple[tuple[str, str], ...]
+    asset_digests: tuple[tuple[str, str], ...]
     capabilities: CapabilityClaims
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.adapter_version, str) or not self.adapter_version.strip():
+            raise ValueError("adapter version must be non-empty")
+        if (
+            not isinstance(self.supported_protocol_range, tuple)
+            or len(self.supported_protocol_range) != 2
+            or any(
+                isinstance(version, bool)
+                or not isinstance(version, int)
+                or version < 1
+                for version in self.supported_protocol_range
+            )
+        ):
+            raise ValueError("supported protocol range must contain two positive integer versions")
+        minimum, maximum = self.supported_protocol_range
+        if minimum > maximum:
+            raise ValueError("supported protocol range minimum exceeds maximum")
+        if (
+            isinstance(self.protocol_version, bool)
+            or not isinstance(self.protocol_version, int)
+            or not minimum <= self.protocol_version <= maximum
+        ):
+            raise ValueError("bundle protocol version is outside supported protocol range")
+        if (
+            not isinstance(self.bundle_digest, str)
+            or not _DIGEST.fullmatch(self.bundle_digest)
+        ):
+            raise ValueError("bundle digest must be lowercase SHA-256")
+        if any(
+            not isinstance(path, str)
+            or not path
+            or not isinstance(digest, str)
+            or not _DIGEST.fullmatch(digest)
+            for path, digest in self.asset_digests
+        ):
+            raise ValueError("asset digests must bind paths to lowercase SHA-256")
+
     def to_bytes(self) -> bytes:
+        minimum, maximum = self.supported_protocol_range
         payload = {
             "adapter": self.adapter_id,
+            "adapter_version": self.adapter_version,
             "protocol_version": self.protocol_version,
+            "supported_protocol_range": {"minimum": minimum, "maximum": maximum},
             "bundle_digest": self.bundle_digest,
             "profile_id": self.profile_id,
-            "assets": [
-                {"path": path, "sha256": digest} for path, digest in self.assets
+            "asset_digests": [
+                {"path": path, "sha256": digest}
+                for path, digest in sorted(self.asset_digests)
             ],
-            "capabilities": {
+            "capability_claims": {
                 "effects": {
                     effect.value: self.capabilities.status_for(effect).value
                     for effect in sorted(CapabilityEffect, key=lambda item: item.value)
@@ -52,7 +100,7 @@ class AdapterManifest:
                 "mutation_free_reviewer": self.capabilities.mutation_free_reviewer.value,
             },
         }
-        return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        return canonical_json(payload)
 
 
 @dataclass(frozen=True)
@@ -98,7 +146,7 @@ class HarnessAdapter(Protocol):
     ) -> PolicyEvaluation: ...
 
 
-_DIGEST = re.compile(r"[0-9a-f]{64}")
+# RFC 3339 permits second 60 only on known leap-second days; datetime rejects 60.
 # ponytail: IERS-listed leap seconds through Bulletin C 72; refresh set when IERS announces another.
 _LEAP_SECOND_DAYS = frozenset(
     {
@@ -110,20 +158,52 @@ _LEAP_SECOND_DAYS = frozenset(
         "2015-06-30", "2016-12-31",
     }
 )
-_RFC3339 = re.compile(
-    r"[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])[Tt]"
-    r"(?:[01][0-9]|2[0-3]):[0-5][0-9]:(?:[0-5][0-9]|60)"
-    r"(?:\.[0-9]+)?(?:[Zz]|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])"
+# fromisoformat accepts broader ISO 8601 forms; this constrains the RFC 3339 shape.
+_RFC3339_SHAPE = re.compile(
+    r"[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt][0-9]{2}:[0-9]{2}:[0-9]{2}"
+    r"(?:\.[0-9]+)?(?:[Zz]|[+-][0-9]{2}:[0-9]{2})"
 )
+
+
+def _valid_rfc3339_timestamp(value: str) -> bool:
+    if not _RFC3339_SHAPE.fullmatch(value):
+        return False
+    normalized = value[:10] + "T" + value[11:]
+    if normalized[-1] in "Zz":
+        normalized = normalized[:-1] + "+00:00"
+    if int(normalized[-2:]) >= 60:
+        return False
+
+    leap_second = normalized[17:19] == "60"
+    if leap_second:
+        normalized = normalized[:17] + "59" + normalized[19:]
+    try:
+        parsed = datetime.fromisoformat(normalized)
+        if not leap_second:
+            return parsed.utcoffset() is not None
+        utc = parsed.astimezone(timezone.utc)
+    except (ValueError, OverflowError):
+        return False
+    return utc.hour == 23 and utc.minute == 59 and utc.date().isoformat() in _LEAP_SECOND_DAYS
 
 
 def human_receipt_matches(
     receipt: HumanActionReceipt | None, target: HumanActionTarget
 ) -> bool:
-    if not isinstance(receipt, HumanActionReceipt):
+    """Check schema shape and exact target binding only.
+
+    Origin and digest values are shape-checked, not authenticated or recomputed.
+    Stage 5 verifies input digests, provenance, and durable authority; this does
+    not authenticate human identity or establish approval.
+    """
+    if not isinstance(receipt, HumanActionReceipt) or not isinstance(target, HumanActionTarget):
         return False
-    target_fields = (target.run_id, target.gate, target.decision_id, target.target, target.scope_digest)
-    receipt_fields = (receipt.run_id, receipt.gate, receipt.decision_id, receipt.target, receipt.scope_digest)
+    target_fields = (
+        target.run_id, target.gate, target.decision_id, target.target, target.scope_digest
+    )
+    receipt_fields = (
+        receipt.run_id, receipt.gate, receipt.decision_id, receipt.target, receipt.scope_digest
+    )
     required_strings = (
         *target_fields,
         *receipt_fields,
@@ -138,25 +218,9 @@ def human_receipt_matches(
     if (
         receipt.origin != "inbound-human"
         or receipt.gate not in {"human-decision", "side-effect"}
-        or not receipt.action_id
-        or not receipt.session_id
         or not _DIGEST.fullmatch(receipt.scope_digest)
         or not _DIGEST.fullmatch(receipt.text_digest)
-        or not _RFC3339.fullmatch(receipt.observed_at)
         or receipt_fields != target_fields
     ):
         return False
-    normalized = receipt.observed_at[:10] + "T" + receipt.observed_at[11:]
-    if normalized[-1] in "Zz":
-        normalized = normalized[:-1] + "+00:00"
-    if normalized[17:19] == "60":
-        previous_second = normalized[:17] + "59" + normalized[19:]
-        try:
-            utc = datetime.fromisoformat(previous_second).astimezone(timezone.utc)
-        except (ValueError, OverflowError):
-            return False
-        return utc.hour == 23 and utc.minute == 59 and utc.date().isoformat() in _LEAP_SECOND_DAYS
-    try:
-        return datetime.fromisoformat(normalized).utcoffset() is not None
-    except ValueError:
-        return False
+    return _valid_rfc3339_timestamp(receipt.observed_at)

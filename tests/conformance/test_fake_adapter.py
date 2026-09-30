@@ -7,7 +7,7 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
-from kapisch_core.bundle import verify_bundle
+from kapisch_core.bundle import CoreBundle, canonical_json, verify_bundle
 from kapisch_core.capabilities import CapabilityClaim, CapabilityClaims, CapabilityStatus
 from kapisch_core.domain import (
     CapabilityEffect,
@@ -49,7 +49,19 @@ class FakeAdapterTests(unittest.TestCase):
         for asset in assets:
             role = Path(asset.path).stem.removeprefix("kapisch-")
             self.assertEqual(asset.content, bundle.payload["roles"][role]["contract"].encode())
-        self.assertEqual(json.loads(manifest)["bundle_digest"], BUNDLE_DIGEST)
+        manifest_data = json.loads(manifest)
+        self.assertEqual(manifest_data["bundle_digest"], BUNDLE_DIGEST)
+        self.assertEqual(manifest_data.get("adapter_version"), "1.0.0")
+        self.assertEqual(
+            manifest_data.get("supported_protocol_range"),
+            {"minimum": 3, "maximum": 3},
+        )
+        self.assertEqual(manifest_data["protocol_version"], bundle.protocol_version)
+        self.assertEqual(
+            {asset["path"]: asset["sha256"] for asset in manifest_data.get("asset_digests", [])},
+            {asset.path: hashlib.sha256(asset.content).hexdigest() for asset in assets},
+        )
+        self.assertEqual(manifest, canonical_json(manifest_data))
 
     def test_manifest_declares_capability_statuses(self) -> None:
         statuses = tuple(CapabilityStatus)
@@ -63,10 +75,12 @@ class FakeAdapterTests(unittest.TestCase):
         _, manifest = FakeHarnessAdapter(claims).compile(
             BUNDLE_BYTES, BUNDLE_DIGEST, RuntimeProfile("test")
         )
-        declared = set(json.loads(manifest)["capabilities"]["effects"].values())
+        manifest_data = json.loads(manifest)
+        claims_data = manifest_data.get("capability_claims", {})
+        declared = set(claims_data.get("effects", {}).values())
         self.assertEqual(declared, {status.value for status in statuses})
         self.assertEqual(
-            json.loads(manifest)["capabilities"]["mutation_free_reviewer"],
+            claims_data.get("mutation_free_reviewer"),
             CapabilityStatus.ADVISORY.value,
         )
 
@@ -74,6 +88,16 @@ class FakeAdapterTests(unittest.TestCase):
         altered = BUNDLE_BYTES + b" "
         with self.assertRaisesRegex(ValueError, "SHA-256 mismatch"):
             FakeHarnessAdapter().compile(altered, BUNDLE_DIGEST, RuntimeProfile("test"))
+
+    def test_rejects_bundle_protocol_outside_supported_range(self) -> None:
+        bundle = verify_bundle(BUNDLE_BYTES, BUNDLE_DIGEST)
+        incompatible = CoreBundle(protocol_version=4, payload=bundle.payload)
+        with patch(
+            "fake_adapter.verify_bundle", return_value=incompatible
+        ), self.assertRaisesRegex(ValueError, "protocol.*supported"):
+            FakeHarnessAdapter().compile(
+                BUNDLE_BYTES, BUNDLE_DIGEST, RuntimeProfile("test")
+            )
 
     def test_compiler_never_reads_host_directories(self) -> None:
         adapter = FakeHarnessAdapter()
@@ -169,7 +193,7 @@ class FakeAdapterTests(unittest.TestCase):
         self.assertFalse(result.admissible)
         self.assertIn("repository-write-capability-not-enforced", result.violations)
 
-    def test_human_receipt_requires_observed_origin_and_exact_target_binding(self) -> None:
+    def test_human_receipt_match_is_structural_and_binds_exact_target(self) -> None:
         target = HumanActionTarget("run-1", "human-decision", "decision-1", "plan.md", "a" * 64)
         valid = HumanActionReceipt(
             action_id="action-1",
@@ -186,6 +210,14 @@ class FakeAdapterTests(unittest.TestCase):
         observed = FakeHarnessAdapter(human_action=valid).observe_human_action()
         self.assertIs(observed, valid)
         self.assertTrue(human_receipt_matches(observed, target))
+        # Well-formed claims pass shape/binding checks; Stage 5 authenticates them.
+        unverified_claims = replace(
+            valid,
+            action_id="unverified-action",
+            session_id="unverified-session",
+            text_digest="c" * 64,
+        )
+        self.assertTrue(human_receipt_matches(unverified_claims, target))
         self.assertFalse(
             human_receipt_matches(
                 FakeHarnessAdapter(human_action=replace(valid, origin="controller")).observe_human_action(),
@@ -219,6 +251,7 @@ class FakeAdapterTests(unittest.TestCase):
         for timestamp in (
             "2026-09-30t00:00:00z",
             "2026-09-30T00:00:00.123+05:30",
+            "2026-09-30T00:00:00.123456789Z",
             "2026-09-30T00:00:00-04:00",
             "2016-12-31T23:59:60Z",
             "2017-01-01T00:59:60+01:00",
@@ -227,6 +260,12 @@ class FakeAdapterTests(unittest.TestCase):
                 self.assertTrue(human_receipt_matches(replace(valid, observed_at=timestamp), target))
         for timestamp in (
             "2026-09-30T00:00:00+00:60",
+            "2026-09-30T00:00:00+24:00",
+            "2026-09-30T00:00:00",
+            "2026-02-30T00:00:00Z",
+            "2026-09-30 00:00:00Z",
+            "2026-09-30T00:00Z",
+            "2026-09-30T00:00:00+0000",
             "2026-09-30T00:00:00+01:99",
             "2026-09-30T00:00:60Z",
             "2016-12-31T12:34:60Z",
