@@ -132,6 +132,17 @@ class BoundaryTests(unittest.TestCase):
             ],
         )
 
+    def test_fake_conformance_sources_have_no_host_dependencies(self) -> None:
+        for relative in (
+            "tooling/conformance/adapter.py",
+            "tests/conformance/fake_adapter.py",
+            "tests/conformance/test_fake_adapter.py",
+        ):
+            source = (ROOT / relative).read_text(encoding="utf-8")
+            self.assertIsNone(CORE_HOST.search(source), relative)
+            self.assertIsNone(HOST_IMPORT.search(source), relative)
+            self.assertIsNone(HOST_PATH.search(source), relative)
+
     def test_core_sources_have_no_host_imports_tokens_or_paths(self) -> None:
         files = _source_files(ROOT, "core")
         self.assertTrue(files, "Stage 1 must create the host-neutral core package")
