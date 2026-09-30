@@ -279,7 +279,9 @@ No identity choice is left as an implementation default in this proposal. Outsta
 
 #### Execution tasks (one PR; each commit boundary is future-only)
 
-**4.1 Retain exact bundle bytes.** Files: `core/kapisch_core/storage.py`, `tests/core/test_storage.py`. Interface: consumes Stage 2 `verify_bundle(data, digest)`; produces `store_bundle(repo: Path, data: bytes) -> str` and `load_bundle(repo: Path, digest: str) -> CoreBundle` for 4.2–4.4.
+### Task 4.1: Retain exact bundle bytes
+
+Files: `core/kapisch_core/storage.py`, `tests/core/test_storage.py`. Interface: consumes Stage 2 `verify_bundle(data, digest)`; produces `store_bundle(repo: Path, data: bytes) -> str` and `load_bundle(repo: Path, digest: str) -> CoreBundle` for 4.2–4.4.
 - [ ] Red: add `test_retains_exact_bundle_after_distribution_upgrade`; run `PYTHONPATH=core python -m unittest discover -s tests/core -p test_storage.py -k test_retains_exact_bundle_after_distribution_upgrade -v`; expect FAIL (missing storage API, then wrong/missing bundle refusal).
 - [ ] Green: implement atomic immutable storage and digest/canonical-byte verification at `.kapisch/v3/bundles/<sha256>.json`; run same command, expect PASS. **Commit boundary:** storage + focused test (`feat(v3): retain exact bundle`).
 

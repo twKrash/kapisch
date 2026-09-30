@@ -17,6 +17,66 @@ sys.path.insert(0, str(ROOT / "core"))
 
 
 class BundleTests(unittest.TestCase):
+    def test_stage_attempt_identity_schema_contract(self) -> None:
+        stage = json.loads((ROOT / "core/schemas/v3/stage.json").read_text())
+        run = json.loads((ROOT / "core/schemas/v3/run.json").read_text())
+        invocation = json.loads((ROOT / "core/schemas/v3/invocation.json").read_text())
+
+        stage_properties = stage["properties"]
+        self.assertIn("scope_digest", stage["required"])
+        self.assertEqual(stage_properties["stage_id"]["pattern"], r"^s-[0-9a-f]{32}$")
+        self.assertEqual(stage_properties["stage_kind"]["enum"], [
+            "bounded-delegate", "design", "final", "gate", "implement", "research", "review"
+        ])
+        self.assertEqual(stage_properties["producer"]["const"], "controller")
+        self.assertEqual(stage_properties["node_id"]["pattern"], r"^n-[0-9a-f]{32}$")
+        self.assertEqual(stage_properties["retry_of_stage_id"]["pattern"], r"^s-[0-9a-f]{32}$")
+        self.assertNotIn("attempt_id", stage_properties)
+
+        self.assertEqual(run["properties"]["identity_contract"]["const"], "stage-attempt/1")
+        self.assertIn("identity_contract", run["required"])
+        self.assertIn("graph", run["properties"])
+        self.assertIn("graph_document", run["$defs"])
+        self.assertIn("graph_node", run["$defs"])
+        self.assertIn("scope_document", run["$defs"])
+        graph_node = run["$defs"]["graph_node"]
+        self.assertIs(graph_node["additionalProperties"], False)
+        self.assertEqual(set(graph_node["required"]), {"node_id", "scope", "depends_on"})
+        self.assertEqual(set(run["$defs"]["scope_document"]["required"]), {
+            "protocol_version", "run_id", "node_id", "requirements"
+        })
+        graph_free = next(
+            clause for clause in run["allOf"]
+            if "status" in clause.get("then", {}).get("properties", {}).get("history", {}).get("items", {}).get("properties", {})
+        )
+        self.assertEqual(
+            graph_free["then"]["properties"]["history"]["items"]["properties"]["status"]["enum"],
+            ["planned", "blocked"],
+        )
+
+        invocation_properties = invocation["properties"]
+        self.assertEqual(invocation_properties["operation_id"]["pattern"], r"^op-[0-9a-f]{32}$")
+        self.assertEqual(set(invocation_properties["request"]["properties"]), {"path", "sha256"})
+        self.assertIs(invocation_properties["request"]["additionalProperties"], False)
+        self.assertEqual(set(invocation_properties["adapter_binding"]["properties"]), {"adapter_id", "lookup_context"})
+        self.assertIs(invocation_properties["adapter_binding"]["additionalProperties"], False)
+
+    def test_graphless_execution_restriction_is_milestone_only(self) -> None:
+        run = json.loads((ROOT / "core/schemas/v3/run.json").read_text())
+        guard = next(
+            clause for clause in run["allOf"]
+            if "status" in clause.get("then", {}).get("properties", {}).get("history", {}).get("items", {}).get("properties", {})
+        )
+        self.assertEqual(
+            guard["if"],
+            {
+                "allOf": [
+                    {"properties": {"workflow": {"const": "milestone"}}, "required": ["workflow"]},
+                    {"not": {"required": ["graph"]}},
+                ]
+            },
+        )
+
     def test_bundle_is_canonical_and_verified_by_whole_byte_digest(self) -> None:
         from kapisch_core.bundle import compile_bundle, verify_bundle
 
@@ -186,7 +246,8 @@ class BundleTests(unittest.TestCase):
             set(schemas["run"]["properties"]),
             {
                 "protocol_version", "run_id", "bundle_digest", "workflow", "revision",
-                "history", "accepted_snapshot", "approved_plan", "amends", "supersedes",
+                "history", "identity_contract", "graph", "accepted_snapshot", "approved_plan",
+                "amends", "supersedes",
             },
         )
         relationship_rules = [
