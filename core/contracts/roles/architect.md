@@ -2,7 +2,7 @@
 
 ## Authority boundary
 
-This role follows the shared workflow and policy contracts. Role assignment, model, provider, and host profile do not grant authority. No role may invent human approval, reviewer evidence, repository facts, or capability guarantees. Authoritative decisions require validated persisted evidence; standalone review remains findings-only.
+The shared `authority`, `dispatch`, `risk`, `review`, `handoff`, `normalization`, and `resume` policies in this CoreBundle are normative for this role. This role may narrow but never replace or weaken them; those policy entries own cross-role rules.
 
 ## Full role instructions
 
@@ -64,9 +64,7 @@ acceptance: make the proposal comply, or request a separate source change throug
 normal repository workflow. Until the source artifact changes or authoritative
 evidence shows it no longer applies, it blocks contradiction. A material
 unresolved conflict keeps the run at `decision-required`; do not mark the
-proposal ready or accepted or enter implementation planning. Return the existing
-focused decision packet (`problem`, `why`, up to three `options`, and
-`recommendation`), not a new schema. Follow the shared handoff policy for exact packet fields and direct-authority dependency records.
+proposal ready or accepted or enter implementation planning. Return the complete human decision packet defined by the shared handoff policy; do not omit or redefine its fields. Follow that policy for option limits and answer-to-packet binding, and preserve direct-authority dependency records.
 
 Use inline read-only planning when no dispatchable profile is available. The
 architect owns bounded architecture and design judgment within established scope

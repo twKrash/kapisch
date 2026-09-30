@@ -115,19 +115,32 @@ def _workflow_entry(path: Path, workflow_id: str) -> dict[str, Any]:
     if not separator or not match:
         raise ValueError(f"workflow metadata header missing: {path}")
     metadata = _json_bytes(match.group(1).encode("utf-8"), str(path))
-    if set(metadata) != {"id", "stages", "gates"} or metadata["id"] != workflow_id:
+    if (
+        set(metadata) != {"id", "metadata_scope", "stages", "gates", "review_scopes"}
+        or metadata["id"] != workflow_id
+        or metadata["metadata_scope"] != "workflow-specific"
+    ):
         raise ValueError(f"invalid workflow metadata: {path}")
-    if not isinstance(metadata["stages"], list) or not isinstance(metadata["gates"], list):
-        raise ValueError(f"workflow stages and gates must be arrays: {path}")
-    if any(stage not in _enum_values(Stage) for stage in metadata["stages"]):
-        raise ValueError(f"unknown workflow stage: {path}")
-    if any(gate not in _enum_values(Gate) for gate in metadata["gates"]):
-        raise ValueError(f"unknown workflow gate: {path}")
+    declared = {
+        "stages": _enum_values(Stage),
+        "gates": _enum_values(Gate),
+        "review_scopes": _enum_values(ReviewScope),
+    }
+    for field, allowed in declared.items():
+        values = metadata[field]
+        if (
+            not isinstance(values, list)
+            or any(not isinstance(value, str) or value not in allowed for value in values)
+            or len(values) != len(set(values))
+        ):
+            raise ValueError(f"invalid workflow {field} metadata: {path}")
     if not body.strip():
         raise ValueError(f"workflow contract is empty: {path}")
     return {
+        "metadata_scope": metadata["metadata_scope"],
         "stages": metadata["stages"],
         "gates": metadata["gates"],
+        "review_scopes": metadata["review_scopes"],
         "contract": body,
         "sha256": hashlib.sha256(body.encode("utf-8")).hexdigest(),
     }
@@ -362,14 +375,24 @@ def verify_bundle(data: bytes, digest: str) -> CoreBundle:
             if hashlib.sha256(text.encode("utf-8")).hexdigest() != contract["sha256"]:
                 raise ValueError(f"contract digest mismatch: {name}")
     for name, workflow in payload["workflows"].items():
-        if not isinstance(workflow, dict) or set(workflow) != {"stages", "gates", "contract", "sha256"}:
+        expected_workflow_fields = {"metadata_scope", "stages", "gates", "review_scopes", "contract", "sha256"}
+        if not isinstance(workflow, dict) or set(workflow) != expected_workflow_fields:
             raise ValueError(f"invalid workflow metadata: {name}")
-        if not isinstance(workflow["stages"], list) or not isinstance(workflow["gates"], list):
-            raise ValueError(f"invalid workflow stage/gate metadata: {name}")
-        if any(stage not in expected_vocabulary["stages"] for stage in workflow["stages"]):
-            raise ValueError(f"unknown stage in workflow metadata: {name}")
-        if any(gate not in expected_vocabulary["gates"] for gate in workflow["gates"]):
-            raise ValueError(f"unknown gate in workflow metadata: {name}")
+        if workflow["metadata_scope"] != "workflow-specific":
+            raise ValueError(f"invalid workflow metadata scope: {name}")
+        declared = {
+            "stages": expected_vocabulary["stages"],
+            "gates": expected_vocabulary["gates"],
+            "review_scopes": expected_vocabulary["review_scopes"],
+        }
+        for field, allowed in declared.items():
+            values = workflow[field]
+            if (
+                not isinstance(values, list)
+                or any(not isinstance(value, str) or value not in allowed for value in values)
+                or len(values) != len(set(values))
+            ):
+                raise ValueError(f"invalid workflow {field} metadata: {name}")
         text = workflow["contract"]
         if not isinstance(text, str) or not text.strip():
             raise ValueError(f"empty workflow contract: {name}")

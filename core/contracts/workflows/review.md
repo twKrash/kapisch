@@ -1,4 +1,4 @@
-<!-- kapisch-workflow: {"id":"review","stages":["review"],"gates":[]} -->
+<!-- kapisch-workflow: {"id":"review","metadata_scope":"workflow-specific","stages":["review"],"gates":[],"review_scopes":["standalone"]} -->
 # Review workflow
 
 Use review for independent findings on an explicitly supplied target and scope. A standalone review is findings-only: it creates no approval or readiness authority and may run without durable validation.

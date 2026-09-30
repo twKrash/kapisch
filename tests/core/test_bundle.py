@@ -61,24 +61,28 @@ class BundleTests(unittest.TestCase):
         )
         self.assertTrue(bundle["policies"])
 
-    def test_implementer_lite_full_instructions_are_preserved(self) -> None:
-        import tomllib
+    def test_role_contracts_preserve_semantics_without_v4_transport(self) -> None:
         from kapisch_core.bundle import compile_bundle
 
         bundle = json.loads(compile_bundle(ROOT / "core"))
-        contract = bundle["roles"]["implementer-lite"]["contract"]
-        full_instructions = contract.split("## Full role instructions", 1)[1].split(
-            "## Supplemental role contract", 1
-        )[0].strip()
-        source = tomllib.loads(
-            (ROOT / "plugins/kapisch/agents/kapisch-implementer-lite.toml").read_text(
-                encoding="utf-8"
-            )
-        )
-        self.assertEqual(
-            " ".join(full_instructions.split()),
-            " ".join(source["developer_instructions"].split()),
-        )
+        required = {
+            "architect": ("work read-only", "a recommendation is advice, not acceptance", "never approve implementation"),
+            "researcher": ("work read-only", "no design", "observed evidence"),
+            "implementer": ("change the root cause", "focused regression coverage", "self-review"),
+            "implementer-lite": ("completely specified, prescriptive behavioral change", "stop and return the precise blocker", "verify yourself"),
+            "mechanic": ("non-behavioral maintenance", "stop before editing", "verify fresh"),
+            "reviewer": ("independent kapisch reviewer", "findings only", "behavioral branch matrix", "invariant evidence matrix", "the review policy owns matrix scope"),
+        }
+        for role, phrases in required.items():
+            contract = bundle["roles"][role]["contract"].lower()
+            with self.subTest(role=role):
+                self.assertIn("## full role instructions", contract)
+                self.assertIn("the shared `authority`, `dispatch`, `risk`, `review`, `handoff`, `normalization`, and `resume` policies", contract)
+                self.assertIn("never replace or weaken them", contract)
+                for phrase in phrases:
+                    self.assertIn(phrase, contract)
+                for transport in ("version-4 transport", "bounded v4 transport payload", "model_reasoning_effort", ".codex/"):
+                    self.assertNotIn(transport, contract)
 
     def test_authority_schema_references_use_registered_absolute_ids(self) -> None:
         from kapisch_core.bundle import compile_bundle
@@ -264,7 +268,7 @@ class BundleTests(unittest.TestCase):
         instructions = bundle["controller_instructions"].lower()
         self.assertIn("cold restart", instructions)
         self.assertIn("earlier explicit producer", instructions)
-        self.assertIn("human owns decision and approval input", instructions)
+        self.assertIn("the human owns explicit decision input and side-effect permission, separately from independent reviewer judgment", instructions)
         self.assertIn("immutable snapshot serialization after explicit human choice", instructions)
 
     def test_verify_rejects_unknown_fields_and_changed_contract_hash(self) -> None:
@@ -376,5 +380,226 @@ class BundleTests(unittest.TestCase):
             )
 
 
+    def test_human_receipt_binds_exact_gate_target_and_input(self) -> None:
+        approval = json.loads((ROOT / "core/schemas/v3/approval.json").read_text(encoding="utf-8"))
+        outer = approval["properties"]
+        receipt = approval["$defs"]["receipt"]
+        bound_fields = {"run_id", "gate", "decision_id", "target", "scope_digest"}
+
+        self.assertTrue(bound_fields <= set(outer))
+        self.assertTrue(bound_fields <= set(approval["required"]))
+        self.assertTrue(bound_fields | {"text_digest", "origin", "session_id", "action_id", "observed_at"} <= set(receipt["required"]))
+        self.assertNotIn("approval", outer["gate"]["enum"])
+        self.assertNotIn("approval", receipt["properties"]["gate"]["enum"])
+        self.assertEqual(receipt["properties"]["origin"]["const"], "inbound-human")
+        artifact = approval["$defs"]["artifact"]
+        self.assertIn("sha256", artifact["required"])
+        self.assertEqual(artifact["properties"]["source"]["const"], "externally-supplied")
+        self.assertEqual(receipt["additionalProperties"], False)
+
+        authority = (ROOT / "core/contracts/policy/authority.md").read_text(encoding="utf-8")
+        self.assertIn("Gate.APPROVAL", authority)
+        self.assertIn("human approval of a plan", authority)
+
+    def test_review_policy_owns_behavioral_and_invariant_evidence_matrices(self) -> None:
+        review = (ROOT / "core/contracts/policy/review.md").read_text(encoding="utf-8").lower()
+        behavioral_columns = (
+            "entry point", "trigger", "state before the transition", "pending or persisted state",
+            "reconstructed state after resume", "authorization and policy context",
+            "side effect or persistence result", "final public result/status",
+            "regression coverage", "status",
+        )
+        invariant_rows = (
+            "source claim", "schema or example", "normal transition", "failure or cancellation",
+            "resume", "consumers or policy", "negative scenario", "fallback or bootstrap",
+            "evidence", "status",
+        )
+        for column in behavioral_columns:
+            with self.subTest(column=column):
+                self.assertIn(column, review)
+        for row in invariant_rows:
+            with self.subTest(row=row):
+                self.assertIn(row, review)
+        self.assertIn("every observable branch", review)
+        self.assertIn("invalid-input", review)
+        self.assertIn("pause/resume", review)
+        self.assertIn("every applicable high-risk", review)
+        self.assertIn("every `n/a` must include its reason", review)
+        for severity in ("p0", "p1", "p2", "p3"):
+            self.assertIn(f"**{severity}**", review)
+        for field in ("stable id", "causal relationship", "regression coverage", "confirmed", "likely", "question"):
+            self.assertIn(field, review)
+
+    def test_handoff_policy_defines_decision_packet_structure(self) -> None:
+        handoff = (ROOT / "core/contracts/policy/handoff.md").read_text(encoding="utf-8").lower()
+        for field in ("id", "kind", "problem", "why", "decision_required", "options", "recommendation"):
+            with self.subTest(field=field):
+                self.assertIn(field, handoff)
+        for option_field in ("description", "consequences"):
+            self.assertIn(option_field, handoff)
+        self.assertIn("up to three materially different options", handoff)
+        self.assertIn("recommendation", handoff)
+        self.assertIn("unavailable", handoff)
+        self.assertIn("never record an agent recommendation as a human decision", handoff)
+
+    def test_role_assignment_and_risk_semantics_are_canonical_in_v3_policies(self) -> None:
+        dispatch = (ROOT / "core/contracts/policy/dispatch.md").read_text(encoding="utf-8").lower()
+        risk = (ROOT / "core/contracts/policy/risk.md").read_text(encoding="utf-8").lower()
+        assignment_rules = (
+            ("mechanical", "mechanic", "cheap"),
+            ("non-high-risk prescriptive", "implementer-lite", "cheap"),
+            ("high-risk prescriptive", "implementer", "standard"),
+            ("bounded", "implementer", "standard"),
+            ("design", "architect", "high"),
+            ("research", "researcher", "standard"),
+            ("review", "reviewer", "high"),
+        )
+        for rule in assignment_rules:
+            with self.subTest(rule=rule):
+                for term in rule:
+                    self.assertIn(term, dispatch)
+        for trigger in ("authentication", "authorization", "privacy", "concurrency", "migration", "recovery", "external side effects"):
+            with self.subTest(trigger=trigger):
+                self.assertIn(trigger, risk)
+        self.assertIn("risk is independent of implementation complexity", risk)
+        self.assertIn("high-risk work requires", risk)
+        self.assertIn("low → quick", risk)
+        self.assertIn("medium → standard", risk)
+        self.assertIn("high → deep", risk)
+        for lens in (
+            "behavior", "security", "permissions", "privacy", "tenant-isolation", "concurrency",
+            "data", "migration", "api", "compatibility", "tests", "operations", "audit", "recovery",
+        ):
+            with self.subTest(lens=lens):
+                self.assertIn(lens, risk)
+
+    def test_workflow_metadata_is_scoped_and_admissible_under_stage1_policy(self) -> None:
+        from kapisch_core.bundle import compile_bundle
+        from kapisch_core.capabilities import CapabilityClaim, CapabilityClaims, CapabilityStatus
+        from kapisch_core.domain import (
+            CapabilityEffect, ExecutionClass, Gate, LogicalTier, ProposedAction,
+            ReviewDepth, ReviewScope, Role, Stage, Workflow,
+        )
+        from kapisch_core.policy import evaluate_action_policy
+
+        bundle = json.loads(compile_bundle(ROOT / "core"))
+        workflows = bundle["workflows"]
+        workflow_schema = bundle["schemas"]["bundle"]["$defs"]["workflow"]
+        self.assertEqual(set(workflow_schema["required"]), {"metadata_scope", "stages", "gates", "review_scopes", "contract", "sha256"})
+        self.assertEqual(workflow_schema["properties"]["metadata_scope"]["const"], "workflow-specific")
+        expected_metadata = {
+            "advisory": ({"research", "design", "gate"}, {"human-decision"}, set()),
+            "review": ({"review"}, set(), {"standalone"}),
+            "task": ({"implement", "review", "gate"}, {"human-decision", "approval", "side-effect"}, {"iteration", "whole-branch"}),
+            "milestone": ({"research", "design", "gate", "implement", "review", "final"}, {"human-decision", "approval", "side-effect"}, {"iteration", "whole-branch"}),
+        }
+        self.assertEqual(set(workflows), {item.value for item in Workflow})
+        implementation = {
+            Stage.RESEARCH: (Role.RESEARCHER, LogicalTier.STANDARD, ExecutionClass.PRESCRIPTIVE),
+            Stage.DESIGN: (Role.ARCHITECT, LogicalTier.HIGH, ExecutionClass.DESIGN),
+            Stage.IMPLEMENT: (Role.IMPLEMENTER, LogicalTier.STANDARD, ExecutionClass.BOUNDED),
+            Stage.GATE: (Role.IMPLEMENTER, LogicalTier.STANDARD, ExecutionClass.BOUNDED),
+            Stage.BOUNDED_DELEGATE: (Role.IMPLEMENTER, LogicalTier.STANDARD, ExecutionClass.BOUNDED),
+        }
+        for name, metadata in workflows.items():
+            with self.subTest(workflow=name):
+                self.assertEqual(metadata["metadata_scope"], "workflow-specific")
+                stages, gates, scopes = expected_metadata[name]
+                self.assertEqual(set(metadata["stages"]), stages)
+                self.assertEqual(set(metadata["gates"]), gates)
+                self.assertEqual(set(metadata["review_scopes"]), scopes)
+                self.assertEqual(len(metadata["review_scopes"]), len(set(metadata["review_scopes"])))
+                workflow = Workflow(name)
+                for stage_name in metadata["stages"]:
+                    stage = Stage(stage_name)
+                    if stage in implementation:
+                        role, tier, execution_class = implementation[stage]
+                        scope = ReviewScope.ITERATION
+                        depth = ReviewDepth.STANDARD
+                        claims = CapabilityClaims()
+                    else:
+                        role, tier, execution_class = Role.REVIEWER, LogicalTier.HIGH, ExecutionClass.PRESCRIPTIVE
+                        scope = ReviewScope.STANDALONE if workflow is Workflow.REVIEW else ReviewScope.ITERATION
+                        depth = ReviewDepth.DEEP if stage is Stage.FINAL else ReviewDepth.STANDARD
+                        claims = CapabilityClaims(mutation_free_reviewer=CapabilityStatus.ENFORCED)
+                        if stage is Stage.FINAL:
+                            scope = ReviewScope.WHOLE_BRANCH
+                    result = evaluate_action_policy(
+                        workflow,
+                        ProposedAction(stage, role, tier=tier, execution_class=execution_class,
+                                       review_depth=depth, review_scope=scope),
+                        claims,
+                    )
+                    self.assertTrue(result.admissible, (name, stage_name, result.violations))
+
+                for scope_name in metadata["review_scopes"]:
+                    result = evaluate_action_policy(
+                        workflow,
+                        ProposedAction(Stage.REVIEW, Role.REVIEWER, tier=LogicalTier.HIGH,
+                                       review_scope=ReviewScope(scope_name)),
+                        CapabilityClaims(mutation_free_reviewer=CapabilityStatus.ENFORCED),
+                    )
+                    self.assertTrue(result.admissible, (name, scope_name, result.violations))
+
+                for gate_name in metadata["gates"]:
+                    gate = Gate(gate_name)
+                    effect = CapabilityEffect.REPOSITORY_READ
+                    role, tier = Role.IMPLEMENTER, LogicalTier.STANDARD
+                    claims = CapabilityClaims()
+                    if gate is Gate.APPROVAL:
+                        role, tier = Role.REVIEWER, LogicalTier.HIGH
+                        claims = CapabilityClaims(mutation_free_reviewer=CapabilityStatus.ENFORCED)
+                        claims = CapabilityClaims(mutation_free_reviewer=CapabilityStatus.ENFORCED)
+                    elif gate is Gate.SIDE_EFFECT:
+                        effect = CapabilityEffect.REPOSITORY_WRITE
+                        claims = CapabilityClaims((CapabilityClaim(effect, CapabilityStatus.ENFORCED),))
+                    result = evaluate_action_policy(
+                        workflow,
+                        ProposedAction(Stage.GATE, role, tier=tier, gate=gate, effect=effect,
+                                       review_scope=ReviewScope.ITERATION),
+                        claims,
+                    )
+                    self.assertTrue(result.admissible, (name, gate_name, result.violations))
+
+        self.assertNotIn("approval", workflows["advisory"]["gates"])
+        rejected_advisory_approval = evaluate_action_policy(
+            Workflow.ADVISORY,
+            ProposedAction(Stage.GATE, Role.IMPLEMENTER, gate=Gate.APPROVAL),
+            CapabilityClaims(mutation_free_reviewer=CapabilityStatus.ENFORCED),
+        )
+        self.assertFalse(rejected_advisory_approval.admissible)
+        rejected_task_standalone = evaluate_action_policy(
+            Workflow.TASK,
+            ProposedAction(Stage.REVIEW, Role.REVIEWER, tier=LogicalTier.HIGH,
+                           review_scope=ReviewScope.STANDALONE),
+            CapabilityClaims(mutation_free_reviewer=CapabilityStatus.ENFORCED),
+        )
+        self.assertFalse(rejected_task_standalone.admissible)
+        rejected_final_iteration = evaluate_action_policy(
+            Workflow.MILESTONE,
+            ProposedAction(Stage.FINAL, Role.REVIEWER, tier=LogicalTier.HIGH,
+                           review_scope=ReviewScope.ITERATION),
+            CapabilityClaims(mutation_free_reviewer=CapabilityStatus.ENFORCED),
+        )
+        self.assertFalse(rejected_final_iteration.admissible)
+
+    def test_stage_schema_separates_stage_kind_from_attempt_identity(self) -> None:
+        from kapisch_core.bundle import compile_bundle
+
+        bundle = json.loads(compile_bundle(ROOT / "core"))
+        stage = json.loads((ROOT / "core/schemas/v3/stage.json").read_text(encoding="utf-8"))
+        run = json.loads((ROOT / "core/schemas/v3/run.json").read_text(encoding="utf-8"))
+        self.assertIn("stage_id", stage["required"])
+        self.assertIn("stage_kind", stage["required"])
+        self.assertEqual(stage["properties"]["stage_kind"]["type"], "string")
+        self.assertEqual(set(stage["properties"]["stage_kind"]["enum"]), set(bundle["vocabulary"]["stages"]))
+        self.assertIn("review", stage["properties"]["stage_kind"]["enum"])
+        self.assertIn("final", stage["properties"]["stage_kind"]["enum"])
+        self.assertNotEqual(stage["properties"]["stage_id"], stage["properties"]["stage_kind"])
+        self.assertEqual(run["properties"]["history"]["items"]["$ref"], "kapisch://schemas/v3/stage")
+        self.assertIn("task", run["properties"]["workflow"]["enum"])
+
 if __name__ == "__main__":
+    unittest.main()
+    unittest.main()
     unittest.main()

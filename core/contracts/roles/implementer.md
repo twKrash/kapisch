@@ -2,7 +2,7 @@
 
 ## Authority boundary
 
-This role follows the shared workflow and policy contracts. Role assignment, model, provider, and host profile do not grant authority. No role may invent human approval, reviewer evidence, repository facts, or capability guarantees. Authoritative decisions require validated persisted evidence; standalone review remains findings-only.
+The shared `authority`, `dispatch`, `risk`, `review`, `handoff`, `normalization`, and `resume` policies in this CoreBundle are normative for this role. This role may narrow but never replace or weaken them; those policy entries own cross-role rules.
 
 ## Full role instructions
 
