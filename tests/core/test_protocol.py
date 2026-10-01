@@ -85,6 +85,57 @@ class ProtocolTests(unittest.TestCase):
         path, digest = protocol.persist_request(self.repo, run_id, operation_id, packet)
         return protocol, state, stage, packet, path, digest
 
+    def _milestone_operation(self, run_id: str, operation_id: str):
+        from kapisch_core import protocol
+        from kapisch_core.bundle import canonical_json
+
+        initial = self._state(run_id)
+        initial["workflow"] = "milestone"
+        protocol.publish_state(self.repo, run_id, initial, -1)
+        graph_bytes = canonical_json({"plan_id": "plan-1", "nodes": []})
+        plan_bytes = canonical_json({"plan_id": "plan-1", "approved": True})
+        graph_path = self.repo / ".kapisch/v3/runs" / run_id / "graphs/plan-1.json"
+        plan_path = self.repo / ".kapisch/v3/runs" / run_id / "plans/plan-1.json"
+        graph_path.parent.mkdir()
+        plan_path.parent.mkdir()
+        graph_path.write_bytes(graph_bytes)
+        plan_path.write_bytes(plan_bytes)
+        graph = {"path": "graphs/plan-1.json", "sha256": hashlib.sha256(graph_bytes).hexdigest()}
+        approved_plan = {"plan_id": "plan-1", "path": "plans/plan-1.json",
+                         "sha256": hashlib.sha256(plan_bytes).hexdigest()}
+        stage = {**_stage("planned"), "node_id": "n-00000000000000000000000000000001"}
+        state = {**initial, "revision": 1, "history": [stage], "graph": graph, "approved_plan": approved_plan}
+        protocol.publish_state(self.repo, run_id, state, 0)
+        packet = {"run_id": run_id, "operation_id": operation_id, "stage_id": stage["stage_id"],
+                  "node_id": stage["node_id"], "role": stage["role"], "bundle_digest": self.digest,
+                  "scope_digest": stage["scope_digest"], "adapter_binding": {"adapter_id": "fake", "lookup_context": "ctx-1"}}
+        return protocol, state, stage, packet
+
+    def test_milestone_request_binds_exact_graph_and_approved_plan(self) -> None:
+        operation_id = "op-00000000000000000000000000000015"
+        run_id = "run-missing-graph-binding"
+        protocol, state, stage, packet = self._milestone_operation(run_id, operation_id)
+        with self.assertRaisesRegex(ValueError, "approved graph and plan binding"):
+            protocol.persist_request(self.repo, run_id, operation_id, packet)
+        request_path = self.repo / ".kapisch/v3/runs" / run_id / "requests" / f"{operation_id}.json"
+        self.assertFalse(request_path.exists())
+
+        packet["graph"] = {"path": "graphs/other.json", "sha256": state["graph"]["sha256"]}
+        packet["approved_plan"] = state["approved_plan"]
+        with self.assertRaisesRegex(ValueError, "approved graph and plan binding"):
+            protocol.persist_request(self.repo, run_id, operation_id, packet)
+
+        packet["graph"] = state["graph"]
+        request_path, request_digest = protocol.persist_request(self.repo, run_id, operation_id, packet)
+        graph_path = self.repo / ".kapisch/v3/runs" / run_id / state["graph"]["path"]
+        graph_path.write_bytes(b"changed graph")
+        with self.assertRaisesRegex(ValueError, "request input evidence changed"):
+            protocol.reserve_operation(
+                self.repo, run_id, operation_id, stage["stage_id"], "implementer",
+                {"path": request_path, "sha256": request_digest}, packet["adapter_binding"],
+            )
+        self.assertFalse((self.repo / ".kapisch/v3/runs" / run_id / "invocations" / operation_id / "planned.json").exists())
+
     def test_request_publication_serializes_with_run_state_writer(self) -> None:
         import threading
         from unittest.mock import patch
@@ -241,6 +292,30 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(uncertain["protocol_version"], 3)
         self.assertEqual(uncertain["status"], "dispatch-uncertain")
         self.assertEqual(uncertain_bytes, canonical_json(uncertain))
+
+    def test_reservation_rechecks_input_bytes_after_step_one(self) -> None:
+        from kapisch_core import protocol
+
+        operation_id = "op-00000000000000000000000000000014"
+        run_id = "run-input-race"
+        stage = _stage("planned")
+        state = self._state(run_id, history=[stage])
+        protocol.publish_state(self.repo, run_id, state, -1)
+        input_path = self.repo / ".kapisch/v3/runs" / run_id / "evidence" / "input.json"
+        input_path.parent.mkdir()
+        input_path.write_bytes(b"approved input")
+        packet = {"run_id": run_id, "operation_id": operation_id, "stage_id": stage["stage_id"],
+                  "role": "implementer", "bundle_digest": self.digest, "scope_digest": stage["scope_digest"],
+                  "adapter_binding": {"adapter_id": "fake", "lookup_context": "ctx-1"},
+                  "inputs": [{"path": "evidence/input.json", "sha256": hashlib.sha256(b"approved input").hexdigest()}]}
+        request_path, request_digest = protocol.persist_request(self.repo, run_id, operation_id, packet)
+        input_path.write_bytes(b"changed input")
+        with self.assertRaisesRegex(ValueError, "request input evidence changed"):
+            protocol.reserve_operation(
+                self.repo, run_id, operation_id, stage["stage_id"], "implementer",
+                {"path": request_path, "sha256": request_digest}, packet["adapter_binding"],
+            )
+        self.assertFalse((self.repo / ".kapisch/v3/runs" / run_id / "invocations" / operation_id / "planned.json").exists())
 
     def test_reservation_requires_request_from_step_one_path(self) -> None:
         from kapisch_core.bundle import canonical_json
@@ -440,6 +515,18 @@ class ProtocolTests(unittest.TestCase):
         ]
         next_stage = {**stage, "sequence": 1, "status": "dispatch-uncertain", "evidence": evidence}
         return protocol, state, {**state, "revision": 1, "history": [stage, next_stage]}
+
+    def test_uncertainty_publication_rejects_additional_unreserved_attempt(self) -> None:
+        operation_id = "op-00000000000000000000000000000013"
+        protocol, _, proposed = self._dispatch_state("run-extra-uncertain", operation_id)
+        other = {**_stage("planned"), "stage_id": "s-00000000000000000000000000000002", "sequence": 2}
+        other_uncertain = {**other, "sequence": 3, "status": "dispatch-uncertain"}
+        proposed["history"].extend((other, other_uncertain))
+        with self.assertRaisesRegex(ValueError, "exactly one reserved attempt observation"):
+            protocol.publish_uncertainty(self.repo, "run-extra-uncertain", proposed, 0, operation_id)
+        invocation = self.repo / ".kapisch/v3/runs/run-extra-uncertain/invocations" / operation_id
+        self.assertFalse((invocation / "dispatch-uncertain.json").exists())
+        self.assertEqual(protocol.load_state(self.repo, "run-extra-uncertain")["revision"], 0)
 
     def test_uncertainty_publication_ack_loss_preserves_veto(self) -> None:
         from unittest.mock import patch

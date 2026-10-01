@@ -131,6 +131,39 @@ def _read_file(directory: int, name: str) -> bytes:
         os.close(fd)
 
 
+def _validate_packet_inputs(repo: Path, run_id: str, packet: Mapping[str, Any]) -> None:
+    inputs = packet.get("inputs", [])
+    if not isinstance(inputs, list):
+        raise ValueError("operation request inputs are invalid")
+    refs = list(inputs)
+    for field, keys in (("graph", {"path", "sha256"}), ("approved_plan", {"plan_id", "path", "sha256"})):
+        if field in packet:
+            ref = packet[field]
+            if not isinstance(ref, dict) or set(ref) != keys or (field == "approved_plan" and not ref.get("plan_id")):
+                raise ValueError("operation request authority reference is invalid")
+            refs.append({"path": ref["path"], "sha256": ref["sha256"]})
+    if ("graph" in packet) != ("approved_plan" in packet):
+        raise ValueError("graph and approved plan request bindings must appear together")
+    for ref in refs:
+        if (not isinstance(ref, dict) or set(ref) != {"path", "sha256"}
+                or not _safe_relative(ref.get("path")) or not isinstance(ref.get("sha256"), str)
+                or not re.fullmatch(r"[0-9a-f]{64}", ref["sha256"])):
+            raise ValueError("operation request input reference is invalid")
+        if hashlib.sha256(_read_contained(repo, run_id, ref["path"])).hexdigest() != ref["sha256"]:
+            raise ValueError("request input evidence changed")
+
+
+def _validate_packet_authority(packet: Mapping[str, Any], state: Mapping[str, Any], attempt: Mapping[str, Any]) -> None:
+    if packet.get("node_id") != attempt.get("node_id"):
+        raise ValueError("request node binding does not match attempt")
+    if attempt.get("node_id") is not None:
+        if (state.get("workflow") != "milestone" or "graph" not in state or "approved_plan" not in state
+                or packet.get("graph") != state["graph"] or packet.get("approved_plan") != state["approved_plan"]):
+            raise ValueError("node-scoped request must bind the approved graph and plan binding")
+    elif state.get("workflow") != "milestone" and ("graph" in packet or "approved_plan" in packet):
+        raise ValueError("graph references are forbidden in graph-free request")
+
+
 def _validate_reservation(repo: Path, run_id: str, operation_id: str, fact: Any) -> dict[str, Any]:
     fields = {"protocol_version", "operation_id", "run_id", "stage_id", "role", "request_digest", "status", "request", "adapter_binding"}
     if not isinstance(fact, dict) or set(fact) != fields:
@@ -177,16 +210,9 @@ def _validate_reservation(repo: Path, run_id: str, operation_id: str, fact: Any)
         raise ValueError("operation request scope digest is invalid")
     if "node_id" in packet and (not isinstance(packet["node_id"], str) or not re.fullmatch(r"n-[0-9a-f]{32}", packet["node_id"])):
         raise ValueError("operation request node binding is invalid")
-    inputs = packet.get("inputs", [])
-    if not isinstance(inputs, list):
-        raise ValueError("operation request inputs are invalid")
-    for ref in inputs:
-        if (not isinstance(ref, dict) or set(ref) != {"path", "sha256"}
-                or not _safe_relative(ref.get("path")) or not isinstance(ref.get("sha256"), str)
-                or not re.fullmatch(r"[0-9a-f]{64}", ref["sha256"])):
-            raise ValueError("operation request input reference is invalid")
-        if hashlib.sha256(_read_contained(repo, run_id, ref["path"])).hexdigest() != ref["sha256"]:
-            raise ValueError("operation request input evidence changed")
+    if packet.get("node_id") is not None and ("graph" not in packet or "approved_plan" not in packet):
+        raise ValueError("node-scoped reservation lacks approved graph and plan binding")
+    _validate_packet_inputs(repo, run_id, packet)
     return packet
 
 
@@ -430,15 +456,8 @@ def _persist_request_locked(repo: Path, run_id: str, operation_id: str, packet: 
         raise ValueError("request identity does not match publication target")
     if not isinstance(packet.get("adapter_binding"), dict) or not all(packet["adapter_binding"].get(k) for k in ("adapter_id", "lookup_context")):
         raise ValueError("request must bind adapter identity and lookup context")
-    inputs = packet.get("inputs", [])
-    if not isinstance(inputs, list):
-        raise ValueError("request inputs must be an array")
-    for ref in inputs:
-        if not isinstance(ref, dict) or set(ref) != {"path", "sha256"}:
-            raise ValueError("invalid request input reference")
-        data = _read_contained(repo, run_id, ref["path"])
-        if hashlib.sha256(data).hexdigest() != ref["sha256"]:
-            raise ValueError("request input digest mismatch")
+    _validate_packet_authority(packet, state, attempt)
+    _validate_packet_inputs(Path(repo), run_id, packet)
     body = canonical_json(packet)
     digest = hashlib.sha256(body).hexdigest()
     run, fds = _run_dir(repo, run_id, create=True)
@@ -530,6 +549,8 @@ def reserve_operation(repo: Path, run_id: str, operation_id: str, stage_id: str,
             raise ValueError("request node binding or digest shape is invalid")
         if any(parsed_packet.get(key) != value for key, value in expected.items()):
             raise ValueError("request packet differs from reservation binding")
+        _validate_packet_authority(parsed_packet, state, attempt)
+        _validate_packet_inputs(repo, run_id, parsed_packet)
         runs, fds = _runs_dir(repo, create=False)
         try:
             for entry in os.listdir(runs):
@@ -619,13 +640,19 @@ def publish_uncertainty(repo: Path, run_id: str, state: Mapping[str, Any], expec
                 }
                 for ref in packet.get("inputs", []):
                     required_refs[ref["path"]] = ref["sha256"]
+                for field in ("graph", "approved_plan"):
+                    if field in packet:
+                        ref = packet[field]
+                        required_refs[ref["path"]] = ref["sha256"]
                 required_refs[f"invocations/{operation_id}/dispatch-uncertain.json"] = hashlib.sha256(uncertain_bytes).hexdigest()
             finally:
                 os.close(operation)
         finally:
             _close(fds)
-        new_rows = state.get("history", [])[len(current["history"]):]
-        observation = next((row for row in reversed(new_rows) if row.get("stage_id") == planned["stage_id"]), None)
+        new_rows = proposed_state["history"][len(current["history"]):]
+        if len(new_rows) != 1:
+            raise ValueError("uncertainty publication requires exactly one reserved attempt observation")
+        observation = new_rows[0]
         attempt = next((row for row in reversed(current["history"]) if row["stage_id"] == planned["stage_id"]), None)
         if attempt is None or attempt["status"] != "planned" or attempt["role"] != planned["role"]:
             raise ValueError("operation must reserve an existing planned attempt")
@@ -633,6 +660,7 @@ def publish_uncertainty(repo: Path, run_id: str, state: Mapping[str, Any], expec
             raise ValueError("uncertain state must append matching attempt observation")
         if any(observation.get(key) != attempt.get(key) for key in ("stage_id", "stage_kind", "role", "scope_digest", "node_id")):
             raise ValueError("uncertain observation changed attempt binding")
+        _validate_packet_authority(packet, current, attempt)
         cited = {ref.get("path"): ref.get("sha256") for ref in observation.get("evidence", [])}
         if any(cited.get(path) != digest for path, digest in required_refs.items()):
             raise ValueError("uncertain observation must cite request and immutable invocation facts")
