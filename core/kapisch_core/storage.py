@@ -75,6 +75,32 @@ def _read_bundle(directory: int, name: str) -> bytes:
         os.close(descriptor)
 
 
+def _atomic_write_at(directory: int, name: str, data: bytes, *, replace: bool) -> None:
+    """Durably publish bytes in a verified directory descriptor."""
+    temporary = f".{name}.{secrets.token_hex(12)}.tmp"
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600, dir_fd=directory)
+    try:
+        view = memoryview(data)
+        while view:
+            written = os.write(descriptor, view)
+            if written <= 0:
+                raise OSError("authority write made no progress")
+            view = view[written:]
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    try:
+        if replace:
+            os.replace(temporary, name, src_dir_fd=directory, dst_dir_fd=directory)
+        else:
+            os.link(temporary, name, src_dir_fd=directory, dst_dir_fd=directory, follow_symlinks=False)
+        os.fsync(directory)
+    finally:
+        with suppress(FileNotFoundError):
+            os.unlink(temporary, dir_fd=directory)
+        os.fsync(directory)
+
+
 def _sync_existing(directory: int, name: str, digest: str) -> None:
     descriptor = os.open(name, _FILE_FLAGS, dir_fd=directory)
     try:
