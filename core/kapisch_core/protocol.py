@@ -419,10 +419,16 @@ def _publish_state_locked(repo: Path, run_id: str, state: Mapping[str, Any], exp
                 raise ValueError("run bundle and workflow are immutable")
             old_history = previous["history"]
             new_history = proposed["history"]
-            if any("node_id" in row for row in old_history) and any(
+            has_node_attempt = any("node_id" in row for row in old_history)
+            has_operation_binding = any(
+                evidence["path"].startswith("invocations/")
+                for row in old_history for evidence in row["evidence"]
+            )
+            if (has_node_attempt or has_operation_binding) and any(
                 proposed.get(field) != previous.get(field) for field in ("graph", "approved_plan")
             ):
-                raise ValueError("execution authority references are immutable after node attempt creation")
+                reason = "after operation binding" if has_operation_binding else "after node attempt creation"
+                raise ValueError(f"execution authority references are immutable {reason}")
             if len(new_history) < len(old_history) or new_history[:len(old_history)] != old_history:
                 raise ValueError("run history prefix is immutable")
         _validate_history(proposed["history"], proposed["workflow"])
@@ -630,6 +636,8 @@ def publish_uncertainty(repo: Path, run_id: str, state: Mapping[str, Any], expec
                 or proposed_state["workflow"] != current["workflow"]
                 or proposed_state["history"][:len(current["history"])] != current["history"]):
             raise ValueError("uncertain state must preserve run bindings and history prefix")
+        if any(proposed_state.get(field) != current.get(field) for field in ("graph", "approved_plan")):
+            raise ValueError("uncertain state must preserve graph and approved plan bindings")
         if len(proposed_state["history"]) <= len(current["history"]):
             raise ValueError("uncertain state must append an observation")
         run, fds = _run_dir(repo, run_id, create=False)

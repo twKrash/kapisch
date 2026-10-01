@@ -179,6 +179,66 @@ class ProtocolTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "current approved authority"):
                 protocol.persist_request(self.repo, run_id, operation_id, packet)
 
+    def test_uncertainty_publication_preserves_runwide_authority(self) -> None:
+        from kapisch_core import protocol
+        from kapisch_core.bundle import canonical_json
+
+        run_id, operation_id = "run-runwide-authority-swap", "op-00000000000000000000000000000018"
+        initial = self._state(run_id)
+        initial["workflow"] = "milestone"
+        protocol.publish_state(self.repo, run_id, initial, -1)
+        run_root = self.repo / ".kapisch/v3/runs" / run_id
+        graph_bytes = canonical_json({"plan_id": "plan-1", "nodes": []})
+        plan_bytes = canonical_json({"plan_id": "plan-1", "approved": True})
+        graph_path, plan_path = run_root / "graphs/plan-1.json", run_root / "plans/plan-1.json"
+        graph_path.parent.mkdir()
+        plan_path.parent.mkdir()
+        graph_path.write_bytes(graph_bytes)
+        plan_path.write_bytes(plan_bytes)
+        stage = {**_stage("planned"), "stage_kind": "final", "role": "reviewer"}
+        state = {**initial, "revision": 1, "history": [stage],
+                 "graph": {"path": "graphs/plan-1.json", "sha256": hashlib.sha256(graph_bytes).hexdigest()},
+                 "approved_plan": {"plan_id": "plan-1", "path": "plans/plan-1.json",
+                                   "sha256": hashlib.sha256(plan_bytes).hexdigest()}}
+        protocol.publish_state(self.repo, run_id, state, 0)
+        packet = {"run_id": run_id, "operation_id": operation_id, "stage_id": stage["stage_id"],
+                  "role": stage["role"], "bundle_digest": self.digest, "scope_digest": stage["scope_digest"],
+                  "adapter_binding": {"adapter_id": "fake", "lookup_context": "ctx-1"},
+                  "graph": state["graph"], "approved_plan": state["approved_plan"]}
+        request_path, request_digest = protocol.persist_request(self.repo, run_id, operation_id, packet)
+        planned = protocol.reserve_operation(self.repo, run_id, operation_id, stage["stage_id"], stage["role"],
+                                             {"path": request_path, "sha256": request_digest}, packet["adapter_binding"])
+        planned_bytes = canonical_json(planned)
+        uncertain_bytes = canonical_json({**planned, "status": "dispatch-uncertain"})
+        evidence = [
+            {"kind": "protocol", "path": f"invocations/{operation_id}/planned.json", "sha256": hashlib.sha256(planned_bytes).hexdigest()},
+            {"kind": "request", "path": request_path, "sha256": request_digest},
+            {"kind": "graph", "path": state["graph"]["path"], "sha256": state["graph"]["sha256"]},
+            {"kind": "approved-plan", "path": state["approved_plan"]["path"], "sha256": state["approved_plan"]["sha256"]},
+            {"kind": "protocol", "path": f"invocations/{operation_id}/dispatch-uncertain.json", "sha256": hashlib.sha256(uncertain_bytes).hexdigest()},
+        ]
+        observation = {**stage, "sequence": 1, "status": "dispatch-uncertain", "evidence": evidence}
+        graph_b = canonical_json({"plan_id": "plan-2", "nodes": []})
+        plan_b = canonical_json({"plan_id": "plan-2", "approved": True})
+        (graph_path.parent / "plan-2.json").write_bytes(graph_b)
+        (plan_path.parent / "plan-2.json").write_bytes(plan_b)
+        proposed = {**state, "revision": 2, "history": [stage, observation],
+                    "graph": {"path": "graphs/plan-2.json", "sha256": hashlib.sha256(graph_b).hexdigest()},
+                    "approved_plan": {"plan_id": "plan-2", "path": "plans/plan-2.json",
+                                      "sha256": hashlib.sha256(plan_b).hexdigest()}}
+        with self.assertRaisesRegex(ValueError, "preserve graph and approved plan bindings"):
+            protocol.publish_uncertainty(self.repo, run_id, proposed, 1, operation_id)
+        self.assertEqual(protocol.load_state(self.repo, run_id)["graph"], state["graph"])
+        self.assertFalse((run_root / "invocations" / operation_id / "dispatch-uncertain.json").exists())
+
+        correct = {**proposed, "graph": state["graph"], "approved_plan": state["approved_plan"]}
+        protocol.publish_uncertainty(self.repo, run_id, correct, 1, operation_id)
+        current = protocol.load_state(self.repo, run_id)
+        rebound = {**current, "revision": current["revision"] + 1,
+                   "graph": proposed["graph"], "approved_plan": proposed["approved_plan"]}
+        with self.assertRaisesRegex(ValueError, "immutable after operation binding"):
+            protocol.publish_state(self.repo, run_id, rebound, current["revision"])
+
     def test_adapter_binding_requires_nonempty_string_values(self) -> None:
         from kapisch_core import protocol
 
