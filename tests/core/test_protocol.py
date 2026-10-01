@@ -86,6 +86,7 @@ class ProtocolTests(unittest.TestCase):
         return protocol, state, stage, packet, path, digest
 
     def _milestone_operation(self, run_id: str, operation_id: str):
+
         from kapisch_core import protocol
         from kapisch_core.bundle import canonical_json
 
@@ -107,8 +108,9 @@ class ProtocolTests(unittest.TestCase):
         state = {**initial, "revision": 1, "history": [stage], "graph": graph, "approved_plan": approved_plan}
         protocol.publish_state(self.repo, run_id, state, 0)
         packet = {"run_id": run_id, "operation_id": operation_id, "stage_id": stage["stage_id"],
-                  "node_id": stage["node_id"], "role": stage["role"], "bundle_digest": self.digest,
+                  "role": stage["role"], "bundle_digest": self.digest,
                   "scope_digest": stage["scope_digest"], "adapter_binding": {"adapter_id": "fake", "lookup_context": "ctx-1"}}
+        packet["node_id"] = stage["node_id"]
         return protocol, state, stage, packet
 
     def test_milestone_request_binds_exact_graph_and_approved_plan(self) -> None:
@@ -140,6 +142,76 @@ class ProtocolTests(unittest.TestCase):
                 {"path": request_path, "sha256": request_digest}, packet["adapter_binding"],
             )
         self.assertFalse((self.repo / ".kapisch/v3/runs" / run_id / "invocations" / operation_id / "planned.json").exists())
+
+    def test_runwide_milestone_request_rejects_substituted_authority(self) -> None:
+        from kapisch_core import protocol
+        from kapisch_core.bundle import canonical_json
+
+        for index, field in enumerate(("graph", "approved_plan")):
+            run_id = f"run-runwide-binding-{index}"
+            operation_id = f"op-{index + 16:032x}"
+            initial = self._state(run_id)
+            initial["workflow"] = "milestone"
+            protocol.publish_state(self.repo, run_id, initial, -1)
+            graph_bytes = canonical_json({"plan_id": "plan-1", "nodes": []})
+            plan_bytes = canonical_json({"plan_id": "plan-1", "approved": True})
+            run_root = self.repo / ".kapisch/v3/runs" / run_id
+            graph_path, plan_path = run_root / "graphs/plan-1.json", run_root / "plans/plan-1.json"
+            graph_path.parent.mkdir()
+            plan_path.parent.mkdir()
+            graph_path.write_bytes(graph_bytes)
+            plan_path.write_bytes(plan_bytes)
+            stage = {**_stage("planned"), "stage_kind": "final", "role": "reviewer"}
+            state = {**initial, "revision": 1, "history": [stage],
+                     "graph": {"path": "graphs/plan-1.json", "sha256": hashlib.sha256(graph_bytes).hexdigest()},
+                     "approved_plan": {"plan_id": "plan-1", "path": "plans/plan-1.json",
+                                       "sha256": hashlib.sha256(plan_bytes).hexdigest()}}
+            protocol.publish_state(self.repo, run_id, state, 0)
+            packet = {"run_id": run_id, "operation_id": operation_id, "stage_id": stage["stage_id"],
+                      "role": stage["role"], "bundle_digest": self.digest,
+                      "scope_digest": stage["scope_digest"], "adapter_binding": {"adapter_id": "fake", "lookup_context": "ctx-1"},
+                      "graph": state["graph"], "approved_plan": state["approved_plan"]}
+            if field == "graph":
+                (graph_path.parent / "other.json").write_bytes(graph_bytes)
+                packet["graph"] = {**state["graph"], "path": "graphs/other.json"}
+            else:
+                packet["approved_plan"] = {**state["approved_plan"], "plan_id": "plan-2"}
+            with self.assertRaisesRegex(ValueError, "current approved authority"):
+                protocol.persist_request(self.repo, run_id, operation_id, packet)
+
+    def test_adapter_binding_requires_nonempty_string_values(self) -> None:
+        from kapisch_core import protocol
+
+        invalid_values = (42, True, {"namespace": "fake"}, ["ctx-1"])
+        index = 32
+        for field in ("adapter_id", "lookup_context"):
+            for value in invalid_values:
+                run_id = f"run-bad-binding-{index}"
+                operation_id = f"op-{index:032x}"
+                stage = _stage("planned")
+                state = self._state(run_id, history=[stage])
+                protocol.publish_state(self.repo, run_id, state, -1)
+                packet = {"run_id": run_id, "operation_id": operation_id, "stage_id": stage["stage_id"],
+                          "role": stage["role"], "bundle_digest": self.digest,
+                          "scope_digest": stage["scope_digest"],
+                          "adapter_binding": {"adapter_id": "fake", "lookup_context": "ctx-1"}}
+                packet["adapter_binding"][field] = value
+                with self.assertRaisesRegex(ValueError, "adapter binding must contain nonempty strings"):
+                    protocol.persist_request(self.repo, run_id, operation_id, packet)
+                index += 1
+
+        run_id, operation_id = "run-bad-reservation-binding", f"op-{index:032x}"
+        protocol, _, stage, packet, path, digest = self._begin(run_id, operation_id)
+        bad_binding = {"adapter_id": "fake", "lookup_context": 42}
+        with self.assertRaisesRegex(ValueError, "adapter binding must contain nonempty strings"):
+            protocol.reserve_operation(self.repo, run_id, operation_id, stage["stage_id"], "implementer",
+                                       {"path": path, "sha256": digest}, bad_binding)
+        fact = {"protocol_version": 3, "operation_id": operation_id, "run_id": run_id,
+                "stage_id": stage["stage_id"], "role": "implementer", "request_digest": digest,
+                "status": "planned", "request": {"path": path, "sha256": digest},
+                "adapter_binding": bad_binding}
+        with self.assertRaisesRegex(ValueError, "adapter binding must contain nonempty strings"):
+            protocol._validate_reservation(self.repo, run_id, operation_id, fact)
 
     def test_request_publication_serializes_with_run_state_writer(self) -> None:
         import threading

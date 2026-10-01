@@ -131,6 +131,11 @@ def _read_file(directory: int, name: str) -> bytes:
         os.close(fd)
 
 
+def _valid_adapter_binding(binding: Any) -> bool:
+    return (isinstance(binding, Mapping) and set(binding) == {"adapter_id", "lookup_context"}
+            and all(isinstance(binding[field], str) and binding[field] for field in ("adapter_id", "lookup_context")))
+
+
 def _validate_packet_inputs(repo: Path, run_id: str, packet: Mapping[str, Any]) -> None:
     inputs = packet.get("inputs", [])
     if not isinstance(inputs, list):
@@ -142,8 +147,6 @@ def _validate_packet_inputs(repo: Path, run_id: str, packet: Mapping[str, Any]) 
             if not isinstance(ref, dict) or set(ref) != keys or (field == "approved_plan" and not ref.get("plan_id")):
                 raise ValueError("operation request authority reference is invalid")
             refs.append({"path": ref["path"], "sha256": ref["sha256"]})
-    if ("graph" in packet) != ("approved_plan" in packet):
-        raise ValueError("graph and approved plan request bindings must appear together")
     for ref in refs:
         if (not isinstance(ref, dict) or set(ref) != {"path", "sha256"}
                 or not _safe_relative(ref.get("path")) or not isinstance(ref.get("sha256"), str)
@@ -160,7 +163,14 @@ def _validate_packet_authority(packet: Mapping[str, Any], state: Mapping[str, An
         if (state.get("workflow") != "milestone" or "graph" not in state or "approved_plan" not in state
                 or packet.get("graph") != state["graph"] or packet.get("approved_plan") != state["approved_plan"]):
             raise ValueError("node-scoped request must bind the approved graph and plan binding")
-    elif state.get("workflow") != "milestone" and ("graph" in packet or "approved_plan" in packet):
+    elif state.get("workflow") == "milestone":
+        for field in ("graph", "approved_plan"):
+            if field in state:
+                if packet.get(field) != state[field]:
+                    raise ValueError("run-wide milestone request must bind current approved authority")
+            elif field in packet:
+                raise ValueError("run-wide milestone request cites unavailable authority")
+    elif "graph" in packet or "approved_plan" in packet:
         raise ValueError("graph references are forbidden in graph-free request")
 
 
@@ -187,8 +197,8 @@ def _validate_reservation(repo: Path, run_id: str, operation_id: str, fact: Any)
             or not re.fullmatch(r"[0-9a-f]{64}", request["sha256"])
             or request["sha256"] != fact["request_digest"]):
         raise ValueError("operation reservation request binding is invalid")
-    if not isinstance(binding, dict) or set(binding) != {"adapter_id", "lookup_context"} or not all(binding.values()):
-        raise ValueError("operation reservation adapter binding is invalid")
+    if not _valid_adapter_binding(binding):
+        raise ValueError("adapter binding must contain nonempty strings")
     request_bytes = _read_contained(repo, run_id, request["path"])
     if hashlib.sha256(request_bytes).hexdigest() != request["sha256"]:
         raise ValueError("operation reservation request bytes changed")
@@ -454,8 +464,8 @@ def _persist_request_locked(repo: Path, run_id: str, operation_id: str, packet: 
         raise ValueError("request node binding or digest shape is invalid")
     if packet.get("run_id") != run_id or packet.get("operation_id") != operation_id:
         raise ValueError("request identity does not match publication target")
-    if not isinstance(packet.get("adapter_binding"), dict) or not all(packet["adapter_binding"].get(k) for k in ("adapter_id", "lookup_context")):
-        raise ValueError("request must bind adapter identity and lookup context")
+    if not _valid_adapter_binding(packet.get("adapter_binding")):
+        raise ValueError("adapter binding must contain nonempty strings")
     _validate_packet_authority(packet, state, attempt)
     _validate_packet_inputs(Path(repo), run_id, packet)
     body = canonical_json(packet)
@@ -525,8 +535,8 @@ def reserve_operation(repo: Path, run_id: str, operation_id: str, stage_id: str,
     stage_id = _id(stage_id, "stage_id")
     if set(request) != {"path", "sha256"} or request["path"] != f"requests/{operation_id}.json":
         raise ValueError("operation-specific request path is required")
-    if set(adapter_binding) != {"adapter_id", "lookup_context"} or not all(adapter_binding.values()):
-        raise ValueError("invalid adapter binding")
+    if not _valid_adapter_binding(adapter_binding):
+        raise ValueError("adapter binding must contain nonempty strings")
     body = canonical_json({"protocol_version": 3, "operation_id": operation_id, "run_id": run_id, "stage_id": stage_id,
                            "role": role, "request_digest": request["sha256"], "status": "planned",
                            "request": dict(request), "adapter_binding": dict(adapter_binding)})
