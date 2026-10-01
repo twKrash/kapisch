@@ -16,7 +16,136 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "core"))
 
 
+def _condition_matches(instance: Any, schema: dict[str, Any]) -> bool:
+    """Match the JSON Schema keywords used by run.json's conditional clauses."""
+    if "allOf" in schema and not all(_condition_matches(instance, part) for part in schema["allOf"]):
+        return False
+    if "anyOf" in schema and not any(_condition_matches(instance, part) for part in schema["anyOf"]):
+        return False
+    if "required" in schema and isinstance(instance, dict) and not set(schema["required"]) <= instance.keys():
+        return False
+    if "const" in schema and instance != schema["const"]:
+        return False
+    if "enum" in schema and instance not in schema["enum"]:
+        return False
+    if "properties" in schema and isinstance(instance, dict):
+        if any(key in instance and not _condition_matches(instance[key], value) for key, value in schema["properties"].items()):
+            return False
+    if "items" in schema and isinstance(instance, list) and any(not _condition_matches(item, schema["items"]) for item in instance):
+        return False
+    if "not" in schema and _condition_matches(instance, schema["not"]):
+        return False
+    return True
+
+
+def _run_conditionals_accept(document: dict[str, Any], schema: dict[str, Any]) -> bool:
+    """Test only run-schema if/then behavior; this is not a full schema validator."""
+    for clause in schema["allOf"]:
+        if "if" in clause and _condition_matches(document, clause["if"]):
+            if not _condition_matches(document, clause["then"]):
+                return False
+    return True
+
+
+def _run_document(workflow: str, stages: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "protocol_version": 3, "run_id": "r-" + "a" * 32, "bundle_digest": "0" * 64,
+        "workflow": workflow, "revision": 0, "history": stages,
+        "identity_contract": "stage-attempt/1",
+    }
+
+
+def _stage(kind: str, sequence: int, node_id: str | None = None) -> dict[str, Any]:
+    role = {"research": "researcher", "design": "architect", "implement": "implementer"}.get(kind, "reviewer")
+    stage = {
+        "stage_id": "s-" + format(sequence, "032x"), "stage_kind": kind,
+        "sequence": sequence, "role": role, "status": "complete",
+        "producer": "controller", "evidence": [], "scope_digest": "1" * 64,
+    }
+    if node_id:
+        stage["node_id"] = node_id
+    return stage
+
+
 class BundleTests(unittest.TestCase):
+    def test_graphless_milestone_accepts_completed_run_wide_research_and_design(self) -> None:
+        schema = json.loads((ROOT / "core/schemas/v3/run.json").read_text())
+        run = _run_document("milestone", [_stage("research", 0), _stage("design", 1)])
+        self.assertTrue(_run_conditionals_accept(run, schema))
+
+    def test_graphless_milestone_rejects_node_scoped_history(self) -> None:
+        schema = json.loads((ROOT / "core/schemas/v3/run.json").read_text())
+        run = _run_document("milestone", [_stage("research", 0, "n-" + "a" * 32)])
+        self.assertFalse(_run_conditionals_accept(run, schema))
+
+    def test_graphless_milestone_rejects_node_scoped_implementation(self) -> None:
+        schema = json.loads((ROOT / "core/schemas/v3/run.json").read_text())
+        run = _run_document("milestone", [_stage("implement", 0, "n-" + "a" * 32)])
+        self.assertFalse(_run_conditionals_accept(run, schema))
+
+    def test_non_milestone_completed_history_remains_valid(self) -> None:
+        schema = json.loads((ROOT / "core/schemas/v3/run.json").read_text())
+        for workflow in ("task", "advisory", "review"):
+            with self.subTest(workflow=workflow):
+                self.assertTrue(_run_conditionals_accept(_run_document(workflow, [_stage("research", 0)]), schema))
+
+    def test_stage_attempt_identity_schema_contract(self) -> None:
+        stage = json.loads((ROOT / "core/schemas/v3/stage.json").read_text())
+        run = json.loads((ROOT / "core/schemas/v3/run.json").read_text())
+        invocation = json.loads((ROOT / "core/schemas/v3/invocation.json").read_text())
+
+        stage_properties = stage["properties"]
+        self.assertIn("scope_digest", stage["required"])
+        self.assertEqual(stage_properties["stage_id"]["pattern"], r"^s-[0-9a-f]{32}$")
+        self.assertEqual(stage_properties["stage_kind"]["enum"], [
+            "bounded-delegate", "design", "final", "gate", "implement", "research", "review"
+        ])
+        self.assertEqual(stage_properties["producer"]["const"], "controller")
+        self.assertEqual(stage_properties["node_id"]["pattern"], r"^n-[0-9a-f]{32}$")
+        self.assertEqual(stage_properties["retry_of_stage_id"]["pattern"], r"^s-[0-9a-f]{32}$")
+        self.assertNotIn("attempt_id", stage_properties)
+
+        self.assertEqual(run["properties"]["identity_contract"]["const"], "stage-attempt/1")
+        self.assertIn("identity_contract", run["required"])
+        self.assertIn("graph", run["properties"])
+        self.assertIn("graph_document", run["$defs"])
+        self.assertIn("graph_node", run["$defs"])
+        self.assertIn("scope_document", run["$defs"])
+        graph_node = run["$defs"]["graph_node"]
+        self.assertIs(graph_node["additionalProperties"], False)
+        self.assertEqual(set(graph_node["required"]), {"node_id", "scope", "depends_on"})
+        self.assertEqual(set(run["$defs"]["scope_document"]["required"]), {
+            "protocol_version", "run_id", "node_id", "requirements"
+        })
+        graph_free = next(
+            clause for clause in run["allOf"]
+            if clause.get("if", {}).get("allOf", [{}])[0].get("properties", {}).get("workflow", {}).get("const") == "milestone"
+        )
+        self.assertEqual(graph_free["then"]["properties"]["history"]["items"], {"not": {"required": ["node_id"]}})
+
+        invocation_properties = invocation["properties"]
+        self.assertEqual(invocation_properties["operation_id"]["pattern"], r"^op-[0-9a-f]{32}$")
+        self.assertEqual(set(invocation_properties["request"]["properties"]), {"path", "sha256"})
+        self.assertIs(invocation_properties["request"]["additionalProperties"], False)
+        self.assertEqual(set(invocation_properties["adapter_binding"]["properties"]), {"adapter_id", "lookup_context"})
+        self.assertIs(invocation_properties["adapter_binding"]["additionalProperties"], False)
+
+    def test_graphless_execution_restriction_is_milestone_only(self) -> None:
+        run = json.loads((ROOT / "core/schemas/v3/run.json").read_text())
+        guard = next(
+            clause for clause in run["allOf"]
+            if clause.get("if", {}).get("allOf", [{}])[0].get("properties", {}).get("workflow", {}).get("const") == "milestone"
+        )
+        self.assertEqual(
+            guard["if"],
+            {
+                "allOf": [
+                    {"properties": {"workflow": {"const": "milestone"}}, "required": ["workflow"]},
+                    {"not": {"required": ["graph"]}},
+                ]
+            },
+        )
+
     def test_bundle_is_canonical_and_verified_by_whole_byte_digest(self) -> None:
         from kapisch_core.bundle import compile_bundle, verify_bundle
 
@@ -186,7 +315,8 @@ class BundleTests(unittest.TestCase):
             set(schemas["run"]["properties"]),
             {
                 "protocol_version", "run_id", "bundle_digest", "workflow", "revision",
-                "history", "accepted_snapshot", "approved_plan", "amends", "supersedes",
+                "history", "identity_contract", "graph", "accepted_snapshot", "approved_plan",
+                "amends", "supersedes",
             },
         )
         relationship_rules = [
