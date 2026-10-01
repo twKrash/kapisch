@@ -1,7 +1,7 @@
 ---
 name: "kapisch-reviewer"
 description: "Use for independent branch, PR, commit, staged, or working-tree review; validation of review fixes; and final merge-readiness checks."
-model: openai-codex/gpt-6-sol
+model: openai/gpt-6.1-sol
 thinking: high
 tools: read, grep, find, ls, bash
 acceptanceRole: read-only
