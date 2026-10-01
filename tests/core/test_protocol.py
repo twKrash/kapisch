@@ -126,6 +126,11 @@ class ProtocolTests(unittest.TestCase):
             protocol.persist_request(self.repo, run_id, operation_id, packet)
 
         packet["graph"] = state["graph"]
+        packet["approved_plan"] = {**state["approved_plan"], "plan_id": "plan-2"}
+        with self.assertRaisesRegex(ValueError, "approved graph and plan binding"):
+            protocol.persist_request(self.repo, run_id, operation_id, packet)
+
+        packet["approved_plan"] = state["approved_plan"]
         request_path, request_digest = protocol.persist_request(self.repo, run_id, operation_id, packet)
         graph_path = self.repo / ".kapisch/v3/runs" / run_id / state["graph"]["path"]
         graph_path.write_bytes(b"changed graph")
