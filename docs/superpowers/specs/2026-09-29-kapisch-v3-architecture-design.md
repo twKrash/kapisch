@@ -175,7 +175,9 @@ Optional append-only UTF-8 JSONL sidecar, schema `kapisch.telemetry/1`, separate
 ## 21. Target repository layout
 
 ```text
-core/kapisch_core/{domain,policy,artifacts,validation,bundle,telemetry}/
+core/kapisch_core/{domain,policy,artifacts,bundle,telemetry}/
+core/kapisch_core/validation.py                # public validation facade
+core/kapisch_core/_validation_{schema,inventory,graph,json}.py # private Stage 4.3 implementation
 core/contracts/{roles,workflows,policy}/
 core/schemas/v3/
 core/dist/core-bundle.json                 # generated release resource
@@ -188,6 +190,8 @@ docs/{architecture,adr,superpowers/specs,superpowers/plans}/
 
 `core/` owns semantics and protocol, may depend only on stdlib/core; not hosts, installation paths, TOML, Pi/Codex APIs. `harnesses/codex/` and `harnesses/pi/` own host mechanics, depend on CoreBundle/core validator interface, never each other. `tooling/` may depend on both adapters/core, owns release checks/installation; it cannot redefine policy. `tests/` may depend on any layer but separates core, shared conformance, host integration, platform and release. `docs/` owns explanatory and accepted decisions, not an alternate runtime source. Generated paths above are illustrative build outputs, not instructions to move files during design. Enforce imports/source reads: `core -> stdlib/core`; `codex -> bundle/core`; `pi -> bundle/core`; `tooling -> both`; `core -X-> host`; `codex -X-> pi`; `pi -X-> codex`. No runtime Python import from adapter into core.
 
+**Implementation decomposition (nonsemantic constraint):** module ownership follows primary reason to change; public modules may be small facades over focused private modules. Keep I/O/discovery, parsing/serialization, structural validation, policy/authority, orchestration/state transitions, effects, and presentation/telemetry at distinct boundaries. Prefer deterministic pure helpers and narrow immutable derived records/indexes; high-level orchestration depends on lower-level helpers, with no cycles. Do not add speculative generic frameworks or inheritance; share helpers only where semantics and ownership match. The implementation plan defines stage-specific private responsibility maps and review-size triggers. This guidance changes no public Python API, protocol semantics, stage ownership, authority boundary, wire format, or lifecycle behavior.
+
 ## 22. Dependency rules
 
 Enforce at build and test time: `core -> stdlib/core`; `codex -> bundle/core`; `pi -> bundle/core`; `tooling -> both`; `core -X-> host`; `codex -X-> pi`; `pi -X-> codex`. No runtime Python import from adapter into core. Prohibit both cross-imports and cross-host generated-file reads. Future harnesses depend on the versioned bundle/protocol, not on Codex/Pi packages.
@@ -199,7 +203,7 @@ Enforce at build and test time: `core -> stdlib/core`; `codex -> bundle/core`; `
 - **Goldens:** byte-stable bundled contract/JSON schemas and Codex TOML/Pi Markdown for each preset, provenance digests; golden changes reviewed as semantic or adapter-specific diffs.
 - **Integration:** Codex invocation/sandbox/profile/marketplace collision and drift; Pi package/subagent mapping, missing conformant validator on graph-free authoritative and durable paths, shell read-only limitation and findings-only fallback; no assumption of identical host sandbox.
 - **Platform:** Windows path/atomic-install checks only for platform-sensitive Codex tooling; cross-platform canonical JSON smoke as needed, not full unrelated core acceptance rerun.
-- **Semantic acceptance:** same scenario in fake/Codex/Pi with host-specific transport: standalone review; bounded behavioral task + independent review; approved durable milestone; blocking review→fix→new review; final whole-branch readiness; cold resume and ambiguous result; missing reviewer; insufficient host enforcement; high risk never cheap/deep review preserved; prohibited delegated external effect. Compare decisions and evidence prerequisites, not raw agent-file bytes.
+- **Semantic acceptance:** split scenarios by semantic responsibility using shared focused builders/fixtures; do not require one monolithic acceptance module. Cover same scenario in fake/Codex/Pi with host-specific transport: standalone review; bounded behavioral task + independent review; approved durable milestone; blocking review→fix→new review; final whole-branch readiness; cold resume and ambiguous result; missing reviewer; insufficient host enforcement; high risk never cheap/deep review preserved; prohibited delegated external effect. Compare decisions and evidence prerequisites, not raw agent-file bytes.
 - **Release:** one bundle/protocol compatibility matrix, reproducible projections, package contents, two host smoke tests and v2 detection/refusal. Retire legacy compatibility fixtures when cutover completes.
 
 ## 24. Migration and cutover strategy
