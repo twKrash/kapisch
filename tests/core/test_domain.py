@@ -2,16 +2,11 @@ from __future__ import annotations
 
 import dataclasses
 import inspect
-import tomllib
 import unittest
-from pathlib import Path
 
 import kapisch_core.capabilities as capabilities
 import kapisch_core.domain as domain
 import kapisch_core.policy as policy
-
-ROOT = Path(__file__).resolve().parents[2]
-
 
 def evaluate(
     workflow: domain.Workflow,
@@ -598,10 +593,6 @@ class Stage1DomainTests(unittest.TestCase):
             fields = {field.name for field in dataclasses.fields(record)}
             self.assertTrue(fields.isdisjoint(runtime_fields))
         self.assertTrue(dataclasses.is_dataclass(domain.PolicyEvaluation))
-
-    def test_stage1_package_has_no_validator_entrypoint(self) -> None:
-        config = tomllib.loads((ROOT / "core" / "pyproject.toml").read_text())
-        self.assertNotIn("scripts", config.get("project", {}))
 
 
 if __name__ == "__main__":

@@ -22,6 +22,26 @@
 - Persist `dispatch-uncertain` before calling an adapter; never redispatch an unresolved operation. One writer, bounded history, atomically published state; telemetry/controller view are never authority. Unknown capability or Pi shell-only reviewer blocks authoritative `approve`/`ready`.
 - Stage 1–11 produce **inactive v3 artifacts/tests only**. Keep the existing `plugins/kapisch/` Codex v2 plugin and `harnesses/pi/` live package v2-only until Stage 12's explicit cutover PR. Do not regenerate live agents or change runtime routing in preparatory PRs. **Before Stage 12 can merge or activate v3**, separately authorized preservation must have produced a pinned, maintained v2 distribution and verified it can still validate a representative v2 run; if authorization/preservation is unavailable, stop at Stage 11 with v2 active. Branch/tag creation, installation and release each require later human authorization. Rollback before cutover is simply leaving v2 active; after cutover select the verified complete v2 distribution or a corrected v3 build, never a mixed-protocol fallback. Each internal task's **commit boundary** identifies a future task-scoped commit for a separately authorized execution workflow; none authorizes a commit in this planning session.
 
+### Temporal assertions and staged supersession
+
+Some earlier-stage tests intentionally encode temporary absence, blocking, or inactivity conditions that a later approved stage is designed to supersede.
+
+When a later task intentionally changes such a condition:
+
+1. identify the earlier assertion before implementation;
+2. include its owning test file in the later task's approved scope;
+3. retire or replace the obsolete assertion in the same task;
+4. move the durable replacement assertion to the test/module that owns the final responsibility;
+5. preserve genuinely permanent invariants unchanged.
+
+Do not keep contradictory tests merely because they originated in an earlier accepted stage, and do not silently weaken permanent invariants under the label of supersession.
+
+Examples include:
+- Stage 1 no CLI → Stage 4.4 installed CLI;
+- pre-Stage-7 unsupported dispatch → Stage 7 approved dispatch;
+- unsupported gates that become supported only in their owning later stage;
+- inactive staged v3 → explicit Stage 12 activation.
+
 ### Implementation quality and decomposition
 
 Applies to every remaining implementation task. Each production module has one primary reason to change; public modules may be small facades. Keep filesystem/subprocess discovery, byte parsing/serialization, structural validation, policy/authority decisions, orchestration/state transitions, external effects, and presentation/telemetry separate. Functions perform one coherent operation at one abstraction level: split discovery, parsing, indexing, ownership/chronology validation, mutation, and effects into explicit phases. Prefer deterministic pure helpers and isolate I/O at clear boundaries.
@@ -317,9 +337,9 @@ This is an implementation-structure/platform clarification only. Preserve Stage 
 - [x] Refactor validator internals into the private responsibility map above, preserving `validation.py` public imports/API and persisted/wire semantics; verify focused regressions proving graphless pre-execution milestone with run-wide-only history validates, and node-scoped history without a graph is blocked.
 - [x] Run focused Stage 4.3 tests, full core and conformance suites, `python -m compileall -q core/kapisch_core`, `git diff --check`, and standalone whole-branch review. Report changed-module line counts, largest function size, trigger assessment, and confirm no Stage 5+ behavior was introduced. Hosted CI status is reported separately; a local run does not verify hosted status.
 
-**4.4 Ship only an existing CLI.** Files: `core/kapisch_core/cli.py`, `core/pyproject.toml`, `tests/core/test_{cli,package}.py`. Interface: consumes `validate_run`; produces `main(argv: list[str] | None = None) -> int`, JSON `{protocol_version: 3, ok: bool, errors: [...]}` and `[project.scripts] kapisch-validate = "kapisch_core.cli:main"`; exit 0 only for valid supported gate.
+**4.4 Ship only an existing CLI.** Files: `core/kapisch_core/cli.py`, `core/pyproject.toml`, `tests/core/test_{cli,package}.py`, and `tests/core/test_domain.py` solely to retire the superseded Stage 1 assertion `test_stage1_package_has_no_validator_entrypoint` and any imports/constants used only by it. Do not replace it with a positive CLI test in `test_domain.py`; `tests/core/test_package.py` owns the permanent installed-entrypoint contract. `test_package.py` must build the wheel from an isolated temporary source tree and keep all build outputs there, including on test failure, leaving no build/dist artifacts under `core/`. Interface: consumes `validate_run`; produces `main(argv: list[str] | None = None) -> int`, JSON `{protocol_version: 3, ok: bool, errors: [...]}` and `[project.scripts] kapisch-validate = "kapisch_core.cli:main"`; exit 0 only for valid supported gate.
 - [ ] Red: add `test_installed_console_matches_module_cli` in `test_package.py` using isolated built wheel and `--help`/minimal invalid run; run `PYTHONPATH=core python -m unittest discover -s tests/core -p test_package.py -k test_installed_console_matches_module_cli -v`; expect FAIL (no installed console entrypoint).
-- [ ] Green: implement CLI and **then** declare entrypoint, add CLI error tests; run same command, expect PASS (also smoke `kapisch-validate --help` in isolated install). **Commit boundary:** CLI/packaging/test (`feat(v3): expose validated CLI`).
+- [ ] Green: implement CLI and **then** declare entrypoint, add CLI error tests; run same command, expect PASS (also smoke `kapisch-validate --help` in isolated install). Run bundle consistency plus `git diff --check`. **Commit boundary:** CLI/packaging/test (`feat(v3): expose validated CLI`).
 
 **Invariants:** §27.5, .7–8, .11. **Acceptance:** namespace/pin/cold-restart tests pass, v2 remains independently usable only through v2 path. **Non-goals:** human acceptance, review, dispatch or conversion. **Cutover/rollback:** new namespace unused by live adapters; never mutate existing v2 artifacts. **Depends on:** Stages 1–3.
 
