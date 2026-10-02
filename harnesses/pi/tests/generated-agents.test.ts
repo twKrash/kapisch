@@ -39,9 +39,10 @@ test("Pi model and thinking derive from canonical profile values", async () => {
   const profiles = await canonicalAgents(root);
   for (const profile of profiles) {
     const output = generateAgentMarkdown(profile);
-    assert.ok(output.includes(`model: openai-codex/${profile.model}`));
     assert.ok(output.includes(`thinking: ${profile.model_reasoning_effort}`));
+    if (profile.name !== "kapisch-reviewer") assert.ok(output.includes(`model: openai-codex/${profile.model}`));
   }
+  assert.ok(generateAgentMarkdown(profiles.find(({ name }) => name === "kapisch-reviewer")!).includes("model: openai/gpt-6.1-sol"));
 });
 
 test("all six canonical profiles use the specified GPT-6 routing", async () => {
@@ -49,14 +50,16 @@ test("all six canonical profiles use the specified GPT-6 routing", async () => {
   const byName = new Map(profiles.map((profile) => [profile.name, profile]));
   const expected = {
     "kapisch-architect": ["gpt-6-sol", "high"],
-    "kapisch-reviewer": ["gpt-6-sol", "high"],
+    "kapisch-reviewer": ["openai/gpt-6.1-sol", "high"],
     "kapisch-researcher": ["gpt-6-luna", "medium"],
     "kapisch-implementer": ["gpt-6-luna", "medium"],
     "kapisch-implementer-lite": ["gpt-6-luna", "medium"],
     "kapisch-mechanic": ["gpt-6-luna", "low"],
   } as const;
   for (const [name, [model, effort]] of Object.entries(expected)) {
-    assert.equal(byName.get(name as (typeof profiles)[number]["name"])?.model, model);
-    assert.equal(byName.get(name as (typeof profiles)[number]["name"])?.model_reasoning_effort, effort);
+    const profile = byName.get(name as (typeof profiles)[number]["name"]);
+    const output = generateAgentMarkdown(profile!);
+    assert.ok(output.includes(`model: ${model.startsWith("openai/") ? model : `openai-codex/${model}`}`));
+    assert.ok(output.includes(`thinking: ${effort}`));
   }
 });
