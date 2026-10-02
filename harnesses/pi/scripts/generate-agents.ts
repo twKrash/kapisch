@@ -66,7 +66,7 @@ export function generateAgentMarkdown(profile: CanonicalAgent): string {
     "---",
     `name: ${JSON.stringify(profile.name)}`,
     `description: ${JSON.stringify(profile.description)}`,
-    `model: ${piModel(profile.model)}`,
+    `model: ${profile.name === "kapisch-reviewer" ? "openai/gpt-6.1-sol" : piModel(profile.model)}`,
     `thinking: ${profile.model_reasoning_effort}`,
     `tools: ${policy.tools.join(", ")}`,
     `acceptanceRole: ${policy.acceptanceRole}`,
