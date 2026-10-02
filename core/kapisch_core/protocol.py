@@ -14,6 +14,7 @@ from .bundle import canonical_json
 from .storage import _atomic_write_at, load_bundle
 
 _MAX_HISTORY = 10_000
+_AUTHORITY_FIELDS = ("graph", "approved_plan", "accepted_snapshot", "amends", "supersedes")
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _DIR_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
 _FILE_FLAGS = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
@@ -136,15 +137,24 @@ def _valid_adapter_binding(binding: Any) -> bool:
             and all(isinstance(binding[field], str) and binding[field] for field in ("adapter_id", "lookup_context")))
 
 
-def _validate_packet_inputs(repo: Path, run_id: str, packet: Mapping[str, Any]) -> None:
+def _validate_packet_inputs(repo: Path, run_id: str, operation_id: str, packet: Mapping[str, Any]) -> None:
     inputs = packet.get("inputs", [])
     if not isinstance(inputs, list):
         raise ValueError("operation request inputs are invalid")
-    refs = list(inputs)
-    for field, keys in (("graph", {"path", "sha256"}), ("approved_plan", {"plan_id", "path", "sha256"})):
+    refs = []
+    for index, item in enumerate(inputs):
+        if (not isinstance(item, dict) or set(item) != {"path", "sha256", "source_path"}
+                or item.get("path") != f"request-inputs/{operation_id}/{index:04d}.bin"
+                or not _safe_relative(item.get("source_path"))):
+            raise ValueError("operation request input must bind immutable published bytes and source path")
+        refs.append({"path": item["path"], "sha256": item["sha256"]})
+    for field, keys in (("graph", {"path", "sha256"}), ("approved_plan", {"plan_id", "path", "sha256"}),
+                        ("accepted_snapshot", {"snapshot_id", "path", "sha256"})):
         if field in packet:
             ref = packet[field]
-            if not isinstance(ref, dict) or set(ref) != keys or (field == "approved_plan" and not ref.get("plan_id")):
+            if (not isinstance(ref, dict) or set(ref) != keys
+                    or (field == "approved_plan" and not ref.get("plan_id"))
+                    or (field == "accepted_snapshot" and not ref.get("snapshot_id"))):
                 raise ValueError("operation request authority reference is invalid")
             refs.append({"path": ref["path"], "sha256": ref["sha256"]})
     for ref in refs:
@@ -154,9 +164,142 @@ def _validate_packet_inputs(repo: Path, run_id: str, packet: Mapping[str, Any]) 
             raise ValueError("operation request input reference is invalid")
         if hashlib.sha256(_read_contained(repo, run_id, ref["path"])).hexdigest() != ref["sha256"]:
             raise ValueError("request input evidence changed")
+    if "accepted_snapshot" in packet:
+        _validate_snapshot_authority(repo, run_id, packet["accepted_snapshot"], packet["amends"], packet["supersedes"])
+
+
+def _snapshot_document(data: bytes, expected_id: str | None = None) -> dict[str, Any]:
+    try:
+        snapshot = json.loads(data.decode("utf-8"), object_pairs_hook=_unique_pairs)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("accepted snapshot artifact is malformed") from error
+    required = {"protocol_version", "snapshot_id", "decision", "scope", "dependencies", "amends", "supersedes"}
+    if (not isinstance(snapshot, dict) or set(snapshot) != required or type(snapshot["protocol_version"]) is not int
+            or snapshot["protocol_version"] != 3 or not isinstance(snapshot["snapshot_id"], str)
+            or not snapshot["snapshot_id"] or (expected_id is not None and snapshot["snapshot_id"] != expected_id)
+            or not isinstance(snapshot["decision"], str) or not snapshot["decision"]
+            or not isinstance(snapshot["scope"], str) or not snapshot["scope"]
+            or canonical_json(snapshot) != data):
+        raise ValueError("accepted snapshot artifact identity or canonical shape is invalid")
+    for field in ("amends", "supersedes"):
+        values = snapshot[field]
+        if (not isinstance(values, list) or any(not isinstance(value, str) or not value for value in values)
+                or len(values) != len(set(values))):
+            raise ValueError("accepted snapshot relationships are invalid")
+    if not isinstance(snapshot["dependencies"], list):
+        raise ValueError("accepted snapshot dependencies are invalid")
+    for dependency in snapshot["dependencies"]:
+        allowed = {"kind", "path", "sha256", "decision_id", "snapshot_id"}
+        if (not isinstance(dependency, dict) or not {"kind", "path", "sha256"} <= set(dependency)
+                or set(dependency) - allowed or not all(isinstance(dependency[key], str) and dependency[key]
+                                                        for key in ("kind", "path", "sha256"))
+                or not _safe_relative(dependency["path"])
+                or not re.fullmatch(r"[0-9a-f]{64}", dependency["sha256"])
+                or any(key in dependency and (not isinstance(dependency[key], str) or not dependency[key])
+                       for key in ("decision_id", "snapshot_id"))
+                or (dependency["kind"] == "decision" and "decision_id" not in dependency)
+                or (dependency["kind"] == "snapshot" and "snapshot_id" not in dependency)):
+            raise ValueError("accepted snapshot dependency reference is invalid")
+    return snapshot
+
+
+def _validate_snapshot_authority(repo: Path, run_id: str, ref: Mapping[str, Any],
+                                 amends: Any, supersedes: Any) -> None:
+    try:
+        data = _read_contained(repo, run_id, ref["path"])
+    except OSError as error:
+        raise ValueError("accepted snapshot artifact is unavailable") from error
+    if hashlib.sha256(data).hexdigest() != ref["sha256"]:
+        raise ValueError("accepted snapshot artifact digest changed")
+
+    root_snapshot = _snapshot_document(data, ref["snapshot_id"])
+    if root_snapshot["amends"] != amends or root_snapshot["supersedes"] != supersedes:
+        raise ValueError("snapshot relationship bindings do not match artifact")
+
+    active: set[str] = set()
+    digests: dict[str, str] = {}
+    validated: dict[str, dict[str, Any]] = {}
+
+    def validate(snapshot_id: str, snapshot_bytes: bytes) -> dict[str, Any]:
+        digest = hashlib.sha256(snapshot_bytes).hexdigest()
+        if snapshot_id in active:
+            raise ValueError("snapshot dependency cycle detected")
+        if snapshot_id in digests and digests[snapshot_id] != digest:
+            raise ValueError("snapshot ID has ambiguous artifacts")
+        digests[snapshot_id] = digest
+        if snapshot_id in validated:
+            return validated[snapshot_id]
+        snapshot = _snapshot_document(snapshot_bytes, snapshot_id)
+        active.add(snapshot_id)
+        snapshot_refs = {}
+        for dependency in snapshot["dependencies"]:
+            try:
+                target = _read_contained(repo, run_id, dependency["path"])
+            except OSError as error:
+                raise ValueError("snapshot dependency artifact is unavailable") from error
+            if hashlib.sha256(target).hexdigest() != dependency["sha256"]:
+                raise ValueError("snapshot dependency artifact digest changed")
+            identity = None
+            if "decision_id" in dependency or "snapshot_id" in dependency:
+                try:
+                    identity = json.loads(target.decode("utf-8"), object_pairs_hook=_unique_pairs)
+                except (UnicodeDecodeError, json.JSONDecodeError) as error:
+                    raise ValueError("snapshot dependency identity artifact is malformed") from error
+                if not isinstance(identity, dict) or canonical_json(identity) != target:
+                    raise ValueError("snapshot dependency identity artifact is malformed")
+                if (("decision_id" in dependency and dependency["kind"] != "snapshot"
+                     and identity.get("decision_id") != dependency["decision_id"])
+                        or ("snapshot_id" in dependency and dependency["kind"] != "decision"
+                            and identity.get("snapshot_id") != dependency["snapshot_id"])):
+                    raise ValueError("snapshot dependency identity does not match artifact")
+            if dependency["kind"] == "snapshot":
+                child_id = dependency["snapshot_id"]
+                if child_id in snapshot_refs:
+                    raise ValueError("accepted snapshot has ambiguous relationship targets")
+                child_snapshot = validate(child_id, target)
+                snapshot_refs[child_id] = child_snapshot
+                if "decision_id" in dependency and not any(
+                        row.get("kind") == "decision" and row.get("decision_id") == dependency["decision_id"]
+                        for row in child_snapshot["dependencies"]):
+                    raise ValueError("snapshot dependency decision binding is unresolved")
+        for dependency in snapshot["dependencies"]:
+            if dependency["kind"] != "decision" or "snapshot_id" not in dependency:
+                continue
+            parent_id = dependency["snapshot_id"]
+            if parent_id == snapshot_id:
+                continue
+            parent = snapshot_refs.get(parent_id)
+            if parent is None:
+                raise ValueError("snapshot dependency snapshot binding is unresolved")
+            if not any(row.get("kind") == "decision"
+                       and row.get("decision_id") == dependency["decision_id"]
+                       and row.get("path") == dependency["path"]
+                       and row.get("sha256") == dependency["sha256"]
+                       and row.get("snapshot_id", parent_id) == parent_id
+                       for row in parent["dependencies"]):
+                raise ValueError("snapshot decision is not bound through referenced snapshot")
+        for related_id in (*snapshot["amends"], *snapshot["supersedes"]):
+            if related_id == snapshot_id or related_id not in snapshot_refs:
+                raise ValueError("snapshot relationship target is unresolved")
+        active.remove(snapshot_id)
+        validated[snapshot_id] = snapshot
+        return snapshot
+
+    # ponytail: recursive walk is bounded by Python's stack; make it iterative if lineages approach that limit.
+    try:
+        validate(ref["snapshot_id"], data)
+    except RecursionError as error:
+        raise ValueError("snapshot dependency lineage exceeds supported depth") from error
+
+def _validate_state_snapshot(repo: Path, run_id: str, state: Mapping[str, Any]) -> None:
+    if "accepted_snapshot" in state:
+        _validate_snapshot_authority(repo, run_id, state["accepted_snapshot"], state["amends"], state["supersedes"])
 
 
 def _validate_packet_authority(packet: Mapping[str, Any], state: Mapping[str, Any], attempt: Mapping[str, Any]) -> None:
+    if any((field in packet) != (field in state) or packet.get(field) != state.get(field)
+           for field in ("accepted_snapshot", "amends", "supersedes")):
+        raise ValueError("request must bind current accepted snapshot authority")
     if packet.get("node_id") != attempt.get("node_id"):
         raise ValueError("request node binding does not match attempt")
     if attempt.get("node_id") is not None:
@@ -222,7 +365,7 @@ def _validate_reservation(repo: Path, run_id: str, operation_id: str, fact: Any)
         raise ValueError("operation request node binding is invalid")
     if packet.get("node_id") is not None and ("graph" not in packet or "approved_plan" not in packet):
         raise ValueError("node-scoped reservation lacks approved graph and plan binding")
-    _validate_packet_inputs(repo, run_id, packet)
+    _validate_packet_inputs(repo, run_id, operation_id, packet)
     return packet
 
 
@@ -387,6 +530,7 @@ def load_state(repo: Path, run_id: str) -> RunState:
         if state["run_id"] != run_id:
             raise ValueError("run state ID does not match requested run")
         load_bundle(Path(repo), state["bundle_digest"])
+        _validate_state_snapshot(Path(repo), run_id, state)
         return state
     finally:
         _close(fds)
@@ -406,11 +550,13 @@ def _publish_state_locked(repo: Path, run_id: str, state: Mapping[str, Any], exp
             previous = None
         else:
             previous = _parse_state(current_bytes)
+            _validate_state_snapshot(repo, run_id, previous)
             if previous["revision"] != expected_revision:
                 raise ConcurrentModificationError("run revision changed")
         proposed = _parse_state(canonical_json(dict(state)))
         if proposed["run_id"] != run_id:
             raise ValueError("run state ID does not match requested run")
+        _validate_state_snapshot(repo, run_id, proposed)
         if proposed["revision"] != expected_revision + 1:
             raise ValueError("new run revision must increment by one")
         load_bundle(repo, proposed["bundle_digest"])
@@ -473,7 +619,8 @@ def _persist_request_locked(repo: Path, run_id: str, operation_id: str, packet: 
     if not _valid_adapter_binding(packet.get("adapter_binding")):
         raise ValueError("adapter binding must contain nonempty strings")
     _validate_packet_authority(packet, state, attempt)
-    _validate_packet_inputs(Path(repo), run_id, packet)
+    _publish_request_inputs(Path(repo), run_id, operation_id, packet)
+    _validate_packet_inputs(Path(repo), run_id, operation_id, packet)
     body = canonical_json(packet)
     digest = hashlib.sha256(body).hexdigest()
     run, fds = _run_dir(repo, run_id, create=True)
@@ -529,6 +676,44 @@ def _read_contained(repo: Path, run_id: str, relative: str) -> bytes:
         _close(fds)
 
 
+def _publish_request_inputs(repo: Path, run_id: str, operation_id: str, packet: dict[str, Any]) -> None:
+    inputs = packet.get("inputs", [])
+    if not isinstance(inputs, list):
+        raise ValueError("operation request inputs are invalid")
+    if not inputs:
+        return
+    run, fds = _run_dir(repo, run_id, create=True)
+    try:
+        root = _open_dir(run, "request-inputs", create=True)
+        try:
+            operation = _open_dir(root, operation_id, create=True)
+            try:
+                published = []
+                for index, ref in enumerate(inputs):
+                    if (not isinstance(ref, dict) or set(ref) != {"path", "sha256"}
+                            or not _safe_relative(ref.get("path")) or not isinstance(ref.get("sha256"), str)
+                            or not re.fullmatch(r"[0-9a-f]{64}", ref["sha256"])):
+                        raise ValueError("operation request input reference is invalid")
+                    data = _read_contained(repo, run_id, ref["path"])
+                    if hashlib.sha256(data).hexdigest() != ref["sha256"]:
+                        raise ValueError("request input evidence changed")
+                    name = f"{index:04d}.bin"
+                    try:
+                        _publish_immutable(operation, name, data)
+                    except FileExistsError:
+                        if _read_file(operation, name) != data:
+                            raise ValueError("request input publication conflict")
+                    published.append({"path": f"request-inputs/{operation_id}/{name}",
+                                      "sha256": ref["sha256"], "source_path": ref["path"]})
+                packet["inputs"] = published
+            finally:
+                os.close(operation)
+        finally:
+            os.close(root)
+    finally:
+        _close(fds)
+
+
 def _publish_immutable(directory: int, name: str, data: bytes) -> None:
     _atomic_write_at(directory, name, data, replace=False)
 
@@ -566,7 +751,7 @@ def reserve_operation(repo: Path, run_id: str, operation_id: str, stage_id: str,
         if any(parsed_packet.get(key) != value for key, value in expected.items()):
             raise ValueError("request packet differs from reservation binding")
         _validate_packet_authority(parsed_packet, state, attempt)
-        _validate_packet_inputs(repo, run_id, parsed_packet)
+        _validate_packet_inputs(repo, run_id, operation_id, parsed_packet)
         runs, fds = _runs_dir(repo, create=False)
         try:
             for entry in os.listdir(runs):
@@ -632,12 +817,13 @@ def publish_uncertainty(repo: Path, run_id: str, state: Mapping[str, Any], expec
         proposed_state = _parse_state(canonical_json(dict(state)))
         if proposed_state["revision"] != expected_revision + 1 or proposed_state["run_id"] != run_id:
             raise ValueError("uncertain state revision or run ID is invalid")
+        _validate_state_snapshot(repo, run_id, proposed_state)
         if (proposed_state["bundle_digest"] != current["bundle_digest"]
                 or proposed_state["workflow"] != current["workflow"]
                 or proposed_state["history"][:len(current["history"])] != current["history"]):
             raise ValueError("uncertain state must preserve run bindings and history prefix")
-        if any(proposed_state.get(field) != current.get(field) for field in ("graph", "approved_plan")):
-            raise ValueError("uncertain state must preserve graph and approved plan bindings")
+        if any(proposed_state.get(field) != current.get(field) for field in _AUTHORITY_FIELDS):
+            raise ValueError("uncertain state must preserve graph and approved plan bindings and snapshot relationships")
         if len(proposed_state["history"]) <= len(current["history"]):
             raise ValueError("uncertain state must append an observation")
         run, fds = _run_dir(repo, run_id, create=False)
@@ -658,7 +844,7 @@ def publish_uncertainty(repo: Path, run_id: str, state: Mapping[str, Any], expec
                 }
                 for ref in packet.get("inputs", []):
                     required_refs[ref["path"]] = ref["sha256"]
-                for field in ("graph", "approved_plan"):
+                for field in ("graph", "approved_plan", "accepted_snapshot"):
                     if field in packet:
                         ref = packet[field]
                         required_refs[ref["path"]] = ref["sha256"]

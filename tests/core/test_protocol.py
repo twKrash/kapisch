@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import multiprocessing
 import sys
 import tempfile
@@ -195,16 +196,26 @@ class ProtocolTests(unittest.TestCase):
         plan_path.parent.mkdir()
         graph_path.write_bytes(graph_bytes)
         plan_path.write_bytes(plan_bytes)
+        snapshot_bytes = canonical_json({"protocol_version": 3, "snapshot_id": "snap-1", "decision": "accepted",
+                                         "scope": "milestone", "dependencies": [], "amends": [], "supersedes": []})
+        snapshot_path = run_root / "snapshots/snap-1.json"
+        snapshot_path.parent.mkdir()
+        snapshot_path.write_bytes(snapshot_bytes)
         stage = {**_stage("planned"), "stage_kind": "final", "role": "reviewer"}
         state = {**initial, "revision": 1, "history": [stage],
                  "graph": {"path": "graphs/plan-1.json", "sha256": hashlib.sha256(graph_bytes).hexdigest()},
                  "approved_plan": {"plan_id": "plan-1", "path": "plans/plan-1.json",
-                                   "sha256": hashlib.sha256(plan_bytes).hexdigest()}}
+                                   "sha256": hashlib.sha256(plan_bytes).hexdigest()},
+                 "accepted_snapshot": {"snapshot_id": "snap-1", "path": "snapshots/snap-1.json",
+                                       "sha256": hashlib.sha256(snapshot_bytes).hexdigest()},
+                 "amends": [], "supersedes": []}
         protocol.publish_state(self.repo, run_id, state, 0)
         packet = {"run_id": run_id, "operation_id": operation_id, "stage_id": stage["stage_id"],
                   "role": stage["role"], "bundle_digest": self.digest, "scope_digest": stage["scope_digest"],
                   "adapter_binding": {"adapter_id": "fake", "lookup_context": "ctx-1"},
-                  "graph": state["graph"], "approved_plan": state["approved_plan"]}
+                  "graph": state["graph"], "approved_plan": state["approved_plan"],
+                  "accepted_snapshot": state["accepted_snapshot"], "amends": state["amends"],
+                  "supersedes": state["supersedes"]}
         request_path, request_digest = protocol.persist_request(self.repo, run_id, operation_id, packet)
         planned = protocol.reserve_operation(self.repo, run_id, operation_id, stage["stage_id"], stage["role"],
                                              {"path": request_path, "sha256": request_digest}, packet["adapter_binding"])
@@ -215,6 +226,7 @@ class ProtocolTests(unittest.TestCase):
             {"kind": "request", "path": request_path, "sha256": request_digest},
             {"kind": "graph", "path": state["graph"]["path"], "sha256": state["graph"]["sha256"]},
             {"kind": "approved-plan", "path": state["approved_plan"]["path"], "sha256": state["approved_plan"]["sha256"]},
+            {"kind": "snapshot", "path": state["accepted_snapshot"]["path"], "sha256": state["accepted_snapshot"]["sha256"]},
             {"kind": "protocol", "path": f"invocations/{operation_id}/dispatch-uncertain.json", "sha256": hashlib.sha256(uncertain_bytes).hexdigest()},
         ]
         observation = {**stage, "sequence": 1, "status": "dispatch-uncertain", "evidence": evidence}
@@ -238,6 +250,395 @@ class ProtocolTests(unittest.TestCase):
                    "graph": proposed["graph"], "approved_plan": proposed["approved_plan"]}
         with self.assertRaisesRegex(ValueError, "immutable after operation binding"):
             protocol.publish_state(self.repo, run_id, rebound, current["revision"])
+
+    def test_uncertainty_publication_preserves_snapshot_relationships(self) -> None:
+        from kapisch_core import protocol
+        from kapisch_core.bundle import canonical_json
+
+        run_id, operation_id = "run-snapshot-authority", "op-00000000000000000000000000000021"
+        stage = _stage("planned")
+        run_root = self.repo / ".kapisch/v3/runs" / run_id
+        snapshot_a = canonical_json({"protocol_version": 3, "snapshot_id": "snap-a", "decision": "accepted",
+                                     "scope": "task", "dependencies": [], "amends": [], "supersedes": []})
+        ref_a = {"snapshot_id": "snap-a", "path": "snapshots/snap-a.json",
+                 "sha256": hashlib.sha256(snapshot_a).hexdigest()}
+        snapshot_b = canonical_json({"protocol_version": 3, "snapshot_id": "snap-b", "decision": "accepted",
+                                     "scope": "task", "dependencies": [{"kind": "snapshot", **ref_a}],
+                                     "amends": ["snap-a"], "supersedes": []})
+        ref_b = {"snapshot_id": "snap-b", "path": "snapshots/snap-b.json",
+                 "sha256": hashlib.sha256(snapshot_b).hexdigest()}
+        for name, data in (("snap-a.json", snapshot_a), ("snap-b.json", snapshot_b)):
+            path = run_root / "snapshots" / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+        state = self._state(run_id, history=[stage])
+        state.update(accepted_snapshot=ref_a, amends=[], supersedes=[])
+        protocol.publish_state(self.repo, run_id, state, -1)
+        packet = {"run_id": run_id, "operation_id": operation_id, "stage_id": stage["stage_id"],
+                  "role": stage["role"], "bundle_digest": self.digest, "scope_digest": stage["scope_digest"],
+                  "adapter_binding": {"adapter_id": "fake", "lookup_context": "ctx-1"},
+                  "accepted_snapshot": ref_a, "amends": [], "supersedes": [],
+                  "inputs": [{"path": ref_a["path"], "sha256": ref_a["sha256"]}]}
+        request_path, request_digest = protocol.persist_request(self.repo, run_id, operation_id, packet)
+        persisted_packet = json.loads((run_root / request_path).read_bytes())
+        planned = protocol.reserve_operation(self.repo, run_id, operation_id, stage["stage_id"], stage["role"],
+                                             {"path": request_path, "sha256": request_digest}, packet["adapter_binding"])
+        planned_bytes = canonical_json(planned)
+        uncertain_bytes = canonical_json({**planned, "status": "dispatch-uncertain"})
+        evidence = [
+            {"kind": "protocol", "path": f"invocations/{operation_id}/planned.json", "sha256": hashlib.sha256(planned_bytes).hexdigest()},
+            {"kind": "request", "path": request_path, "sha256": request_digest},
+            {"kind": "snapshot", "path": persisted_packet["accepted_snapshot"]["path"], "sha256": persisted_packet["accepted_snapshot"]["sha256"]},
+            {"kind": "snapshot", "path": persisted_packet["inputs"][0]["path"], "sha256": persisted_packet["inputs"][0]["sha256"]},
+            {"kind": "protocol", "path": f"invocations/{operation_id}/dispatch-uncertain.json", "sha256": hashlib.sha256(uncertain_bytes).hexdigest()},
+        ]
+        observation = {**stage, "sequence": 1, "status": "dispatch-uncertain", "evidence": evidence}
+        proposed = {**state, "revision": 1, "history": [stage, observation],
+                    "accepted_snapshot": ref_b, "amends": ["snap-a"], "supersedes": []}
+        with self.assertRaisesRegex(ValueError, "preserve graph and approved plan bindings"):
+            protocol.publish_uncertainty(self.repo, run_id, proposed, 0, operation_id)
+        changed_current = {**state, "revision": 1, "accepted_snapshot": ref_b,
+                           "amends": ["snap-a"], "supersedes": []}
+        protocol.publish_state(self.repo, run_id, changed_current, 0)
+        mismatch = {**changed_current, "revision": 2, "history": [stage, observation]}
+        with self.assertRaisesRegex(ValueError, "current accepted snapshot authority"):
+            protocol.publish_uncertainty(self.repo, run_id, mismatch, 1, operation_id)
+        self.assertFalse((run_root / "invocations" / operation_id / "dispatch-uncertain.json").exists())
+        restore = {**state, "revision": 2}
+        protocol.publish_state(self.repo, run_id, restore, 1)
+        correct = {**state, "revision": 3, "history": [stage, observation]}
+        protocol.publish_uncertainty(self.repo, run_id, correct, 2, operation_id)
+        current = protocol.load_state(self.repo, run_id)
+        rebound = {**current, "revision": current["revision"] + 1,
+                   "accepted_snapshot": ref_b, "amends": ["snap-a"], "supersedes": []}
+        protocol.publish_state(self.repo, run_id, rebound, current["revision"])
+        saved_packet = json.loads((run_root / request_path).read_bytes())
+        self.assertEqual(protocol.load_state(self.repo, run_id)["accepted_snapshot"], ref_b)
+        self.assertEqual(saved_packet["accepted_snapshot"], ref_a)
+        self.assertEqual(saved_packet["amends"], [])
+
+    def test_reservation_rejects_snapshot_change_after_request_publication(self) -> None:
+        from kapisch_core import protocol
+        from kapisch_core.bundle import canonical_json
+
+        run_id, operation_id = "run-snapshot-reservation-race", "op-00000000000000000000000000000022"
+        stage = _stage("planned")
+        run_root = self.repo / ".kapisch/v3/runs" / run_id
+        snapshot_a = canonical_json({"protocol_version": 3, "snapshot_id": "snap-a", "decision": "accepted",
+                                     "scope": "task", "dependencies": [], "amends": [], "supersedes": []})
+        ref_a = {"snapshot_id": "snap-a", "path": "snapshots/snap-a.json",
+                 "sha256": hashlib.sha256(snapshot_a).hexdigest()}
+        snapshot_b = canonical_json({"protocol_version": 3, "snapshot_id": "snap-b", "decision": "accepted",
+                                     "scope": "task", "dependencies": [{"kind": "snapshot", **ref_a}],
+                                     "amends": ["snap-a"], "supersedes": []})
+        ref_b = {"snapshot_id": "snap-b", "path": "snapshots/snap-b.json",
+                 "sha256": hashlib.sha256(snapshot_b).hexdigest()}
+        for name, data in (("snap-a.json", snapshot_a), ("snap-b.json", snapshot_b)):
+            path = run_root / "snapshots" / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+        state = self._state(run_id, history=[stage])
+        state.update(accepted_snapshot=ref_a, amends=[], supersedes=[])
+        protocol.publish_state(self.repo, run_id, state, -1)
+        packet = {"run_id": run_id, "operation_id": operation_id, "stage_id": stage["stage_id"],
+                  "role": stage["role"], "bundle_digest": self.digest, "scope_digest": stage["scope_digest"],
+                  "adapter_binding": {"adapter_id": "fake", "lookup_context": "ctx-1"},
+                  "accepted_snapshot": ref_a, "amends": [], "supersedes": []}
+        request_path, request_digest = protocol.persist_request(self.repo, run_id, operation_id, packet)
+        changed = {**state, "revision": 1, "accepted_snapshot": ref_b,
+                   "amends": ["snap-a"], "supersedes": []}
+        protocol.publish_state(self.repo, run_id, changed, 0)
+        self.assertEqual(protocol.load_state(self.repo, run_id)["accepted_snapshot"], ref_b)
+        with self.assertRaisesRegex(ValueError, "current accepted snapshot authority"):
+            protocol.reserve_operation(self.repo, run_id, operation_id, stage["stage_id"], stage["role"],
+                                       {"path": request_path, "sha256": request_digest}, packet["adapter_binding"])
+        self.assertFalse((run_root / "invocations" / operation_id / "planned.json").exists())
+
+    def test_request_accepts_snapshot_relationships_bound_to_prior_artifact(self) -> None:
+        from kapisch_core import protocol
+        from kapisch_core.bundle import canonical_json
+
+        run_id, operation_id = "run-valid-snapshot-edge", "op-00000000000000000000000000000025"
+        stage = _stage("planned")
+        run_root = self.repo / ".kapisch/v3/runs" / run_id
+        snapshot_a = canonical_json({"protocol_version": 3, "snapshot_id": "snap-a", "decision": "accepted",
+                                    "scope": "task", "dependencies": [], "amends": [], "supersedes": []})
+        path_a = run_root / "snapshots/snap-a.json"
+        path_a.parent.mkdir(parents=True)
+        path_a.write_bytes(snapshot_a)
+        ref_a = {"snapshot_id": "snap-a", "path": "snapshots/snap-a.json",
+                 "sha256": hashlib.sha256(snapshot_a).hexdigest()}
+        snapshot_b = canonical_json({"protocol_version": 3, "snapshot_id": "snap-b", "decision": "accepted",
+                                     "scope": "task", "dependencies": [{"kind": "snapshot", **ref_a}],
+                                     "amends": ["snap-a"], "supersedes": []})
+        path_b = run_root / "snapshots/snap-b.json"
+        path_b.write_bytes(snapshot_b)
+        ref_b = {"snapshot_id": "snap-b", "path": "snapshots/snap-b.json",
+                 "sha256": hashlib.sha256(snapshot_b).hexdigest()}
+        state = self._state(run_id, history=[stage])
+        state.update(accepted_snapshot=ref_b, amends=["snap-a"], supersedes=[])
+        protocol.publish_state(self.repo, run_id, state, -1)
+        packet = {"run_id": run_id, "operation_id": operation_id, "stage_id": stage["stage_id"],
+                  "role": stage["role"], "bundle_digest": self.digest, "scope_digest": stage["scope_digest"],
+                  "adapter_binding": {"adapter_id": "fake", "lookup_context": "ctx-1"},
+                  "accepted_snapshot": ref_b, "amends": ["snap-a"], "supersedes": []}
+        request_path, digest = protocol.persist_request(self.repo, run_id, operation_id, packet)
+        request_bytes = (run_root / request_path).read_bytes()
+        self.assertEqual(hashlib.sha256(request_bytes).hexdigest(), digest)
+        self.assertEqual(json.loads(request_bytes)["accepted_snapshot"], ref_b)
+
+    def test_request_accepts_decision_dependency_dual_id_for_snapshot_edge(self) -> None:
+        from kapisch_core import protocol
+        from kapisch_core.bundle import canonical_json
+
+        run_id, operation_id = "run-dual-id-snapshot-edge", "op-00000000000000000000000000000026"
+        stage = _stage("planned")
+        run_root = self.repo / ".kapisch/v3/runs" / run_id
+        decision_bytes = canonical_json({
+            "protocol_version": 3, "approval_id": "approval-a", "run_id": run_id,
+            "gate": "human-decision", "decision_id": "decision-a", "decision": "accept",
+            "target": "snap-a", "scope_digest": "0" * 64,
+            "source": {"reference": "human-input.txt", "sha256": "0" * 64,
+                       "source": "externally-supplied"},
+        })
+        decision_path = run_root / "decisions/decision-a.json"
+        decision_path.parent.mkdir(parents=True)
+        decision_path.write_bytes(decision_bytes)
+        decision = {"kind": "decision", "path": "decisions/decision-a.json",
+                    "sha256": hashlib.sha256(decision_bytes).hexdigest(),
+                    "decision_id": "decision-a", "snapshot_id": "snap-a"}
+        snapshot_a = canonical_json({"protocol_version": 3, "snapshot_id": "snap-a", "decision": "accepted",
+                                     "scope": "task", "dependencies": [decision], "amends": [], "supersedes": []})
+        path_a = run_root / "snapshots/snap-a.json"
+        path_a.parent.mkdir(parents=True)
+        path_a.write_bytes(snapshot_a)
+        ref_a = {"kind": "snapshot", "path": "snapshots/snap-a.json",
+                 "sha256": hashlib.sha256(snapshot_a).hexdigest(), "snapshot_id": "snap-a"}
+        snapshot_b = canonical_json({"protocol_version": 3, "snapshot_id": "snap-b", "decision": "accepted",
+                                     "scope": "task", "dependencies": [decision, ref_a],
+                                     "amends": ["snap-a"], "supersedes": []})
+        snapshot_path = run_root / "snapshots/snap-b.json"
+        snapshot_path.write_bytes(snapshot_b)
+        ref_b = {"snapshot_id": "snap-b", "path": "snapshots/snap-b.json",
+                 "sha256": hashlib.sha256(snapshot_b).hexdigest()}
+        state = self._state(run_id, history=[stage])
+        state.update(accepted_snapshot=ref_b, amends=["snap-a"], supersedes=[])
+        protocol.publish_state(self.repo, run_id, state, -1)
+        packet = {"run_id": run_id, "operation_id": operation_id, "stage_id": stage["stage_id"],
+                  "role": stage["role"], "bundle_digest": self.digest, "scope_digest": stage["scope_digest"],
+                  "adapter_binding": {"adapter_id": "fake", "lookup_context": "ctx-1"},
+                  "accepted_snapshot": ref_b, "amends": ["snap-a"], "supersedes": []}
+        request_path, _ = protocol.persist_request(self.repo, run_id, operation_id, packet)
+        self.assertTrue((run_root / request_path).is_file())
+
+    def test_current_decision_binding_is_distinct_from_predecessor_edge(self) -> None:
+        from kapisch_core import protocol
+        from kapisch_core.bundle import canonical_json
+
+        run_id = "run-current-decision-and-prior-snapshot"
+        stage = _stage("planned")
+        run_root = self.repo / ".kapisch/v3/runs" / run_id
+        decision_bytes = canonical_json({
+            "protocol_version": 3, "approval_id": "approval-current", "run_id": run_id,
+            "gate": "human-decision", "decision_id": "decision-current", "decision": "accept",
+            "target": "current", "scope_digest": "0" * 64,
+            "source": {"reference": "human-input.txt", "sha256": "0" * 64,
+                       "source": "externally-supplied"},
+        })
+        decision_path = run_root / "decisions/current.json"
+        decision_path.parent.mkdir(parents=True)
+        decision_path.write_bytes(decision_bytes)
+        decision = {"kind": "decision", "path": "decisions/current.json",
+                    "sha256": hashlib.sha256(decision_bytes).hexdigest(),
+                    "decision_id": "decision-current", "snapshot_id": "current"}
+        prior = canonical_json({"protocol_version": 3, "snapshot_id": "prior", "decision": "accepted",
+                                "scope": "task", "dependencies": [], "amends": [], "supersedes": []})
+        prior_path = run_root / "snapshots/prior.json"
+        prior_path.parent.mkdir(parents=True)
+        prior_path.write_bytes(prior)
+        prior_ref = {"kind": "snapshot", "path": "snapshots/prior.json",
+                     "sha256": hashlib.sha256(prior).hexdigest(), "snapshot_id": "prior"}
+        current = canonical_json({"protocol_version": 3, "snapshot_id": "current", "decision": "accepted",
+                                  "scope": "task", "dependencies": [decision, prior_ref],
+                                  "amends": ["prior"], "supersedes": []})
+        current_path = run_root / "snapshots/current.json"
+        current_path.write_bytes(current)
+        ref = {"snapshot_id": "current", "path": "snapshots/current.json",
+               "sha256": hashlib.sha256(current).hexdigest()}
+        state = self._state(run_id, history=[stage])
+        state.update(accepted_snapshot=ref, amends=["prior"], supersedes=[])
+        protocol.publish_state(self.repo, run_id, state, -1)
+
+    def test_snapshot_edge_rejects_dual_id_decision_stub_without_prior_snapshot(self) -> None:
+        from kapisch_core import protocol
+        from kapisch_core.bundle import canonical_json
+
+        run_id = "run-snapshot-decision-stub"
+        stage = _stage("planned")
+        run_root = self.repo / ".kapisch/v3/runs" / run_id
+        decision_bytes = canonical_json({"decision_id": "decision-a", "snapshot_id": "snap-a"})
+        decision_path = run_root / "decisions/snap-a.json"
+        decision_path.parent.mkdir(parents=True)
+        decision_path.write_bytes(decision_bytes)
+        dependency = {"kind": "decision", "path": "decisions/snap-a.json",
+                      "sha256": hashlib.sha256(decision_bytes).hexdigest(),
+                      "decision_id": "decision-a", "snapshot_id": "snap-a"}
+        snapshot = canonical_json({"protocol_version": 3, "snapshot_id": "snap-b", "decision": "accepted",
+                                   "scope": "task", "dependencies": [dependency],
+                                   "amends": ["snap-a"], "supersedes": []})
+        snapshot_path = run_root / "snapshots/snap-b.json"
+        snapshot_path.parent.mkdir(parents=True)
+        snapshot_path.write_bytes(snapshot)
+        ref = {"snapshot_id": "snap-b", "path": "snapshots/snap-b.json",
+               "sha256": hashlib.sha256(snapshot).hexdigest()}
+        state = self._state(run_id, history=[stage])
+        state.update(accepted_snapshot=ref, amends=["snap-a"], supersedes=[])
+        with self.assertRaisesRegex(ValueError, "snapshot dependency snapshot binding is unresolved"):
+            protocol.publish_state(self.repo, run_id, state, -1)
+
+    def test_snapshot_lineage_rejects_invalid_predecessor_dependency_ids(self) -> None:
+        from kapisch_core import protocol
+        from kapisch_core.bundle import canonical_json
+
+        run_id = "run-invalid-predecessor-dependency"
+        stage = _stage("planned")
+        run_root = self.repo / ".kapisch/v3/runs" / run_id
+        decision_bytes = canonical_json({"decision": "accepted", "decision_id": "actual"})
+        decision_path = run_root / "decisions/actual.json"
+        decision_path.parent.mkdir(parents=True)
+        decision_path.write_bytes(decision_bytes)
+        prior = canonical_json({"protocol_version": 3, "snapshot_id": "prior", "decision": "accepted",
+                                "scope": "task", "dependencies": [{
+                                    "kind": "decision", "path": "decisions/actual.json",
+                                    "sha256": hashlib.sha256(decision_bytes).hexdigest(),
+                                    "decision_id": "wrong"}], "amends": [], "supersedes": []})
+        prior_path = run_root / "snapshots/prior.json"
+        prior_path.parent.mkdir(parents=True)
+        prior_path.write_bytes(prior)
+        prior_ref = {"kind": "snapshot", "path": "snapshots/prior.json",
+                     "sha256": hashlib.sha256(prior).hexdigest(), "snapshot_id": "prior"}
+        current = canonical_json({"protocol_version": 3, "snapshot_id": "current", "decision": "accepted",
+                                  "scope": "task", "dependencies": [prior_ref],
+                                  "amends": ["prior"], "supersedes": []})
+        current_path = run_root / "snapshots/current.json"
+        current_path.write_bytes(current)
+        ref = {"snapshot_id": "current", "path": "snapshots/current.json",
+               "sha256": hashlib.sha256(current).hexdigest()}
+        state = self._state(run_id, history=[stage])
+        state.update(accepted_snapshot=ref, amends=["prior"], supersedes=[])
+        with self.assertRaisesRegex(ValueError, "snapshot dependency identity does not match artifact"):
+            protocol.publish_state(self.repo, run_id, state, -1)
+        (run_root / "state.json").write_bytes(canonical_json(state))
+        with self.assertRaisesRegex(ValueError, "snapshot dependency identity does not match artifact"):
+            protocol.load_state(self.repo, run_id)
+
+    def test_snapshot_dependency_resolves_decision_id_inside_predecessor(self) -> None:
+        from kapisch_core import protocol
+        from kapisch_core.bundle import canonical_json
+
+        run_id, operation_id = "run-snapshot-contained-decision", "op-00000000000000000000000000000027"
+        stage = _stage("planned")
+        run_root = self.repo / ".kapisch/v3/runs" / run_id
+        decision_bytes = canonical_json({"decision": "approved", "decision_id": "decision-a"})
+        decision_path = run_root / "decisions/decision-a.json"
+        decision_path.parent.mkdir(parents=True)
+        decision_path.write_bytes(decision_bytes)
+        decision = {"kind": "decision", "path": "decisions/decision-a.json",
+                    "sha256": hashlib.sha256(decision_bytes).hexdigest(), "decision_id": "decision-a"}
+        prior = canonical_json({"protocol_version": 3, "snapshot_id": "prior", "decision": "accepted",
+                                "scope": "task", "dependencies": [decision], "amends": [], "supersedes": []})
+        prior_path = run_root / "snapshots/prior.json"
+        prior_path.parent.mkdir(parents=True)
+        prior_path.write_bytes(prior)
+        prior_ref = {"kind": "snapshot", "path": "snapshots/prior.json",
+                     "sha256": hashlib.sha256(prior).hexdigest(), "snapshot_id": "prior",
+                     "decision_id": "decision-a"}
+        current = canonical_json({"protocol_version": 3, "snapshot_id": "current", "decision": "accepted",
+                                  "scope": "task", "dependencies": [prior_ref],
+                                  "amends": ["prior"], "supersedes": []})
+        current_path = run_root / "snapshots/current.json"
+        current_path.write_bytes(current)
+        ref = {"snapshot_id": "current", "path": "snapshots/current.json",
+               "sha256": hashlib.sha256(current).hexdigest()}
+        state = self._state(run_id, history=[stage])
+        state.update(accepted_snapshot=ref, amends=["prior"], supersedes=[])
+        protocol.publish_state(self.repo, run_id, state, -1)
+        packet = {"run_id": run_id, "operation_id": operation_id, "stage_id": stage["stage_id"],
+                  "role": stage["role"], "bundle_digest": self.digest, "scope_digest": stage["scope_digest"],
+                  "adapter_binding": {"adapter_id": "fake", "lookup_context": "ctx-1"},
+                  "accepted_snapshot": ref, "amends": ["prior"], "supersedes": []}
+        request_path, _ = protocol.persist_request(self.repo, run_id, operation_id, packet)
+        self.assertTrue((run_root / request_path).is_file())
+
+    def test_snapshot_state_and_cold_load_reject_invalid_bindings(self) -> None:
+        from kapisch_core import protocol
+        from kapisch_core.bundle import canonical_json
+
+        def snapshot(snapshot_id, dependencies=(), amends=(), supersedes=()):
+            return canonical_json({"protocol_version": 3, "snapshot_id": snapshot_id,
+                                  "decision": "accepted", "scope": "task",
+                                  "dependencies": list(dependencies), "amends": list(amends),
+                                  "supersedes": list(supersedes)})
+
+        expected_source = b"required source bytes"
+        cases = (
+            ("edge-mismatch", snapshot("snap-current", amends=("snap-old",)), [], {},
+             "snapshot relationship bindings do not match artifact"),
+            ("unresolved-edge", snapshot("snap-current", amends=("snap-missing",)), ["snap-missing"], {},
+             "snapshot relationship target is unresolved"),
+            ("missing-snapshot", snapshot("snap-current"), [], {},
+             "accepted snapshot artifact is unavailable"),
+            ("corrupt-snapshot", snapshot("snap-current"), [], {"snapshots/current.json": b"corrupt"},
+             "accepted snapshot artifact digest changed"),
+            ("missing-dependency", snapshot("snap-current", dependencies=(
+                {"kind": "repository-file", "path": "sources/context.txt",
+                 "sha256": hashlib.sha256(expected_source).hexdigest()},)), [],
+             {"snapshots/current.json": snapshot("snap-current", dependencies=(
+                 {"kind": "repository-file", "path": "sources/context.txt",
+                  "sha256": hashlib.sha256(expected_source).hexdigest()},))},
+             "snapshot dependency artifact is unavailable"),
+            ("changed-dependency", snapshot("snap-current", dependencies=(
+                {"kind": "repository-file", "path": "sources/context.txt",
+                 "sha256": hashlib.sha256(expected_source).hexdigest()},)), [],
+             {"snapshots/current.json": snapshot("snap-current", dependencies=(
+                 {"kind": "repository-file", "path": "sources/context.txt",
+                  "sha256": hashlib.sha256(expected_source).hexdigest()},)),
+              "sources/context.txt": b"changed source bytes"},
+             "snapshot dependency artifact digest changed"),
+            ("wrong-decision-id", snapshot("snap-current", dependencies=(
+                {"kind": "decision", "path": "decisions/decision.json",
+                 "sha256": hashlib.sha256(canonical_json({"decision_id": "decision-actual"})).hexdigest(),
+                 "decision_id": "decision-wrong"},)), [],
+             {"decisions/decision.json": canonical_json({"decision_id": "decision-actual"})},
+             "snapshot dependency identity does not match artifact"),
+            ("wrong-snapshot-id", snapshot("snap-current", dependencies=(
+                {"kind": "snapshot", "path": "snapshots/prior.json",
+                 "sha256": hashlib.sha256(snapshot("snap-actual")).hexdigest(),
+                 "snapshot_id": "snap-wrong"},)), [],
+             {"snapshots/prior.json": snapshot("snap-actual")},
+             "snapshot dependency identity does not match artifact"),
+        )
+        for label, snapshot_bytes, state_amends, files, error in cases:
+            run_id = f"run-snapshot-{label}"
+            run_root = self.repo / ".kapisch/v3/runs" / run_id
+            artifacts = {} if label == "missing-snapshot" else {"snapshots/current.json": snapshot_bytes}
+            artifacts.update(files)
+            for relative, data in artifacts.items():
+                path = run_root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(data)
+            ref = {"snapshot_id": "snap-current", "path": "snapshots/current.json",
+                   "sha256": hashlib.sha256(snapshot_bytes).hexdigest()}
+            state = self._state(run_id, history=[_stage("planned")])
+            state.update(accepted_snapshot=ref, amends=state_amends, supersedes=[])
+            with self.subTest(case=label, check="publish"):
+                with self.assertRaisesRegex(ValueError, error):
+                    protocol.publish_state(self.repo, run_id, state, -1)
+            with self.subTest(case=label, check="cold-load"):
+                run_root.mkdir(parents=True, exist_ok=True)
+                (run_root / "state.json").write_bytes(canonical_json(state))
+                with self.assertRaisesRegex(ValueError, error):
+                    protocol.load_state(self.repo, run_id)
 
     def test_adapter_binding_requires_nonempty_string_values(self) -> None:
         from kapisch_core import protocol
@@ -430,6 +831,56 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(uncertain["status"], "dispatch-uncertain")
         self.assertEqual(uncertain_bytes, canonical_json(uncertain))
 
+    def test_step_one_snapshots_input_bytes_without_overwrite(self) -> None:
+        from kapisch_core import protocol
+
+        run_id, operation_id = "run-input-snapshot", "op-00000000000000000000000000000019"
+        stage = _stage("planned")
+        state = self._state(run_id, history=[stage])
+        protocol.publish_state(self.repo, run_id, state, -1)
+        source_path = self.repo / ".kapisch/v3/runs" / run_id / "evidence/input.json"
+        source_path.parent.mkdir()
+        source_path.write_bytes(b"approved input")
+        packet = {"run_id": run_id, "operation_id": operation_id, "stage_id": stage["stage_id"],
+                  "role": stage["role"], "bundle_digest": self.digest, "scope_digest": stage["scope_digest"],
+                  "adapter_binding": {"adapter_id": "fake", "lookup_context": "ctx-1"},
+                  "inputs": [{"path": "evidence/input.json", "sha256": hashlib.sha256(b"approved input").hexdigest()}]}
+        request_path, _ = protocol.persist_request(self.repo, run_id, operation_id, packet)
+        request_packet = json.loads((self.repo / ".kapisch/v3/runs" / run_id / request_path).read_bytes())
+        retained = request_packet["inputs"][0]
+        self.assertEqual(retained["source_path"], "evidence/input.json")
+        self.assertNotEqual(retained["path"], retained["source_path"])
+        retained_path = self.repo / ".kapisch/v3/runs" / run_id / retained["path"]
+        self.assertEqual(retained_path.read_bytes(), b"approved input")
+
+        source_path.write_bytes(b"changed input")
+        changed_packet = {**packet, "inputs": [{"path": "evidence/input.json",
+                                                   "sha256": hashlib.sha256(b"changed input").hexdigest()}]}
+        with self.assertRaisesRegex(ValueError, "request input publication conflict"):
+            protocol.persist_request(self.repo, run_id, operation_id, changed_packet)
+        self.assertEqual(retained_path.read_bytes(), b"approved input")
+
+    def test_step_one_input_publication_failure_precedes_request_and_reservation(self) -> None:
+        from unittest.mock import patch
+        from kapisch_core import protocol
+
+        run_id, operation_id = "run-input-publication-failure", "op-00000000000000000000000000000020"
+        stage = _stage("planned")
+        protocol.publish_state(self.repo, run_id, self._state(run_id, history=[stage]), -1)
+        input_path = self.repo / ".kapisch/v3/runs" / run_id / "evidence/input.json"
+        input_path.parent.mkdir()
+        input_path.write_bytes(b"approved input")
+        packet = {"run_id": run_id, "operation_id": operation_id, "stage_id": stage["stage_id"],
+                  "role": stage["role"], "bundle_digest": self.digest, "scope_digest": stage["scope_digest"],
+                  "adapter_binding": {"adapter_id": "fake", "lookup_context": "ctx-1"},
+                  "inputs": [{"path": "evidence/input.json", "sha256": hashlib.sha256(b"approved input").hexdigest()}]}
+        with patch.object(protocol, "_publish_immutable", side_effect=OSError("input publication failed")):
+            with self.assertRaisesRegex(OSError, "input publication failed"):
+                protocol.persist_request(self.repo, run_id, operation_id, packet)
+        run_root = self.repo / ".kapisch/v3/runs" / run_id
+        self.assertFalse((run_root / "requests" / f"{operation_id}.json").exists())
+        self.assertFalse((run_root / "invocations" / operation_id / "planned.json").exists())
+
     def test_reservation_rechecks_input_bytes_after_step_one(self) -> None:
         from kapisch_core import protocol
 
@@ -446,7 +897,9 @@ class ProtocolTests(unittest.TestCase):
                   "adapter_binding": {"adapter_id": "fake", "lookup_context": "ctx-1"},
                   "inputs": [{"path": "evidence/input.json", "sha256": hashlib.sha256(b"approved input").hexdigest()}]}
         request_path, request_digest = protocol.persist_request(self.repo, run_id, operation_id, packet)
-        input_path.write_bytes(b"changed input")
+        request_packet = json.loads((self.repo / ".kapisch/v3/runs" / run_id / request_path).read_bytes())
+        retained_path = self.repo / ".kapisch/v3/runs" / run_id / request_packet["inputs"][0]["path"]
+        retained_path.write_bytes(b"changed input")
         with self.assertRaisesRegex(ValueError, "request input evidence changed"):
             protocol.reserve_operation(
                 self.repo, run_id, operation_id, stage["stage_id"], "implementer",
