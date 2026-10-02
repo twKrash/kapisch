@@ -1,0 +1,10 @@
+{
+  "protocol_version": 3,
+  "run_id": "fixture-invalid-run",
+  "bundle_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+  "workflow": "task",
+  "revision": 0,
+  "history": [],
+  "identity_contract": "stage-attempt/1",
+  "unowned_authority": true
+}
