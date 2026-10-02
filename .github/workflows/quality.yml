@@ -18,6 +18,7 @@ jobs:
       - run: bun test harnesses/pi/tests/*.test.ts
       - run: bun run --cwd harnesses/pi check:generated
       - run: python -m unittest discover -s tests
+      - run: PYTHONPATH=core python -m unittest discover -s tests/core -v
       - run: PYTHONPATH=core python -m unittest discover -s tests/core -p test_domain.py -v
       - run: PYTHONPATH=core python -m unittest discover -s tests/conformance -v
       - run: PYTHONPATH=core python -m unittest discover -s tests/core -p test_bundle.py -v
