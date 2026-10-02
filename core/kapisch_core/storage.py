@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import secrets
 import stat
+from typing import Any
 from contextlib import suppress
 from pathlib import Path
 
@@ -21,6 +23,112 @@ _REQUIRED_SUPPORT = (
     and os.unlink in os.supports_dir_fd
     and os.link in os.supports_dir_fd
 )
+
+
+_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
+
+def _id(value: str, label: str) -> str:
+    if not isinstance(value, str) or not _NAME.fullmatch(value) or value in {".", ".."}:
+        raise ValueError(f"invalid {label}")
+    return value
+
+def _open_dir(parent: int, name: str, *, create: bool = False) -> int:
+    try:
+        descriptor = os.open(name, _DIRECTORY_FLAGS, dir_fd=parent)
+    except FileNotFoundError:
+        if not create:
+            raise
+        try:
+            os.mkdir(name, 0o700, dir_fd=parent)
+        except FileExistsError:
+            pass
+        descriptor = os.open(name, _DIRECTORY_FLAGS, dir_fd=parent)
+    if create:
+        try:
+            os.fsync(parent)
+        except BaseException:
+            os.close(descriptor)
+            raise
+    return descriptor
+
+def _open_tree(repo: Path, *components: str, create: bool = False) -> tuple[int, list[int]]:
+    if not _REQUIRED_SUPPORT:
+        raise OSError("safe descriptor-relative authority storage is unsupported on this platform")
+    descriptors = [os.open(os.fspath(repo), _DIRECTORY_FLAGS)]
+    try:
+        for component in (".kapisch", "v3", *components):
+            descriptors.append(_open_dir(descriptors[-1], component, create=create))
+        return descriptors[-1], descriptors
+    except BaseException:
+        for fd in reversed(descriptors):
+            os.close(fd)
+        raise
+
+def _close(fds: list[int]) -> None:
+    for fd in reversed(fds):
+        os.close(fd)
+
+def _read_file(directory: int, name: str) -> bytes:
+    fd = os.open(name, _FILE_FLAGS, dir_fd=directory)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise ValueError("authority artifact is not a regular file")
+        chunks: list[bytes] = []
+        while chunk := os.read(fd, 1024 * 1024):
+            chunks.append(chunk)
+        return b"".join(chunks)
+    finally:
+        os.close(fd)
+
+def _runs_dir(repo: Path, *, create: bool) -> tuple[int, list[int]]:
+    return _open_tree(repo, "runs", create=create)
+
+def _run_dir(repo: Path, run_id: str, *, create: bool) -> tuple[int, list[int]]:
+    runs, fds = _runs_dir(repo, create=create)
+    try:
+        run = _open_dir(runs, _id(run_id, "run_id"), create=create)
+        fds.append(run)
+        return run, fds
+    except BaseException:
+        _close(fds)
+        raise
+
+def _read_contained(repo: Path, run_id: str, relative: str) -> bytes:
+    if not isinstance(relative, str) or not relative or relative.startswith("/") or "\\" in relative or "\x00" in relative:
+        raise ValueError("request input path must be run-relative")
+    run, fds = _run_dir(repo, run_id, create=False)
+    try:
+        parent = run
+        extra: list[int] = []
+        try:
+            parts = relative.split("/")
+            if any(part in {"", ".", ".."} for part in parts):
+                raise ValueError("request input path escapes run")
+            for part in parts[:-1]:
+                parent = _open_dir(parent, part)
+                extra.append(parent)
+            file_fd = os.open(parts[-1], _FILE_FLAGS, dir_fd=parent)
+            try:
+                if not stat.S_ISREG(os.fstat(file_fd).st_mode):
+                    raise ValueError("authority artifact is not a regular file")
+                chunks: list[bytes] = []
+                while chunk := os.read(file_fd, 1024 * 1024):
+                    chunks.append(chunk)
+                os.fsync(file_fd)
+                for descriptor in [*extra, parent, run]:
+                    os.fsync(descriptor)
+                return b"".join(chunks)
+            finally:
+                os.close(file_fd)
+        finally:
+            _close(extra)
+    finally:
+        _close(fds)
+
+def _safe_relative(value: Any) -> bool:
+    return (isinstance(value, str) and bool(value) and not value.startswith("/") and "\\" not in value
+            and "\x00" not in value and all(part not in {"", ".", ".."} for part in value.split("/")))
 
 
 def _validate_digest(digest: str) -> None:

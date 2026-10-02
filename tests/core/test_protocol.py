@@ -10,6 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "core"))
+from kapisch_core import _invocation, _state
 
 
 def _stage(status: str, sequence: int = 0) -> dict:
@@ -113,6 +114,75 @@ class ProtocolTests(unittest.TestCase):
                   "scope_digest": stage["scope_digest"], "adapter_binding": {"adapter_id": "fake", "lookup_context": "ctx-1"}}
         packet["node_id"] = stage["node_id"]
         return protocol, state, stage, packet
+
+    def test_graphfree_request_binds_existing_approved_plan_through_uncertainty(self) -> None:
+        from kapisch_core import protocol
+        from kapisch_core.bundle import canonical_json
+
+        run_id = "run-graphfree-approved-plan"
+        operation_id = "op-0000000000000000000000000000002c"
+        run_root = self.repo / ".kapisch/v3/runs" / run_id
+        plan_bytes = canonical_json({"plan_id": "plan-task", "approved": True})
+        plan_path = run_root / "plans/plan-task.json"
+        plan_path.parent.mkdir(parents=True)
+        plan_path.write_bytes(plan_bytes)
+        approved_plan = {
+            "plan_id": "plan-task",
+            "path": "plans/plan-task.json",
+            "sha256": hashlib.sha256(plan_bytes).hexdigest(),
+        }
+        initial = self._state(run_id)
+        initial["approved_plan"] = approved_plan
+        protocol.publish_state(self.repo, run_id, initial, -1)
+        stage = _stage("planned")
+        state = {**initial, "revision": 1, "history": [stage]}
+        protocol.publish_state(self.repo, run_id, state, 0)
+        packet = {
+            "run_id": run_id,
+            "operation_id": operation_id,
+            "stage_id": stage["stage_id"],
+            "role": stage["role"],
+            "bundle_digest": self.digest,
+            "scope_digest": stage["scope_digest"],
+            "adapter_binding": {"adapter_id": "fake", "lookup_context": "ctx"},
+        }
+        request_path = run_root / "requests" / f"{operation_id}.json"
+        with self.assertRaisesRegex(ValueError, "approved plan authority"):
+            protocol.persist_request(self.repo, run_id, operation_id, packet)
+        packet["approved_plan"] = {**approved_plan, "plan_id": "plan-substituted"}
+        with self.assertRaisesRegex(ValueError, "approved plan authority"):
+            protocol.persist_request(self.repo, run_id, operation_id, packet)
+        self.assertFalse(request_path.exists())
+
+        packet["approved_plan"] = approved_plan
+        request_relative, request_digest = protocol.persist_request(self.repo, run_id, operation_id, packet)
+        request = {"path": request_relative, "sha256": request_digest}
+        plan_path.write_bytes(b"changed plan bytes")
+        with self.assertRaisesRegex(ValueError, "request input evidence changed"):
+            protocol.reserve_operation(self.repo, run_id, operation_id, stage["stage_id"], stage["role"],
+                                       request, packet["adapter_binding"])
+        plan_path.write_bytes(plan_bytes)
+        planned = protocol.reserve_operation(self.repo, run_id, operation_id, stage["stage_id"], stage["role"],
+                                             request, packet["adapter_binding"])
+        planned_bytes = canonical_json(planned)
+        uncertain_bytes = canonical_json({**planned, "status": "dispatch-uncertain"})
+        evidence = [
+            {"kind": "protocol", "path": f"invocations/{operation_id}/planned.json",
+             "sha256": hashlib.sha256(planned_bytes).hexdigest()},
+            {"kind": "request", "path": request_relative, "sha256": request_digest},
+            {"kind": "approved-plan", "path": approved_plan["path"], "sha256": approved_plan["sha256"]},
+            {"kind": "protocol", "path": f"invocations/{operation_id}/dispatch-uncertain.json",
+             "sha256": hashlib.sha256(uncertain_bytes).hexdigest()},
+        ]
+        observation = {**stage, "sequence": 1, "status": "dispatch-uncertain", "evidence": evidence}
+        proposed = {**state, "revision": 2, "history": [stage, observation]}
+        plan_path.write_bytes(b"changed plan bytes")
+        with self.assertRaisesRegex(ValueError, "request input evidence changed"):
+            protocol.publish_uncertainty(self.repo, run_id, proposed, 1, operation_id)
+        self.assertFalse((run_root / "invocations" / operation_id / "dispatch-uncertain.json").exists())
+        plan_path.write_bytes(plan_bytes)
+        protocol.publish_uncertainty(self.repo, run_id, proposed, 1, operation_id)
+        self.assertEqual(protocol.load_state(self.repo, run_id)["history"][-1]["status"], "dispatch-uncertain")
 
     def test_milestone_request_binds_exact_graph_and_approved_plan(self) -> None:
         operation_id = "op-00000000000000000000000000000015"
@@ -672,7 +742,7 @@ class ProtocolTests(unittest.TestCase):
                 "status": "planned", "request": {"path": path, "sha256": digest},
                 "adapter_binding": bad_binding}
         with self.assertRaisesRegex(ValueError, "adapter binding must contain nonempty strings"):
-            protocol._validate_reservation(self.repo, run_id, operation_id, fact)
+            _invocation._validate_reservation(self.repo, run_id, operation_id, fact)
 
     def test_request_publication_serializes_with_run_state_writer(self) -> None:
         import threading
@@ -688,7 +758,7 @@ class ProtocolTests(unittest.TestCase):
                   "bundle_digest": self.digest, "scope_digest": initial["history"][0]["scope_digest"],
                   "adapter_binding": {"adapter_id": "fake", "lookup_context": "ctx-1"}}
         entered, release, state_written = threading.Event(), threading.Event(), threading.Event()
-        original = protocol._publish_immutable
+        original = _invocation._publish_immutable
         errors: list[BaseException] = []
 
         def pause_request(directory, name, data):
@@ -715,7 +785,7 @@ class ProtocolTests(unittest.TestCase):
             finally:
                 state_written.set()
 
-        with patch.object(protocol, "_publish_immutable", side_effect=pause_request):
+        with patch.object(_invocation, "_publish_immutable", side_effect=pause_request):
             request_thread = threading.Thread(target=persist)
             request_thread.start()
             self.assertTrue(entered.wait(5))
@@ -740,7 +810,7 @@ class ProtocolTests(unittest.TestCase):
         operation_id = "op-00000000000000000000000000000007"
         protocol.publish_state(self.repo, run_id, self._state(run_id, history=[_stage("planned")]), -1)
         request_path = self.repo / ".kapisch/v3/runs" / run_id / "requests" / f"{operation_id}.json"
-        with patch.object(protocol, "_publish_immutable", side_effect=OSError("request write failed")):
+        with patch.object(_invocation, "_publish_immutable", side_effect=OSError("request write failed")):
             with self.assertRaisesRegex(OSError, "request write failed"):
                 protocol.persist_request(
                     self.repo, run_id, operation_id,
@@ -759,7 +829,7 @@ class ProtocolTests(unittest.TestCase):
         protocol, _, stage, packet, path, digest = self._begin("run-reservation-before", operation_id)
         args = (self.repo, "run-reservation-before", operation_id, stage["stage_id"], "implementer",
                 {"path": path, "sha256": digest}, packet["adapter_binding"])
-        with patch.object(protocol, "_publish_immutable", side_effect=OSError("reservation write failed")):
+        with patch.object(_invocation, "_publish_immutable", side_effect=OSError("reservation write failed")):
             with self.assertRaisesRegex(OSError, "reservation write failed"):
                 protocol.reserve_operation(*args)
         planned = self.repo / ".kapisch/v3/runs/run-reservation-before/invocations" / operation_id / "planned.json"
@@ -771,7 +841,7 @@ class ProtocolTests(unittest.TestCase):
 
         operation_id = "op-00000000000000000000000000000009"
         protocol, _, proposed = self._dispatch_state("run-uncertainty-before", operation_id)
-        with patch.object(protocol, "_publish_immutable", side_effect=OSError("uncertainty write failed")):
+        with patch.object(_invocation, "_publish_immutable", side_effect=OSError("uncertainty write failed")):
             with self.assertRaisesRegex(OSError, "uncertainty write failed"):
                 protocol.publish_uncertainty(self.repo, "run-uncertainty-before", proposed, 0, operation_id)
         invocation = self.repo / ".kapisch/v3/runs/run-uncertainty-before/invocations" / operation_id
@@ -792,14 +862,14 @@ class ProtocolTests(unittest.TestCase):
                   "stage_id": "s-00000000000000000000000000000001", "role": "implementer",
                   "bundle_digest": self.digest, "scope_digest": "0" * 64,
                   "adapter_binding": {"adapter_id": "fake", "lookup_context": "ctx-1"}}
-        original = protocol._publish_immutable
+        original = _invocation._publish_immutable
 
         def publish_then_lose_ack(directory, name, data):
             original(directory, name, data)
             if name == f"{operation_id}.json":
                 raise OSError("request publication acknowledgment lost")
 
-        with patch.object(protocol, "_publish_immutable", side_effect=publish_then_lose_ack):
+        with patch.object(_invocation, "_publish_immutable", side_effect=publish_then_lose_ack):
             with self.assertRaisesRegex(OSError, "acknowledgment lost"):
                 protocol.persist_request(
                     self.repo, "run-request-orphan", operation_id,
@@ -874,7 +944,7 @@ class ProtocolTests(unittest.TestCase):
                   "role": stage["role"], "bundle_digest": self.digest, "scope_digest": stage["scope_digest"],
                   "adapter_binding": {"adapter_id": "fake", "lookup_context": "ctx-1"},
                   "inputs": [{"path": "evidence/input.json", "sha256": hashlib.sha256(b"approved input").hexdigest()}]}
-        with patch.object(protocol, "_publish_immutable", side_effect=OSError("input publication failed")):
+        with patch.object(_invocation, "_publish_immutable", side_effect=OSError("input publication failed")):
             with self.assertRaisesRegex(OSError, "input publication failed"):
                 protocol.persist_request(self.repo, run_id, operation_id, packet)
         run_root = self.repo / ".kapisch/v3/runs" / run_id
@@ -907,6 +977,31 @@ class ProtocolTests(unittest.TestCase):
             )
         self.assertFalse((self.repo / ".kapisch/v3/runs" / run_id / "invocations" / operation_id / "planned.json").exists())
 
+    def test_read_contained_closes_intermediate_directory_after_later_failure(self) -> None:
+        import os
+        from unittest.mock import patch
+        from kapisch_core import protocol, storage
+
+        run_id = "run-contained-descriptor-cleanup"
+        protocol.publish_state(self.repo, run_id, self._state(run_id), -1)
+        existing = self.repo / ".kapisch/v3/runs" / run_id / "existing"
+        existing.mkdir()
+        opened = []
+        original_open_dir = storage._open_dir
+
+        def track_open_dir(parent, name, *, create=False):
+            descriptor = original_open_dir(parent, name, create=create)
+            if name == "existing":
+                opened.append(descriptor)
+            return descriptor
+
+        with patch.object(storage, "_open_dir", side_effect=track_open_dir):
+            with self.assertRaises(FileNotFoundError):
+                storage._read_contained(self.repo, run_id, "existing/missing/file.json")
+        self.assertEqual(len(opened), 1)
+        with self.assertRaises(OSError):
+            os.fstat(opened[0])
+
     def test_reservation_requires_request_from_step_one_path(self) -> None:
         from kapisch_core.bundle import canonical_json
 
@@ -925,7 +1020,7 @@ class ProtocolTests(unittest.TestCase):
 
         operation_id = "op-00000000000000000000000000000004"
         protocol, _, stage, packet, path, digest = self._begin("run-reservation-orphan", operation_id)
-        original = protocol._publish_immutable
+        original = _invocation._publish_immutable
 
         def publish_then_lose_ack(directory, name, data):
             original(directory, name, data)
@@ -934,7 +1029,7 @@ class ProtocolTests(unittest.TestCase):
 
         args = (self.repo, "run-reservation-orphan", operation_id, stage["stage_id"], "implementer",
                 {"path": path, "sha256": digest}, packet["adapter_binding"])
-        with patch.object(protocol, "_publish_immutable", side_effect=publish_then_lose_ack):
+        with patch.object(_invocation, "_publish_immutable", side_effect=publish_then_lose_ack):
             with self.assertRaisesRegex(OSError, "acknowledgment lost"):
                 protocol.reserve_operation(*args)
         planned = self.repo / ".kapisch/v3/runs/run-reservation-orphan/invocations" / operation_id / "planned.json"
@@ -962,6 +1057,83 @@ class ProtocolTests(unittest.TestCase):
             worker.join(timeout=10)
             self.assertEqual(worker.exitcode, 0)
         self.assertCountEqual(outcomes, ["published", "ConcurrentModificationError"])
+
+    def test_retry_resyncs_authority_directories_after_creation_ack_loss(self) -> None:
+        import os
+        from unittest.mock import patch
+        from kapisch_core import protocol, storage
+
+        def assert_retry_syncs_directory_entry(parent_path: Path, action) -> None:
+            parent = os.stat(parent_path)
+            original_fsync = os.fsync
+            sync = {"failed": False, "retried": False}
+
+            def fail_once_for_parent(fd: int) -> None:
+                current = os.fstat(fd)
+                if (current.st_dev, current.st_ino) == (parent.st_dev, parent.st_ino):
+                    if not sync["failed"]:
+                        sync["failed"] = True
+                        raise OSError("injected parent directory fsync failure")
+                    sync["retried"] = True
+                original_fsync(fd)
+
+            with patch.object(storage.os, "fsync", side_effect=fail_once_for_parent):
+                with self.assertRaisesRegex(OSError, "injected parent directory fsync failure"):
+                    action()
+                action()
+            self.assertTrue(sync["failed"])
+            self.assertTrue(sync["retried"])
+
+        state_run = "run-directory-sync"
+        runs = self.repo / ".kapisch/v3/runs"
+        runs.mkdir(parents=True)
+        state = self._state(state_run)
+        assert_retry_syncs_directory_entry(
+            runs, lambda: protocol.publish_state(self.repo, state_run, state, -1)
+        )
+
+        request_run = "run-request-directory-sync"
+        request_stage = _stage("planned")
+        protocol.publish_state(self.repo, request_run, self._state(request_run, history=[request_stage]), -1)
+        request_parent = self.repo / ".kapisch/v3/runs" / request_run
+        request_packet = {
+            "run_id": request_run,
+            "operation_id": "op-0000000000000000000000000000002a",
+            "stage_id": request_stage["stage_id"],
+            "role": request_stage["role"],
+            "bundle_digest": self.digest,
+            "scope_digest": request_stage["scope_digest"],
+            "adapter_binding": {"adapter_id": "fake", "lookup_context": "ctx"},
+        }
+        assert_retry_syncs_directory_entry(
+            request_parent,
+            lambda: protocol.persist_request(self.repo, request_run, request_packet["operation_id"], request_packet),
+        )
+
+        invocation_run = "run-invocation-directory-sync"
+        invocation_stage = _stage("planned")
+        protocol.publish_state(self.repo, invocation_run,
+                               self._state(invocation_run, history=[invocation_stage]), -1)
+        invocation_packet = {
+            "run_id": invocation_run,
+            "operation_id": "op-0000000000000000000000000000002b",
+            "stage_id": invocation_stage["stage_id"],
+            "role": invocation_stage["role"],
+            "bundle_digest": self.digest,
+            "scope_digest": invocation_stage["scope_digest"],
+            "adapter_binding": {"adapter_id": "fake", "lookup_context": "ctx"},
+        }
+        request_path, request_digest = protocol.persist_request(
+            self.repo, invocation_run, invocation_packet["operation_id"], invocation_packet
+        )
+        assert_retry_syncs_directory_entry(
+            self.repo / ".kapisch/v3/runs" / invocation_run,
+            lambda: protocol.reserve_operation(
+                self.repo, invocation_run, invocation_packet["operation_id"], invocation_stage["stage_id"],
+                invocation_stage["role"], {"path": request_path, "sha256": request_digest},
+                invocation_packet["adapter_binding"],
+            ),
+        )
 
     def test_publication_rejects_separate_wire_attempt_id(self) -> None:
         from kapisch_core.protocol import publish_state
@@ -1041,6 +1213,71 @@ class ProtocolTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             publish_state(self.repo, "run-prefix", {**state, "revision": 1, "history": [rewritten]}, 0)
 
+    def test_reservation_detaches_request_reference_before_validation(self) -> None:
+        from contextlib import contextmanager
+        from unittest.mock import patch
+        from kapisch_core import protocol
+        from kapisch_core.bundle import canonical_json
+
+        run_id = "run-reservation-input-snapshot-request"
+        operation_id = "op-0000000000000000000000000000002d"
+        protocol, _, stage, packet, path, digest = self._begin(run_id, operation_id)
+        request = {"path": path, "sha256": digest}
+        request_file = self.repo / ".kapisch/v3/runs" / run_id / path
+        changed_bytes = canonical_json({**packet, "extra": "changed after serialization"})
+        changed_digest = hashlib.sha256(changed_bytes).hexdigest()
+        original_locked = _invocation._locked
+
+        @contextmanager
+        def mutate_request_after_body(repo, locked_run_id):
+            request_file.write_bytes(changed_bytes)
+            request["sha256"] = changed_digest
+            with original_locked(repo, locked_run_id):
+                yield
+
+        with patch.object(_invocation, "_locked", side_effect=mutate_request_after_body):
+            with self.assertRaisesRegex(ValueError, "request packet bytes are noncanonical or mismatched"):
+                protocol.reserve_operation(
+                    self.repo, run_id, operation_id, stage["stage_id"], stage["role"],
+                    request, dict(packet["adapter_binding"]),
+                )
+        planned_path = self.repo / ".kapisch/v3/runs" / run_id / "invocations" / operation_id / "planned.json"
+        self.assertFalse(planned_path.exists())
+
+    def test_reservation_detaches_adapter_binding_before_validation(self) -> None:
+        from contextlib import contextmanager
+        from unittest.mock import patch
+        from kapisch_core import protocol
+
+        run_id = "run-reservation-input-snapshot-adapter"
+        operation_id = "op-0000000000000000000000000000002e"
+        stage = _stage("planned")
+        protocol.publish_state(self.repo, run_id, self._state(run_id, history=[stage]), -1)
+        packet = {
+            "run_id": run_id, "operation_id": operation_id, "stage_id": stage["stage_id"],
+            "role": stage["role"], "bundle_digest": self.digest, "scope_digest": stage["scope_digest"],
+            "adapter_binding": {"adapter_id": "fake", "lookup_context": "ctx-mutated"},
+        }
+        path, digest = protocol.persist_request(self.repo, run_id, operation_id, packet)
+        request = {"path": path, "sha256": digest}
+        adapter_binding = {"adapter_id": "fake", "lookup_context": "ctx-1"}
+        original_locked = _invocation._locked
+
+        @contextmanager
+        def mutate_adapter_after_body(repo, locked_run_id):
+            adapter_binding["lookup_context"] = "ctx-mutated"
+            with original_locked(repo, locked_run_id):
+                yield
+
+        with patch.object(_invocation, "_locked", side_effect=mutate_adapter_after_body):
+            with self.assertRaisesRegex(ValueError, "request packet differs from reservation binding"):
+                protocol.reserve_operation(
+                    self.repo, run_id, operation_id, stage["stage_id"], stage["role"],
+                    request, adapter_binding,
+                )
+        planned_path = self.repo / ".kapisch/v3/runs" / run_id / "invocations" / operation_id / "planned.json"
+        self.assertFalse(planned_path.exists())
+
     def test_repository_reservation_lock_rejects_cross_run_operation_collision(self) -> None:
         from kapisch_core.protocol import persist_request, publish_state
 
@@ -1118,19 +1355,36 @@ class ProtocolTests(unittest.TestCase):
         self.assertFalse((invocation / "dispatch-uncertain.json").exists())
         self.assertEqual(protocol.load_state(self.repo, "run-extra-uncertain")["revision"], 0)
 
+    def test_uncertainty_publication_commits_the_validated_state_snapshot(self) -> None:
+        from unittest.mock import patch
+
+        operation_id = "op-0000000000000000000000000000002d"
+        protocol, _, proposed = self._dispatch_state("run-validated-state-snapshot", operation_id)
+        expected_evidence = [dict(ref) for ref in proposed["history"][-1]["evidence"]]
+        original = _invocation._publish_state_locked
+
+        def mutate_caller_before_commit(*args, **kwargs):
+            proposed["history"][-1]["evidence"].clear()
+            return original(*args, **kwargs)
+
+        with patch.object(_invocation, "_publish_state_locked", side_effect=mutate_caller_before_commit):
+            protocol.publish_uncertainty(self.repo, "run-validated-state-snapshot", proposed, 0, operation_id)
+        persisted = protocol.load_state(self.repo, "run-validated-state-snapshot")
+        self.assertEqual(persisted["history"][-1]["evidence"], expected_evidence)
+
     def test_uncertainty_publication_ack_loss_preserves_veto(self) -> None:
         from unittest.mock import patch
 
         operation_id = "op-00000000000000000000000000000005"
         protocol, state, proposed = self._dispatch_state("run-uncertain-orphan", operation_id)
-        original = protocol._publish_immutable
+        original = _invocation._publish_immutable
 
         def publish_then_lose_ack(directory, name, data):
             original(directory, name, data)
             if name == "dispatch-uncertain.json":
                 raise OSError("uncertainty acknowledgment lost")
 
-        with patch.object(protocol, "_publish_immutable", side_effect=publish_then_lose_ack):
+        with patch.object(_invocation, "_publish_immutable", side_effect=publish_then_lose_ack):
             with self.assertRaisesRegex(OSError, "acknowledgment lost"):
                 protocol.publish_uncertainty(self.repo, "run-uncertain-orphan", proposed, 0, operation_id)
         self.assertEqual(protocol.load_state(self.repo, "run-uncertain-orphan")["revision"], 0)
@@ -1141,14 +1395,14 @@ class ProtocolTests(unittest.TestCase):
 
         operation_id = "op-00000000000000000000000000000006"
         protocol, _, proposed = self._dispatch_state("run-state-ack-loss", operation_id)
-        original = protocol._write_atomic
+        original = _state._write_atomic
 
         def publish_then_lose_ack(directory, name, data, *, replace):
             original(directory, name, data, replace=replace)
             if name == "state.json":
                 raise OSError("state acknowledgment lost")
 
-        with patch.object(protocol, "_write_atomic", side_effect=publish_then_lose_ack):
+        with patch.object(_state, "_write_atomic", side_effect=publish_then_lose_ack):
             with self.assertRaisesRegex(OSError, "acknowledgment lost"):
                 protocol.publish_uncertainty(self.repo, "run-state-ack-loss", proposed, 0, operation_id)
         self.assertEqual(protocol.load_state(self.repo, "run-state-ack-loss")["revision"], 1)
@@ -1191,7 +1445,7 @@ class ProtocolTests(unittest.TestCase):
         ]
         uncertain = {**stage, "sequence": 1, "status": "dispatch-uncertain", "evidence": evidence}
         proposed = {**state, "revision": 1, "history": [stage, uncertain]}
-        with patch.object(protocol, "_write_atomic", side_effect=OSError("injected state fsync failure")):
+        with patch.object(_state, "_write_atomic", side_effect=OSError("injected state fsync failure")):
             with self.assertRaisesRegex(OSError, "injected state fsync failure"):
                 protocol.publish_uncertainty(self.repo, run_id, proposed, 0, operation_id)
         invocation = self.repo / ".kapisch/v3/runs" / run_id / "invocations" / operation_id
