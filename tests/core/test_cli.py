@@ -14,16 +14,21 @@ class CliTests(unittest.TestCase):
         output = StringIO()
         with patch("kapisch_core.cli.validate_run", return_value=[
                 ValidationError("state-unavailable", "missing", None)]), patch("sys.stdout", output):
-            self.assertEqual(main(["--repo", ".", "--run", "missing", "--json"]), 1)
+            self.assertEqual(main(["--repo", ".", "--run", "missing"]), 1)
         self.assertEqual(json.loads(output.getvalue()), {
             "protocol_version": 3, "ok": False,
             "errors": [{"code": "state-unavailable", "message": "missing", "path": None}],
         })
 
+    def test_json_option_is_rejected(self) -> None:
+        with self.assertRaises(SystemExit) as raised:
+            main(["--repo", ".", "--run", "missing", "--json"])
+        self.assertEqual(raised.exception.code, 2)
+
     def test_validation_exception_returns_failure(self) -> None:
         output = StringIO()
         with patch("kapisch_core.cli.validate_run", side_effect=OSError("denied")), patch("sys.stdout", output):
-            self.assertEqual(main(["--repo", ".", "--run", "run"]), 1)
+            self.assertEqual(main(["--repo",".","--run","run"]), 1)
         result = json.loads(output.getvalue())
         self.assertFalse(result["ok"])
         self.assertEqual(result["errors"][0]["code"], "validation-failed")

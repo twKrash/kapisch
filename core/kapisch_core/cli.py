@@ -12,7 +12,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repo", required=True, type=Path)
     parser.add_argument("--run", required=True)
     parser.add_argument("--gate")
-    parser.add_argument("--json", action="store_true", dest="json_output")
     args = parser.parse_args(argv)
 
     try:
