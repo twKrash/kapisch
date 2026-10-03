@@ -1,4 +1,5 @@
 import importlib
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -81,6 +82,22 @@ class RepositoryEncodingTests(unittest.TestCase):
             (),
         )
         self.assertIn(b'"object_format":"sha256"', sha256.canonical_bytes())
+
+    def test_import_order_and_unsupported_entries_are_closed(self):
+        foreign = type("IndexEntry", (), {})()
+        with self.assertRaises(TypeError):
+            encode_fact(foreign)
+        with self.assertRaises(ValueError):
+            WorktreeFacts((object(),), ())
+        with self.assertRaises(ValueError):
+            RepositoryStateFingerprint("sha1", "0" * 40, (object(),), (), ())
+
+        env = {"PYTHONPATH": str(ROOT / "core")}
+        for code in (
+            "import kapisch_core._repository_encoding; import kapisch_core.repository",
+            "import kapisch_core.repository; import kapisch_core._repository_encoding",
+        ):
+            subprocess.run([sys.executable, "-c", code], check=True, env=env)
 
     def test_closed_records_reject_unsafe_or_incomplete_values(self):
         class MutableVocabulary(list):

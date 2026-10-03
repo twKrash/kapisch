@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from ._repository_encoding import encode_fact, encode_git_path
+from ._repository_encoding import encode_git_path, encode_projected_fact
 
 _HEX = re.compile(r"^[0-9a-f]+$")
 
@@ -26,9 +26,9 @@ def _digest(digest: object) -> None:
         raise ValueError("invalid digest")
 
 
-def _ordered(items: object, key) -> None:
-    if type(items) is not tuple:
-        raise ValueError("records must be tuples")
+def _ordered(items: object, key, item_type: type) -> None:
+    if type(items) is not tuple or any(type(item) is not item_type for item in items):
+        raise ValueError("invalid record collection")
     if tuple(sorted(items, key=key)) != items:
         raise ValueError("records are not sorted")
     if len({key(item) for item in items}) != len(items):
@@ -68,7 +68,7 @@ class IndexEntry:
         return self.to_dict()[key]
 
     def to_dict(self) -> dict[str, object]:
-        return {"path_hex": self.path.hex(), "stage": self.stage, "object_id": self.object_id, "mode": self.mode}
+        return _project_entry(self)
 
 
 @dataclass(frozen=True)
@@ -97,10 +97,7 @@ class WorktreeEntry:
         return self.to_dict()[key]
 
     def to_dict(self) -> dict[str, object]:
-        result: dict[str, object] = {"path_hex": self.path.hex(), "kind": self.kind, "mode": self.mode}
-        if self.sha256 is not None:
-            result["sha256"] = self.sha256
-        return result
+        return _project_entry(self)
 
 
 @dataclass(frozen=True)
@@ -125,10 +122,7 @@ class UntrackedEntry:
         return key in self.to_dict()
 
     def to_dict(self) -> dict[str, object]:
-        result: dict[str, object] = {"path_hex": self.path.hex(), "included": self.included}
-        if self.sha256 is not None:
-            result["sha256"] = self.sha256
-        return result
+        return _project_entry(self)
 
 
 @dataclass(frozen=True)
@@ -137,12 +131,8 @@ class WorktreeFacts:
     untracked: tuple[UntrackedEntry, ...]
 
     def __post_init__(self) -> None:
-        _ordered(self.worktree, lambda item: item.path)
-        _ordered(self.untracked, lambda item: item.path)
-        if any(type(item) is not WorktreeEntry for item in self.worktree):
-            raise ValueError("invalid worktree records")
-        if any(type(item) is not UntrackedEntry for item in self.untracked):
-            raise ValueError("invalid untracked records")
+        _ordered(self.worktree, lambda item: item.path, WorktreeEntry)
+        _ordered(self.untracked, lambda item: item.path, UntrackedEntry)
 
 
 @dataclass(frozen=True)
@@ -155,33 +145,71 @@ class RepositoryStateFingerprint:
 
     def __post_init__(self) -> None:
         HeadIdentity(self.object_format, self.head)
-        if type(self.index) is not tuple or any(type(item) is not IndexEntry for item in self.index):
-            raise ValueError("invalid index records")
+        _ordered(self.index, lambda item: (item.path, item.stage), IndexEntry)
         object_id_width = 40 if self.object_format == "sha1" else 64
         if any(len(item.object_id) != object_id_width for item in self.index):
             raise ValueError("index object ID does not match object format")
-        _ordered(self.index, lambda item: (item.path, item.stage))
-        _ordered(self.worktree, lambda item: item.path)
-        _ordered(self.untracked, lambda item: item.path)
-        if any(type(item) is not WorktreeEntry for item in self.worktree):
-            raise ValueError("invalid worktree records")
-        if any(type(item) is not UntrackedEntry for item in self.untracked):
-            raise ValueError("invalid untracked records")
+        _ordered(self.worktree, lambda item: item.path, WorktreeEntry)
+        _ordered(self.untracked, lambda item: item.path, UntrackedEntry)
 
     def as_dict(self) -> dict[str, object]:
-        return {
-            "object_format": self.object_format,
-            "head": self.head,
-            "index": [item.to_dict() for item in self.index],
-            "worktree": [item.to_dict() for item in self.worktree],
-            "untracked": [item.to_dict() for item in self.untracked],
-        }
+        return _project_fact(self)
 
     def canonical_bytes(self) -> bytes:
         return encode_fact(self)
 
 
 RepositoryFact = HeadIdentity | IndexEntry | WorktreeEntry | UntrackedEntry | WorktreeFacts | RepositoryStateFingerprint
+
+
+def _project_entry(entry: object) -> dict[str, object]:
+    if type(entry) is IndexEntry:
+        return {
+            "path_hex": entry.path.hex(),
+            "stage": entry.stage,
+            "object_id": entry.object_id,
+            "mode": entry.mode,
+        }
+    if type(entry) is WorktreeEntry:
+        result: dict[str, object] = {
+            "path_hex": entry.path.hex(),
+            "kind": entry.kind,
+            "mode": entry.mode,
+        }
+        if entry.sha256 is not None:
+            result["sha256"] = entry.sha256
+        return result
+    if type(entry) is UntrackedEntry:
+        result = {"path_hex": entry.path.hex(), "included": entry.included}
+        if entry.sha256 is not None:
+            result["sha256"] = entry.sha256
+        return result
+    raise TypeError("unsupported repository entry")
+
+
+def _project_fact(fact: object) -> dict[str, object]:
+    if type(fact) is HeadIdentity:
+        return {"object_format": fact.object_format, "commit": fact.commit}
+    if type(fact) is IndexEntry or type(fact) is WorktreeEntry or type(fact) is UntrackedEntry:
+        return _project_entry(fact)
+    if type(fact) is WorktreeFacts:
+        return {
+            "worktree": [_project_entry(item) for item in fact.worktree],
+            "untracked": [_project_entry(item) for item in fact.untracked],
+        }
+    if type(fact) is RepositoryStateFingerprint:
+        return {
+            "object_format": fact.object_format,
+            "head": fact.head,
+            "index": [_project_entry(item) for item in fact.index],
+            "worktree": [_project_entry(item) for item in fact.worktree],
+            "untracked": [_project_entry(item) for item in fact.untracked],
+        }
+    raise TypeError("unsupported repository fact")
+
+
+def encode_fact(fact: RepositoryFact) -> bytes:
+    return encode_projected_fact(_project_fact(fact))
 
 
 class RepositoryCaptureError(ValueError):
