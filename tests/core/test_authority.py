@@ -58,9 +58,14 @@ class HumanReceiptTests(unittest.TestCase):
             target = GateTarget("run", "gate", "decision", "target", "a" * 64)
             bound = bind_external_human_artifact(artifact, target)
             self.assertEqual(json.loads(bound.identifier)["sha256"], hashlib.sha256(exact_bytes).hexdigest())
-            envelope = b'{"protocol_version":3,"approval_id":"a","run_id":"run","gate":"human-decision","decision_id":"decision","decision":"approve","target":"target","scope_digest":"' + b"a" * 64 + b'","source":{},"irrelevant":' + b"9" * 1000 + b"}"
-            with self.assertRaisesRegex(ValueError, "controller-produced approval"):
-                bind_external_human_artifact(replace(artifact, exact_bytes=envelope), target)
+            prefix = b'{"approval_id":"a","run_id":"run","gate":"human-decision","decision_id":"decision","decision":"approve","target":"target","scope_digest":"' + b"a" * 64 + b'","source":{},"irrelevant":' + b"9" * 1000 + b'}'
+            for version in (b"3", b"3.0", b"3e0"):
+                envelope = b'{"protocol_version":' + version + b',' + prefix[1:]
+                with self.subTest(version=version), self.assertRaisesRegex(ValueError, "controller-produced approval"):
+                    bind_external_human_artifact(replace(artifact, exact_bytes=envelope), target)
+            string_version = b'{"protocol_version":"3",' + prefix[1:]
+            bound = bind_external_human_artifact(replace(artifact, exact_bytes=string_version), target)
+            self.assertEqual(json.loads(bound.identifier)["sha256"], hashlib.sha256(string_version).hexdigest())
         finally:
             sys.set_int_max_str_digits(previous_limit)
 
