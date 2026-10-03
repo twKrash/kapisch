@@ -47,6 +47,27 @@ class GateTarget:
     scope_digest: str
 
 
+# Bound accepted JSON nesting independently of the runtime's recursion limit.
+_MAX_EXTERNAL_JSON_NESTING = 128
+
+
+def _ensure_supported_json_nesting(value: object) -> None:
+    stack = [(iter((value,)), 0)]
+    while stack:
+        iterator, depth = stack[-1]
+        try:
+            current = next(iterator)
+        except StopIteration:
+            stack.pop()
+            continue
+        if isinstance(current, (dict, list)):
+            nested_depth = depth + 1
+            if nested_depth > _MAX_EXTERNAL_JSON_NESTING:
+                raise ValueError("external artifact JSON exceeds supported nesting depth")
+            children = current.values() if isinstance(current, dict) else current
+            stack.append((iter(children), nested_depth))
+
+
 def bind_external_human_artifact(evidence: ExternalArtifactInput, target: GateTarget) -> EvidenceRef:
     if not isinstance(evidence, ExternalArtifactInput) or not isinstance(target, GateTarget):
         raise TypeError("evidence and target must use authority types")
@@ -56,6 +77,9 @@ def bind_external_human_artifact(evidence: ExternalArtifactInput, target: GateTa
         raise ValueError("artifact reference and exact bytes are required")
     try:
         record = json.loads(evidence.exact_bytes, parse_int=lambda value: int(value) if len(value) <= 15 else value)
+        _ensure_supported_json_nesting(record)
+    except RecursionError as exc:
+        raise ValueError("external artifact JSON exceeds supported nesting depth") from exc
     except (UnicodeDecodeError, json.JSONDecodeError):
         record = None
     required = ("approval_id", "run_id", "gate", "decision_id", "decision", "target", "scope_digest", "source")

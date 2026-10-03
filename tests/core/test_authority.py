@@ -69,6 +69,62 @@ class HumanReceiptTests(unittest.TestCase):
         finally:
             sys.set_int_max_str_digits(previous_limit)
 
+    def test_external_artifact_rejects_nested_json_in_all_supported_encodings(self):
+        from kapisch_core.authority import ExternalArtifactInput, ExternalInputSource, bind_external_human_artifact
+        text = "[" * 1500 + "0" + "]" * 1500
+        target = GateTarget("run", "gate", "decision", "target", "a" * 64)
+        for encoding in ("utf-8", "utf-16", "utf-32"):
+            artifact = ExternalArtifactInput("approval.json", text.encode(encoding), ExternalInputSource.EXTERNALLY_SUPPLIED)
+            with self.subTest(encoding=encoding), self.assertRaisesRegex(ValueError, "nesting"):
+                bind_external_human_artifact(artifact, target)
+
+    def test_external_artifact_rejects_excessively_nested_approval_envelope(self):
+        from kapisch_core.authority import ExternalArtifactInput, ExternalInputSource, bind_external_human_artifact
+        depth = 1500
+        nested = "[" * depth + "0" + "]" * depth
+        envelope = (
+            '{"protocol_version":3,"approval_id":"a","run_id":"run","gate":"human-decision",'
+            '"decision_id":"decision","decision":"approve","target":"target","scope_digest":"'
+            + "a" * 64
+            + '","source":{},"payload":'
+            + nested
+            + "}"
+        )
+        target = GateTarget("run", "gate", "decision", "target", "a" * 64)
+        for encoding in ("utf-8", "utf-16", "utf-32"):
+            artifact = ExternalArtifactInput("approval.json", envelope.encode(encoding), ExternalInputSource.EXTERNALLY_SUPPLIED)
+            with self.subTest(encoding=encoding), self.assertRaises(ValueError):
+                bind_external_human_artifact(artifact, target)
+
+    def test_external_artifact_converts_decoder_recursion_error_to_validation_error(self):
+        from unittest.mock import patch
+        from kapisch_core.authority import ExternalArtifactInput, ExternalInputSource, bind_external_human_artifact
+        artifact = ExternalArtifactInput("approval.json", b"{}", ExternalInputSource.EXTERNALLY_SUPPLIED)
+        target = GateTarget("run", "gate", "decision", "target", "a" * 64)
+        with patch("kapisch_core._human_evidence.json.loads", side_effect=RecursionError):
+            with self.assertRaisesRegex(ValueError, "nesting"):
+                bind_external_human_artifact(artifact, target)
+
+    def test_external_artifact_preserves_exact_bytes_with_nested_json(self):
+        import hashlib
+        from kapisch_core.authority import ExternalArtifactInput, ExternalInputSource, bind_external_human_artifact
+        text = "[" * 64 + "0" + "]" * 64
+        target = GateTarget("run", "gate", "decision", "target", "a" * 64)
+        for encoding in ("utf-8", "utf-16", "utf-32"):
+            exact_bytes = text.encode(encoding)
+            artifact = ExternalArtifactInput("approval.json", exact_bytes, ExternalInputSource.EXTERNALLY_SUPPLIED)
+            evidence = bind_external_human_artifact(artifact, target)
+            self.assertEqual(json.loads(evidence.identifier)["sha256"], hashlib.sha256(exact_bytes).hexdigest())
+
+    def test_external_artifact_does_not_count_delimiters_in_json_strings(self):
+        import hashlib
+        from kapisch_core.authority import ExternalArtifactInput, ExternalInputSource, bind_external_human_artifact
+        exact_bytes = b'{"text":"' + b"[" * 1500 + b'"}'
+        artifact = ExternalArtifactInput("approval.json", exact_bytes, ExternalInputSource.EXTERNALLY_SUPPLIED)
+        target = GateTarget("run", "gate", "decision", "target", "a" * 64)
+        evidence = bind_external_human_artifact(artifact, target)
+        self.assertEqual(json.loads(evidence.identifier)["sha256"], hashlib.sha256(exact_bytes).hexdigest())
+
     def test_host_receipt_binds_session_local_id_and_target(self):
         receipt = ObservedHumanAction(HumanActionOrigin.INBOUND_HUMAN, "session-message-7", "session-1", "run-1", "gate-2", "decision-1", "plan-3", "a" * 64, "b" * 64, "2026-09-29T12:00:00Z")
         target = GateTarget("run-1", "gate-2", "decision-1", "plan-3", "a" * 64)
