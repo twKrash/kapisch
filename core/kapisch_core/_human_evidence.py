@@ -79,11 +79,11 @@ def bind_external_human_artifact(evidence: ExternalArtifactInput, target: GateTa
     if not isinstance(evidence.reference, str) or not evidence.reference or not isinstance(evidence.exact_bytes, bytes):
         raise ValueError("artifact reference and exact bytes are required")
     try:
-        record = json.loads(evidence.exact_bytes, parse_int=lambda value: value if len(value) > 4300 else int(value))
+        record = json.loads(evidence.exact_bytes, parse_int=str)
     except (UnicodeDecodeError, json.JSONDecodeError):
         record = None
     required = ("approval_id", "run_id", "gate", "decision_id", "decision", "target", "scope_digest", "source")
-    if isinstance(record, dict) and record.get("protocol_version") == 3 and all(key in record for key in required):
+    if isinstance(record, dict) and record.get("protocol_version") == "3" and all(key in record for key in required):
         raise ValueError("controller-produced approval record cannot be external artifact evidence")
     if not isinstance(target.scope_digest, str) or not _DIGEST.fullmatch(target.scope_digest):
         raise ValueError("gate scope digest must be 64 lowercase hexadecimal characters")

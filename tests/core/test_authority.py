@@ -46,6 +46,24 @@ class HumanReceiptTests(unittest.TestCase):
         evidence = bind_external_human_artifact(artifact, target)
         self.assertEqual(json.loads(evidence.identifier)["sha256"], hashlib.sha256(exact_bytes).hexdigest())
 
+    def test_external_artifact_integer_parsing_ignores_runtime_digit_limit(self):
+        import hashlib
+        import sys
+        from kapisch_core.authority import ExternalArtifactInput, ExternalInputSource, bind_external_human_artifact
+        previous_limit = sys.get_int_max_str_digits()
+        try:
+            sys.set_int_max_str_digits(640)
+            exact_bytes = b'{"value":' + b"9" * 1000 + b"}"
+            artifact = ExternalArtifactInput("approval.json", exact_bytes, ExternalInputSource.EXTERNALLY_SUPPLIED)
+            target = GateTarget("run", "gate", "decision", "target", "a" * 64)
+            bound = bind_external_human_artifact(artifact, target)
+            self.assertEqual(json.loads(bound.identifier)["sha256"], hashlib.sha256(exact_bytes).hexdigest())
+            envelope = b'{"protocol_version":3,"approval_id":"a","run_id":"run","gate":"human-decision","decision_id":"decision","decision":"approve","target":"target","scope_digest":"' + b"a" * 64 + b'","source":{},"irrelevant":' + b"9" * 1000 + b"}"
+            with self.assertRaisesRegex(ValueError, "controller-produced approval"):
+                bind_external_human_artifact(replace(artifact, exact_bytes=envelope), target)
+        finally:
+            sys.set_int_max_str_digits(previous_limit)
+
     def test_host_receipt_binds_session_local_id_and_target(self):
         receipt = ObservedHumanAction(HumanActionOrigin.INBOUND_HUMAN, "session-message-7", "session-1", "run-1", "gate-2", "decision-1", "plan-3", "a" * 64, "b" * 64, "2026-09-29T12:00:00Z")
         target = GateTarget("run-1", "gate-2", "decision-1", "plan-3", "a" * 64)

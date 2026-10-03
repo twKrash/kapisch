@@ -39,7 +39,20 @@ Fix-round validation:
 
 Changed files in fix round: `core/kapisch_core/_human_evidence.py`, `tests/core/test_authority.py`, and this report. The earlier commit `71232680b23d8ef4651e27b62cceb554a5937d5d` is unchanged; this fix round is a separate follow-up commit.
 
-## Fix-round self-review
+## Fix round 2 — runtime-independent JSON integer parsing
+
+Added a regression that lowers `sys.set_int_max_str_digits(640)` with restoration in `finally`. Before the production fix, the focused test failed with `ValueError` for a 1000-digit integer in a non-envelope artifact. The same regression also checks that a recognizable v3 approval envelope with an unrelated 1000-digit number is explicitly rejected.
+
+The parser now preserves JSON integer tokens as decimal strings during envelope recognition, so behavior is independent of the interpreter integer conversion limit. Protocol version recognition accounts for this representation (`"3"` for JSON integer 3), leaving the envelope-field test in place. Non-envelope bytes continue through to exact-byte SHA-256 binding.
+
+Fix-round 2 validation:
+
+- Focused regression: `PYTHONPATH=core python -m unittest discover -s tests/core -p test_authority.py -k test_external_artifact_integer_parsing_ignores_runtime_digit_limit -v` — 1 passed.
+- Authority module: `PYTHONPATH=core python -m unittest discover -s tests/core -p test_authority.py -v` — 5 passed.
+- Core suite: `PYTHONPATH=core python -m unittest discover -s tests/core -v` — 141 passed.
+- Conformance suite: `PYTHONPATH=core python -m unittest discover -s tests/conformance -v` — 18 passed.
+- `git diff --check` — passed.
+
 
 The digest check rejects non-string and anything other than 64 lowercase hexadecimal characters. The integer parser only avoids conversion of exceptionally long integer tokens; JSON structure and protocol-version parsing stay intact, so a recognizable v3 approval envelope is still caught rather than broadly allowing it through. Exact artifact bytes continue to determine SHA-256. Source remains the single supported `externally-supplied` enum member; Stage 5.1 receipt binding is unchanged.
 
