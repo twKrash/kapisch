@@ -90,11 +90,17 @@ class RepositoryGitCaptureTests(unittest.TestCase):
         entries = capture_index(self.root)
         self.assertEqual([entry.stage for entry in entries], [1, 2, 3])
 
-    def test_skip_worktree_and_gitlinks_are_rejected(self):
+    def test_skip_worktree_intent_to_add_and_gitlinks_are_rejected(self):
         self.git("update-index", "--skip-worktree", "--", "tracked")
         with self.assertRaises(RepositoryCaptureError):
             capture_index(self.root)
         self.git("update-index", "--no-skip-worktree", "--", "tracked")
+
+        (self.root / "intent").touch()
+        self.git("add", "-N", "intent")
+        with self.assertRaises(RepositoryCaptureError):
+            capture_index(self.root)
+        self.git("reset", "-q", "--", "intent")
 
         head = self.git("rev-parse", "HEAD").stdout.strip().decode("ascii")
         self.git("update-index", "--add", "--cacheinfo", f"160000,{head},submodule")

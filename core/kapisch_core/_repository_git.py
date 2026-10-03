@@ -9,6 +9,8 @@ from pathlib import Path
 
 from .repository import HeadIdentity, IndexEntry, RepositoryCaptureError
 
+_INTENT_TO_ADD = 1 << 29
+
 _REDIRECT = (
     "GIT_DIR",
     "GIT_WORK_TREE",
@@ -185,6 +187,30 @@ def _validate_path(p):
         raise RepositoryCaptureError("unsafe Git path")
 
 
+def _debug_flags(raw):
+    flags = {}
+    offset = 0
+    while offset < len(raw):
+        path_end = raw.find(b"\0", offset)
+        if path_end < 0:
+            raise RepositoryCaptureError("malformed index debug output")
+        path = raw[offset:path_end]
+        _validate_path(path)
+        marker = raw.find(b"flags: ", path_end + 1)
+        if marker < 0:
+            raise RepositoryCaptureError("malformed index debug output")
+        value_start = marker + len(b"flags: ")
+        value_end = raw.find(b"\n", value_start)
+        if value_end < 0:
+            raise RepositoryCaptureError("malformed index debug output")
+        value = raw[value_start:value_end]
+        if not re.fullmatch(rb"[0-9a-f]+", value):
+            raise RepositoryCaptureError("malformed index debug flags")
+        flags.setdefault(path, []).append(int(value, 16))
+        offset = value_end + 1
+    return flags
+
+
 def capture_index(repo, identity=None):
     head = capture_head(repo, identity)
     width = 40 if head.object_format == "sha1" else 64
@@ -193,6 +219,9 @@ def capture_index(repo, identity=None):
         or _config(repo, "index.sparse", identity) == "true"
     ):
         raise RepositoryCaptureError("sparse checkout unsupported")
+    debug_flags = _debug_flags(
+        _git(repo, "ls-files", "--debug", "-z", identity=identity)
+    )
     out = []
     seen = set()
     for rec in _records(
@@ -228,8 +257,10 @@ def capture_index(repo, identity=None):
             raise RepositoryCaptureError("unknown index flag")
         flags.setdefault(path, []).append(flag)
     paths = {x.path for x in out}
-    if set(flags) != paths:
+    if set(flags) != paths or set(debug_flags) != paths:
         raise RepositoryCaptureError("flag/index mismatch")
+    if any(value & _INTENT_TO_ADD for values in debug_flags.values() for value in values):
+        raise RepositoryCaptureError("intent-to-add index entry unsupported")
     stages = {}
     for entry in out:
         stages.setdefault(entry.path, set()).add(entry.stage)
