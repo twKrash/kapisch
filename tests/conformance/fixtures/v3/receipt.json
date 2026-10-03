@@ -1,0 +1,12 @@
+{
+  "protocol_version": 3,
+  "origin": "inbound-human",
+  "action_id": "session-message-7",
+  "action": "approve",
+  "text": "Approve this exact gate",
+  "run_id": "run-1",
+  "gate_id": "gate-2",
+  "target": "plan-3",
+  "scope": "implementation",
+  "observed_at": "2026-09-29T12:00:00Z"
+}
