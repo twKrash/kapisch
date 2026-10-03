@@ -193,6 +193,16 @@ class FakeAdapterTests(unittest.TestCase):
         self.assertFalse(result.admissible)
         self.assertIn("repository-write-capability-not-enforced", result.violations)
 
+    def test_human_receipt_fixture_is_stage3_shaped_and_accepted(self) -> None:
+        payload = json.loads((ROOT / "tests/conformance/fixtures/v3/receipt.json").read_text())
+        self.assertIn(payload["gate"], {"human-decision", "side-effect"})
+        receipt = HumanActionReceipt(**payload)
+        target = HumanActionTarget(
+            payload["run_id"], payload["gate"], payload["decision_id"],
+            payload["target"], payload["scope_digest"],
+        )
+        self.assertTrue(human_receipt_matches(receipt, target))
+
     def test_human_receipt_match_is_structural_and_binds_exact_target(self) -> None:
         target = HumanActionTarget("run-1", "human-decision", "decision-1", "plan.md", "a" * 64)
         valid = HumanActionReceipt(
