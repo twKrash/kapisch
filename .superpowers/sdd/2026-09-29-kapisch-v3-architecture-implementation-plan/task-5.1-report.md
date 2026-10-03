@@ -12,7 +12,7 @@ Stage 5.1 is complete at `118cc97`; Stage 5.2 changes follow in later commits.
 
 ## Implementation
 
-Added immutable host-observation and exact gate-target records, and a binder returning an `EvidenceRef` with the session-local action ID and SHA-256 digest of action plus text. It rejects incomplete/malformed timestamps, non-inbound origins, and any run/gate/target/scope mismatch. Added a public `authority` facade and exports, the requested single binding test, and a canonical conformance receipt fixture.
+Added immutable host-observation and exact gate-target records. The binder preserves the Stage 3 producer's `text_digest` and serializes the session-local action ID, origin, run/gate/decision/target/scope and observed timestamp into the `EvidenceRef`; it does not invent raw action/text or a digest the producer does not supply. It rejects invalid origins, timestamps, and target mismatches. Added the public `authority` facade/exports and a canonical Stage 3 receipt fixture consumed by both the core test and conformance test.
 
 ## TDD evidence
 
@@ -20,7 +20,7 @@ Red command:
 
 `PYTHONPATH=core python -m unittest discover -s tests/core -p test_authority.py -k test_host_receipt_binds_session_local_id_and_target -v`
 
-Observed failure before production implementation: `ModuleNotFoundError: No module named 'kapisch_core.authority'`.
+The initial pre-implementation focused run failed at import because the API did not exist; that import failure alone is not behavioral RED evidence. The later Stage 5.1 fix-round RED below was behavioral: the pre-fix core test could not construct the Stage 3 producer-shaped receipt because the original API required an unavailable raw action/text field. Final fixture-backed core and conformance assertions pass.
 
 Green command (same exact command): passed; 1 test, `OK`.
 
@@ -42,7 +42,7 @@ Green command (same exact command): passed; 1 test, `OK`.
 
 ## Residual risks
 
-The receipt is supplied as a host-observed typed record; this function validates its shape and binding but cannot cryptographically prove the host observation, consistent with the architecture boundary. The conformance fixture is a wire example, not yet consumed by a fixture-specific test.
+The receipt is supplied as a host-observed typed record; this function validates its shape and binding but cannot cryptographically prove the host observation, consistent with the architecture boundary. The canonical fixture is consumed by fixture-specific tests in both core and conformance suites.
 
 ## Diff summary
 
