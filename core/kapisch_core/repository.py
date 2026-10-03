@@ -157,6 +157,9 @@ class RepositoryStateFingerprint:
         HeadIdentity(self.object_format, self.head)
         if type(self.index) is not tuple or any(type(item) is not IndexEntry for item in self.index):
             raise ValueError("invalid index records")
+        object_id_width = 40 if self.object_format == "sha1" else 64
+        if any(len(item.object_id) != object_id_width for item in self.index):
+            raise ValueError("index object ID does not match object format")
         _ordered(self.index, lambda item: (item.path, item.stage))
         _ordered(self.worktree, lambda item: item.path)
         _ordered(self.untracked, lambda item: item.path)

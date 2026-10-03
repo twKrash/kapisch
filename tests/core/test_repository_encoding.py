@@ -1,19 +1,19 @@
+import importlib
 import sys
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "core"))
-from kapisch_core.repository import (  # noqa: E402
-    HeadIdentity,
-    IndexEntry,
-    RepositoryStateFingerprint,
-    UntrackedEntry,
-    WorktreeEntry,
-    WorktreeFacts,
-    encode_fact,
-    encode_git_path,
-)
+_repository = importlib.import_module("kapisch_core.repository")
+HeadIdentity = _repository.HeadIdentity
+IndexEntry = _repository.IndexEntry
+RepositoryStateFingerprint = _repository.RepositoryStateFingerprint
+UntrackedEntry = _repository.UntrackedEntry
+WorktreeEntry = _repository.WorktreeEntry
+WorktreeFacts = _repository.WorktreeFacts
+encode_fact = _repository.encode_fact
+encode_git_path = _repository.encode_git_path
 
 
 class RepositoryEncodingTests(unittest.TestCase):
@@ -70,6 +70,14 @@ class RepositoryEncodingTests(unittest.TestCase):
             UntrackedEntry(b"file", True)
         with self.assertRaises(ValueError):
             UntrackedEntry(b"file", False, "a" * 64)
+        with self.assertRaises(ValueError):
+            RepositoryStateFingerprint(
+                "sha1",
+                "0" * 40,
+                (IndexEntry(b"index", 0, "2" * 64, "100644"),),
+                (),
+                (),
+            )
         with self.assertRaises(ValueError):
             RepositoryStateFingerprint(
                 "sha1",
