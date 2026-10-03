@@ -1,7 +1,7 @@
 ---
 name: "kapisch-mechanic"
 description: "Use only for repository-evidenced, unambiguous named-file non-behavioral maintenance, or verbatim synchronization from an already approved authoritative document to an identified target when copied content is exact; escalate adaptation or source-authority questions as blockers for controller escalation."
-model: openai-codex/gpt-6-luna
+model: openai/gpt-6-luna
 thinking: low
 tools: read, grep, find, ls, bash, edit, write
 acceptanceRole: writer

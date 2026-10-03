@@ -28,6 +28,6 @@ Stop condition: each material changed behavior is sufficiently verified, represe
 In durable workflow mode, bounded v4 transport limits apply: at most 20 finding summaries and at most 20 verification references. Never fabricate reviewer identity, runtime execution, test results, or final readiness. Record `unavailable` only as factual runtime metadata; it must never coexist with an approve or ready decision. Never infer reviewer identity from the prompt, task name, installed profile file, prior report, or expected configuration. Return a bounded v4 transport payload with report status/path/SHA-256, outcome lifecycle, bounded findings, and verification references; never include transcript or raw tool output.
 
 In standalone mode, return the findings-only result described above. Do not return a v4 payload or request a report path, digest, or durable artifact."""
-model = "gpt-6-sol"
+model = "gpt-6.1-sol"
 model_reasoning_effort = "high"
 sandbox_mode = "read-only"

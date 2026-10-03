@@ -1,7 +1,7 @@
 ---
 name: "kapisch-implementer-lite"
 description: "Use only for completely specified prescriptive behavioural work with explicit scope, acceptance criteria, and named verification: no design choice remains. Escalates instead of adapting when any material judgment is required; cannot redesign, edit beyond the bound surface, verify from unrun or stale output, approve, or declare readiness."
-model: openai-codex/gpt-6-luna
+model: openai/gpt-6-luna
 thinking: medium
 tools: read, grep, find, ls, bash, edit, write
 acceptanceRole: writer

@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { canonicalAgents, generateAgentMarkdown } from "../scripts/generate-agents.ts";
+import {
+  canonicalAgents,
+  generateAgentMarkdown,
+} from "../scripts/generate-agents.ts";
 
 const root = new URL("../../../", import.meta.url);
 const generated = new URL("../agents/", import.meta.url);
@@ -16,7 +19,10 @@ const required = [
 
 test("all canonical agents generate byte-stable, faithful Pi definitions", async () => {
   const profiles = await canonicalAgents(root);
-  assert.deepEqual(profiles.map(({ name }) => name).sort(), [...required].sort());
+  assert.deepEqual(
+    profiles.map(({ name }) => name).sort(),
+    [...required].sort(),
+  );
   const first = profiles.map((profile) => generateAgentMarkdown(profile));
   const second = profiles.map((profile) => generateAgentMarkdown(profile));
   assert.deepEqual(first, second);
@@ -29,7 +35,9 @@ test("all canonical agents generate byte-stable, faithful Pi definitions", async
     assert.equal(committed.match(/^---$/gm)?.length, 2);
     const body = committed.split(/^---\s*$/m)[2];
     assert.equal(body, `\n${profile.developer_instructions}`);
-    assert.ok(committed.includes(`description: ${JSON.stringify(profile.description)}`));
+    assert.ok(
+      committed.includes(`description: ${JSON.stringify(profile.description)}`),
+    );
     assert.doesNotMatch(committed, /(?:^|\s)(?:\/home\/|\/Users\/|[A-Z]:\\)/);
     assert.doesNotMatch(committed, /Generated (?:at|on):|timestamp:/i);
   });
@@ -40,16 +48,21 @@ test("Pi model and thinking derive from canonical profile values", async () => {
   for (const profile of profiles) {
     const output = generateAgentMarkdown(profile);
     assert.ok(output.includes(`thinking: ${profile.model_reasoning_effort}`));
-    if (profile.name !== "kapisch-reviewer") assert.ok(output.includes(`model: openai-codex/${profile.model}`));
+    if (profile.name !== "kapisch-reviewer")
+      assert.ok(output.includes(`model: openai/${profile.model}`));
   }
-  assert.ok(generateAgentMarkdown(profiles.find(({ name }) => name === "kapisch-reviewer")!).includes("model: openai/gpt-6.1-sol"));
+  assert.ok(
+    generateAgentMarkdown(
+      profiles.find(({ name }) => name === "kapisch-reviewer")!,
+    ).includes("model: openai/gpt-6.1-sol"),
+  );
 });
 
 test("all six canonical profiles use the specified GPT-6 routing", async () => {
   const profiles = await canonicalAgents(root);
   const byName = new Map(profiles.map((profile) => [profile.name, profile]));
   const expected = {
-    "kapisch-architect": ["gpt-6-sol", "high"],
+    "kapisch-architect": ["gpt-6.1-sol", "high"],
     "kapisch-reviewer": ["openai/gpt-6.1-sol", "high"],
     "kapisch-researcher": ["gpt-6-luna", "medium"],
     "kapisch-implementer": ["gpt-6-luna", "medium"],
@@ -59,7 +72,11 @@ test("all six canonical profiles use the specified GPT-6 routing", async () => {
   for (const [name, [model, effort]] of Object.entries(expected)) {
     const profile = byName.get(name as (typeof profiles)[number]["name"]);
     const output = generateAgentMarkdown(profile!);
-    assert.ok(output.includes(`model: ${model.startsWith("openai/") ? model : `openai-codex/${model}`}`));
+    assert.ok(
+      output.includes(
+        `model: ${model.startsWith("openai/") ? model : `openai/${model}`}`,
+      ),
+    );
     assert.ok(output.includes(`thinking: ${effort}`));
   }
 });

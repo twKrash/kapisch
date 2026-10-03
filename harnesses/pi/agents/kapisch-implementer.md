@@ -1,7 +1,7 @@
 ---
 name: "kapisch-implementer"
 description: "Use when implementing an approved plan or a direct, clearly scoped feature, bug fix, refactor, test, or behaviour-linked documentation change."
-model: openai-codex/gpt-6-luna
+model: openai/gpt-6-luna
 thinking: medium
 tools: read, grep, find, ls, bash, edit, write
 acceptanceRole: writer
