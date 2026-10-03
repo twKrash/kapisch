@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
 from ._repository_encoding import encode_git_path, encode_projected_fact
 
@@ -213,7 +214,19 @@ def encode_fact(fact: RepositoryFact) -> bytes:
 
 
 class RepositoryCaptureError(ValueError):
-    """Stable error boundary used by later repository capture stages."""
+    """Stable error boundary used by repository capture stages."""
+
+
+def capture_head(repo: Path) -> HeadIdentity:
+    from ._repository_git import capture_head as _capture_head
+
+    return _capture_head(repo)
+
+
+def capture_index(repo: Path) -> tuple[IndexEntry, ...]:
+    from ._repository_git import capture_index as _capture_index
+
+    return _capture_index(repo)
 
 
 __all__ = [
@@ -225,6 +238,8 @@ __all__ = [
     "UntrackedEntry",
     "WorktreeEntry",
     "WorktreeFacts",
+    "capture_head",
+    "capture_index",
     "encode_fact",
     "encode_git_path",
 ]
