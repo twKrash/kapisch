@@ -8,14 +8,14 @@ readiness, validator behavior, or routing policy.
 
 ## Routing matrix
 
-| Role | balanced (default) | quality | budget |
-| --- | --- | --- | --- |
-| architect | `gpt-5.6-sol` / `high` | `gpt-6-sol` / `high` | `gpt-5.6-terra` / `high` |
-| researcher | `gpt-5.6-terra` / `medium` | `gpt-6-luna` / `medium` | `gpt-5.6-luna` / `high` |
-| implementer | `gpt-5.6-terra` / `medium` | `gpt-6-luna` / `medium` | `gpt-5.6-terra` / `low` |
-| implementer-lite | `gpt-5.6-luna` / `high` | `gpt-6-luna` / `high` | `gpt-5.6-luna` / `high` |
-| mechanic | `gpt-5.6-luna` / `low` | `gpt-6-luna` / `low` | `gpt-5.6-luna` / `low` |
-| reviewer | `gpt-5.6-terra` / `high` | `gpt-6-sol` / `high` | `gpt-5.6-terra` / `medium` |
+| Role             | balanced (default)         | quality                 | budget                     |
+| ---------------- | -------------------------- | ----------------------- | -------------------------- |
+| architect        | `gpt-5.6-sol` / `high`     | `gpt-6.1-sol` / `high`  | `gpt-5.6-terra` / `high`   |
+| researcher       | `gpt-5.6-terra` / `medium` | `gpt-6-luna` / `medium` | `gpt-5.6-luna` / `high`    |
+| implementer      | `gpt-5.6-terra` / `medium` | `gpt-6-luna` / `medium` | `gpt-5.6-terra` / `low`    |
+| implementer-lite | `gpt-5.6-luna` / `high`    | `gpt-6-luna` / `high`   | `gpt-5.6-luna` / `high`    |
+| mechanic         | `gpt-5.6-luna` / `low`     | `gpt-6-luna` / `low`    | `gpt-5.6-luna` / `low`     |
+| reviewer         | `gpt-5.6-terra` / `high`   | `gpt-6.1-sol` / `high`  | `gpt-5.6-terra` / `medium` |
 
 ## Inspect and install
 

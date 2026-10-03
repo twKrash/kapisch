@@ -62,7 +62,7 @@ test("all six canonical profiles use the specified GPT-6 routing", async () => {
   const profiles = await canonicalAgents(root);
   const byName = new Map(profiles.map((profile) => [profile.name, profile]));
   const expected = {
-    "kapisch-architect": ["gpt-6-sol", "high"],
+    "kapisch-architect": ["gpt-6.1-sol", "high"],
     "kapisch-reviewer": ["openai/gpt-6.1-sol", "high"],
     "kapisch-researcher": ["gpt-6-luna", "medium"],
     "kapisch-implementer": ["gpt-6-luna", "medium"],

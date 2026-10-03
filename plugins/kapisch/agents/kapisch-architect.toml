@@ -22,6 +22,6 @@ Stop condition: complete when the design is evidence-backed, preserves every der
 Never fabricate repository facts, evidence, or approval. Return a bounded v4 transport payload with report status/path/SHA-256, outcome lifecycle, bounded findings, and verification references; never include transcript or raw tool output.
 Bounded v4 transport limits: at most 20 finding summaries and at most 20 verification references.
 """
-model = "gpt-6-sol"
+model = "gpt-6.1-sol"
 model_reasoning_effort = "high"
 sandbox_mode = "read-only"
