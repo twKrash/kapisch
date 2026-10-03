@@ -24,8 +24,24 @@ class HumanReceiptTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             bind_human_receipt(replace(receipt, observed_at="2026-09-29"), target)
         fixture = json.loads((Path(__file__).resolve().parents[1] / "conformance/fixtures/v3/receipt.json").read_text())
-        fixture_receipt = ObservedHumanAction(HumanActionOrigin(fixture["origin"]), fixture["action_id"], fixture["session_id"], fixture["run_id"], fixture["gate_id"], fixture["decision_id"], fixture["target"], fixture["scope_digest"], fixture["text_digest"], fixture["observed_at"])
-        bind_human_receipt(fixture_receipt, GateTarget(fixture["run_id"], fixture["gate_id"], fixture["decision_id"], fixture["target"], fixture["scope_digest"]))
+        from tooling.conformance.adapter import HumanActionReceipt as Stage3Receipt, HumanActionTarget as Stage3Target, human_receipt_matches
+        producer_receipt = Stage3Receipt(**fixture)
+        producer_target = Stage3Target(fixture["run_id"], fixture["gate"], fixture["decision_id"], fixture["target"], fixture["scope_digest"])
+        self.assertTrue(human_receipt_matches(producer_receipt, producer_target))
+        fixture_receipt = ObservedHumanAction(HumanActionOrigin(producer_receipt.origin), producer_receipt.action_id, producer_receipt.session_id, producer_receipt.run_id, producer_receipt.gate, producer_receipt.decision_id, producer_receipt.target, producer_receipt.scope_digest, producer_receipt.text_digest, producer_receipt.observed_at)
+        fixture_target = GateTarget(fixture["run_id"], fixture["gate"], fixture["decision_id"], fixture["target"], fixture["scope_digest"])
+        evidence = bind_human_receipt(fixture_receipt, fixture_target)
+        retained = json.loads(evidence.identifier)
+        self.assertEqual(retained["gate_id"], fixture["gate"])
+        self.assertEqual(retained["session_id"], fixture["session_id"])
+        self.assertEqual(retained["text_digest"], fixture["text_digest"])
+        with self.assertRaises(ValueError):
+            bind_human_receipt(replace(fixture_receipt, target="other"), fixture_target)
+        for origin in ("controller", "outbound-human"):
+            with self.subTest(origin=origin), self.assertRaises(ValueError):
+                bind_human_receipt(replace(fixture_receipt, origin=origin), fixture_target)
+        with self.assertRaises(ValueError):
+            bind_human_receipt(replace(fixture_receipt, observed_at="2026-09-29T12:00:00+24:00"), fixture_target)
 
 
 if __name__ == "__main__":

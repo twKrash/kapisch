@@ -69,3 +69,27 @@ GREEN: same command passed: `Ran 1 test ... OK`. Regression coverage checks seri
 ## Unresolved issue
 
 The binder is stateless and has no Stage 4 authority census/state argument. It cannot establish uniqueness/duplicate ownership of an action ID within a session. That requires a later state-level census/validator and is intentionally not added here. This receipt binding also cannot cryptographically prove the host observation; it makes no such claim.
+
+# Stage 5.1 fix round 2
+
+## TDD
+
+RED: `PYTHONPATH=core python -m unittest discover -s tests/conformance -p test_fake_adapter.py -v; PYTHONPATH=core python -m unittest discover -s tests/core -p test_authority.py -v` failed as expected: conformance fixture test raised `KeyError: 'gate'`; core test failed constructing the Stage 3 producer receipt because fixture passed unexpected `protocol_version`.
+
+GREEN: same focused commands passed after correcting the fixture and translating Stage 3 `gate` to core `gate_id`; conformance: 13 tests, `OK`; core authority: 1 test, `OK`.
+
+## Validation
+
+- `PYTHONPATH=core python -m unittest discover -s tests/core -v` — passed, 137 tests.
+- `PYTHONPATH=core python -m unittest discover -s tests/conformance -v` — passed, 18 tests.
+- `git diff --check` — passed.
+
+## Changed files
+
+- `tests/conformance/fixtures/v3/receipt.json` — uses producer-shaped `gate` and no unrelated protocol-version field.
+- `tests/conformance/test_fake_adapter.py` — asserts fixture is accepted structurally by Stage 3 conformance receipt binding.
+- `tests/core/test_authority.py` — translates accepted producer receipt into core record losslessly, binds and checks retained fields; restores receipt-only target mismatch and controller/outbound-origin rejection and malformed timezone-offset rejection.
+
+## Remaining concerns
+
+Same-session duplicate ownership remains outside this stateless binder and belongs to later Stage 5 authority-consumer work. Host observation is not cryptographically authenticated by the binder. No production binder changes were needed.
