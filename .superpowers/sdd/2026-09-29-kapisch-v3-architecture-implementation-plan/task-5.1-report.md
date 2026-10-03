@@ -2,9 +2,13 @@
 
 Status: DONE
 
-## Commit
+## Commits
 
-- `8b9ed708a655ad278aadd53097b2839f13bc231d feat(v3): bind inbound human receipt`
+- Initial implementation: `8b9ed708a655ad278aadd53097b2839f13bc231d` (`feat(v3): bind inbound human receipt`).
+- Review fix: `d067984` (`fix(v3): preserve complete human receipt binding`).
+- Final Stage 5.1 fix: `118cc97` (`test(v3): align human receipt fixture with producer`).
+
+Stage 5.1 is complete at `118cc97`; Stage 5.2 changes follow in later commits.
 
 ## Implementation
 

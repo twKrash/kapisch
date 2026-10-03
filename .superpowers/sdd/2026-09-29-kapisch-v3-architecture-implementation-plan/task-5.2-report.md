@@ -76,6 +76,6 @@ Fix-round 3 validation:
 - `git diff --check` — passed.
 
 
-Created commit `71232680b23d8ef4651e27b62cceb554a5937d5d` with subject `feat(v3): bind external approval evidence`. The working tree was clean with no staged files at verification.
+Initial Stage 5.2 implementation commit: `71232680b23d8ef4651e27b62cceb554a5937d5d` (`feat(v3): bind external approval evidence`).
 
-Fix-round 3 commit: `a411701a686b1ffa31b0c5aefbc5755bb90701e5` (`fix(v3): preserve numeric approval version semantics`). Working tree was clean with no staged files after commit.
+Review-fix commits: `847d9a835ce4557f17bae30899bb963fba5f66d8` (scope digest and parser failures), `44b4de41ef905eb849167f0e3b5f05d52fa80508` (runtime-independent integer parsing), and `a411701a686b1ffa31b0c5aefbc5755bb90701e5` (numeric protocol-version semantics). Report update: `9704d59fc05411f6c03d913a8c71b22dafe60e2c`. Stage 5.2 is complete at this report revision; final tracked worktree was clean with no staged files.
