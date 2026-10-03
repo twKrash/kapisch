@@ -407,9 +407,9 @@ These decisions preserve the existing repository-state schema and do not authori
 
 #### Execution tasks (one PR; each commit boundary is future-only)
 
-**6.1 Canonicalize repository path/fact encoding.** Files: `core/kapisch_core/repository.py` (public facade), `core/kapisch_core/_repository_encoding.py`, `tests/core/test_repository.py`. Interface: consumes Stage 2 canonical JSON; produces `encode_git_path(path: bytes) -> str` (lowercase hex), `encode_fact(fact: RepositoryFact) -> bytes` for 6.2–6.5.
+**6.1 Canonicalize repository path/fact encoding.** Files: `core/kapisch_core/repository.py` (public facade), `core/kapisch_core/_repository_encoding.py`, `tests/core/test_repository_encoding.py`. Interface: consumes Stage 2 canonical JSON; produces `encode_git_path(path: bytes) -> str` (lowercase hex), `encode_fact(fact: RepositoryFact) -> bytes` for 6.2–6.5.
 
-- [ ] Red: add `test_git_path_bytes_and_fact_order_are_canonical`; run `PYTHONPATH=core python -m unittest discover -s tests/core -p test_repository.py -k test_git_path_bytes_and_fact_order_are_canonical -v`; expect FAIL (missing path/fact encoder).
+- [ ] Red: add `test_git_paths_and_facts_are_canonical_bytes`; run `PYTHONPATH=core python -m unittest discover -s tests/core -p test_repository_encoding.py -k test_git_paths_and_facts_are_canonical_bytes -v`; expect FAIL (missing path/fact encoder).
 - [ ] Green: encode exact Git path bytes (including non-UTF-8/newline) and deterministic sorted fact fields; run same command, expect PASS. **Commit boundary:** path/fact encoding + test (`feat(v3): canonicalize repository facts`).
 
 **6.2 Inspect HEAD and stage-aware index.** Files: `core/kapisch_core/_repository_git.py`, `tests/core/test_repository.py`. Interface: consumes `encode_git_path`; produces `capture_head(repo: Path) -> HeadIdentity` (object-ID algorithm + commit) and `capture_index(repo: Path) -> tuple[IndexEntry, ...]` for 6.4; use `git -C ROOT rev-parse --show-object-format=storage`, `--verify HEAD`, `git -C ROOT ls-files --stage -z`.

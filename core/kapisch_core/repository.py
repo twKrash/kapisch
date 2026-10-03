@@ -41,7 +41,7 @@ class HeadIdentity:
     commit: str
 
     def __post_init__(self) -> None:
-        if self.object_format not in ("sha1", "sha256"):
+        if type(self.object_format) is not str or self.object_format not in ("sha1", "sha256"):
             raise ValueError("invalid object format")
         width = 40 if self.object_format == "sha1" else 64
         if type(self.commit) is not str or len(self.commit) != width or not _HEX.fullmatch(self.commit):
@@ -61,7 +61,7 @@ class IndexEntry:
             raise ValueError("invalid stage")
         if type(self.object_id) is not str or len(self.object_id) not in (40, 64) or not _HEX.fullmatch(self.object_id):
             raise ValueError("invalid object id")
-        if self.mode not in ("100644", "100755", "120000", "160000"):
+        if type(self.mode) is not str or self.mode not in ("100644", "100755", "120000", "160000"):
             raise ValueError("invalid index mode")
 
     def __getitem__(self, key: str):
@@ -80,9 +80,9 @@ class WorktreeEntry:
 
     def __post_init__(self) -> None:
         _path(self.path)
-        if self.kind not in {"file", "symlink", "deletion"}:
+        if type(self.kind) is not str or self.kind not in {"file", "symlink", "deletion"}:
             raise ValueError("invalid worktree kind")
-        if self.mode not in ("100644", "100755", "120000", "000000"):
+        if type(self.mode) is not str or self.mode not in ("100644", "100755", "120000", "000000"):
             raise ValueError("invalid worktree mode")
         expected = {"file": {"100644", "100755"}, "symlink": {"120000"}, "deletion": {"000000"}}
         if self.mode not in expected[self.kind]:

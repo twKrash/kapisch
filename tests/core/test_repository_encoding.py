@@ -55,9 +55,51 @@ class RepositoryEncodingTests(unittest.TestCase):
             (WorktreeEntry(b"tracked", "file", "100644", digest),),
             (UntrackedEntry(b"extra", True, digest),),
         )
-        self.assertEqual(encode_fact(facts).count(b"\n"), 1)
+        self.assertEqual(
+            encode_fact(facts),
+            (
+                b'{"untracked":[{"included":true,"path_hex":"6578747261",'
+                b'"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}],'
+                b'"worktree":[{"kind":"file","mode":"100644","path_hex":"747261636b6564",'
+                b'"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}\n'
+            ),
+        )
+        inventory_only = WorktreeFacts(
+            (WorktreeEntry(b"deleted", "deletion", "000000"),),
+            (UntrackedEntry(b"extra", False),),
+        )
+        self.assertEqual(
+            encode_fact(inventory_only),
+            b'{"untracked":[{"included":false,"path_hex":"6578747261"}],'
+            b'"worktree":[{"kind":"deletion","mode":"000000","path_hex":"64656c65746564"}]}\n',
+        )
+        sha256 = RepositoryStateFingerprint(
+            "sha256",
+            "0" * 64,
+            (IndexEntry(b"tracked", 0, "1" * 64, "100644"),),
+            (),
+            (),
+        )
+        self.assertIn(b'"object_format":"sha256"', sha256.canonical_bytes())
 
     def test_closed_records_reject_unsafe_or_incomplete_values(self):
+        class MutableVocabulary(list):
+            def __eq__(self, other):
+                return True
+
+        class StringSubclass(str):
+            pass
+
+        with self.assertRaises(ValueError):
+            HeadIdentity(MutableVocabulary(["sha1"]), "0" * 40)
+        with self.assertRaises(ValueError):
+            IndexEntry(b"file", 0, "1" * 40, MutableVocabulary(["100644"]))
+        with self.assertRaises(ValueError):
+            WorktreeEntry(b"file", MutableVocabulary(["file"]), "100644", "a" * 64)
+        with self.assertRaises(ValueError):
+            HeadIdentity(StringSubclass("sha1"), "0" * 40)
+        with self.assertRaises(ValueError):
+            WorktreeEntry(b"file", "file", StringSubclass("100644"), "a" * 64)
         with self.assertRaises((TypeError, ValueError)):
             encode_fact({"object_format": "sha1"})
         with self.assertRaises((TypeError, ValueError)):
@@ -86,6 +128,20 @@ class RepositoryEncodingTests(unittest.TestCase):
                 (),
                 (),
             )
+        with self.assertRaises(ValueError):
+            RepositoryStateFingerprint(
+                "sha1",
+                "0" * 40,
+                (IndexEntry(b"same", 0, "1" * 40, "100644"), IndexEntry(b"same", 0, "2" * 40, "100644")),
+                (),
+                (),
+            )
+
+        class WorktreeSubclass(WorktreeEntry):
+            pass
+
+        with self.assertRaises(ValueError):
+            WorktreeFacts((WorktreeSubclass(b"file", "file", "100644", "a" * 64),), ())
 
 
 if __name__ == "__main__":
