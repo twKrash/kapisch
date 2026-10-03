@@ -32,7 +32,9 @@ _REDIRECT = (
 def _env():
     e = os.environ.copy()
     for k in list(e):
-        if k in _REDIRECT or k.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")):
+        if k in _REDIRECT or k.startswith(
+            ("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")
+        ):
             e.pop(k, None)
     return e
 
@@ -52,7 +54,8 @@ def _root(repo, identity=None):
     try:
         root = p.resolve()
         fd = os.open(
-            os.fspath(root), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+            os.fspath(root),
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
         )
         try:
             ident = (os.fstat(fd).st_dev, os.fstat(fd).st_ino)
@@ -61,6 +64,8 @@ def _root(repo, identity=None):
             r = subprocess.run(
                 (
                     "git",
+                    "-c",
+                    "core.fsmonitor=false",
                     "-C",
                     str(root),
                     "rev-parse",
@@ -71,11 +76,16 @@ def _root(repo, identity=None):
                 capture_output=True,
                 check=True,
             )
-            lines = r.stdout.split(b"\n")
-            if lines != [b"false", os.fsencode(str(root)), b""]:
-                raise RepositoryCaptureError("path is not supplied worktree root")
+            expected = b"false\n" + os.fsencode(str(root)) + b"\n"
+            if r.stdout != expected:
+                raise RepositoryCaptureError(
+                    "path is not supplied worktree root"
+                )
             after = os.fstat(fd)
-            if (after.st_dev, after.st_ino) != ident or _identity(root) != ident:
+            if (
+                (after.st_dev, after.st_ino) != ident
+                or _identity(root) != ident
+            ):
                 raise RepositoryCaptureError("worktree replaced")
         finally:
             os.close(fd)
@@ -92,7 +102,7 @@ def _git(repo, *args, identity=None):
     root, ident = _root(repo, identity)
     try:
         r = subprocess.run(
-            ("git", "-C", str(root), *args),
+            ("git", "-c", "core.fsmonitor=false", "-C", str(root), *args),
             env=_env(),
             check=True,
             capture_output=True,
@@ -119,7 +129,12 @@ def _oid(raw, width):
 def capture_head(repo, identity=None):
     try:
         fmt = _line(
-            _git(repo, "rev-parse", "--show-object-format=storage", identity=identity)
+            _git(
+                repo,
+                "rev-parse",
+                "--show-object-format=storage",
+                identity=identity,
+            )
         ).decode("ascii")
     except (UnicodeError, ValueError) as e:
         raise RepositoryCaptureError("malformed Git output") from e
@@ -140,6 +155,8 @@ def _config(repo, name, identity=None):
         r = subprocess.run(
             (
                 "git",
+                "-c",
+                "core.fsmonitor=false",
                 "-C",
                 str(root),
                 "config",
@@ -246,7 +263,9 @@ def capture_index(repo, identity=None):
         if key in seen:
             raise RepositoryCaptureError("duplicate index record")
         seen.add(key)
-        out.append(IndexEntry(path, int(stage), _oid(oid, width), mode.decode()))
+        out.append(
+            IndexEntry(path, int(stage), _oid(oid, width), mode.decode())
+        )
     flags = {}
     for rec in _records(_git(repo, "ls-files", "-v", "-z", identity=identity)):
         if len(rec) < 3 or rec[1:2] != b" ":
@@ -259,7 +278,11 @@ def capture_index(repo, identity=None):
     paths = {x.path for x in out}
     if set(flags) != paths or set(debug_flags) != paths:
         raise RepositoryCaptureError("flag/index mismatch")
-    if any(value & _INTENT_TO_ADD for values in debug_flags.values() for value in values):
+    if any(
+        value & _INTENT_TO_ADD
+        for values in debug_flags.values()
+        for value in values
+    ):
         raise RepositoryCaptureError("intent-to-add index entry unsupported")
     stages = {}
     for entry in out:

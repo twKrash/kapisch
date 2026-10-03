@@ -30,8 +30,11 @@ class RepositoryGitCaptureTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def git(self, *args, **kwargs):
+        return self.git_at(self.root, *args, **kwargs)
+
+    def git_at(self, root, *args, **kwargs):
         return subprocess.run(
-            ("git", "-C", str(self.root), *args),
+            ("git", "-C", str(root), *args),
             check=True,
             capture_output=True,
             **kwargs,
@@ -42,9 +45,9 @@ class RepositoryGitCaptureTests(unittest.TestCase):
         expected_format = self.git(
             "rev-parse", "--show-object-format=storage"
         ).stdout.strip().decode("ascii")
-        expected_commit = self.git("rev-parse", "--verify", "HEAD").stdout.strip().decode(
-            "ascii"
-        )
+        expected_commit = self.git(
+            "rev-parse", "--verify", "HEAD"
+        ).stdout.strip().decode("ascii")
         self.assertEqual(observed.object_format, expected_format)
         self.assertEqual(observed.commit, expected_commit)
 
@@ -62,12 +65,18 @@ class RepositoryGitCaptureTests(unittest.TestCase):
         (self.root / "a").write_bytes(b"a")
         self.git("add", "z", "a")
         entries = capture_index(self.root)
-        self.assertEqual([entry.path for entry in entries], [b"a", b"tracked", b"z"])
+        self.assertEqual(
+            [entry.path for entry in entries], [b"a", b"tracked", b"z"]
+        )
         self.assertEqual([entry.stage for entry in entries], [0, 0, 0])
 
     def test_capture_index_preserves_raw_path_bytes(self):
         path = b"line\n\xff"
-        fd = os.open(os.fsencode(self.root) + b"/" + path, os.O_WRONLY | os.O_CREAT, 0o644)
+        fd = os.open(
+            os.fsencode(self.root) + b"/" + path,
+            os.O_WRONLY | os.O_CREAT,
+            0o644,
+        )
         try:
             os.write(fd, b"raw")
         finally:
@@ -90,7 +99,7 @@ class RepositoryGitCaptureTests(unittest.TestCase):
         entries = capture_index(self.root)
         self.assertEqual([entry.stage for entry in entries], [1, 2, 3])
 
-    def test_skip_worktree_intent_to_add_and_gitlinks_are_rejected(self):
+    def test_skip_intent_and_gitlinks_are_rejected(self):
         self.git("update-index", "--skip-worktree", "--", "tracked")
         with self.assertRaises(RepositoryCaptureError):
             capture_index(self.root)
@@ -103,7 +112,9 @@ class RepositoryGitCaptureTests(unittest.TestCase):
         self.git("reset", "-q", "--", "intent")
 
         head = self.git("rev-parse", "HEAD").stdout.strip().decode("ascii")
-        self.git("update-index", "--add", "--cacheinfo", f"160000,{head},submodule")
+        self.git(
+            "update-index", "--add", "--cacheinfo", f"160000,{head},submodule"
+        )
         with self.assertRaises(RepositoryCaptureError):
             capture_index(self.root)
 
@@ -113,12 +124,75 @@ class RepositoryGitCaptureTests(unittest.TestCase):
         with self.assertRaises(RepositoryCaptureError):
             capture_head(unborn)
 
-        with self.assertRaises(RepositoryCaptureError):
-            capture_head(self.root / "nested")
+        for capture in (capture_head, capture_index):
+            with self.assertRaises(RepositoryCaptureError):
+                capture(self.root / "nested")
         bare = Path(self.tmp.name) / "bare"
         subprocess.run(("git", "init", "--bare", "-q", str(bare)), check=True)
-        with self.assertRaises(RepositoryCaptureError):
-            capture_head(bare)
+        for capture in (capture_head, capture_index):
+            with self.assertRaises(RepositoryCaptureError):
+                capture(bare)
+
+    def test_newline_and_non_utf8_root_paths_are_supported(self):
+        raw_root = os.fsencode(self.tmp.name) + b"/root-\n-\xff"
+        os.mkdir(raw_root)
+        root = Path(os.fsdecode(raw_root))
+        self.git_at(root, "init", "-q")
+        self.git_at(root, "config", "user.email", "a@b")
+        self.git_at(root, "config", "user.name", "a")
+        (root / "tracked").write_bytes(b"one")
+        self.git_at(root, "add", "tracked")
+        self.git_at(root, "commit", "-qm", "initial")
+
+        self.assertEqual(capture_head(root).object_format, "sha1")
+        self.assertEqual(len(capture_index(root)), 1)
+
+    def test_capture_index_disables_local_and_global_fsmonitor_hooks(self):
+        marker = Path(self.tmp.name) / "fsmonitor-marker"
+        script = Path(self.tmp.name) / "fsmonitor.sh"
+        script.write_text(
+            '#!/bin/sh\nprintf x >> "$KAPISCH_FSMONITOR_MARKER"\n'
+        )
+        script.chmod(0o755)
+        with patch.dict(
+            os.environ, {"KAPISCH_FSMONITOR_MARKER": str(marker)}
+        ):
+            self.git("config", "core.fsmonitor", str(script))
+            self.git("update-index", "--fsmonitor")
+            marker.unlink(missing_ok=True)
+            capture_index(self.root)
+            self.assertFalse(marker.exists())
+
+            home = Path(self.tmp.name) / "home"
+            home.mkdir()
+            (home / ".gitconfig").write_text(
+                f"[core]\n\tfsmonitor = {script}\n"
+            )
+            global_root = Path(self.tmp.name) / "global-repo"
+            global_root.mkdir()
+            self.git_at(global_root, "init", "-q")
+            self.git_at(global_root, "config", "user.email", "a@b")
+            self.git_at(global_root, "config", "user.name", "a")
+            (global_root / "tracked").write_bytes(b"one")
+            self.git_at(global_root, "add", "tracked")
+            self.git_at(global_root, "commit", "-qm", "initial")
+            subprocess.run(
+                (
+                    "git",
+                    "-c",
+                    "core.fsmonitor=false",
+                    "-C",
+                    str(global_root),
+                    "update-index",
+                    "--fsmonitor",
+                ),
+                check=True,
+                capture_output=True,
+            )
+            marker.unlink(missing_ok=True)
+            with patch.dict(os.environ, {"HOME": str(home)}):
+                capture_index(global_root)
+            self.assertFalse(marker.exists())
 
     def test_git_redirect_environment_is_ignored(self):
         with patch.dict(
@@ -130,8 +204,10 @@ class RepositoryGitCaptureTests(unittest.TestCase):
                 "GIT_CONFIG_NOSYSTEM": "1",
             },
         ):
-            observed = capture_head(self.root)
-        self.assertEqual(observed.commit, capture_head(self.root).commit)
+            observed_head = capture_head(self.root)
+            observed_index = capture_index(self.root)
+        self.assertEqual(observed_head.commit, capture_head(self.root).commit)
+        self.assertEqual(len(observed_index), 1)
 
 
 if __name__ == "__main__":
