@@ -29,13 +29,15 @@ _REDIRECT = (
 )
 
 
-def _env():
+def _env(*, no_replace=False):
     e = os.environ.copy()
     for k in list(e):
         if k in _REDIRECT or k.startswith(
             ("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")
         ):
             e.pop(k, None)
+    if no_replace:
+        e["GIT_NO_REPLACE_OBJECTS"] = "1"
     return e
 
 
@@ -98,12 +100,12 @@ def _root(repo, identity=None):
     return root, ident
 
 
-def _git(repo, *args, identity=None):
+def _git(repo, *args, identity=None, no_replace=False):
     root, ident = _root(repo, identity)
     try:
         r = subprocess.run(
             ("git", "-c", "core.fsmonitor=false", "-C", str(root), *args),
-            env=_env(),
+            env=_env(no_replace=no_replace),
             check=True,
             capture_output=True,
         )
@@ -143,7 +145,16 @@ def capture_head(repo, identity=None):
     width = 40 if fmt == "sha1" else 64
     raw = _line(_git(repo, "rev-parse", "--verify", "HEAD", identity=identity))
     commit = _oid(raw, width)
-    typ = _line(_git(repo, "cat-file", "-t", commit, identity=identity))
+    typ = _line(
+        _git(
+            repo,
+            "cat-file",
+            "-t",
+            commit,
+            identity=identity,
+            no_replace=True,
+        )
+    )
     if typ != b"commit":
         raise RepositoryCaptureError("HEAD is not a commit")
     return HeadIdentity(fmt, commit)

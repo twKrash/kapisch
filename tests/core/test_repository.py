@@ -51,6 +51,17 @@ class RepositoryGitCaptureTests(unittest.TestCase):
         self.assertEqual(observed.object_format, expected_format)
         self.assertEqual(observed.commit, expected_commit)
 
+    def test_replacement_ref_cannot_mask_noncommit_head(self):
+        blob = self.git(
+            "hash-object", "tracked"
+        ).stdout.strip().decode("ascii")
+        commit = self.git("rev-parse", "HEAD").stdout.strip().decode("ascii")
+        self.git("update-ref", f"refs/replace/{blob}", commit)
+        self.git("update-ref", "HEAD", blob)
+        for capture in (capture_head, capture_index):
+            with self.assertRaises(RepositoryCaptureError):
+                capture(self.root)
+
     def test_index_entry_digest_tracks_blob_stage_mode(self):
         before = capture_index(self.root)
         (self.root / "tracked").write_bytes(b"two")
