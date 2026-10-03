@@ -79,13 +79,15 @@ def bind_external_human_artifact(evidence: ExternalArtifactInput, target: GateTa
     if not isinstance(evidence.reference, str) or not evidence.reference or not isinstance(evidence.exact_bytes, bytes):
         raise ValueError("artifact reference and exact bytes are required")
     try:
-        record = json.loads(evidence.exact_bytes)
+        record = json.loads(evidence.exact_bytes, parse_int=lambda value: value if len(value) > 4300 else int(value))
     except (UnicodeDecodeError, json.JSONDecodeError):
         record = None
     required = ("approval_id", "run_id", "gate", "decision_id", "decision", "target", "scope_digest", "source")
     if isinstance(record, dict) and record.get("protocol_version") == 3 and all(key in record for key in required):
         raise ValueError("controller-produced approval record cannot be external artifact evidence")
-    if any(not isinstance(value, str) or not value for value in (target.run_id, target.gate_id, target.decision_id, target.target, target.scope_digest)):
+    if not isinstance(target.scope_digest, str) or not _DIGEST.fullmatch(target.scope_digest):
+        raise ValueError("gate scope digest must be 64 lowercase hexadecimal characters")
+    if any(not isinstance(value, str) or not value for value in (target.run_id, target.gate_id, target.decision_id, target.target)):
         raise ValueError("gate target fields must be non-empty strings")
     payload = {"reference": evidence.reference, "source": evidence.source.value, "sha256": hashlib.sha256(evidence.exact_bytes).hexdigest(), "run_id": target.run_id, "gate_id": target.gate_id, "decision_id": target.decision_id, "target": target.target, "scope_digest": target.scope_digest}
     return EvidenceRef("external-human-artifact", json.dumps(payload, sort_keys=True, separators=(",", ":")))

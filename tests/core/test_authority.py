@@ -30,6 +30,22 @@ class HumanReceiptTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             bind_external_human_artifact(object(), target)
 
+    def test_external_artifact_rejects_invalid_scope_digests(self):
+        from kapisch_core.authority import ExternalArtifactInput, ExternalInputSource, bind_external_human_artifact
+        artifact = ExternalArtifactInput("approval.json", b"bytes", ExternalInputSource.EXTERNALLY_SUPPLIED)
+        for digest in ("", "a" * 63, "A" * 64, "g" * 64):
+            with self.subTest(digest=digest), self.assertRaises(ValueError):
+                bind_external_human_artifact(artifact, GateTarget("run", "gate", "decision", "target", digest))
+
+    def test_external_artifact_binds_bytes_with_oversized_json_integer(self):
+        import hashlib
+        from kapisch_core.authority import ExternalArtifactInput, ExternalInputSource, bind_external_human_artifact
+        exact_bytes = b'{"value":' + b"9" * 5000 + b"}"
+        artifact = ExternalArtifactInput("approval.json", exact_bytes, ExternalInputSource.EXTERNALLY_SUPPLIED)
+        target = GateTarget("run", "gate", "decision", "target", "a" * 64)
+        evidence = bind_external_human_artifact(artifact, target)
+        self.assertEqual(json.loads(evidence.identifier)["sha256"], hashlib.sha256(exact_bytes).hexdigest())
+
     def test_host_receipt_binds_session_local_id_and_target(self):
         receipt = ObservedHumanAction(HumanActionOrigin.INBOUND_HUMAN, "session-message-7", "session-1", "run-1", "gate-2", "decision-1", "plan-3", "a" * 64, "b" * 64, "2026-09-29T12:00:00Z")
         target = GateTarget("run-1", "gate-2", "decision-1", "plan-3", "a" * 64)
