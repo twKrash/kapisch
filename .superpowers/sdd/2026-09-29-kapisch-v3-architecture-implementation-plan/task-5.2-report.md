@@ -61,6 +61,21 @@ The binder hashes original bytes directly and uses deterministic sorted compact 
 
 Largest changed production function is `bind_external_human_artifact` (about 20 lines); changed modules remain small and below architecture size thresholds.
 
-## Commit
+## Fix round 3 — preserve JSON numeric version semantics
+
+Added RED cases under `sys.set_int_max_str_digits(640)` (restored in `finally`) for numeric protocol versions `3`, `3.0`, and `3e0`, each with an unrelated 1000-digit integer. Before the production correction, the `3.0` and `3e0` cases incorrectly bound, while string `"3"` was incorrectly rejected as an envelope. The test also verifies the non-envelope 1000-digit integer still binds with its exact-byte SHA-256.
+
+The parser now converts only integer tokens of at most 15 digits to `int`; longer integer tokens remain strings. Envelope detection accepts numeric JSON version values equal to 3, including float/exponent spellings, while requiring a numeric type (excluding booleans), so a JSON string `"3"` is not confused with numeric version 3. The 15-digit conversion cap is well below Python's minimum supported configurable integer-string limit; long values are never converted.
+
+Fix-round 3 validation:
+
+- Focused regression: `PYTHONPATH=core python -m unittest discover -s tests/core -p test_authority.py -k test_external_artifact_integer_parsing_ignores_runtime_digit_limit -v` — 1 passed.
+- Authority module: `PYTHONPATH=core python -m unittest discover -s tests/core -p test_authority.py -v` — 5 passed.
+- Core suite: `PYTHONPATH=core python -m unittest discover -s tests/core -v` — 141 passed.
+- Conformance suite: `PYTHONPATH=core python -m unittest discover -s tests/conformance -v` — 18 passed.
+- `git diff --check` — passed.
+
 
 Created commit `71232680b23d8ef4651e27b62cceb554a5937d5d` with subject `feat(v3): bind external approval evidence`. The working tree was clean with no staged files at verification.
+
+Fix-round 3 commit: `a411701a686b1ffa31b0c5aefbc5755bb90701e5` (`fix(v3): preserve numeric approval version semantics`). Working tree was clean with no staged files after commit.
