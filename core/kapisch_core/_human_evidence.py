@@ -51,6 +51,16 @@ class GateTarget:
 _MAX_EXTERNAL_JSON_NESTING = 128
 
 
+# Reject duplicates before dict construction can hide overwritten subtrees.
+def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("external artifact JSON contains duplicate object key")
+        result[key] = value
+    return result
+
+
 def _ensure_supported_json_nesting(value: object) -> None:
     stack = [(iter((value,)), 0)]
     while stack:
@@ -76,7 +86,11 @@ def bind_external_human_artifact(evidence: ExternalArtifactInput, target: GateTa
     if not isinstance(evidence.reference, str) or not evidence.reference or not isinstance(evidence.exact_bytes, bytes):
         raise ValueError("artifact reference and exact bytes are required")
     try:
-        record = json.loads(evidence.exact_bytes, parse_int=lambda value: int(value) if len(value) <= 15 else value)
+        record = json.loads(
+            evidence.exact_bytes,
+            parse_int=lambda value: int(value) if len(value) <= 15 else value,
+            object_pairs_hook=_unique_json_object,
+        )
         _ensure_supported_json_nesting(record)
     except RecursionError as exc:
         raise ValueError("external artifact JSON exceeds supported nesting depth") from exc

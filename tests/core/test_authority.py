@@ -71,11 +71,23 @@ class HumanReceiptTests(unittest.TestCase):
 
     def test_external_artifact_rejects_nested_json_in_all_supported_encodings(self):
         from kapisch_core.authority import ExternalArtifactInput, ExternalInputSource, bind_external_human_artifact
-        text = "[" * 1500 + "0" + "]" * 1500
+        target = GateTarget("run", "gate", "decision", "target", "a" * 64)
+        for depth in (129, 1500):
+            text = "[" * depth + "0" + "]" * depth
+            for encoding in ("utf-8", "utf-16", "utf-32"):
+                artifact = ExternalArtifactInput("approval.json", text.encode(encoding), ExternalInputSource.EXTERNALLY_SUPPLIED)
+                with self.subTest(depth=depth, encoding=encoding), self.assertRaisesRegex(ValueError, "nesting"):
+                    bind_external_human_artifact(artifact, target)
+
+    def test_external_artifact_rejects_duplicate_keys_with_nested_values(self):
+        from kapisch_core.authority import ExternalArtifactInput, ExternalInputSource, bind_external_human_artifact
+        depth = 129
+        nested = "[" * depth + "0" + "]" * depth
+        text = '{"payload":' + nested + ',"payload":0}'
         target = GateTarget("run", "gate", "decision", "target", "a" * 64)
         for encoding in ("utf-8", "utf-16", "utf-32"):
             artifact = ExternalArtifactInput("approval.json", text.encode(encoding), ExternalInputSource.EXTERNALLY_SUPPLIED)
-            with self.subTest(encoding=encoding), self.assertRaisesRegex(ValueError, "nesting"):
+            with self.subTest(encoding=encoding), self.assertRaisesRegex(ValueError, "duplicate object key"):
                 bind_external_human_artifact(artifact, target)
 
     def test_external_artifact_rejects_excessively_nested_approval_envelope(self):
@@ -108,7 +120,7 @@ class HumanReceiptTests(unittest.TestCase):
     def test_external_artifact_preserves_exact_bytes_with_nested_json(self):
         import hashlib
         from kapisch_core.authority import ExternalArtifactInput, ExternalInputSource, bind_external_human_artifact
-        text = "[" * 64 + "0" + "]" * 64
+        text = "[" * 128 + "0" + "]" * 128
         target = GateTarget("run", "gate", "decision", "target", "a" * 64)
         for encoding in ("utf-8", "utf-16", "utf-32"):
             exact_bytes = text.encode(encoding)
