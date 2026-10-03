@@ -7,6 +7,29 @@ from kapisch_core.authority import GateTarget, HumanActionOrigin, ObservedHumanA
 
 
 class HumanReceiptTests(unittest.TestCase):
+    def test_controller_gate_blocks_without_external_artifact_input(self):
+        from kapisch_core.authority import ExternalArtifactInput, ExternalInputSource, bind_external_human_artifact
+        target = GateTarget("run-1", "gate-2", "decision-1", "plan-3", "a" * 64)
+        artifact = ExternalArtifactInput("approval.json", b'{"decision":"approve"}', ExternalInputSource.EXTERNALLY_SUPPLIED)
+        evidence = bind_external_human_artifact(artifact, target)
+        self.assertEqual(evidence.kind, "external-human-artifact")
+        retained = json.loads(evidence.identifier)
+        self.assertEqual(retained["reference"], artifact.reference)
+        self.assertEqual(retained["run_id"], target.run_id)
+        self.assertEqual(retained["gate_id"], target.gate_id)
+        self.assertEqual(retained["decision_id"], target.decision_id)
+        self.assertEqual(retained["target"], target.target)
+        self.assertEqual(retained["scope_digest"], target.scope_digest)
+        import hashlib
+        self.assertEqual(retained["sha256"], hashlib.sha256(artifact.exact_bytes).hexdigest())
+        envelope = {"protocol_version": 3, "approval_id": "a", "run_id": "run-1", "gate": "human-decision", "decision_id": "decision-1", "decision": "approve", "target": "plan-3", "scope_digest": "a" * 64, "source": {}}
+        with self.assertRaises(ValueError):
+            bind_external_human_artifact(replace(artifact, exact_bytes=json.dumps(envelope).encode()), target)
+        with self.assertRaises(ValueError):
+            bind_external_human_artifact(replace(artifact, source="controller"), target)
+        with self.assertRaises(TypeError):
+            bind_external_human_artifact(object(), target)
+
     def test_host_receipt_binds_session_local_id_and_target(self):
         receipt = ObservedHumanAction(HumanActionOrigin.INBOUND_HUMAN, "session-message-7", "session-1", "run-1", "gate-2", "decision-1", "plan-3", "a" * 64, "b" * 64, "2026-09-29T12:00:00Z")
         target = GateTarget("run-1", "gate-2", "decision-1", "plan-3", "a" * 64)

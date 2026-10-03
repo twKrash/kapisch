@@ -3,10 +3,22 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
+import hashlib
 import json
 import re
 
 from .domain import EvidenceRef
+
+
+class ExternalInputSource(str, Enum):
+    EXTERNALLY_SUPPLIED = "externally-supplied"
+
+
+@dataclass(frozen=True)
+class ExternalArtifactInput:
+    reference: str
+    exact_bytes: bytes
+    source: ExternalInputSource
 
 
 class HumanActionOrigin(str, Enum):
@@ -57,6 +69,26 @@ def _valid_timestamp(value: str) -> bool:
         return parsed.utcoffset() is not None and (not leap or (parsed.astimezone(timezone.utc).strftime("%H:%M:%S") == "23:59:59" and parsed.astimezone(timezone.utc).date().isoformat() in _LEAP_DAYS))
     except (ValueError, OverflowError):
         return False
+
+
+def bind_external_human_artifact(evidence: ExternalArtifactInput, target: GateTarget) -> EvidenceRef:
+    if not isinstance(evidence, ExternalArtifactInput) or not isinstance(target, GateTarget):
+        raise TypeError("evidence and target must use authority types")
+    if evidence.source is not ExternalInputSource.EXTERNALLY_SUPPLIED:
+        raise ValueError("artifact source is not externally supplied")
+    if not isinstance(evidence.reference, str) or not evidence.reference or not isinstance(evidence.exact_bytes, bytes):
+        raise ValueError("artifact reference and exact bytes are required")
+    try:
+        record = json.loads(evidence.exact_bytes)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        record = None
+    required = ("approval_id", "run_id", "gate", "decision_id", "decision", "target", "scope_digest", "source")
+    if isinstance(record, dict) and record.get("protocol_version") == 3 and all(key in record for key in required):
+        raise ValueError("controller-produced approval record cannot be external artifact evidence")
+    if any(not isinstance(value, str) or not value for value in (target.run_id, target.gate_id, target.decision_id, target.target, target.scope_digest)):
+        raise ValueError("gate target fields must be non-empty strings")
+    payload = {"reference": evidence.reference, "source": evidence.source.value, "sha256": hashlib.sha256(evidence.exact_bytes).hexdigest(), "run_id": target.run_id, "gate_id": target.gate_id, "decision_id": target.decision_id, "target": target.target, "scope_digest": target.scope_digest}
+    return EvidenceRef("external-human-artifact", json.dumps(payload, sort_keys=True, separators=(",", ":")))
 
 
 def bind_human_receipt(receipt: ObservedHumanAction, target: GateTarget) -> EvidenceRef:
