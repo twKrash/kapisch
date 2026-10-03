@@ -62,6 +62,56 @@ class RepositoryGitCaptureTests(unittest.TestCase):
             with self.assertRaises(RepositoryCaptureError):
                 capture(self.root)
 
+    def test_lazy_fetch_and_transport_are_disabled(self):
+        for caller_value in (None, "0"):
+            with self.subTest(caller_value=caller_value):
+                root = Path(self.tmp.name) / (
+                    f"missing-{caller_value or 'unset'}"
+                )
+                root.mkdir()
+                self.git_at(root, "init", "-q")
+                self.git_at(root, "config", "user.email", "a@b")
+                self.git_at(root, "config", "user.name", "a")
+                (root / "tracked").write_bytes(b"one")
+                self.git_at(root, "add", "tracked")
+                self.git_at(root, "commit", "-qm", "initial")
+                marker = root / "transport-marker"
+                script = root / "ssh-marker.sh"
+                script.write_text(
+                    '#!/bin/sh\nprintf x >> "$KAPISCH_SSH_MARKER"\n'
+                )
+                script.chmod(0o755)
+                self.git_at(
+                    root,
+                    "remote",
+                    "add",
+                    "origin",
+                    "ssh://example.invalid/repo",
+                )
+                self.git_at(root, "config", "remote.origin.promisor", "true")
+                self.git_at(root, "config", "extensions.partialClone", "origin")
+                self.git_at(root, "config", "core.sshCommand", str(script))
+                missing = "f" * 40
+                (root / ".git" / "HEAD").write_text(missing + "\n")
+                env = {"KAPISCH_SSH_MARKER": str(marker)}
+                if caller_value is not None:
+                    env["GIT_NO_LAZY_FETCH"] = caller_value
+                with patch.dict(os.environ, env):
+                    if caller_value is None:
+                        os.environ.pop("GIT_NO_LAZY_FETCH", None)
+                    for capture in (capture_head, capture_index):
+                        with self.assertRaises(RepositoryCaptureError):
+                            capture(root)
+                    self.assertFalse(marker.exists())
+                    probe_env = os.environ.copy()
+                    probe_env["GIT_NO_LAZY_FETCH"] = "1"
+                    probe = subprocess.run(
+                        ("git", "-C", str(root), "cat-file", "-e", missing),
+                        env=probe_env,
+                        capture_output=True,
+                    )
+                    self.assertNotEqual(probe.returncode, 0)
+
     def test_index_entry_digest_tracks_blob_stage_mode(self):
         before = capture_index(self.root)
         (self.root / "tracked").write_bytes(b"two")

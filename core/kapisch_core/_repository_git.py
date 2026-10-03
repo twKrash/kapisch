@@ -36,6 +36,7 @@ def _env(*, no_replace=False):
             ("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")
         ):
             e.pop(k, None)
+    e["GIT_NO_LAZY_FETCH"] = "1"
     if no_replace:
         e["GIT_NO_REPLACE_OBJECTS"] = "1"
     return e
