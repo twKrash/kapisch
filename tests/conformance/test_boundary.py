@@ -10,11 +10,15 @@ from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[2]
 CORE_HOST = re.compile(
-    r"\b(?:codex|pi)\b|\.codex\b|\.pi\b|openai-codex|sandbox_mode|marketplace|\.toml",
+    r"\b(?:codex|pi)\b|\.codex\b|\.pi\b|openai|sandbox_mode|marketplace|\.toml",
     re.IGNORECASE,
 )
-HOST_IMPORT = re.compile(r"\b(?:from|import)\s+(?:harnesses\.(?:codex|pi)|plugins\.kapisch)")
-HOST_PATH = re.compile(r"(?:harnesses[/\\](?:codex|pi)|plugins[/\\]kapisch[/\\])", re.IGNORECASE)
+HOST_IMPORT = re.compile(
+    r"\b(?:from|import)\s+(?:harnesses\.(?:codex|pi)|plugins\.kapisch)"
+)
+HOST_PATH = re.compile(
+    r"(?:harnesses[/\\](?:codex|pi)|plugins[/\\]kapisch[/\\])", re.IGNORECASE
+)
 
 
 def _source_files(root: Path, relative: str) -> dict[str, str]:
@@ -24,7 +28,9 @@ def _source_files(root: Path, relative: str) -> dict[str, str]:
     return {
         path.relative_to(root).as_posix(): path.read_text(encoding="utf-8")
         for path in base.rglob("*")
-        if path.is_file() and path.suffix.lower() in {".py", ".ts", ".tsx", ".js", ".jsx", ".md", ".json", ".toml"}
+        if path.is_file()
+        and path.suffix.lower()
+        in {".py", ".ts", ".tsx", ".js", ".jsx", ".md", ".json", ".toml"}
     }
 
 
@@ -39,7 +45,8 @@ def _core_imports_allowed(path: str, source: str) -> bool:
         if isinstance(node, ast.Import):
             modules = (alias.name for alias in node.names)
             if any(
-                module.split(".")[0] not in sys.stdlib_module_names | {"kapisch_core", "__future__"}
+                module.split(".")[0]
+                not in sys.stdlib_module_names | {"kapisch_core", "__future__"}
                 for module in modules
             ):
                 return False
@@ -48,22 +55,39 @@ def _core_imports_allowed(path: str, source: str) -> bool:
                 climb = node.level - 1
                 if climb > len(package_parts):
                     return False
-                base = package_parts[:len(package_parts) - climb]
-                modules = [node.module] if node.module else [alias.name.split(".")[0] for alias in node.names]
+                base = package_parts[: len(package_parts) - climb]
+                modules = (
+                    [node.module]
+                    if node.module
+                    else [alias.name.split(".")[0] for alias in node.names]
+                )
                 targets = ("/".join((*base, *module.split("."))) for module in modules)
-                if any(target != "core/kapisch_core" and not target.startswith("core/kapisch_core/") for target in targets):
+                if any(
+                    target != "core/kapisch_core"
+                    and not target.startswith("core/kapisch_core/")
+                    for target in targets
+                ):
                     return False
-            elif (node.module or "").split(".")[0] not in sys.stdlib_module_names | {"kapisch_core", "__future__"}:
+            elif (node.module or "").split(".")[0] not in sys.stdlib_module_names | {
+                "kapisch_core",
+                "__future__",
+            }:
                 return False
     return True
 
 
 def _under_adapter(path: str, adapter: str) -> bool:
     parts = PurePosixPath(path).parts
-    return len(parts) >= 2 and parts[0].lower() == "harnesses" and parts[1].lower() == adapter
+    return (
+        len(parts) >= 2
+        and parts[0].lower() == "harnesses"
+        and parts[1].lower() == adapter
+    )
 
 
-def _has_relative_cross_adapter_reference(path: str, source: str, target_adapter: str) -> bool:
+def _has_relative_cross_adapter_reference(
+    path: str, source: str, target_adapter: str
+) -> bool:
     source_path = PurePosixPath(path.replace("\\", "/"))
     for match in re.finditer(r"['\"]((?:\.{1,2}[/\\\\])+[^'\"]+)['\"]", source):
         reference = match.group(1).replace("\\", "/")
@@ -84,9 +108,18 @@ def _has_relative_cross_adapter_reference(path: str, source: str, target_adapter
                 climb = node.level - 1
                 if climb > len(package_parts):
                     continue
-                base = package_parts[:len(package_parts) - climb]
-                modules = [node.module] if node.module else [alias.name.split(".")[0] for alias in node.names]
-                if any(_under_adapter("/".join((*base, *module.split("."))), target_adapter) for module in modules):
+                base = package_parts[: len(package_parts) - climb]
+                modules = (
+                    [node.module]
+                    if node.module
+                    else [alias.name.split(".")[0] for alias in node.names]
+                )
+                if any(
+                    _under_adapter(
+                        "/".join((*base, *module.split("."))), target_adapter
+                    )
+                    for module in modules
+                ):
                     return True
     return False
 
@@ -96,9 +129,15 @@ def boundary_violations(files: dict[str, str]) -> list[str]:
     for path, source in files.items():
         normalized = path.lower()
         if normalized.startswith("core/"):
-            if CORE_HOST.search(source) or HOST_IMPORT.search(source) or HOST_PATH.search(source):
+            if (
+                CORE_HOST.search(source)
+                or HOST_IMPORT.search(source)
+                or HOST_PATH.search(source)
+            ):
                 violations.append(f"core host dependency: {path}")
-            elif path.lower().endswith(".py") and not _core_imports_allowed(path, source):
+            elif path.lower().endswith(".py") and not _core_imports_allowed(
+                path, source
+            ):
                 violations.append(f"core import outside stdlib/core: {path}")
         elif normalized.startswith("harnesses/codex/"):
             if (
@@ -163,11 +202,16 @@ class BoundaryTests(unittest.TestCase):
             root = Path(directory)
             (root / "harnesses/codex/src").mkdir(parents=True)
             (root / "harnesses/pi/src").mkdir(parents=True)
-            (root / "harnesses/codex/src/adapter.py").write_text("from harnesses.pi import policy\n")
-            (root / "harnesses/pi/src/adapter.ts").write_text('readFileSync("harnesses/codex/dist/agent.md")\n')
+            (root / "harnesses/codex/src/adapter.py").write_text(
+                "from harnesses.pi import policy\n"
+            )
+            (root / "harnesses/pi/src/adapter.ts").write_text(
+                'readFileSync("harnesses/codex/dist/agent.md")\n'
+            )
             files = {
                 path.relative_to(root).as_posix(): path.read_text()
-                for path in root.rglob("*") if path.is_file()
+                for path in root.rglob("*")
+                if path.is_file()
             }
         violations = boundary_violations(files)
         self.assertEqual(len(violations), 2)
