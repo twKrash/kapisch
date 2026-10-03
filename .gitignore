@@ -10,3 +10,5 @@ node_modules/
 .omp/
 graphify-out/
 .worktrees/
+.pi/
+/.superpowers/sdd/

@@ -14,7 +14,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - uses: oven-sh/setup-bun@v2
+      - run: bun test harnesses/pi/tests/*.test.ts
+      - run: bun run --cwd harnesses/pi check:generated
       - run: python -m unittest discover -s tests
+      - run: PYTHONPATH=core python -m unittest discover -s tests/core -v
+      - run: PYTHONPATH=core python -m unittest discover -s tests/core -p test_domain.py -v
+      - run: PYTHONPATH=core python -m unittest discover -s tests/conformance -v
+      - run: PYTHONPATH=core python -m unittest discover -s tests/core -p test_bundle.py -v
+      - run: PYTHONPATH=core python tooling/build/build_bundle.py --check
       - run: python -m unittest discover -s tests/kapisch_validation
         working-directory: plugins/kapisch
       - run: PYTHONHASHSEED=1 python -m unittest tests.kapisch_validation.test_deterministic_acceptance -v

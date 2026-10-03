@@ -9,13 +9,18 @@ Use `handoff=both` by default: the controller writes a durable handoff and
 summarizes it in chat. `handoff=file` writes without the chat summary.
 `handoff=chat` suppresses optional research/plan/implementation/mechanic delivery
 files, but an approving review or final still requires its canonical invocation
-and result artifacts. A chat-only review/final without those artifacts is
-advisory only and cannot approve.
+and result artifacts. A chat-only approving review/final without those artifacts
+is advisory only and cannot approve.
 
-The controller must never infer that `workflow=task`, graph-free execution,
-`handoff=chat`, read-only subagents, an unchanged working tree, or the absence
-of a durable execution graph waives canonical review or final artifact
-requirements.
+A standalone `workflow=review` is findings-only, creates no canonical reviewer
+invocation or result artifacts, and cannot approve or establish final readiness.
+This exception does not apply to review or final work within a durable task or
+milestone.
+
+Outside standalone `workflow=review`, the controller must never infer that
+`workflow=task`, other graph-free execution, `handoff=chat`, read-only
+subagents, an unchanged working tree, or the absence of a durable execution
+graph waives canonical review or final artifact requirements.
 
 When required invocation or result artifacts are absent from the current
 workspace, treat them as not created. Conversation summaries, subagent claims,
@@ -35,8 +40,12 @@ implementation artifacts. Store every review and final artifact under
 ```text
 .kapisch/runs/<task_id>/
   00-research.md       # project-understanding research when requested
+  00-advisory.toml     # controller-owned graph-free advisory state
   00-context.md
   01-plan.md
+  01-architecture.md   # graph-free architecture proposal
+  architectures/       # immutable accepted architecture snapshots
+  plans/               # content-addressed promotion plans
   02-execution-graph.toml  # optional durable execution
   03-state.toml            # optional durable execution
   03-state.md              # optional non-authoritative rendered view
@@ -54,6 +63,149 @@ implementation artifacts. Store every review and final artifact under
     final/00-final-invocation.toml
     final/05-final.md
 ```
+
+## Graph-free advisory artifacts
+
+`workflow=advisory` uses the run directory without creating
+`02-execution-graph.toml`, `03-state.toml`, task nodes, or sequential execution
+state. The controller creates `00-advisory.toml` before dispatch and owns all
+state and report writes; researcher and architect return evidence and proposals
+only. Create `01-architecture.md` at that point as a `draft` placeholder so the
+state's `proposal_path` and digest already resolve; after the architect returns,
+persist the exact proposal and update its SHA-256 before changing its status.
+`00-research.md` records repository evidence, and `01-architecture.md`
+records bounded options, trade-offs, risks, dependencies, and unresolved human
+decisions. Keep status explicit: `intent-interrogation`, `research`,
+`architecture`, `decision-required`, `review`, `proposal-ready`, `accepted`,
+`rejected`, `stopped`, or `implementation-planning`.
+
+The state is a closed TOML schema with `schema_version=1`, `task_id`,
+`repository_revision`, `status`, `intent`, `scope`, `exclusions`,
+`evidence_refs`, `decisions`, `unresolved_decisions`, `proposal_path`,
+`proposal_sha256`, `proposal_status`, and `accepted_architectures`. `proposal_path`
+and each accepted-architecture `path` are relative to that run; the proposal's
+SHA-256 is checked against its bytes. `proposal_status` is `draft`, `proposed`,
+`accepted`, `rejected`, or `superseded`. Decisions
+record `{id, kind, answer, source="human"}`. An unresolved decision packet
+records `{id, kind, problem, why, decision_required, options, recommendation}`;
+each option records `{id, description, consequences}`. Each packet has at most
+three materially different options; `recommendation` names a listed option or
+is `unavailable`. Never record an agent recommendation as a human decision.
+
+### Human decision continuation
+
+When the user gives an unambiguous human answer to an outstanding decision packet,
+the controller records the answer in `decisions` as
+`{id, kind, answer, source="human"}` and removes only the matching packet from
+`unresolved_decisions`. It updates and persists `00-advisory.toml` before
+dispatch. This automatically resumes the same graph-free advisory run; do not
+ask the user to repeat the answer or separately say “continue.” Dispatch
+`researcher` only when the answer creates a concrete evidence gap that must be
+established before design can continue; otherwise dispatch `architect`. After
+research, the controller gives its evidence to the architect in the same run.
+This continues design only; it does not accept the proposal or authorize
+implementation, review, or readiness.
+
+If the answer is ambiguous, introduces a new material unresolved constraint, or
+cannot be mapped to exactly one packet, do not record a human decision or
+remove that packet. Preserve scope, keep or return the run to
+`decision-required`, and ask a focused question.
+
+### Governing-authority discovery and conflict gate
+
+Before setting status to `proposal-ready` or recording human acceptance, and
+before entering `implementation-planning`, the controller ensures bounded
+discovery of
+repository-native ADRs, specifications, and architecture decisions, plus accepted
+KAPISCH architecture snapshots, within the declared scope and affected material
+architecture surfaces. Candidate sources also include applicable `AGENTS.md`
+files, repository policy, security/compliance constraints, normative
+specifications or architecture contracts, and other repository documents that
+explicitly define a binding rule or accepted decision. Follow existing
+repository instruction precedence without changing it; start discovery with
+applicable `AGENTS.md` and repository policy as directed in
+[project-understanding.md](project-understanding.md); a document is not
+authoritative merely because it exists. The controller owns discovery
+completeness and may perform discovery or assign bounded evidence work to the
+researcher. Record candidates and authoritative evidence in existing
+research/evidence references; do not scan unrelated history.
+
+The architect verifies each candidate's authority, active status, applicability,
+supersession, and conflicts. Every relevant active decision appears in the
+proposal dependency list and accepted snapshot `dependencies`; every material
+direct governing-authority source also appears in those dependencies. Exclude a
+superseded or inapplicable candidate only with authoritative evidence. Resolve
+conflicts within established scope where possible.
+
+Treat verified sources according to their authority:
+
+- Accepted decision authority, including repository-native accepted decisions
+  and accepted KAPISCH snapshots, may be amended or superseded only through an
+  explicit human decision naming the affected decision. General desire to accept
+  a conflicting proposal is not authorization. Record KAPISCH snapshot changes
+  in a new immutable snapshot with the appropriate relationship.
+- Normative repository authority, including applicable instructions, policy,
+  security/compliance requirements, and normative specifications or contracts,
+  cannot be overridden by a conversational answer. Make the proposal comply, or
+  request separate explicit authorization to change the source through its
+  normal repository workflow. Until the source artifact has actually changed or
+  authoritative evidence shows it is no longer applicable, it remains active
+  and blocks a contradictory proposal. Advisory work never changes that source.
+
+An unresolved material contradiction keeps the run at `decision-required` and
+blocks proposal-ready, acceptance, and implementation planning. Do not accept
+architecture while the conflict remains. Use the existing unresolved-decision
+packet: `problem` identifies the source path and relevant requirement and the
+contradicting proposal; `why` explains why they cannot both be satisfied;
+`options` contains at most three materially different paths; and
+`recommendation` names a listed option or is `unavailable`. Do not infer
+supersession from a general request. The validator checks structural fields and
+bindings; it does not prove semantic dependency coverage or discovery
+completeness.
+
+Authority dependencies do not require fabricated human decisions. The existing
+`decision_dependencies` field retains its name and carries the same records as
+the accepted snapshot's `dependencies`. A direct repository-file authority is
+`{kind="repository-file", path, digest}`; a direct accepted-architecture
+authority is `{kind="accepted-architecture", path, digest, snapshot_id}`.
+`decision_id` is optional: omit it for a direct authority reference; when
+present, it must name a human decision in the bound accepted architecture.
+`repository-file` does not take `snapshot_id`; `accepted-architecture` requires
+it and still requires matching accepted ownership and digest. This backward-
+compatible optionality leaves `schema_version=1` unchanged. A changed authority
+file makes the approved plan/execution authority stale; it does not invalidate
+the historical accepted snapshot itself.
+
+Acceptance writes an immutable snapshot under
+`architectures/<snapshot-id>-<sha256>.toml` and binds its exact path and byte
+digest from `accepted_architectures`. The snapshot records schema/task/snapshot
+identity, `status="accepted"`, source revision, architecture content and its
+SHA-256, human decisions, evidence references, decision dependencies, and
+`amends`/`supersedes` relationships. Each relationship targets another accepted
+snapshot by canonical repository-relative path and byte digest; validation checks
+its existence, accepted-owner binding, and bytes before applying supersession.
+Later decisions create new snapshots;
+accepted bytes and decisions are never rewritten. Resume preserves task intent,
+scope, exclusions, decisions, and the ordered snapshot history. Acceptance is
+advisory only; it grants no implementation, review, or readiness authority.
+
+A separate explicit human request may promote an accepted architecture. The
+controller prepares a content-addressed `plans/<sha256>.md` with TOML
+frontmatter: `schema_version=1`, matching `task_id`, `status="approved"`,
+`approval_source="human"`, non-empty `source_revision`,
+`decision_dependencies_reviewed=true`, `architecture_bindings`, and
+`decision_dependencies`. Each architecture binding records
+`{snapshot_id, path, digest}`; plan binding and dependency paths are relative to
+the repository root. Each reviewed dependency records `{kind, path, digest}`,
+with optional `decision_id` and, for `kind="accepted-architecture"`, required
+`snapshot_id`. When present, `decision_id` must reference a human decision in a
+bound accepted architecture; omit it for direct governing-authority
+references. Dependencies must exactly match those recorded by the bound
+snapshot. The validator checks path containment, content digests, accepted
+ownership, and staleness. Only after human approval of this plan may the
+controller create a supported version-3 or version-4 execution graph that
+references it from `03-state.toml.source_plan`. Do not treat accepted advisory
+state or a plan proposal as permission to start implementation.
 
 `round=0` is the independent reviewer’s initial review. A user-approved follow-up
 uses `round=1`; later rounds increment from there. The controller persists the

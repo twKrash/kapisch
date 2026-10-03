@@ -7,11 +7,11 @@ Directory submission.
 
 ## Support
 
-| Surface | Verified status for the 2.1.0 release candidate |
+| Surface | Verified status for the 2.3.1 release candidate |
 | --- | --- |
-| Windows 11 + Codex Desktop + WSL2 | Historical 1.0.1 release baseline passed; 2.1.0 live acceptance remains pending. |
-| Linux | Historical live 1.0.0 flow passed; 2.1.0 automated evidence is recorded separately. |
-| Native Windows, no WSL | 2.1.0 automated CI passed for the tested runtime; live no-WSL support is not claimed. |
+| Windows 11 + Codex Desktop + WSL2 | Historical 1.0.1 release baseline passed; 2.3.1 live acceptance remains pending. |
+| Linux | Historical live 1.0.0 flow passed; 2.3.1 local tests pass; CI is pending. |
+| Native Windows, no WSL | 2.3.1 acceptance pending; live no-WSL support is not claimed. |
 
 Following [OpenAI's WSL guidance](https://learn.chatgpt.com/docs/windows/wsl),
 keep both `CODEX_HOME` and consumer repositories in the Linux filesystem (for
@@ -19,10 +19,10 @@ example, `~/code`) rather than under `/mnt/c`.
 
 ## Quick start
 
-After the immutable 2.1.0 tag is published, the released installation command is:
+After the immutable 2.3.1 tag is published, the released installation command is:
 
 ```text
-codex plugin marketplace add twKrash/kapisch --ref v2.1.0
+codex plugin marketplace add twKrash/kapisch --ref v2.3.1
 codex plugin add kapisch@kapisch-local
 ```
 
@@ -71,7 +71,9 @@ kapisch-validate --task-dir <consumer-repository>/.kapisch/runs/<task-id> --form
 
 - [Plugin guide](plugins/kapisch/README.md)
 - [Deterministic generated-artifact contract](plugins/kapisch/docs/deterministic-artifacts.md)
-- [Windows 2.1.0 acceptance record](plugins/kapisch/docs/acceptance-windows-v2.1.0.md)
+- [2.3.1 candidate acceptance record](plugins/kapisch/docs/acceptance-windows-v2.3.1.md)
+- [Windows 2.3.0 prior candidate acceptance record](plugins/kapisch/docs/acceptance-windows-v2.3.0.md)
+- [Windows 2.1.0 historical acceptance record](plugins/kapisch/docs/acceptance-windows-v2.1.0.md)
 - [Windows 2.0.0 historical candidate record](plugins/kapisch/docs/acceptance-windows-v2.0.0.md)
 - [Windows 1.0.1 historical acceptance](plugins/kapisch/docs/acceptance-windows-v1.0.1.md)
 - [Historical Unix 1.0.0 acceptance](plugins/kapisch/docs/acceptance-runtime.md)

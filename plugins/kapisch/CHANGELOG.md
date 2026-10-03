@@ -1,5 +1,37 @@
 # Changelog
 
+## 2.3.1 - 2026-09-28 (unreleased)
+
+- Added agent-facing cross-working-directory discovery and safe invocation
+guidance for bundled scripts.
+
+## 2.3.0 - 2026-09-28 (release candidate)
+
+- Added graph-free `workflow=review` for fresh, independent, findings-only review.
+- Preserved durable task and milestone review evidence and approval behavior.
+- Synchronized Codex plugin, Python validator, and Pi harness package versions at 2.3.0.
+
+## 2.2.0 - 2026-09-27 (release candidate)
+
+Backward-compatible feature release adding graph-free architecture advice and
+explicit promotion into durable execution.
+
+- Added controller-owned `workflow=advisory` state and architecture proposals,
+  with explicit human decisions and immutable, content-addressed accepted
+  architecture snapshots.
+- Added promotion-plan validation that binds accepted snapshots and reviewed
+  decision dependencies before a supported v3/v4 execution graph may reference
+  the plan. Advisory acceptance alone grants no implementation or review
+  authority.
+- Preserved existing durable execution manifest versions and validation
+  boundaries while adding focused structural checks for advisory and promotion
+  artifacts.
+- Synchronized Codex plugin, Python validator, and Pi harness package versions
+  at 2.2.0.
+
+This candidate is not released; final review, readiness, tag creation, and
+publication remain separate gates.
+
 ## 2.1.0 - 2026-09-13 (release candidate)
 
 Deterministic generated-artifact update with no durable schema or digest-domain

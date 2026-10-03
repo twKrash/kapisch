@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kapisch-core"
+version = "0.1.0"
+description = "Host-neutral Kapisch v3 semantic core"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+kapisch-validate = "kapisch_core.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["kapisch_core*"]
+
+[tool.setuptools.package-data]
+kapisch_core = ["resources/*.json"]

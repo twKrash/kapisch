@@ -342,7 +342,7 @@ class SetupProfileSafetyTests(unittest.TestCase):
                 b'name = "kapisch-reviewer"\n'
                 b'description = "test"\n'
                 b'developer_instructions = "test"\n'
-                b'model = "gpt-5.6-sol"\n'
+                b'model = "gpt-6-sol"\n'
                 b'model_reasoning_effort = "high"\n'
             )
             wrong = b'name = "someone-else"\n'
@@ -650,12 +650,12 @@ class ProfileSetTests(unittest.TestCase):
             "reviewer": ("gpt-5.6-terra", "high"),
         },
         "quality": {
-            "architect": ("gpt-5.6-sol", "high"),
-            "researcher": ("gpt-5.6-terra", "high"),
-            "implementer": ("gpt-5.6-terra", "medium"),
-            "implementer-lite": ("gpt-5.6-luna", "high"),
-            "mechanic": ("gpt-5.6-luna", "low"),
-            "reviewer": ("gpt-5.6-sol", "high"),
+            "architect": ("gpt-6-sol", "high"),
+            "researcher": ("gpt-6-luna", "medium"),
+            "implementer": ("gpt-6-luna", "medium"),
+            "implementer-lite": ("gpt-6-luna", "medium"),
+            "mechanic": ("gpt-6-luna", "low"),
+            "reviewer": ("gpt-6-sol", "high"),
         },
         "budget": {
             "architect": ("gpt-5.6-terra", "high"),
@@ -839,7 +839,7 @@ class ProfileSetTests(unittest.TestCase):
     def test_profile_sets_keep_durable_state_model_independent(self) -> None:
         reviewer_runtime = {
             "balanced": ("gpt-5.6-terra", "high"),
-            "quality": ("gpt-5.6-sol", "high"),
+            "quality": ("gpt-6-sol", "high"),
             "budget": ("gpt-5.6-terra", "medium"),
         }
         for profile_set, expected_runtime in reviewer_runtime.items():
@@ -1081,6 +1081,9 @@ class ProfileSetTests(unittest.TestCase):
             project = Path(temporary)
             self.assertEqual(self._install(project, "balanced"), 0)
             record = project / ".kapisch/local-state/profiles/reviewer.toml"
+            target = project / ".codex/agents/kapisch-reviewer.toml"
+            saved = tomllib.loads(record.read_text(encoding="utf-8"))
+            self.assertEqual(setup_profile.digest(target), saved["installed_sha256"])
             record.write_text(
                 record.read_text(encoding="utf-8").replace(
                     'installed_model_reasoning_effort="high"',
@@ -2253,6 +2256,10 @@ class ProfileSetTests(unittest.TestCase):
         with TemporaryDirectory() as temporary:
             project = Path(temporary)
             self.assertEqual(self._install(project, "balanced"), 0)
+            self.assertNotEqual(
+                setup_profile.PROFILE_SET_ROUTING["balanced"]["architect"],
+                setup_profile.PROFILE_SET_ROUTING["quality"]["architect"],
+            )
             original_replace = setup_profile.os.replace
 
             def crash_after_first_publish(source, destination):
@@ -2285,18 +2292,22 @@ class ProfileSetTests(unittest.TestCase):
             user_edit = target.read_bytes() + b"# user edit after interruption\n"
             target.write_bytes(user_edit)
 
-            self.assertEqual(
-                setup_profile.main(
-                    [
-                        "--all",
-                        "--project-dir",
-                        str(project),
-                        "--profile-set",
-                        "balanced",
-                    ]
-                ),
-                0,
-            )
+            recovery_output = io.StringIO()
+            with redirect_stdout(recovery_output):
+                self.assertEqual(
+                    setup_profile.main(
+                        [
+                            "--all",
+                            "--project-dir",
+                            str(project),
+                            "--profile-set",
+                            "balanced",
+                        ]
+                    ),
+                    0,
+                )
+            self.assertIn("drift=user-modified", recovery_output.getvalue())
+            self.assertNotIn("status=collision", recovery_output.getvalue())
             self.assertEqual(target.read_bytes(), user_edit)
             self.assertFalse(
                 (project / ".kapisch/local-state/profile-switch.toml").exists()

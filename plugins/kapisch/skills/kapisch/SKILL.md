@@ -2,28 +2,32 @@
 name: kapisch
 description: >-
   Use when a repository task needs repeatable planning, implementation,
-  independent review, final-readiness, narrow mechanical cleanup, or bounded
-  read-only project understanding such as architecture questions and maps,
+  independent review, final-readiness, narrow mechanical cleanup, bounded
+  read-only project understanding including architecture questions and maps,
   documentation-drift checks, onboarding summaries, and decision-record
-  preparation.
+  preparation; graph-free architecture advice and human-gated decisions.
 ---
 
 # KAPISCH Workflow
 
 ## Durable artifact validation
 
-For read-only structural validation of a sequential durable TOML artifact tree,
-run the installed validator with `--task-dir` rooted in the consumer repository:
+For read-only structural validation of KAPISCH advisory or sequential TOML
+artifacts, invoke the bundled script with the plugin root resolved from the
+active KAPISCH skill path, not a path relative to the consumer repository's
+working directory. See [internal script usage](references/internal-scripts.md)
+for runtime path resolution:
 
 ```text
-kapisch-validate --task-dir <consumer-repository>/.kapisch/runs/<task-id>
+python <plugin-root>/scripts/validate_kapisch.py --task-dir <consumer-repository>/.kapisch/runs/<task-id>
 ```
 
-The installed command discovers its bundled contracts independently of the
-working directory. `--contract-dir PATH` is an expert override, not required
-for normal use. See the [validator section in the repository
-README](../../README.md#validator). The validator does not dispatch, repair,
-schedule, or approve work.
+If `kapisch-validate` is already installed and available on `PATH`, it can also
+be used; do not assume it is installed by Pi or another host. The bundled
+validator discovers its contracts independently of the working directory.
+`--contract-dir PATH` is an expert override, not required for normal use. See
+the [validator section in the repository README](../../README.md#validator).
+The validator does not dispatch, repair, schedule, or approve work.
 
 Validator exit 0 is necessary structural evidence only; validator errors are
 blocking. Exit 0 does not establish iteration or whole-branch scope, dependency
@@ -53,7 +57,7 @@ The seven normal controls are optional and have safe defaults:
 
 | Control | Values and default |
 | --- | --- |
-| `workflow` | `auto|task|milestone` (`auto`) |
+| `workflow` | `auto|advisory|task|review|milestone` (`auto`) |
 | `review` | `auto|always` (`auto`) |
 | `handoff` | `chat|file|both` (`both`) |
 | `fix_policy` | `manual|blocking` (`manual`) |
@@ -64,6 +68,7 @@ The seven normal controls are optional and have safe defaults:
 Structured syntax is for expert and compatibility use only:
 
 ```text
+$kapisch workflow=advisory task_id=architecture-map
 $kapisch workflow=task review=auto task_id=reconnect
 $kapisch mode=review base=origin/main review_target=branch
 $kapisch theme=foundry workflow=task
@@ -84,17 +89,25 @@ review depth, gates, or side-effect authority. See
 ## What happens
 
 The LLM/controller interprets natural language, applies explicit controls, and
-selects `task` or `milestone` from the conversation and repository context.
-`workflow=task` is graph-free; `workflow=milestone` requires an explicitly
-approved multi-step plan and durable sequential artifacts. Material scope growth
-stops for a user decision rather than reusing narrower approval.
+selects `advisory`, `review`, `task`, or `milestone` from the conversation and
+repository context. `workflow=advisory` provides graph-free, read-only research
+and architecture advice; it creates advisory artifacts but no execution graph
+and cannot authorize implementation. `workflow=review` performs a graph-free,
+read-only independent review: dispatch one fresh `kapisch-reviewer` and return
+findings for the parent/orchestrator to judge; create no graph or durable review
+artifacts. `workflow=task` is graph-free implementation or other bounded
+execution; `workflow=milestone` requires an explicitly approved multi-step plan
+and durable sequential artifacts. Material scope growth stops for a user
+decision rather than reusing narrower approval.
 Graph-free means that no execution graph, manifest, durable task nodes, or
-sequential execution state is required. It does not mean artifact-free.
-Graph-free workflows do not delegate in the current scope. A mandated skill or
-plugin blocks for a user choice to promote the work to a supported durable
-version-3 or version-4 graph or relax the capability constraint; an automatic
-selection may use the disclosed native fallback only when the approved outcome
-is unchanged.
+sequential execution state is required. It does not mean artifact-free for
+advisory work. `workflow=advisory` may assign bounded `researcher` and
+`architect` roles; `workflow=review` permits only its single independent
+`reviewer` dispatch; `workflow=task` does not delegate in the current scope.
+A mandated skill or plugin blocks for a user choice to promote the work to a
+supported durable version-3 or version-4 graph or relax the capability
+constraint; an automatic selection may use the disclosed native fallback only
+when the approved outcome is unchanged.
 
 Before reporting approval or readiness, apply the controller
 approval-reporting check defined in [review.md](references/review.md).
@@ -105,10 +118,12 @@ and applicable normative references before any later classification, dispatch,
 review/final decision, or completion report. See [request
 normalization](references/request-normalization.md).
 
-When independent review or final readiness is required, the controller must
-still create the canonical pre-dispatch invocation artifact and persist the
-returned reviewer result. Without those artifacts, the result is advisory only
-and cannot be reported as approve or ready.
+When independent review or final readiness is required within a task or
+milestone workflow, the controller must create the canonical pre-dispatch
+invocation artifact and persist the returned reviewer result. Without those
+artifacts, the result is advisory only and cannot be reported as approve or
+ready. Standalone `workflow=review` is separate: it returns findings to the
+parent/orchestrator and does not claim approval or readiness.
 Risk is independent of workflow shape. Behavioral tasks receive independent
 review. An ordinary reviewed local task may end after independent review when
 no delivery boundary applies. High risk strengthens review depth and lenses;
@@ -197,9 +212,10 @@ semantics in [model-tiers.md](references/model-tiers.md); risk in
 [review.md](references/review.md); durable artifacts and invocation envelopes in
 [handoffs.md](references/handoffs.md); sequential schema in
 [execution-graph.md](references/execution-graph.md); and recovery in
-[resume.md](references/resume.md). Bounded repository understanding and its
-evidence/write/review separation are owned by
-[project-understanding.md](references/project-understanding.md). Ecosystem
+[resume.md](references/resume.md). Bounded repository understanding and its evidence/write/review separation are
+owned by [project-understanding.md](references/project-understanding.md),
+including graph-free advisory architecture proposals and their human-approval
+boundary. Ecosystem
 capability selection and delegated-step behavior are owned by
 [ecosystem-routing.md](references/ecosystem-routing.md).
 Presentation vocabulary and its strict separation from workflow semantics are

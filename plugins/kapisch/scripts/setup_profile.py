@@ -42,12 +42,12 @@ PROFILE_SET_ROUTING = {
         "reviewer": ("gpt-5.6-terra", "high"),
     },
     "quality": {
-        "architect": ("gpt-5.6-sol", "high"),
-        "researcher": ("gpt-5.6-terra", "high"),
-        "implementer": ("gpt-5.6-terra", "medium"),
-        "implementer-lite": ("gpt-5.6-luna", "high"),
-        "mechanic": ("gpt-5.6-luna", "low"),
-        "reviewer": ("gpt-5.6-sol", "high"),
+        "architect": ("gpt-6-sol", "high"),
+        "researcher": ("gpt-6-luna", "medium"),
+        "implementer": ("gpt-6-luna", "medium"),
+        "implementer-lite": ("gpt-6-luna", "medium"),
+        "mechanic": ("gpt-6-luna", "low"),
+        "reviewer": ("gpt-6-sol", "high"),
     },
     "budget": {
         "architect": ("gpt-5.6-terra", "high"),
@@ -460,10 +460,13 @@ def _prepare_role(
             not isinstance(installed_model, str)
             or not isinstance(installed_effort, str)
             or (
-                installed_values.get("model"),
-                installed_values.get("model_reasoning_effort"),
+                saved["installed_sha256"] == installed_digest
+                and (
+                    installed_values.get("model"),
+                    installed_values.get("model_reasoning_effort"),
+                )
+                != (installed_model, installed_effort)
             )
-            != (installed_model, installed_effort)
         ):
             plan.update(
                 status="collision",

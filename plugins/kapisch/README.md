@@ -8,10 +8,10 @@ Codex continues to own agent dispatch, model selection, and sandboxing.
 
 This plugin is distributed through the Git-backed `kapisch-local` marketplace,
 not the OpenAI public Plugin Directory. After an authorized maintainer publishes
-the immutable `v2.1.0` tag, install it with:
+the immutable `v2.3.1` tag, install it with:
 
 ```text
-codex plugin marketplace add twKrash/kapisch --ref v2.1.0
+codex plugin marketplace add twKrash/kapisch --ref v2.3.1
 codex plugin add kapisch@kapisch-local
 ```
 
@@ -36,16 +36,21 @@ Use $kapisch to review my current branch before I open a PR.
 New durable runs live under `.kapisch/runs/<task-id>/`. Add `.kapisch/` to the
 consumer repository's `.gitignore`.
 
+For agents invoking bundled scripts from another working directory, derive the
+plugin root from the loaded KAPISCH skill path; see the
+[internal script usage guide](skills/kapisch/references/internal-scripts.md).
+Do not resolve `scripts/` relative to the consumer repository's CWD.
+
 ## Optional profiles
 
 The templates in `agents/` are not activated by plugin installation. First
 inspect a fresh target, then explicitly install it:
 
 ```text
-python scripts/setup_profile.py --role reviewer --project-dir <consumer-repository>
-python scripts/setup_profile.py --all --project-dir <consumer-repository> --profile-set balanced --install
-python scripts/setup_profile.py --all --project-dir <consumer-repository> --profile-set quality --install
-python scripts/setup_profile.py --all --project-dir <consumer-repository> --profile-set budget --install
+python <plugin-root>/scripts/setup_profile.py --role reviewer --project-dir <consumer-repository>
+python <plugin-root>/scripts/setup_profile.py --all --project-dir <consumer-repository> --profile-set balanced --install
+python <plugin-root>/scripts/setup_profile.py --all --project-dir <consumer-repository> --profile-set quality --install
+python <plugin-root>/scripts/setup_profile.py --all --project-dir <consumer-repository> --profile-set budget --install
 ```
 
 `profile_state_version = 1` is the current local-state schema, not the plugin
@@ -54,8 +59,8 @@ when intended. Same-set or changed-routing/profile-set updates are detected but
 require explicit replacement:
 
 ```text
-python scripts/setup_profile.py --all --project-dir <consumer-repository> --profile-set budget
-python scripts/setup_profile.py --all --project-dir <consumer-repository> --profile-set budget --install --replace-managed
+python <plugin-root>/scripts/setup_profile.py --all --project-dir <consumer-repository> --profile-set budget
+python <plugin-root>/scripts/setup_profile.py --all --project-dir <consumer-repository> --profile-set budget --install --replace-managed
 ```
 
 Setup refuses drift and identity/catalog collisions. Unsupported legacy state is
@@ -70,9 +75,12 @@ legacy outcomes.
 
 ## Validator
 
-The validator uses only the Python 3.11 standard library. It reads durable TOML
-evidence; it never dispatches agents, writes artifacts, invokes Git, or grants
-approval.
+The validator uses only the Python 3.11 standard library. It reads graph-free
+advisory state, content-addressed architecture snapshots and promotion plans,
+and durable TOML execution evidence; it never dispatches agents, writes
+artifacts, invokes Git, or grants approval. Advisory acceptance is not execution
+authority: graph promotion requires a separately approved, content-addressed
+plan bound to accepted snapshots and reviewed decision dependencies.
 
 ```text
 python -m pip install <plugin-root>
@@ -94,15 +102,18 @@ only through the explicit copy-and-validate command. Older
 only through the explicit approved command:
 
 ```text
-python scripts/migrate_legacy_run.py --project-dir <consumer-repository> --task-id <task-id> --approve
+python <plugin-root>/scripts/migrate_legacy_run.py --project-dir <consumer-repository> --task-id <task-id> --approve
 ```
 
 Windows 11 with Codex Desktop and WSL2 remains the live release baseline.
-Native Windows CI passes for the tested 2.1.0 candidate runtime; live no-WSL
-support is not yet claimed.
+PR #44's native Windows `windows-profile-setup` check passed for implementation
+head `25818d8`; checks for the 2.3.1 agent-script usage update are pending. Live
+no-WSL support is not yet claimed.
 See [compatibility.md](docs/compatibility.md).
 
 ## Development checks
+
+Run these maintainer checks from the plugin root:
 
 ```text
 python -m unittest discover -s tests/kapisch_validation
@@ -118,6 +129,8 @@ From the repository root, also run `python -m unittest discover -s tests` and
 - [Public workflow contract](skills/kapisch/SKILL.md)
 - [Deterministic generated-artifact contract](docs/deterministic-artifacts.md)
 - [Acceptance status](docs/acceptance.md)
+- [2.3.1 candidate acceptance record](docs/acceptance-windows-v2.3.1.md)
+- [Windows 2.3.0 candidate acceptance record](docs/acceptance-windows-v2.3.0.md)
 - [Durable-run legacy migration and profile compatibility](docs/compatibility.md)
 - [Profile sets and switching](docs/profile-sets.md)
 - [Changelog](CHANGELOG.md)

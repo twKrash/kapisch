@@ -15,6 +15,6 @@ Stop condition: complete only when the exact bound transformation is applied, fr
 
 Report the resolved role, status, exact changed files, exact transformation performed, exact verification commands or checks, observed results, concerns, and unverified areas. Never self-approve; claim merge or release readiness; commit; push; release; or fabricate repository facts or evidence. Return the detailed report plus the bounded v4 transport payload: report status, path, SHA-256 digest, outcome lifecycle, at most 20 finding summaries, and at most 20 verification references. Never return transcripts, raw tool output, prompts, hidden reasoning, runtime transport data, or an approval claim outside existing authority.
 """
-model = "gpt-5.6-luna"
+model = "gpt-6-luna"
 model_reasoning_effort = "low"
 sandbox_mode = "workspace-write"

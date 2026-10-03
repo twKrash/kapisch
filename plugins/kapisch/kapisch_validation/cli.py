@@ -1,21 +1,24 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from contextlib import ExitStack
 from importlib import resources
 from pathlib import Path
-import sys
 
-from .errors import ValidationError, sorted_errors
+from .advisory import STATE_PATH as ADVISORY_STATE_PATH
+from .advisory import validate_advisory
+from .artifact_io import load_toml_artifact
 from .canonical_bytes import canonical_json_line, canonical_text_bytes
-from .delegations import parse_route, validate_route_references
-from .manifest import parse_manifest
-from .references import parse_state, validate_references
-from .outcomes import validate_outcomes
 from .controller_view import validate_controller_view
+from .delegations import parse_route, validate_route_references
+from .errors import ValidationError, sorted_errors
+from .execution_authority import validate_plan_authority
+from .manifest import parse_manifest
+from .outcomes import validate_outcomes
+from .references import parse_state, validate_references
 from .review_evidence import validate_review_evidence
 from .transitions import validate_lifecycle, validate_transition
-
 
 BUNDLED_CONTRACT_ERROR = (
     "kapisch-validate: bundled contract resources are missing or corrupt. "
@@ -124,26 +127,132 @@ def validate(
     task_dir: Path,
     previous_task_dir: Path | None = None,
 ) -> tuple[ValidationError, ...]:
+    advisory_errors: list[ValidationError] = []
+    advisory_state = task_dir / ADVISORY_STATE_PATH
+    if advisory_state.is_file():
+        advisory_errors.extend(validate_advisory(task_dir))
+        if not (task_dir / "02-execution-graph.toml").is_file():
+            if (task_dir / "03-state.toml").exists():
+                return sorted_errors(advisory_errors + [ValidationError(
+                    "TWV-GRAPH-MISSING", str(task_dir / "02-execution-graph.toml"), "graph",
+                    "execution state requires its execution graph",
+                )])
+            if previous_task_dir is not None and (
+                (previous_task_dir / "02-execution-graph.toml").is_file()
+                or (previous_task_dir / "03-state.toml").is_file()
+            ):
+                return sorted_errors(advisory_errors + [ValidationError(
+                    "TWV-GRAPH-MISSING", str(task_dir / "02-execution-graph.toml"), "graph",
+                    "prior execution history requires an execution graph",
+                )])
+            return sorted_errors(validate_advisory(task_dir, previous_task_dir))
     parsed = parse_manifest(task_dir / "02-execution-graph.toml")
-    errors = list(parsed.errors)
+    errors = advisory_errors + list(parsed.errors)
     if parsed.manifest is None:
         return sorted_errors(errors)
     state, state_errors = parse_state(task_dir / "03-state.toml")
     errors.extend(state_errors)
     if state is None:
         return sorted_errors(errors)
+    if previous_task_dir is not None and (
+        previous_task_dir / "03-state.toml"
+    ).is_file() and not (previous_task_dir / "02-execution-graph.toml").is_file():
+        errors.append(ValidationError(
+            "TWV-GRAPH-MISSING",
+            str(previous_task_dir / "02-execution-graph.toml"),
+            "graph",
+            "prior execution state requires its execution graph",
+        ))
+    current_advisory = advisory_state.is_file()
+    previous_advisory = (
+        previous_task_dir is not None
+        and (previous_task_dir / ADVISORY_STATE_PATH).is_file()
+        and not (previous_task_dir / "02-execution-graph.toml").is_file()
+    )
+    if current_advisory:
+        advisory_data, advisory_failure = load_toml_artifact(advisory_state)
+        accepted = advisory_data.get("accepted_architectures") if advisory_data else None
+        if (
+            advisory_failure is None
+            and advisory_data is not None
+            and (
+                advisory_data.get("status") != "implementation-planning"
+                or not isinstance(accepted, list)
+                or not accepted
+            )
+        ):
+            errors.append(
+                ValidationError(
+                    "ADV-PROMOTION-REQUIRED",
+                    str(advisory_state),
+                    "status",
+                    "human acceptance and explicit promotion are required before creating an execution graph",
+                )
+            )
+    source_plan = state.raw.get("source_plan")
+    needs_advisory_authority = current_advisory or previous_advisory
+    advisory_source = (
+        task_dir if current_advisory else previous_task_dir if previous_advisory else None
+    )
+    if needs_advisory_authority and parsed.manifest.version not in {3, 4}:
+        errors.append(ValidationError(
+            "ADV-GRAPH-VERSION", str(task_dir / "02-execution-graph.toml"), "version",
+            "advisory-authorized execution requires graph version 3 or 4",
+        ))
+    if needs_advisory_authority and (
+        not isinstance(source_plan, str) or not source_plan.startswith("plans/")
+    ):
+        errors.append(
+            ValidationError(
+                "ADV-PLAN-AUTHORITY-MISSING",
+                str(task_dir / "03-state.toml"),
+                "source_plan",
+                "promoted advisory work requires a content-addressed, human-approved plan",
+            )
+        )
+    elif isinstance(source_plan, str) and source_plan.startswith("plans/"):
+        errors.extend(validate_plan_authority(task_dir, source_plan, advisory_source))
     previous_manifest = None
     previous_state = None
-    if previous_task_dir:
-        previous_result = parse_manifest(previous_task_dir / "02-execution-graph.toml")
-        errors.extend(previous_result.errors)
-        previous_manifest = previous_result.manifest
-        previous_state, previous_state_errors = parse_state(
-            previous_task_dir / "03-state.toml"
-        )
-        errors.extend(previous_state_errors)
+    if previous_task_dir is not None:
+        if previous_advisory:
+            errors.extend(validate_advisory(previous_task_dir))
+            prior, prior_failure = load_toml_artifact(
+                previous_task_dir / ADVISORY_STATE_PATH
+            )
+            prior_architectures = prior.get("accepted_architectures") if prior else None
+            if (
+                prior_failure is None
+                and prior is not None
+                and (
+                    not isinstance(prior.get("status"), str)
+                    or prior.get("status") not in {"accepted", "implementation-planning"}
+                    or not isinstance(prior_architectures, list)
+                    or not prior_architectures
+                )
+            ):
+                errors.append(
+                    ValidationError(
+                        "ADV-PROMOTION-REQUIRED",
+                        str(previous_task_dir / ADVISORY_STATE_PATH),
+                        "status",
+                        "promotion requires a human-accepted architecture snapshot",
+                    )
+                )
+        else:
+            previous_result = parse_manifest(previous_task_dir / "02-execution-graph.toml")
+            errors.extend(previous_result.errors)
+            previous_manifest = previous_result.manifest
+            previous_state, previous_state_errors = parse_state(
+                previous_task_dir / "03-state.toml"
+            )
+            errors.extend(previous_state_errors)
     errors.extend(validate_snapshot(parsed.manifest, state, task_dir, contract_dir))
-    if previous_manifest is not None and previous_state is not None:
+    if (
+        previous_manifest is not None
+        and previous_state is not None
+        and previous_task_dir is not None
+    ):
         previous_errors = validate_snapshot(
             previous_manifest, previous_state, previous_task_dir, contract_dir
         )
