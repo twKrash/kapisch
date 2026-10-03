@@ -18,20 +18,35 @@ sys.path.insert(0, str(ROOT / "core"))
 
 def _condition_matches(instance: Any, schema: dict[str, Any]) -> bool:
     """Match the JSON Schema keywords used by run.json's conditional clauses."""
-    if "allOf" in schema and not all(_condition_matches(instance, part) for part in schema["allOf"]):
+    if "allOf" in schema and not all(
+        _condition_matches(instance, part) for part in schema["allOf"]
+    ):
         return False
-    if "anyOf" in schema and not any(_condition_matches(instance, part) for part in schema["anyOf"]):
+    if "anyOf" in schema and not any(
+        _condition_matches(instance, part) for part in schema["anyOf"]
+    ):
         return False
-    if "required" in schema and isinstance(instance, dict) and not set(schema["required"]) <= instance.keys():
+    if (
+        "required" in schema
+        and isinstance(instance, dict)
+        and not set(schema["required"]) <= instance.keys()
+    ):
         return False
     if "const" in schema and instance != schema["const"]:
         return False
     if "enum" in schema and instance not in schema["enum"]:
         return False
     if "properties" in schema and isinstance(instance, dict):
-        if any(key in instance and not _condition_matches(instance[key], value) for key, value in schema["properties"].items()):
+        if any(
+            key in instance and not _condition_matches(instance[key], value)
+            for key, value in schema["properties"].items()
+        ):
             return False
-    if "items" in schema and isinstance(instance, list) and any(not _condition_matches(item, schema["items"]) for item in instance):
+    if (
+        "items" in schema
+        and isinstance(instance, list)
+        and any(not _condition_matches(item, schema["items"]) for item in instance)
+    ):
         return False
     if "not" in schema and _condition_matches(instance, schema["not"]):
         return False
@@ -49,18 +64,31 @@ def _run_conditionals_accept(document: dict[str, Any], schema: dict[str, Any]) -
 
 def _run_document(workflow: str, stages: list[dict[str, Any]]) -> dict[str, Any]:
     return {
-        "protocol_version": 3, "run_id": "r-" + "a" * 32, "bundle_digest": "0" * 64,
-        "workflow": workflow, "revision": 0, "history": stages,
+        "protocol_version": 3,
+        "run_id": "r-" + "a" * 32,
+        "bundle_digest": "0" * 64,
+        "workflow": workflow,
+        "revision": 0,
+        "history": stages,
         "identity_contract": "stage-attempt/1",
     }
 
 
 def _stage(kind: str, sequence: int, node_id: str | None = None) -> dict[str, Any]:
-    role = {"research": "researcher", "design": "architect", "implement": "implementer"}.get(kind, "reviewer")
+    role = {
+        "research": "researcher",
+        "design": "architect",
+        "implement": "implementer",
+    }.get(kind, "reviewer")
     stage = {
-        "stage_id": "s-" + format(sequence, "032x"), "stage_kind": kind,
-        "sequence": sequence, "role": role, "status": "complete",
-        "producer": "controller", "evidence": [], "scope_digest": "1" * 64,
+        "stage_id": "s-" + format(sequence, "032x"),
+        "stage_kind": kind,
+        "sequence": sequence,
+        "role": role,
+        "status": "complete",
+        "producer": "controller",
+        "evidence": [],
+        "scope_digest": "1" * 64,
     }
     if node_id:
         stage["node_id"] = node_id
@@ -68,7 +96,9 @@ def _stage(kind: str, sequence: int, node_id: str | None = None) -> dict[str, An
 
 
 class BundleTests(unittest.TestCase):
-    def test_graphless_milestone_accepts_completed_run_wide_research_and_design(self) -> None:
+    def test_graphless_milestone_accepts_completed_run_wide_research_and_design(
+        self,
+    ) -> None:
         schema = json.loads((ROOT / "core/schemas/v3/run.json").read_text())
         run = _run_document("milestone", [_stage("research", 0), _stage("design", 1)])
         self.assertTrue(_run_conditionals_accept(run, schema))
@@ -87,7 +117,11 @@ class BundleTests(unittest.TestCase):
         schema = json.loads((ROOT / "core/schemas/v3/run.json").read_text())
         for workflow in ("task", "advisory", "review"):
             with self.subTest(workflow=workflow):
-                self.assertTrue(_run_conditionals_accept(_run_document(workflow, [_stage("research", 0)]), schema))
+                self.assertTrue(
+                    _run_conditionals_accept(
+                        _run_document(workflow, [_stage("research", 0)]), schema
+                    )
+                )
 
     def test_stage_attempt_identity_schema_contract(self) -> None:
         stage = json.loads((ROOT / "core/schemas/v3/stage.json").read_text())
@@ -97,15 +131,28 @@ class BundleTests(unittest.TestCase):
         stage_properties = stage["properties"]
         self.assertIn("scope_digest", stage["required"])
         self.assertEqual(stage_properties["stage_id"]["pattern"], r"^s-[0-9a-f]{32}$")
-        self.assertEqual(stage_properties["stage_kind"]["enum"], [
-            "bounded-delegate", "design", "final", "gate", "implement", "research", "review"
-        ])
+        self.assertEqual(
+            stage_properties["stage_kind"]["enum"],
+            [
+                "bounded-delegate",
+                "design",
+                "final",
+                "gate",
+                "implement",
+                "research",
+                "review",
+            ],
+        )
         self.assertEqual(stage_properties["producer"]["const"], "controller")
         self.assertEqual(stage_properties["node_id"]["pattern"], r"^n-[0-9a-f]{32}$")
-        self.assertEqual(stage_properties["retry_of_stage_id"]["pattern"], r"^s-[0-9a-f]{32}$")
+        self.assertEqual(
+            stage_properties["retry_of_stage_id"]["pattern"], r"^s-[0-9a-f]{32}$"
+        )
         self.assertNotIn("attempt_id", stage_properties)
 
-        self.assertEqual(run["properties"]["identity_contract"]["const"], "stage-attempt/1")
+        self.assertEqual(
+            run["properties"]["identity_contract"]["const"], "stage-attempt/1"
+        )
         self.assertIn("identity_contract", run["required"])
         self.assertIn("graph", run["properties"])
         self.assertIn("graph_document", run["$defs"])
@@ -113,34 +160,64 @@ class BundleTests(unittest.TestCase):
         self.assertIn("scope_document", run["$defs"])
         graph_node = run["$defs"]["graph_node"]
         self.assertIs(graph_node["additionalProperties"], False)
-        self.assertEqual(set(graph_node["required"]), {"node_id", "scope", "depends_on"})
-        self.assertEqual(set(run["$defs"]["scope_document"]["required"]), {
-            "protocol_version", "run_id", "node_id", "requirements"
-        })
-        graph_free = next(
-            clause for clause in run["allOf"]
-            if clause.get("if", {}).get("allOf", [{}])[0].get("properties", {}).get("workflow", {}).get("const") == "milestone"
+        self.assertEqual(
+            set(graph_node["required"]), {"node_id", "scope", "depends_on"}
         )
-        self.assertEqual(graph_free["then"]["properties"]["history"]["items"], {"not": {"required": ["node_id"]}})
+        self.assertEqual(
+            set(run["$defs"]["scope_document"]["required"]),
+            {"protocol_version", "run_id", "node_id", "requirements"},
+        )
+        graph_free = next(
+            clause
+            for clause in run["allOf"]
+            if clause.get("if", {})
+            .get("allOf", [{}])[0]
+            .get("properties", {})
+            .get("workflow", {})
+            .get("const")
+            == "milestone"
+        )
+        self.assertEqual(
+            graph_free["then"]["properties"]["history"]["items"],
+            {"not": {"required": ["node_id"]}},
+        )
 
         invocation_properties = invocation["properties"]
-        self.assertEqual(invocation_properties["operation_id"]["pattern"], r"^op-[0-9a-f]{32}$")
-        self.assertEqual(set(invocation_properties["request"]["properties"]), {"path", "sha256"})
+        self.assertEqual(
+            invocation_properties["operation_id"]["pattern"], r"^op-[0-9a-f]{32}$"
+        )
+        self.assertEqual(
+            set(invocation_properties["request"]["properties"]), {"path", "sha256"}
+        )
         self.assertIs(invocation_properties["request"]["additionalProperties"], False)
-        self.assertEqual(set(invocation_properties["adapter_binding"]["properties"]), {"adapter_id", "lookup_context"})
-        self.assertIs(invocation_properties["adapter_binding"]["additionalProperties"], False)
+        self.assertEqual(
+            set(invocation_properties["adapter_binding"]["properties"]),
+            {"adapter_id", "lookup_context"},
+        )
+        self.assertIs(
+            invocation_properties["adapter_binding"]["additionalProperties"], False
+        )
 
     def test_graphless_execution_restriction_is_milestone_only(self) -> None:
         run = json.loads((ROOT / "core/schemas/v3/run.json").read_text())
         guard = next(
-            clause for clause in run["allOf"]
-            if clause.get("if", {}).get("allOf", [{}])[0].get("properties", {}).get("workflow", {}).get("const") == "milestone"
+            clause
+            for clause in run["allOf"]
+            if clause.get("if", {})
+            .get("allOf", [{}])[0]
+            .get("properties", {})
+            .get("workflow", {})
+            .get("const")
+            == "milestone"
         )
         self.assertEqual(
             guard["if"],
             {
                 "allOf": [
-                    {"properties": {"workflow": {"const": "milestone"}}, "required": ["workflow"]},
+                    {
+                        "properties": {"workflow": {"const": "milestone"}},
+                        "required": ["workflow"],
+                    },
                     {"not": {"required": ["graph"]}},
                 ]
             },
@@ -151,9 +228,15 @@ class BundleTests(unittest.TestCase):
 
         data = compile_bundle(ROOT / "core")
         digest = hashlib.sha256(data).hexdigest()
-        canonical = json.dumps(
-            json.loads(data), ensure_ascii=False, sort_keys=True, separators=(",", ":")
-        ).encode("utf-8") + b"\n"
+        canonical = (
+            json.dumps(
+                json.loads(data),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            + b"\n"
+        )
         self.assertEqual(data, canonical)
         self.assertEqual(verify_bundle(data, digest).protocol_version, 3)
         with self.assertRaises(ValueError):
@@ -161,28 +244,47 @@ class BundleTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             verify_bundle(data + b" ", hashlib.sha256(data + b" ").hexdigest())
 
-    def test_bundle_contains_all_six_full_role_contracts_and_controller_policy(self) -> None:
+    def test_bundle_contains_all_six_full_role_contracts_and_controller_policy(
+        self,
+    ) -> None:
         from kapisch_core.bundle import compile_bundle
 
         bundle = json.loads(compile_bundle(ROOT / "core"))
         self.assertEqual(
             set(bundle["roles"]),
-            {"architect", "researcher", "implementer", "implementer-lite", "mechanic", "reviewer"},
+            {
+                "architect",
+                "researcher",
+                "implementer",
+                "implementer-lite",
+                "mechanic",
+                "reviewer",
+            },
         )
         for role, contract in bundle["roles"].items():
-            source = (ROOT / "core/contracts/roles" / f"{role}.md").read_text(encoding="utf-8")
+            source = (ROOT / "core/contracts/roles" / f"{role}.md").read_text(
+                encoding="utf-8"
+            )
             self.assertEqual(contract["contract"], source)
             self.assertTrue(contract["contract"].strip())
-        self.assertEqual(set(bundle["workflows"]), {"advisory", "review", "task", "milestone"})
+        self.assertEqual(
+            set(bundle["workflows"]), {"advisory", "review", "task", "milestone"}
+        )
         for workflow, contract in bundle["workflows"].items():
-            source = (ROOT / "core/contracts/workflows" / f"{workflow}.md").read_text(encoding="utf-8")
+            source = (ROOT / "core/contracts/workflows" / f"{workflow}.md").read_text(
+                encoding="utf-8"
+            )
             header, body = source.split("\n", 1)
-            metadata = json.loads(header.removeprefix("<!-- kapisch-workflow: ").removesuffix(" -->"))
+            metadata = json.loads(
+                header.removeprefix("<!-- kapisch-workflow: ").removesuffix(" -->")
+            )
             self.assertEqual(contract["contract"], body)
             self.assertEqual(contract["stages"], metadata["stages"])
             self.assertEqual(contract["gates"], metadata["gates"])
         for policy, contract in bundle["policies"].items():
-            source = (ROOT / "core/contracts/policy" / f"{policy}.md").read_text(encoding="utf-8")
+            source = (ROOT / "core/contracts/policy" / f"{policy}.md").read_text(
+                encoding="utf-8"
+            )
             self.assertEqual(contract["contract"], source)
         self.assertEqual(
             bundle["controller_instructions"],
@@ -195,22 +297,52 @@ class BundleTests(unittest.TestCase):
 
         bundle = json.loads(compile_bundle(ROOT / "core"))
         required = {
-            "architect": ("work read-only", "a recommendation is advice, not acceptance", "never approve implementation"),
+            "architect": (
+                "work read-only",
+                "a recommendation is advice, not acceptance",
+                "never approve implementation",
+            ),
             "researcher": ("work read-only", "no design", "observed evidence"),
-            "implementer": ("change the root cause", "focused regression coverage", "self-review"),
-            "implementer-lite": ("completely specified, prescriptive behavioral change", "stop and return the precise blocker", "verify yourself"),
-            "mechanic": ("non-behavioral maintenance", "stop before editing", "verify fresh"),
-            "reviewer": ("independent kapisch reviewer", "findings only", "behavioral branch matrix", "invariant evidence matrix", "the review policy owns matrix scope"),
+            "implementer": (
+                "change the root cause",
+                "focused regression coverage",
+                "self-review",
+            ),
+            "implementer-lite": (
+                "completely specified, prescriptive behavioral change",
+                "stop and return the precise blocker",
+                "verify yourself",
+            ),
+            "mechanic": (
+                "non-behavioral maintenance",
+                "stop before editing",
+                "verify fresh",
+            ),
+            "reviewer": (
+                "independent kapisch reviewer",
+                "findings only",
+                "behavioral branch matrix",
+                "invariant evidence matrix",
+                "the review policy owns matrix scope",
+            ),
         }
         for role, phrases in required.items():
             contract = bundle["roles"][role]["contract"].lower()
             with self.subTest(role=role):
                 self.assertIn("## full role instructions", contract)
-                self.assertIn("the shared `authority`, `dispatch`, `risk`, `review`, `handoff`, `normalization`, and `resume` policies", contract)
+                self.assertIn(
+                    "the shared `authority`, `dispatch`, `risk`, `review`, `handoff`, `normalization`, and `resume` policies",
+                    contract,
+                )
                 self.assertIn("never replace or weaken them", contract)
                 for phrase in phrases:
                     self.assertIn(phrase, contract)
-                for transport in ("version-4 transport", "bounded v4 transport payload", "model_reasoning_effort", ".codex/"):
+                for transport in (
+                    "version-4 transport",
+                    "bounded v4 transport payload",
+                    "model_reasoning_effort",
+                    ".codex/",
+                ):
                     self.assertNotIn(transport, contract)
 
     def test_authority_schema_references_use_registered_absolute_ids(self) -> None:
@@ -229,7 +361,9 @@ class BundleTests(unittest.TestCase):
                         self.fail(f"unresolved schema reference: {reference}")
                     if separator:
                         current: object = target
-                        for segment in fragment.lstrip("/").split("/") if fragment else []:
+                        for segment in (
+                            fragment.lstrip("/").split("/") if fragment else []
+                        ):
                             segment = segment.replace("~1", "/").replace("~0", "~")
                             if not isinstance(current, dict):
                                 self.fail(f"unresolved schema pointer: {reference}")
@@ -263,7 +397,9 @@ class BundleTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             verify_bundle(malformed, hashlib.sha256(malformed).hexdigest())
 
-    def test_compiler_and_verifier_reject_invalid_schema_type_and_ref_targets(self) -> None:
+    def test_compiler_and_verifier_reject_invalid_schema_type_and_ref_targets(
+        self,
+    ) -> None:
         from kapisch_core.bundle import canonical_json, compile_bundle, verify_bundle
 
         def corrupt(schema: dict[str, Any], case: str) -> None:
@@ -274,8 +410,15 @@ class BundleTests(unittest.TestCase):
             else:
                 schema["properties"]["bundle_digest"]["$ref"] = "#/properties"
 
-        for case in ("duplicate type array", "reference to array", "reference to object map"):
-            with self.subTest(case=case, entrypoint="compile"), tempfile.TemporaryDirectory() as directory:
+        for case in (
+            "duplicate type array",
+            "reference to array",
+            "reference to object map",
+        ):
+            with (
+                self.subTest(case=case, entrypoint="compile"),
+                tempfile.TemporaryDirectory() as directory,
+            ):
                 source = Path(directory) / "core"
                 shutil.copytree(ROOT / "core", source)
                 schema_path = source / "schemas/v3/run.json"
@@ -292,7 +435,9 @@ class BundleTests(unittest.TestCase):
                 with self.assertRaises(ValueError, msg=case):
                     verify_bundle(malformed, hashlib.sha256(malformed).hexdigest())
 
-    def test_snapshot_dependency_ids_and_mutable_relationship_refs_are_declared(self) -> None:
+    def test_snapshot_dependency_ids_and_mutable_relationship_refs_are_declared(
+        self,
+    ) -> None:
         from kapisch_core.bundle import compile_bundle
 
         schemas = json.loads(compile_bundle(ROOT / "core"))["schemas"]
@@ -314,9 +459,18 @@ class BundleTests(unittest.TestCase):
         self.assertEqual(
             set(schemas["run"]["properties"]),
             {
-                "protocol_version", "run_id", "bundle_digest", "workflow", "revision",
-                "history", "identity_contract", "graph", "accepted_snapshot", "approved_plan",
-                "amends", "supersedes",
+                "protocol_version",
+                "run_id",
+                "bundle_digest",
+                "workflow",
+                "revision",
+                "history",
+                "identity_contract",
+                "graph",
+                "accepted_snapshot",
+                "approved_plan",
+                "amends",
+                "supersedes",
             },
         )
         relationship_rules = [
@@ -350,16 +504,28 @@ class BundleTests(unittest.TestCase):
         bundle = json.loads(compile_bundle(ROOT / "core"))
         self.assertEqual(
             set(bundle["schemas"]),
-            {"approval", "bundle", "invocation", "repository-state", "run", "snapshot", "stage"},
+            {
+                "approval",
+                "bundle",
+                "invocation",
+                "repository-state",
+                "run",
+                "snapshot",
+                "stage",
+            },
         )
         self.assertNotIn("telemetry", bundle["schemas"])
         bundle_text = json.dumps(bundle).lower()
-        self.assertTrue(set(re.findall("[a-z]+", bundle_text)).isdisjoint({"codex", "pi"}))
+        self.assertTrue(
+            set(re.findall("[a-z]+", bundle_text)).isdisjoint({"codex", "pi"})
+        )
         self.assertNotIn(".codex", bundle_text)
         self.assertNotIn(".pi", bundle_text)
-        self.assertNotIn("openai-codex", bundle_text)
+        self.assertNotIn("openai", bundle_text)
 
-    def test_contract_or_authority_schema_changes_change_digest_but_telemetry_does_not(self) -> None:
+    def test_contract_or_authority_schema_changes_change_digest_but_telemetry_does_not(
+        self,
+    ) -> None:
         from kapisch_core.bundle import compile_bundle
 
         with tempfile.TemporaryDirectory() as directory:
@@ -367,30 +533,45 @@ class BundleTests(unittest.TestCase):
             shutil.copytree(ROOT / "core", source)
             before = compile_bundle(source)
             role = source / "contracts/roles/architect.md"
-            role.write_text(role.read_text() + "\nChanged contract.\n", encoding="utf-8")
+            role.write_text(
+                role.read_text() + "\nChanged contract.\n", encoding="utf-8"
+            )
             self.assertNotEqual(
-                hashlib.sha256(before).digest(), hashlib.sha256(compile_bundle(source)).digest()
+                hashlib.sha256(before).digest(),
+                hashlib.sha256(compile_bundle(source)).digest(),
             )
             schema = source / "schemas/v3/run.json"
             value = json.loads(schema.read_text())
             value["description"] = "Changed authority schema."
             schema.write_text(json.dumps(value), encoding="utf-8")
             after_schema = compile_bundle(source)
-            self.assertNotEqual(hashlib.sha256(before).digest(), hashlib.sha256(after_schema).digest())
+            self.assertNotEqual(
+                hashlib.sha256(before).digest(), hashlib.sha256(after_schema).digest()
+            )
             telemetry = source / "schemas/telemetry"
             telemetry.mkdir(parents=True)
-            (telemetry / "telemetry.json").write_text('{"changed":true}', encoding="utf-8")
+            (telemetry / "telemetry.json").write_text(
+                '{"changed":true}', encoding="utf-8"
+            )
             self.assertEqual(after_schema, compile_bundle(source))
 
-    def test_state_schema_references_immutable_snapshot_and_plan_artifacts(self) -> None:
+    def test_state_schema_references_immutable_snapshot_and_plan_artifacts(
+        self,
+    ) -> None:
         from kapisch_core.bundle import compile_bundle
 
         bundle = json.loads(compile_bundle(ROOT / "core"))
         run_schema = bundle["schemas"]["run"]
-        self.assertEqual(run_schema["properties"]["accepted_snapshot"]["$ref"], "#/$defs/snapshot_ref")
-        self.assertEqual(run_schema["properties"]["approved_plan"]["$ref"], "#/$defs/plan_ref")
         self.assertEqual(
-            set(run_schema["$defs"]["snapshot_ref"]["required"]), {"snapshot_id", "path", "sha256"}
+            run_schema["properties"]["accepted_snapshot"]["$ref"],
+            "#/$defs/snapshot_ref",
+        )
+        self.assertEqual(
+            run_schema["properties"]["approved_plan"]["$ref"], "#/$defs/plan_ref"
+        )
+        self.assertEqual(
+            set(run_schema["$defs"]["snapshot_ref"]["required"]),
+            {"snapshot_id", "path", "sha256"},
         )
         repository_schema = bundle["schemas"]["repository-state"]["$defs"]
         self.assertNotIn("sha256", repository_schema["worktree_entry"]["required"])
@@ -398,8 +579,13 @@ class BundleTests(unittest.TestCase):
         instructions = bundle["controller_instructions"].lower()
         self.assertIn("cold restart", instructions)
         self.assertIn("earlier explicit producer", instructions)
-        self.assertIn("the human owns explicit decision input and side-effect permission, separately from independent reviewer judgment", instructions)
-        self.assertIn("immutable snapshot serialization after explicit human choice", instructions)
+        self.assertIn(
+            "the human owns explicit decision input and side-effect permission, separately from independent reviewer judgment",
+            instructions,
+        )
+        self.assertIn(
+            "immutable snapshot serialization after explicit human choice", instructions
+        )
 
     def test_verify_rejects_unknown_fields_and_changed_contract_hash(self) -> None:
         from kapisch_core.bundle import canonical_json, verify_bundle
@@ -447,22 +633,35 @@ class BundleTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             outputs.append((ROOT / "core/dist/core-bundle.json").read_bytes())
         self.assertEqual(outputs[0], outputs[1])
-        self.assertEqual(outputs[0], (ROOT / "core/kapisch_core/resources/core-bundle.json").read_bytes())
-        self.assertEqual(outputs[0], (ROOT / "tests/conformance/fixtures/v3/bundle.json").read_bytes())
+        self.assertEqual(
+            outputs[0],
+            (ROOT / "core/kapisch_core/resources/core-bundle.json").read_bytes(),
+        )
+        self.assertEqual(
+            outputs[0],
+            (ROOT / "tests/conformance/fixtures/v3/bundle.json").read_bytes(),
+        )
 
     def test_check_rejects_changed_contract_or_authority_schema(self) -> None:
         script = ROOT / "tooling/build/build_bundle.py"
         for relative in ("contracts/roles/architect.md", "schemas/v3/run.json"):
-            with self.subTest(relative=relative), tempfile.TemporaryDirectory() as directory:
+            with (
+                self.subTest(relative=relative),
+                tempfile.TemporaryDirectory() as directory,
+            ):
                 source_root = Path(directory)
                 core = source_root / "core"
                 shutil.copytree(
-                    ROOT / "core", core,
+                    ROOT / "core",
+                    core,
                     ignore=shutil.ignore_patterns("__pycache__", "*.egg-info", "build"),
                 )
                 fixture = source_root / "tests/conformance/fixtures/v3"
                 fixture.mkdir(parents=True)
-                shutil.copy2(ROOT / "tests/conformance/fixtures/v3/bundle.json", fixture / "bundle.json")
+                shutil.copy2(
+                    ROOT / "tests/conformance/fixtures/v3/bundle.json",
+                    fixture / "bundle.json",
+                )
                 contract = core / relative
                 if relative.endswith(".json"):
                     schema = json.loads(contract.read_text(encoding="utf-8"))
@@ -474,7 +673,13 @@ class BundleTests(unittest.TestCase):
                         encoding="utf-8",
                     )
                 result = subprocess.run(
-                    [sys.executable, str(script), "--check", "--root", str(source_root)],
+                    [
+                        sys.executable,
+                        str(script),
+                        "--check",
+                        "--root",
+                        str(source_root),
+                    ],
                     capture_output=True,
                     text=True,
                 )
@@ -485,64 +690,117 @@ class BundleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "core"
             shutil.copytree(
-                ROOT / "core", source,
+                ROOT / "core",
+                source,
                 ignore=shutil.ignore_patterns("__pycache__", "*.egg-info", "build"),
             )
             wheelhouse = Path(directory) / "wheelhouse"
             target = Path(directory) / "installed"
             wheelhouse.mkdir()
             built = subprocess.run(
-                [sys.executable, "-m", "pip", "wheel", "--no-deps", "--no-build-isolation", "--disable-pip-version-check", "--wheel-dir", str(wheelhouse), str(source)],
+                [
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "wheel",
+                    "--no-deps",
+                    "--no-build-isolation",
+                    "--disable-pip-version-check",
+                    "--wheel-dir",
+                    str(wheelhouse),
+                    str(source),
+                ],
                 capture_output=True,
                 text=True,
             )
             self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
             wheel = next(wheelhouse.glob("*.whl"))
             installed = subprocess.run(
-                [sys.executable, "-m", "pip", "install", "--no-deps", "--no-index", "--disable-pip-version-check", "--target", str(target), str(wheel)],
+                [
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "install",
+                    "--no-deps",
+                    "--no-index",
+                    "--disable-pip-version-check",
+                    "--target",
+                    str(target),
+                    str(wheel),
+                ],
                 capture_output=True,
                 text=True,
             )
-            self.assertEqual(installed.returncode, 0, installed.stdout + installed.stderr)
+            self.assertEqual(
+                installed.returncode, 0, installed.stdout + installed.stderr
+            )
             self.assertEqual(
                 (target / "kapisch_core/resources/core-bundle.json").read_bytes(),
                 (ROOT / "core/dist/core-bundle.json").read_bytes(),
             )
 
-
     def test_human_receipt_binds_exact_gate_target_and_input(self) -> None:
-        approval = json.loads((ROOT / "core/schemas/v3/approval.json").read_text(encoding="utf-8"))
+        approval = json.loads(
+            (ROOT / "core/schemas/v3/approval.json").read_text(encoding="utf-8")
+        )
         outer = approval["properties"]
         receipt = approval["$defs"]["receipt"]
         bound_fields = {"run_id", "gate", "decision_id", "target", "scope_digest"}
 
         self.assertTrue(bound_fields <= set(outer))
         self.assertTrue(bound_fields <= set(approval["required"]))
-        self.assertTrue(bound_fields | {"text_digest", "origin", "session_id", "action_id", "observed_at"} <= set(receipt["required"]))
+        self.assertTrue(
+            bound_fields
+            | {"text_digest", "origin", "session_id", "action_id", "observed_at"}
+            <= set(receipt["required"])
+        )
         self.assertNotIn("approval", outer["gate"]["enum"])
         self.assertNotIn("approval", receipt["properties"]["gate"]["enum"])
         self.assertEqual(receipt["properties"]["origin"]["const"], "inbound-human")
         artifact = approval["$defs"]["artifact"]
         self.assertIn("sha256", artifact["required"])
-        self.assertEqual(artifact["properties"]["source"]["const"], "externally-supplied")
+        self.assertEqual(
+            artifact["properties"]["source"]["const"], "externally-supplied"
+        )
         self.assertEqual(receipt["additionalProperties"], False)
 
-        authority = (ROOT / "core/contracts/policy/authority.md").read_text(encoding="utf-8")
+        authority = (ROOT / "core/contracts/policy/authority.md").read_text(
+            encoding="utf-8"
+        )
         self.assertIn("Gate.APPROVAL", authority)
         self.assertIn("human approval of a plan", authority)
 
-    def test_review_policy_owns_behavioral_and_invariant_evidence_matrices(self) -> None:
-        review = (ROOT / "core/contracts/policy/review.md").read_text(encoding="utf-8").lower()
+    def test_review_policy_owns_behavioral_and_invariant_evidence_matrices(
+        self,
+    ) -> None:
+        review = (
+            (ROOT / "core/contracts/policy/review.md")
+            .read_text(encoding="utf-8")
+            .lower()
+        )
         behavioral_columns = (
-            "entry point", "trigger", "state before the transition", "pending or persisted state",
-            "reconstructed state after resume", "authorization and policy context",
-            "side effect or persistence result", "final public result/status",
-            "regression coverage", "status",
+            "entry point",
+            "trigger",
+            "state before the transition",
+            "pending or persisted state",
+            "reconstructed state after resume",
+            "authorization and policy context",
+            "side effect or persistence result",
+            "final public result/status",
+            "regression coverage",
+            "status",
         )
         invariant_rows = (
-            "source claim", "schema or example", "normal transition", "failure or cancellation",
-            "resume", "consumers or policy", "negative scenario", "fallback or bootstrap",
-            "evidence", "status",
+            "source claim",
+            "schema or example",
+            "normal transition",
+            "failure or cancellation",
+            "resume",
+            "consumers or policy",
+            "negative scenario",
+            "fallback or bootstrap",
+            "evidence",
+            "status",
         )
         for column in behavioral_columns:
             with self.subTest(column=column):
@@ -557,12 +815,31 @@ class BundleTests(unittest.TestCase):
         self.assertIn("every `n/a` must include its reason", review)
         for severity in ("p0", "p1", "p2", "p3"):
             self.assertIn(f"**{severity}**", review)
-        for field in ("stable id", "causal relationship", "regression coverage", "confirmed", "likely", "question"):
+        for field in (
+            "stable id",
+            "causal relationship",
+            "regression coverage",
+            "confirmed",
+            "likely",
+            "question",
+        ):
             self.assertIn(field, review)
 
     def test_handoff_policy_defines_decision_packet_structure(self) -> None:
-        handoff = (ROOT / "core/contracts/policy/handoff.md").read_text(encoding="utf-8").lower()
-        for field in ("id", "kind", "problem", "why", "decision_required", "options", "recommendation"):
+        handoff = (
+            (ROOT / "core/contracts/policy/handoff.md")
+            .read_text(encoding="utf-8")
+            .lower()
+        )
+        for field in (
+            "id",
+            "kind",
+            "problem",
+            "why",
+            "decision_required",
+            "options",
+            "recommendation",
+        ):
             with self.subTest(field=field):
                 self.assertIn(field, handoff)
         for option_field in ("description", "consequences"):
@@ -570,11 +847,21 @@ class BundleTests(unittest.TestCase):
         self.assertIn("up to three materially different options", handoff)
         self.assertIn("recommendation", handoff)
         self.assertIn("unavailable", handoff)
-        self.assertIn("never record an agent recommendation as a human decision", handoff)
+        self.assertIn(
+            "never record an agent recommendation as a human decision", handoff
+        )
 
-    def test_role_assignment_and_risk_semantics_are_canonical_in_v3_policies(self) -> None:
-        dispatch = (ROOT / "core/contracts/policy/dispatch.md").read_text(encoding="utf-8").lower()
-        risk = (ROOT / "core/contracts/policy/risk.md").read_text(encoding="utf-8").lower()
+    def test_role_assignment_and_risk_semantics_are_canonical_in_v3_policies(
+        self,
+    ) -> None:
+        dispatch = (
+            (ROOT / "core/contracts/policy/dispatch.md")
+            .read_text(encoding="utf-8")
+            .lower()
+        )
+        risk = (
+            (ROOT / "core/contracts/policy/risk.md").read_text(encoding="utf-8").lower()
+        )
         assignment_rules = (
             ("mechanical", "mechanic", "cheap"),
             ("non-high-risk prescriptive", "implementer-lite", "cheap"),
@@ -588,7 +875,15 @@ class BundleTests(unittest.TestCase):
             with self.subTest(rule=rule):
                 for term in rule:
                     self.assertIn(term, dispatch)
-        for trigger in ("authentication", "authorization", "privacy", "concurrency", "migration", "recovery", "external side effects"):
+        for trigger in (
+            "authentication",
+            "authorization",
+            "privacy",
+            "concurrency",
+            "migration",
+            "recovery",
+            "external side effects",
+        ):
             with self.subTest(trigger=trigger):
                 self.assertIn(trigger, risk)
         self.assertIn("risk is independent of implementation complexity", risk)
@@ -597,39 +892,102 @@ class BundleTests(unittest.TestCase):
         self.assertIn("medium → standard", risk)
         self.assertIn("high → deep", risk)
         for lens in (
-            "behavior", "security", "permissions", "privacy", "tenant-isolation", "concurrency",
-            "data", "migration", "api", "compatibility", "tests", "operations", "audit", "recovery",
+            "behavior",
+            "security",
+            "permissions",
+            "privacy",
+            "tenant-isolation",
+            "concurrency",
+            "data",
+            "migration",
+            "api",
+            "compatibility",
+            "tests",
+            "operations",
+            "audit",
+            "recovery",
         ):
             with self.subTest(lens=lens):
                 self.assertIn(lens, risk)
 
-    def test_workflow_metadata_is_scoped_and_admissible_under_stage1_policy(self) -> None:
+    def test_workflow_metadata_is_scoped_and_admissible_under_stage1_policy(
+        self,
+    ) -> None:
         from kapisch_core.bundle import compile_bundle
-        from kapisch_core.capabilities import CapabilityClaim, CapabilityClaims, CapabilityStatus
+        from kapisch_core.capabilities import (
+            CapabilityClaim,
+            CapabilityClaims,
+            CapabilityStatus,
+        )
         from kapisch_core.domain import (
-            CapabilityEffect, ExecutionClass, Gate, LogicalTier, ProposedAction,
-            ReviewDepth, ReviewScope, Role, Stage, Workflow,
+            CapabilityEffect,
+            ExecutionClass,
+            Gate,
+            LogicalTier,
+            ProposedAction,
+            ReviewDepth,
+            ReviewScope,
+            Role,
+            Stage,
+            Workflow,
         )
         from kapisch_core.policy import evaluate_action_policy
 
         bundle = json.loads(compile_bundle(ROOT / "core"))
         workflows = bundle["workflows"]
         workflow_schema = bundle["schemas"]["bundle"]["$defs"]["workflow"]
-        self.assertEqual(set(workflow_schema["required"]), {"metadata_scope", "stages", "gates", "review_scopes", "contract", "sha256"})
-        self.assertEqual(workflow_schema["properties"]["metadata_scope"]["const"], "workflow-specific")
+        self.assertEqual(
+            set(workflow_schema["required"]),
+            {
+                "metadata_scope",
+                "stages",
+                "gates",
+                "review_scopes",
+                "contract",
+                "sha256",
+            },
+        )
+        self.assertEqual(
+            workflow_schema["properties"]["metadata_scope"]["const"],
+            "workflow-specific",
+        )
         expected_metadata = {
             "advisory": ({"research", "design", "gate"}, {"human-decision"}, set()),
             "review": ({"review"}, set(), {"standalone"}),
-            "task": ({"implement", "review", "gate"}, {"human-decision", "approval", "side-effect"}, {"iteration", "whole-branch"}),
-            "milestone": ({"research", "design", "gate", "implement", "review", "final"}, {"human-decision", "approval", "side-effect"}, {"iteration", "whole-branch"}),
+            "task": (
+                {"implement", "review", "gate"},
+                {"human-decision", "approval", "side-effect"},
+                {"iteration", "whole-branch"},
+            ),
+            "milestone": (
+                {"research", "design", "gate", "implement", "review", "final"},
+                {"human-decision", "approval", "side-effect"},
+                {"iteration", "whole-branch"},
+            ),
         }
         self.assertEqual(set(workflows), {item.value for item in Workflow})
         implementation = {
-            Stage.RESEARCH: (Role.RESEARCHER, LogicalTier.STANDARD, ExecutionClass.PRESCRIPTIVE),
+            Stage.RESEARCH: (
+                Role.RESEARCHER,
+                LogicalTier.STANDARD,
+                ExecutionClass.PRESCRIPTIVE,
+            ),
             Stage.DESIGN: (Role.ARCHITECT, LogicalTier.HIGH, ExecutionClass.DESIGN),
-            Stage.IMPLEMENT: (Role.IMPLEMENTER, LogicalTier.STANDARD, ExecutionClass.BOUNDED),
-            Stage.GATE: (Role.IMPLEMENTER, LogicalTier.STANDARD, ExecutionClass.BOUNDED),
-            Stage.BOUNDED_DELEGATE: (Role.IMPLEMENTER, LogicalTier.STANDARD, ExecutionClass.BOUNDED),
+            Stage.IMPLEMENT: (
+                Role.IMPLEMENTER,
+                LogicalTier.STANDARD,
+                ExecutionClass.BOUNDED,
+            ),
+            Stage.GATE: (
+                Role.IMPLEMENTER,
+                LogicalTier.STANDARD,
+                ExecutionClass.BOUNDED,
+            ),
+            Stage.BOUNDED_DELEGATE: (
+                Role.IMPLEMENTER,
+                LogicalTier.STANDARD,
+                ExecutionClass.BOUNDED,
+            ),
         }
         for name, metadata in workflows.items():
             with self.subTest(workflow=name):
@@ -638,7 +996,9 @@ class BundleTests(unittest.TestCase):
                 self.assertEqual(set(metadata["stages"]), stages)
                 self.assertEqual(set(metadata["gates"]), gates)
                 self.assertEqual(set(metadata["review_scopes"]), scopes)
-                self.assertEqual(len(metadata["review_scopes"]), len(set(metadata["review_scopes"])))
+                self.assertEqual(
+                    len(metadata["review_scopes"]), len(set(metadata["review_scopes"]))
+                )
                 workflow = Workflow(name)
                 for stage_name in metadata["stages"]:
                     stage = Stage(stage_name)
@@ -648,28 +1008,58 @@ class BundleTests(unittest.TestCase):
                         depth = ReviewDepth.STANDARD
                         claims = CapabilityClaims()
                     else:
-                        role, tier, execution_class = Role.REVIEWER, LogicalTier.HIGH, ExecutionClass.PRESCRIPTIVE
-                        scope = ReviewScope.STANDALONE if workflow is Workflow.REVIEW else ReviewScope.ITERATION
-                        depth = ReviewDepth.DEEP if stage is Stage.FINAL else ReviewDepth.STANDARD
-                        claims = CapabilityClaims(mutation_free_reviewer=CapabilityStatus.ENFORCED)
+                        role, tier, execution_class = (
+                            Role.REVIEWER,
+                            LogicalTier.HIGH,
+                            ExecutionClass.PRESCRIPTIVE,
+                        )
+                        scope = (
+                            ReviewScope.STANDALONE
+                            if workflow is Workflow.REVIEW
+                            else ReviewScope.ITERATION
+                        )
+                        depth = (
+                            ReviewDepth.DEEP
+                            if stage is Stage.FINAL
+                            else ReviewDepth.STANDARD
+                        )
+                        claims = CapabilityClaims(
+                            mutation_free_reviewer=CapabilityStatus.ENFORCED
+                        )
                         if stage is Stage.FINAL:
                             scope = ReviewScope.WHOLE_BRANCH
                     result = evaluate_action_policy(
                         workflow,
-                        ProposedAction(stage, role, tier=tier, execution_class=execution_class,
-                                       review_depth=depth, review_scope=scope),
+                        ProposedAction(
+                            stage,
+                            role,
+                            tier=tier,
+                            execution_class=execution_class,
+                            review_depth=depth,
+                            review_scope=scope,
+                        ),
                         claims,
                     )
-                    self.assertTrue(result.admissible, (name, stage_name, result.violations))
+                    self.assertTrue(
+                        result.admissible, (name, stage_name, result.violations)
+                    )
 
                 for scope_name in metadata["review_scopes"]:
                     result = evaluate_action_policy(
                         workflow,
-                        ProposedAction(Stage.REVIEW, Role.REVIEWER, tier=LogicalTier.HIGH,
-                                       review_scope=ReviewScope(scope_name)),
-                        CapabilityClaims(mutation_free_reviewer=CapabilityStatus.ENFORCED),
+                        ProposedAction(
+                            Stage.REVIEW,
+                            Role.REVIEWER,
+                            tier=LogicalTier.HIGH,
+                            review_scope=ReviewScope(scope_name),
+                        ),
+                        CapabilityClaims(
+                            mutation_free_reviewer=CapabilityStatus.ENFORCED
+                        ),
                     )
-                    self.assertTrue(result.admissible, (name, scope_name, result.violations))
+                    self.assertTrue(
+                        result.admissible, (name, scope_name, result.violations)
+                    )
 
                 for gate_name in metadata["gates"]:
                     gate = Gate(gate_name)
@@ -678,18 +1068,32 @@ class BundleTests(unittest.TestCase):
                     claims = CapabilityClaims()
                     if gate is Gate.APPROVAL:
                         role, tier = Role.REVIEWER, LogicalTier.HIGH
-                        claims = CapabilityClaims(mutation_free_reviewer=CapabilityStatus.ENFORCED)
-                        claims = CapabilityClaims(mutation_free_reviewer=CapabilityStatus.ENFORCED)
+                        claims = CapabilityClaims(
+                            mutation_free_reviewer=CapabilityStatus.ENFORCED
+                        )
+                        claims = CapabilityClaims(
+                            mutation_free_reviewer=CapabilityStatus.ENFORCED
+                        )
                     elif gate is Gate.SIDE_EFFECT:
                         effect = CapabilityEffect.REPOSITORY_WRITE
-                        claims = CapabilityClaims((CapabilityClaim(effect, CapabilityStatus.ENFORCED),))
+                        claims = CapabilityClaims(
+                            (CapabilityClaim(effect, CapabilityStatus.ENFORCED),)
+                        )
                     result = evaluate_action_policy(
                         workflow,
-                        ProposedAction(Stage.GATE, role, tier=tier, gate=gate, effect=effect,
-                                       review_scope=ReviewScope.ITERATION),
+                        ProposedAction(
+                            Stage.GATE,
+                            role,
+                            tier=tier,
+                            gate=gate,
+                            effect=effect,
+                            review_scope=ReviewScope.ITERATION,
+                        ),
                         claims,
                     )
-                    self.assertTrue(result.admissible, (name, gate_name, result.violations))
+                    self.assertTrue(
+                        result.admissible, (name, gate_name, result.violations)
+                    )
 
         self.assertNotIn("approval", workflows["advisory"]["gates"])
         rejected_advisory_approval = evaluate_action_policy(
@@ -700,15 +1104,23 @@ class BundleTests(unittest.TestCase):
         self.assertFalse(rejected_advisory_approval.admissible)
         rejected_task_standalone = evaluate_action_policy(
             Workflow.TASK,
-            ProposedAction(Stage.REVIEW, Role.REVIEWER, tier=LogicalTier.HIGH,
-                           review_scope=ReviewScope.STANDALONE),
+            ProposedAction(
+                Stage.REVIEW,
+                Role.REVIEWER,
+                tier=LogicalTier.HIGH,
+                review_scope=ReviewScope.STANDALONE,
+            ),
             CapabilityClaims(mutation_free_reviewer=CapabilityStatus.ENFORCED),
         )
         self.assertFalse(rejected_task_standalone.admissible)
         rejected_final_iteration = evaluate_action_policy(
             Workflow.MILESTONE,
-            ProposedAction(Stage.FINAL, Role.REVIEWER, tier=LogicalTier.HIGH,
-                           review_scope=ReviewScope.ITERATION),
+            ProposedAction(
+                Stage.FINAL,
+                Role.REVIEWER,
+                tier=LogicalTier.HIGH,
+                review_scope=ReviewScope.ITERATION,
+            ),
             CapabilityClaims(mutation_free_reviewer=CapabilityStatus.ENFORCED),
         )
         self.assertFalse(rejected_final_iteration.admissible)
@@ -717,17 +1129,29 @@ class BundleTests(unittest.TestCase):
         from kapisch_core.bundle import compile_bundle
 
         bundle = json.loads(compile_bundle(ROOT / "core"))
-        stage = json.loads((ROOT / "core/schemas/v3/stage.json").read_text(encoding="utf-8"))
-        run = json.loads((ROOT / "core/schemas/v3/run.json").read_text(encoding="utf-8"))
+        stage = json.loads(
+            (ROOT / "core/schemas/v3/stage.json").read_text(encoding="utf-8")
+        )
+        run = json.loads(
+            (ROOT / "core/schemas/v3/run.json").read_text(encoding="utf-8")
+        )
         self.assertIn("stage_id", stage["required"])
         self.assertIn("stage_kind", stage["required"])
         self.assertEqual(stage["properties"]["stage_kind"]["type"], "string")
-        self.assertEqual(set(stage["properties"]["stage_kind"]["enum"]), set(bundle["vocabulary"]["stages"]))
+        self.assertEqual(
+            set(stage["properties"]["stage_kind"]["enum"]),
+            set(bundle["vocabulary"]["stages"]),
+        )
         self.assertIn("review", stage["properties"]["stage_kind"]["enum"])
         self.assertIn("final", stage["properties"]["stage_kind"]["enum"])
-        self.assertNotEqual(stage["properties"]["stage_id"], stage["properties"]["stage_kind"])
-        self.assertEqual(run["properties"]["history"]["items"]["$ref"], "kapisch://schemas/v3/stage")
+        self.assertNotEqual(
+            stage["properties"]["stage_id"], stage["properties"]["stage_kind"]
+        )
+        self.assertEqual(
+            run["properties"]["history"]["items"]["$ref"], "kapisch://schemas/v3/stage"
+        )
         self.assertIn("task", run["properties"]["workflow"]["enum"])
+
 
 if __name__ == "__main__":
     unittest.main()

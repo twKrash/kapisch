@@ -1,7 +1,7 @@
 ---
 name: "kapisch-architect"
 description: "Use when a task needs planning, architecture, migration, concurrency, security, privacy, data-model, or high-risk design work."
-model: openai-codex/gpt-6-sol
+model: openai/gpt-6.1-sol
 thinking: high
 tools: read, grep, find, ls
 acceptanceRole: read-only
