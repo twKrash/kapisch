@@ -17,8 +17,21 @@ def _capture_once(repo, included, identity):
     final_head = capture_head(repo, identity)
     if final_index != index or final_head != head:
         raise RepositoryCaptureError("repository changed during inspection")
+    verified_wt = capture_worktree(Path(repo), index, included, identity)
+    verified_index = capture_index(repo, identity)
+    verified_head = capture_head(repo, identity)
+    if (
+        verified_wt != wt
+        or verified_index != final_index
+        or verified_head != final_head
+    ):
+        raise RepositoryCaptureError("repository changed during inspection")
     return RepositoryStateFingerprint(
-        head.object_format, head.commit, index, wt.worktree, wt.untracked
+        head.object_format,
+        head.commit,
+        index,
+        verified_wt.worktree,
+        verified_wt.untracked,
     )
 
 
