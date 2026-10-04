@@ -227,6 +227,107 @@ class ProtocolTests(unittest.TestCase):
         self.assertFalse((root / "request-inputs" / operation_id).exists())
         self.assertFalse((root / "invocations" / operation_id).exists())
 
+    def test_work_scope_refs_reject_unsorted_publication(self) -> None:
+        from kapisch_core.bundle import canonical_json
+        from kapisch_core.protocol import publish_state
+        from kapisch_core.storage import store_bundle
+
+        bundle_digest = store_bundle(
+            self.repo, (ROOT / "core/dist/core-bundle.json").read_bytes()
+        )
+        refs = [
+            {"origin_run_id": "origin\nb", "scope_id": "scope-1", "sha256": "b" * 64},
+            {"origin_run_id": "origin-a", "scope_id": "scope-2", "sha256": "a" * 64},
+        ]
+        ordered = sorted(refs, key=canonical_json)
+        self.assertNotEqual(
+            ordered, sorted(refs, key=lambda ref: ref["origin_run_id"])
+        )
+        unsorted = list(reversed(ordered))
+        state = {
+            **self._state("run-unsorted-work-scopes"),
+            "bundle_digest": bundle_digest,
+            "work_scope_refs": unsorted,
+        }
+
+        with self.assertRaisesRegex(
+            ValueError, "work_scope_refs.*canonical JSON bytes"
+        ):
+            publish_state(self.repo, state["run_id"], state, -1)
+        self.assertFalse(
+            (self.repo / ".kapisch/v3/runs" / state["run_id"] / "state.json").exists()
+        )
+
+    def test_work_scope_refs_reject_unsorted_reload(self) -> None:
+        from kapisch_core.bundle import canonical_json
+        from kapisch_core.protocol import load_state, publish_state
+        from kapisch_core.storage import store_bundle
+
+        bundle_digest = store_bundle(
+            self.repo, (ROOT / "core/dist/core-bundle.json").read_bytes()
+        )
+        refs = [
+            {"origin_run_id": "origin\nb", "scope_id": "scope-1", "sha256": "b" * 64},
+            {"origin_run_id": "origin-a", "scope_id": "scope-2", "sha256": "a" * 64},
+        ]
+        ordered = sorted(refs, key=canonical_json)
+        self.assertNotEqual(
+            ordered, sorted(refs, key=lambda ref: ref["origin_run_id"])
+        )
+        state = {
+            **self._state("run-unsorted-work-scope-reload"),
+            "bundle_digest": bundle_digest,
+            "work_scope_refs": ordered,
+        }
+        publish_state(self.repo, state["run_id"], state, -1)
+
+        state_path = self.repo / ".kapisch/v3/runs" / state["run_id"] / "state.json"
+        state_path.write_bytes(
+            canonical_json({**state, "work_scope_refs": list(reversed(ordered))})
+        )
+        with self.assertRaisesRegex(
+            ValueError, "work_scope_refs.*canonical JSON bytes"
+        ):
+            load_state(self.repo, state["run_id"])
+
+    def test_work_scope_refs_remain_unique_on_publish_and_reload(self) -> None:
+        from kapisch_core.bundle import canonical_json
+        from kapisch_core.protocol import load_state, publish_state
+        from kapisch_core.storage import store_bundle
+
+        bundle_digest = store_bundle(
+            self.repo, (ROOT / "core/dist/core-bundle.json").read_bytes()
+        )
+        reference = {
+            "origin_run_id": "origin-a",
+            "scope_id": "scope-1",
+            "sha256": "a" * 64,
+        }
+        duplicate_state = {
+            **self._state("run-duplicate-work-scopes"),
+            "bundle_digest": bundle_digest,
+            "work_scope_refs": [reference, reference],
+        }
+        with self.assertRaisesRegex(ValueError, "work_scope_refs"):
+            publish_state(
+                self.repo, duplicate_state["run_id"], duplicate_state, -1
+            )
+
+        valid_state = {
+            **self._state("run-duplicate-work-scope-reload"),
+            "bundle_digest": bundle_digest,
+            "work_scope_refs": [reference],
+        }
+        publish_state(self.repo, valid_state["run_id"], valid_state, -1)
+        state_path = (
+            self.repo / ".kapisch/v3/runs" / valid_state["run_id"] / "state.json"
+        )
+        state_path.write_bytes(
+            canonical_json({**valid_state, "work_scope_refs": [reference, reference]})
+        )
+        with self.assertRaisesRegex(ValueError, "work_scope_refs"):
+            load_state(self.repo, valid_state["run_id"])
+
     def test_global_authority_backlinks_are_structural_only(self) -> None:
         from kapisch_core.protocol import load_state, publish_state
         from kapisch_core.storage import store_bundle

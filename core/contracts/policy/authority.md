@@ -12,7 +12,7 @@ A retained run using the legacy authority contract remains interpretable only un
 
 `AcceptanceRecord` is the only global repository-authority commit. A repository-decision `GateApprovalRecord` remains an approval record until a separate consumer revalidates it and publishes the corresponding `AcceptanceRecord`; never infer repository authority from a GateApproval alone. Acceptance preserves governing-source dependencies and amendment/supersession edges. Human acceptance cannot override an active normative source.
 
-For plan approval, publish the durable `GateApprovalRecord` first. Only then may a consumer produce or repair a checked `PlanRef`, after validating the referenced plan bytes against the approved identity and digest. `PlanRef` is a repairable backlink, not approval or authority. Stage 5.3a publishes no PlanRef and does not promote plans. Side-effect permission is a separate gate; Stage 5.3a does not publish side-effect-permission records before their request producer exists.
+For plan approval, retain the exact candidate plan bytes and governing bindings first; then publish the durable `GateApprovalRecord` for that exact plan. Only after that commit may a consumer produce or repair a checked `PlanRef`, after revalidating the referenced bytes against the approved identity and digest. `PlanRef` is a repairable backlink, not approval or authority. Stage 5.3a does not retain candidate plan bytes, publish or load plan approvals, or publish `PlanRef`; Stage 5.5 owns plan-byte retention, approval, and promotion. Side-effect permission is a separate gate; Stage 5.3a does not publish side-effect-permission records before their request producer exists.
 
 ## Human evidence and external artifact retention
 

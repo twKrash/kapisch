@@ -30,19 +30,32 @@ class ExternalHumanApprovalEvidenceTests(unittest.TestCase):
             "gate_contract": "human-gate/1",
             "run_id": "run-1",
             "gate_id": "gate-1",
-            "identity": {"kind": "plan", "id": "plan-1"},
+            "identity": {"kind": "decision", "id": "decision-1"},
             "scope_digest": "b" * 64,
-            "gate_kind": "plan-approval",
+            "gate_kind": "repository-decision",
             "subject": {
-                "plan_ref": {"plan_id": "plan-1", "path": "plans/plan-1.json"},
-                "plan_sha256": "d" * 64,
+                "acceptance_contract": "global-authority/1",
+                "origin_run_id": "run-1",
+                "snapshot_id": "snapshot-1",
+                "decision_id": "decision-1",
+                "decision": "approve repository decision",
+                "scope_ref": {
+                    "origin_run_id": "run-1",
+                    "scope_id": "scope-1",
+                    "sha256": "b" * 64,
+                },
+                "applicability": {"mode": "all"},
+                "bundle_digest": "c" * 64,
+                "source_dependencies": [],
                 "authority_basis": [],
+                "amends": [],
+                "supersedes": [],
             },
         }
         self.target = GateApprovalTarget(
             "run-1",
             "gate-1",
-            GateIdentity("plan", "plan-1"),
+            GateIdentity("decision", "decision-1"),
             hashlib.sha256(canonical_json(self.payload)).hexdigest(),
             "b" * 64,
         )
@@ -50,7 +63,7 @@ class ExternalHumanApprovalEvidenceTests(unittest.TestCase):
             "protocol_version": 3,
             "run_id": "run-1",
             "gate_id": "gate-1",
-            "identity": {"kind": "plan", "id": "plan-1"},
+            "identity": {"kind": "decision", "id": "decision-1"},
             "decision": "approve",
             "target": self.target.target,
             "scope_digest": self.target.scope_digest,
@@ -174,20 +187,7 @@ class GateApprovalTests(unittest.TestCase):
             "scope_ref": self.scope_ref,
         }
         publish_state(self.repo, "run-1", state, expected_revision=-1)
-        self.payload = {
-            "protocol_version": 3,
-            "gate_contract": "human-gate/1",
-            "run_id": "run-1",
-            "gate_id": "gate-1",
-            "identity": {"kind": "plan", "id": "plan-1"},
-            "scope_digest": self.scope_ref["sha256"],
-            "gate_kind": "plan-approval",
-            "subject": {
-                "plan_ref": {"plan_id": "plan-1", "path": "plans/plan-1.json"},
-                "plan_sha256": "d" * 64,
-                "authority_basis": [],
-            },
-        }
+        self.payload = self._repository_payload()
         self.canonical_json = canonical_json
         self.target: GateApprovalTarget = self._target(self.payload)
         self.artifact_bytes = self._artifact(self.target)
@@ -249,7 +249,14 @@ class GateApprovalTests(unittest.TestCase):
         state = json.loads(state_path.read_bytes())
         state["bundle_digest"] = weakened_digest
         state_path.write_bytes(self.canonical_json(state))
-        return {**self.payload, "unapproved_contract_extension": True}
+        return {
+            **self.payload,
+            "subject": {
+                **self.payload["subject"],
+                "bundle_digest": weakened_digest,
+            },
+            "unapproved_contract_extension": True,
+        }
 
     def test_gate_publisher_rejects_weakened_retained_approval_schema(self) -> None:
         from kapisch_core._gate_approval import publish_gate_approval
@@ -346,34 +353,32 @@ class GateApprovalTests(unittest.TestCase):
             verify_bundle(data, hashlib.sha256(data).hexdigest())
         )
 
-    def test_cold_recovery_rejects_changed_installed_gate_schema(self) -> None:
+    def test_cold_recovery_uses_retained_bundle_without_run_state(
+        self,
+    ) -> None:
         from unittest.mock import patch
 
         from kapisch_core._gate_approval import (
             load_gate_approval,
             publish_gate_approval,
         )
+        from kapisch_core.storage import load_bundle
 
         reference = publish_gate_approval(
-            self.repo,
-            self.payload,
-            self._external_input(self.artifact_bytes),
+            self.repo, self.payload, self._external_input(self.artifact_bytes)
         )
         shutil.rmtree(self.repo / ".kapisch/v3/runs/run-1")
-        (self.repo / ".kapisch/v3/bundles" / f"{self.bundle_digest}.json").unlink()
 
-        bundle_path = Path(__file__).resolve().parents[2] / "core/dist/core-bundle.json"
-        installed = json.loads(bundle_path.read_bytes())
-        installed["schemas"]["approval"]["$defs"]["gate_approval_payload"][
-            "additionalProperties"
-        ] = True
-        changed_bundle = self.canonical_json(installed)
-        with patch("kapisch_core._gate_approval.files") as package_files:
-            package_files.return_value.joinpath.return_value.read_bytes.return_value = (
-                changed_bundle
+        with patch(
+            "kapisch_core._gate_approval.load_bundle",
+            wraps=load_bundle,
+        ) as retained_bundle_loader:
+            record = load_gate_approval(self.repo, reference)
+            retained_bundle_loader.assert_called_once_with(
+                self.repo, self.bundle_digest
             )
-            with self.assertRaisesRegex(ValueError, "global-authority/1 gate schemas"):
-                load_gate_approval(self.repo, reference)
+        self.assertEqual(record["approval_id"], reference["approval_id"])
+        self.assertEqual(record["payload"]["gate_kind"], "repository-decision")
 
     def test_invalid_receipt_identity_kinds_fail_before_claim_persistence(self) -> None:
         from dataclasses import replace
@@ -391,6 +396,85 @@ class GateApprovalTests(unittest.TestCase):
                 self.assertFalse(
                     (self.repo / ".kapisch/v3/authority/human-actions").exists()
                 )
+
+    def test_plan_approval_loader_is_deferred_without_plan_byte_authority(
+        self,
+    ) -> None:
+        from kapisch_core._gate_approval import load_gate_approval
+        from kapisch_core.bundle import canonical_json
+        from kapisch_core.storage import store_authority_record
+
+        approval_id = "ga-" + "e" * 64
+        record = {
+            "protocol_version": 3,
+            "approval_contract": "human-gate-approval/1",
+            "approval_id": approval_id,
+            "payload": {
+                "gate_kind": "plan-approval",
+                "run_id": "deleted-run",
+            },
+            "approved_target_sha256": "0" * 64,
+            "human_authority": {"kind": "external-artifact"},
+        }
+        record_bytes = canonical_json(record)
+        store_authority_record(self.repo, "gate-approvals", approval_id, record_bytes)
+        reference = {
+            "approval_id": approval_id,
+            "sha256": hashlib.sha256(record_bytes).hexdigest(),
+        }
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "unsupported-gate: plan approval loading is deferred to Stage 5.5",
+        ):
+            load_gate_approval(self.repo, reference)
+
+    def test_cold_recovery_requires_producer_run_and_retained_bundle(self) -> None:
+        from kapisch_core._gate_approval import _record_bundle
+
+        shutil.rmtree(self.repo / ".kapisch/v3/runs/run-1")
+        (self.repo / ".kapisch/v3/bundles" / f"{self.bundle_digest}.json").unlink()
+        with self.assertRaisesRegex(ValueError, "producer run is missing"):
+            _record_bundle(
+                self.repo,
+                {"gate_kind": "plan-approval", "run_id": "run-1"},
+            )
+
+    def test_plan_approval_is_deferred_without_side_effects(self) -> None:
+        from kapisch_core._gate_approval import publish_gate_approval
+
+        payload = {
+            **self.payload,
+            "identity": {"kind": "plan", "id": "plan-1"},
+            "gate_kind": "plan-approval",
+            "subject": {
+                "plan_ref": {"plan_id": "plan-1", "path": "plans/plan-1.json"},
+                "plan_sha256": "d" * 64,
+                "authority_basis": [],
+            },
+        }
+        target = self._target(payload)
+        plan_path = (
+            self.repo
+            / ".kapisch/v3/runs/run-1"
+            / payload["subject"]["plan_ref"]["path"]
+        )
+        self.assertFalse(plan_path.exists())
+        evidence_cases = (
+            ("external-artifact", self._external_input(self._artifact(target))),
+            ("host-action", self._receipt(target)),
+        )
+        for name, evidence in evidence_cases:
+            with self.subTest(evidence=name):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "unsupported-gate: plan approval publication is deferred to Stage 5.5",
+                ):
+                    publish_gate_approval(self.repo, payload, evidence)
+                authority_dir = self.repo / ".kapisch/v3/authority"
+                self.assertFalse((authority_dir / "human-artifacts").exists())
+                self.assertFalse((authority_dir / "human-actions").exists())
+                self.assertFalse((authority_dir / "gate-approvals").exists())
 
     def test_external_approval_retains_exact_artifact_bytes_and_recovers_cold(
         self,
@@ -412,15 +496,15 @@ class GateApprovalTests(unittest.TestCase):
         self.assertEqual(state_path.read_bytes(), state_before)
         self.assertEqual(
             self.target.target,
-            "7a7d308c6edd1040a8425f2116670ff13148ab719ad397b205af367a684cd77d",
+            "8797c974066aa4119a330c1e894d3f77c22c2cc1b234e30d02cb7d948f9ebd17",
         )
         self.assertEqual(
             ref["approval_id"],
-            "ga-6ebf8cfcf4b361cba8bb58dcd2093ba00797f4c4fcef1103039a99ccf27bc9bf",
+            "ga-6927cc4ea48a7ccfb939433e6b5dad934578220afa08c45eecebe77431511486",
         )
         self.assertEqual(
             ref["sha256"],
-            "c3f86fbd85dae73e150335a0a7d2d268fba5e8bea078d47eaffb7f1a0819b253",
+            "7af13c6b2d212e3d0e37375a3ab6b69732c1146e5ac9b87d6fd87b1239864410",
         )
         record = load_gate_approval(self.repo, ref)
         artifact_ref = record["human_authority"]
@@ -449,7 +533,9 @@ class GateApprovalTests(unittest.TestCase):
         )
 
         shutil.rmtree(self.repo / ".kapisch/v3/runs/run-1")
-        (self.repo / ".kapisch/v3/bundles" / f"{self.bundle_digest}.json").unlink()
+        self.assertTrue(
+            (self.repo / ".kapisch/v3/bundles" / f"{self.bundle_digest}.json").is_file()
+        )
         script = (
             "import json,sys; from pathlib import Path; "
             "from kapisch_core._gate_approval import load_gate_approval; "
@@ -486,62 +572,36 @@ class GateApprovalTests(unittest.TestCase):
         record = load_gate_approval(self.repo, ref)
         self.assertEqual(record["payload"]["scope_digest"], self.scope_ref["sha256"])
 
-    def test_run_scope_reference_identity_must_match_digest_bound_descriptor(
+    def test_repository_decision_scope_reference_identity_must_match_descriptor(
         self,
     ) -> None:
         from kapisch_core._gate_approval import publish_gate_approval
 
-        state_path = self.repo / ".kapisch/v3/runs/run-1/state.json"
-        original = state_path.read_bytes()
-        cases = (
-            ("scope_ref origin", "scope_ref", "origin_run_id"),
-            ("scope_ref ID", "scope_ref", "scope_id"),
-            ("work scope origin", "work_scope_refs", "origin_run_id"),
-            ("work scope ID", "work_scope_refs", "scope_id"),
-        )
-        try:
-            for name, reference_field, identity_field in cases:
-                with self.subTest(name=name):
-                    state = json.loads(original)
-                    reference = state.pop("scope_ref")
-                    reference[identity_field] = f"missing-{identity_field}"
-                    if reference_field == "scope_ref":
-                        state["scope_ref"] = reference
-                    else:
-                        state["work_scope_refs"] = [reference]
-                    state_path.write_bytes(self.canonical_json(state))
-                    with self.assertRaisesRegex(ValueError, "scope"):
-                        publish_gate_approval(
-                            self.repo,
-                            self.payload,
-                            self._external_input(self.artifact_bytes),
-                        )
-                    self.assertFalse(
-                        (self.repo / ".kapisch/v3/authority/human-artifacts").exists()
-                    )
-                    self.assertFalse(
-                        (self.repo / ".kapisch/v3/authority/gate-approvals").exists()
-                    )
-        finally:
-            state_path.write_bytes(original)
+        cases = ("origin_run_id", "scope_id")
+        for field in cases:
+            with self.subTest(field=field):
+                payload = copy.deepcopy(self.payload)
+                payload["subject"]["scope_ref"][field] = f"missing-{field}"
+                evidence = self._external_input(self._artifact(self._target(payload)))
+                with self.assertRaisesRegex(ValueError, "scope"):
+                    publish_gate_approval(self.repo, payload, evidence)
+                authority_dir = self.repo / ".kapisch/v3/authority"
+                self.assertFalse((authority_dir / "human-artifacts").exists())
+                self.assertFalse((authority_dir / "gate-approvals").exists())
 
-    def test_present_run_directory_without_state_does_not_use_cold_fallback(
-        self,
-    ) -> None:
+    def test_repository_decision_recovers_when_run_state_is_missing(self) -> None:
         from kapisch_core._gate_approval import (
             load_gate_approval,
             publish_gate_approval,
         )
 
         reference = publish_gate_approval(
-            self.repo,
-            self.payload,
-            self._external_input(self.artifact_bytes),
+            self.repo, self.payload, self._external_input(self.artifact_bytes)
         )
-        state_path = self.repo / ".kapisch/v3/runs/run-1/state.json"
-        state_path.unlink()
-        with self.assertRaises(FileNotFoundError):
-            load_gate_approval(self.repo, reference)
+        (self.repo / ".kapisch/v3/runs/run-1/state.json").unlink()
+        record = load_gate_approval(self.repo, reference)
+        self.assertEqual(record["approval_id"], reference["approval_id"])
+        self.assertEqual(record["payload"]["gate_kind"], "repository-decision")
 
     def test_cold_recovery_rejects_missing_scope_descriptor_and_bundle(self) -> None:
         from kapisch_core._gate_approval import (
@@ -549,7 +609,7 @@ class GateApprovalTests(unittest.TestCase):
             publish_gate_approval,
         )
 
-        ref = publish_gate_approval(
+        reference = publish_gate_approval(
             self.repo, self.payload, self._external_input(self.artifact_bytes)
         )
         shutil.rmtree(self.repo / ".kapisch/v3/runs/run-1")
@@ -558,10 +618,18 @@ class GateApprovalTests(unittest.TestCase):
             "scope_id": self.scope_ref["scope_id"],
         }
         scope_id = hashlib.sha256(self.canonical_json(scope_identity)).hexdigest()
-        (self.repo / ".kapisch/v3/authority/scopes" / f"{scope_id}.json").unlink()
-        (self.repo / ".kapisch/v3/bundles" / f"{self.bundle_digest}.json").unlink()
+        scope_path = self.repo / ".kapisch/v3/authority/scopes" / f"{scope_id}.json"
+        scope_bytes = scope_path.read_bytes()
+        bundle_path = self.repo / ".kapisch/v3/bundles" / f"{self.bundle_digest}.json"
+
+        scope_path.unlink()
         with self.assertRaisesRegex(ValueError, "scope"):
-            load_gate_approval(self.repo, ref)
+            load_gate_approval(self.repo, reference)
+        scope_path.write_bytes(scope_bytes)
+
+        bundle_path.unlink()
+        with self.assertRaises(FileNotFoundError):
+            load_gate_approval(self.repo, reference)
 
     def test_raw_bytes_without_external_source_marker_are_rejected(self) -> None:
         from kapisch_core._gate_approval import publish_gate_approval

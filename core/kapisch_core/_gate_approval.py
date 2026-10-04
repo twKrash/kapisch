@@ -4,7 +4,6 @@ import hashlib
 import json
 import re
 from collections.abc import Mapping
-from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +25,7 @@ from .advisory import (
     load_proposed_scope,
     load_proposed_scope_by_digest,
 )
-from .bundle import CoreBundle, canonical_json, verify_bundle
+from .bundle import CoreBundle, canonical_json
 from .storage import (
     _close,
     _run_dir,
@@ -105,11 +104,6 @@ def _require_global_bundle(bundle: CoreBundle) -> CoreBundle:
     return bundle
 
 
-def _supported_bundle() -> CoreBundle:
-    data = files("kapisch_core").joinpath("resources", "core-bundle.json").read_bytes()
-    return _require_global_bundle(verify_bundle(data, hashlib.sha256(data).hexdigest()))
-
-
 def _record_bundle(
     repo: Path, payload: Mapping[str, Any]
 ) -> tuple[CoreBundle, Mapping[str, Any] | None]:
@@ -127,10 +121,10 @@ def _record_bundle(
         raise ValueError("gate approval payload run_id is required to select contract")
     try:
         _, opened = _run_dir(repo, run_id, create=False)
-    except FileNotFoundError:
-        # plan/effect payloads omit bundle_digest; after run deletion, only the
-        # versioned human-gate contracts and retained scope/evidence remain.
-        return _supported_bundle(), None
+    except FileNotFoundError as error:
+        raise ValueError(
+            "gate approval producer run is missing; cannot load its retained bundle"
+        ) from error
     else:
         _close(opened)
     state = load_state(repo, payload["run_id"])
@@ -286,6 +280,10 @@ def publish_gate_approval(
         payload = json.loads(payload_bytes)
     except (TypeError, ValueError, RecursionError) as error:
         raise ValueError("GateApproval payload is not canonical JSON") from error
+    if payload.get("gate_kind") == "plan-approval":
+        raise ValueError(
+            "unsupported-gate: plan approval publication is deferred to Stage 5.5"
+        )
     run_id = payload.get("run_id")
     if not isinstance(run_id, str) or not run_id:
         raise ValueError("GateApproval payload run_id is required")
@@ -349,6 +347,10 @@ def load_gate_approval(repo: Path, reference: dict[str, Any]) -> dict[str, Any]:
     payload = record["payload"]
     if not isinstance(payload, dict):
         raise ValueError("gate approval payload is invalid")
+    if payload.get("gate_kind") == "plan-approval":
+        raise ValueError(
+            "unsupported-gate: plan approval loading is deferred to Stage 5.5"
+        )
     bundle, state = _record_bundle(repo, payload)
     _validate_schema(record, "approval", bundle)
     if record["approval_id"] != approval_id:

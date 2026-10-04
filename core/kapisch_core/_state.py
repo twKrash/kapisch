@@ -122,6 +122,11 @@ def _parse_state(data: bytes, *, bundle: Any) -> RunState:
         allowed |= {"acceptance_ref", "scope_ref", "work_scope_refs"}
     if required - value.keys() or value.keys() - allowed:
         raise ValueError("run state has missing or unknown fields")
+    work_scope_refs = value.get("work_scope_refs")
+    if isinstance(work_scope_refs, list):
+        encoded_refs = [canonical_json(ref) for ref in work_scope_refs]
+        if encoded_refs != sorted(encoded_refs):
+            raise ValueError("work_scope_refs must be sorted by canonical JSON bytes")
     if value["protocol_version"] != 3 or value["identity_contract"] != "stage-attempt/1":
         raise ValueError("unsupported run protocol or identity contract")
     if not isinstance(value["workflow"], str) or value["workflow"] not in {"advisory", "review", "task", "milestone"}:
