@@ -320,6 +320,8 @@ def capture_untracked(repo, identity=None):
             identity=identity,
         )
     ):
+        if path.endswith(b"/"):
+            path = path[:-1]
         _validate_path(path)
         if path in seen:
             raise RepositoryCaptureError("duplicate untracked path")

@@ -274,6 +274,15 @@ class RepositoryGitCaptureTests(unittest.TestCase):
                 self.root, capture_index(self.root), (b"link",)
             )
 
+    def test_untracked_embedded_repository_directory_marker_is_normalized(self):
+        nested = self.root / "nested"
+        nested.mkdir()
+        self.git_at(nested, "init", "-q")
+        state = capture_worktree(self.root, capture_index(self.root))
+        untracked = {entry.path: entry for entry in state.untracked}
+        self.assertIn(b"nested", untracked)
+        self.assertFalse(untracked[b"nested"].included)
+
     def test_untracked_inventory_preserves_raw_paths_and_ignores_files(self):
         raw_path = b"raw-\n\xff"
         fd = os.open(

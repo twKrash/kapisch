@@ -237,12 +237,12 @@ def _read(rootfd, path):
             got = os.fstat(fd)
             if not _same(got, st):
                 raise RepositoryCaptureError("replacement race")
-            chunks = []
+            digest = hashlib.sha256()
             while True:
                 b = os.read(fd, 1024 * 1024)
                 if not b:
                     break
-                chunks.append(b)
+                digest.update(b)
             end = os.fstat(fd)
             final = os.stat(name, dir_fd=parent, follow_symlinks=False)
             _verify_parent(rootfd, path, parent)
@@ -254,7 +254,7 @@ def _read(rootfd, path):
                 or end.st_ctime_ns != got.st_ctime_ns
             ):
                 raise RepositoryCaptureError("file mutated during read")
-            return "file", b"".join(chunks), got.st_mode
+            return "file", digest.hexdigest(), got.st_mode
         finally:
             os.close(fd)
     finally:
@@ -269,7 +269,7 @@ def _tracked(rootfd, e):
     if kind == "symlink":
         return WorktreeEntry(e.path, "symlink", "120000", _digest(data))
     return WorktreeEntry(
-        e.path, "file", "100755" if mode & stat.S_IXUSR else "100644", _digest(data)
+        e.path, "file", "100755" if mode & stat.S_IXUSR else "100644", data
     )
 
 
@@ -318,7 +318,7 @@ def capture_worktree(
             kind, data, _ = got
             if kind != "file":
                 raise RepositoryCaptureError("included untracked is not regular")
-            unknown.append(UntrackedEntry(p, True, _digest(data)))
+            unknown.append(UntrackedEntry(p, True, data))
         root_stat = os.fstat(rootfd)
         if (root_stat.st_dev, root_stat.st_ino) != ident or _identity(root) != ident:
             raise RepositoryCaptureError("worktree replaced")
