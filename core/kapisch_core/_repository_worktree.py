@@ -218,6 +218,11 @@ def _read(rootfd, path):
             if not _same(st, os.stat(name, dir_fd=parent, follow_symlinks=False)):
                 raise RepositoryCaptureError("replacement race")
             return "symlink", target, st.st_mode
+        if stat.S_ISDIR(st.st_mode):
+            _verify_parent(rootfd, path, parent)
+            if not _same(st, os.stat(name, dir_fd=parent, follow_symlinks=False)):
+                raise RepositoryCaptureError("replacement race")
+            return None
         if not stat.S_ISREG(st.st_mode):
             raise RepositoryCaptureError("special file rejected")
         try:

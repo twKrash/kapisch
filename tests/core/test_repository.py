@@ -225,6 +225,18 @@ class RepositoryGitCaptureTests(unittest.TestCase):
         self.assertEqual(entry.mode, "000000")
         self.assertNotIn("sha256", entry.to_dict())
 
+    def test_worktree_treats_directory_at_tracked_leaf_as_deletion(self):
+        tracked = self.root / "tracked"
+        tracked.unlink()
+        tracked.mkdir()
+        (tracked / "new").write_bytes(b"new")
+
+        state = capture_worktree(self.root, capture_index(self.root))
+        entries = {entry.path: entry for entry in state.worktree}
+        self.assertEqual(entries[b"tracked"].kind, "deletion")
+        untracked = {entry.path: entry for entry in state.untracked}
+        self.assertFalse(untracked[b"tracked/new"].included)
+
     def test_worktree_treats_non_directory_parent_as_tracked_deletion(self):
         nested = self.root / "dir"
         nested.mkdir()
