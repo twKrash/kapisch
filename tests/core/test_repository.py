@@ -202,6 +202,12 @@ class RepositoryGitCaptureTests(unittest.TestCase):
         with self.assertRaises(RepositoryCaptureError):
             capture_index(self.root)
 
+    def test_untracked_scan_ignores_git_trace_environment(self):
+        (self.root / "extra").write_bytes(b"extra")
+        with patch.dict(os.environ, {"GIT_TRACE": "1"}):
+            state = capture_worktree(self.root, capture_index(self.root))
+        self.assertEqual([entry.path for entry in state.untracked], [b"extra"])
+
     def test_untracked_scan_rejects_stderr_warnings(self):
         (self.root / "extra").write_bytes(b"extra")
         original_run = _repository_git.subprocess.run

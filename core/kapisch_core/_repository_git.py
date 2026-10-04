@@ -34,7 +34,7 @@ def _env(*, no_replace=False):
     e = os.environ.copy()
     for k in list(e):
         if k in _REDIRECT or k.startswith(
-            ("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")
+            ("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_", "GIT_TRACE")
         ):
             e.pop(k, None)
     e["GIT_NO_LAZY_FETCH"] = "1"
