@@ -410,9 +410,9 @@ The schema-preserving recommendations from the independent plan review are adopt
 
 These decisions preserve the existing repository-state schema and do not authorize Stage 6.5, validator, adapter, telemetry, or cutover changes. The implementation must amend tests and module contracts to enforce them before any green-claim.
 
-#### Stage 6.4/6.5 consistency contract (approved clarification)
+#### Stage 6.4/6.5 consistency contract (proposed; pending independent approval)
 
-This clarification was approved by the human operator on 2026-10-04 after Stage 6.4 implementation review. It is forward-looking and is not retroactive evidence of approval before implementation.
+This is the proposed clarification from the PR review. No independently sourced approval before Stage 6.4 implementation has been identified; the current-session discussion is not retroactive evidence and this section must not be treated as accepted authority until an independent approval is recorded.
 
 - `capture_repository_state()` performs a fixed number of repeated observations; it does not create an atomic filesystem snapshot.
 - On successful return, the HEAD, index, tracked-worktree, and untracked semantic facts compared at the required verification checkpoints agree under the approved fingerprint schema and inventory rules. Disagreements or races detected by those checks raise `RepositoryCaptureError`. The capture API accepts no caller-supplied digest override.
