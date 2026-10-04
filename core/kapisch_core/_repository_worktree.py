@@ -217,6 +217,31 @@ def _observe_static(rootfd, parent, observed, kind, data=None):
     return _LeafObservation(kind, data, observed.st_mode)
 
 
+def _read_bound_symlink(parent, observed):
+    path_flags = getattr(os, "O_PATH", None)
+    if path_flags is None:
+        raise RepositoryCaptureError("symlink open failed")
+    try:
+        fd = os.open(
+            parent.name,
+            path_flags | os.O_NOFOLLOW | os.O_CLOEXEC,
+            dir_fd=parent.fd,
+        )
+    except OSError as e:
+        raise RepositoryCaptureError("symlink open failed") from e
+    try:
+        if not _same(os.fstat(fd), observed):
+            raise RepositoryCaptureError("replacement race")
+        target = os.readlink(b"", dir_fd=fd)
+        if not _same(os.fstat(fd), observed):
+            raise RepositoryCaptureError("replacement race")
+        return os.fsencode(target) if isinstance(target, str) else target
+    except OSError as e:
+        raise RepositoryCaptureError("replacement race") from e
+    finally:
+        os.close(fd)
+
+
 def _observe_regular(rootfd, parent, observed):
     try:
         fd = os.open(
@@ -259,8 +284,7 @@ def _observe_leaf(rootfd, path):
         except FileNotFoundError:
             return _observe_missing(rootfd, parent)
         if stat.S_ISLNK(observed.st_mode):
-            target = os.readlink(parent.name, dir_fd=parent.fd)
-            target = os.fsencode(target) if isinstance(target, str) else target
+            target = _read_bound_symlink(parent, observed)
             return _observe_static(rootfd, parent, observed, "symlink", target)
         if stat.S_ISDIR(observed.st_mode):
             return _observe_static(rootfd, parent, observed, "directory")

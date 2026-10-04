@@ -257,6 +257,38 @@ class RepositoryGitCaptureTests(unittest.TestCase):
             hashlib.sha256(b"new").hexdigest(),
         )
 
+    def test_worktree_binds_symlink_read_to_observed_inode(self):
+        link = self.root / "link"
+        os.symlink("initial", link)
+        self.git("add", "link")
+        self.git("commit", "-qm", "symlink-race")
+        index = capture_index(self.root)
+        original_readlink = _repository_worktree.os.readlink
+
+        def read_transient_target(name, *args, **kwargs):
+            if name != b"link":
+                return original_readlink(name, *args, **kwargs)
+            saved = self.root / "link-saved"
+            link.rename(saved)
+            os.symlink("transient", link)
+            try:
+                return original_readlink(name, *args, **kwargs)
+            finally:
+                link.unlink()
+                saved.rename(link)
+
+        with patch.object(
+            _repository_worktree.os,
+            "readlink",
+            side_effect=read_transient_target,
+        ):
+            state = capture_worktree(self.root, index)
+        entry = {item.path: item for item in state.worktree}[b"link"]
+        self.assertEqual(
+            entry.sha256,
+            hashlib.sha256(b"initial").hexdigest(),
+        )
+
     def test_worktree_rejects_endpoint_disappearance_during_observation(self):
         link = self.root / "link"
         os.symlink("tracked", link)
