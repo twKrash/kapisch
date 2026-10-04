@@ -194,6 +194,11 @@ class RepositoryGitCaptureTests(unittest.TestCase):
             self.root, capture_index(self.root), (b"new",)
         )
         entries = {entry.path: entry for entry in state.worktree}
+        self.assertEqual(entries[b"tracked"].kind, "file")
+        self.assertEqual(
+            entries[b"tracked"].sha256,
+            hashlib.sha256(b"one").hexdigest(),
+        )
         self.assertEqual(entries[b"link"].kind, "symlink")
         self.assertEqual(entries[b"link"].mode, "120000")
         self.assertEqual(
