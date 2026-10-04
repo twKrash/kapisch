@@ -1069,6 +1069,14 @@ class RepositoryFingerprintTests(unittest.TestCase):
         self.assertNotEqual(before.canonical_bytes(), after.canonical_bytes())
         self.assertNotEqual(before.index[0].object_id, after.index[0].object_id)
 
+    def test_semantically_irrelevant_changes_preserve_fingerprint(self):
+        before = capture_repository_state(self.root)
+        os.utime(self.root / "tracked", ns=(2_000_000_000, 2_000_000_000))
+        self.git("update-index", "--refresh")
+        self.git("config", "diff.color.ui", "always")
+        after = capture_repository_state(self.root)
+        self.assertEqual(before.canonical_bytes(), after.canonical_bytes())
+
     def test_worktree_and_included_untracked_bytes_are_bound(self):
         os.symlink("tracked", self.root / "link")
         self.git("add", "link")
