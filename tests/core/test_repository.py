@@ -1177,7 +1177,7 @@ class RepositoryFingerprintTests(unittest.TestCase):
             nonlocal calls
             result = original(*args, **kwargs)
             calls += 1
-            if calls == 3:
+            if calls == 4:
                 (self.root / "tracked").write_bytes(b"changed")
             return result
 
@@ -1190,7 +1190,31 @@ class RepositoryFingerprintTests(unittest.TestCase):
             self.assertRaises(RepositoryCaptureError),
         ):
             capture_repository_state(self.root)
-        self.assertEqual(calls, 4)
+        self.assertEqual(calls, 5)
+
+    def test_capture_rejects_included_change_after_second_worktree(self):
+        (self.root / "new").write_bytes(b"new")
+        original = _repository_fingerprint.capture_worktree
+        calls = 0
+
+        def mutate_included_after_second_pass_observation(*args, **kwargs):
+            nonlocal calls
+            result = original(*args, **kwargs)
+            calls += 1
+            if calls == 4:
+                (self.root / "new").write_bytes(b"changed")
+            return result
+
+        with (
+            patch.object(
+                _repository_fingerprint,
+                "capture_worktree",
+                side_effect=mutate_included_after_second_pass_observation,
+            ),
+            self.assertRaises(RepositoryCaptureError),
+        ):
+            capture_repository_state(self.root, (b"new",))
+        self.assertEqual(calls, 5)
 
     def test_capture_rejects_untracked_change_after_second_worktree(self):
         (self.root / "new").write_bytes(b"new")
@@ -1201,7 +1225,7 @@ class RepositoryFingerprintTests(unittest.TestCase):
             nonlocal calls
             result = original(*args, **kwargs)
             calls += 1
-            if calls == 3:
+            if calls == 4:
                 (self.root / "new").unlink()
             return result
 
@@ -1214,7 +1238,7 @@ class RepositoryFingerprintTests(unittest.TestCase):
             self.assertRaises(RepositoryCaptureError),
         ):
             capture_repository_state(self.root)
-        self.assertEqual(calls, 4)
+        self.assertEqual(calls, 5)
 
     def test_unincluded_untracked_paths_are_inventory_only(self):
         (self.root / "build.log").write_bytes(b"changing")
@@ -1272,7 +1296,7 @@ class RepositoryFingerprintTests(unittest.TestCase):
             nonlocal calls
             result = original(*args, **kwargs)
             calls += 1
-            if calls == 2:
+            if calls == 3:
                 (self.root / "tracked").write_bytes(b"changed")
             return result
 
@@ -1285,7 +1309,7 @@ class RepositoryFingerprintTests(unittest.TestCase):
             self.assertRaises(RepositoryCaptureError),
         ):
             capture_repository_state(self.root)
-        self.assertEqual(calls, 4)
+        self.assertEqual(calls, 6)
 
 
 if __name__ == "__main__":
