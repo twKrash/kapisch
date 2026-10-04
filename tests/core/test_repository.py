@@ -14,10 +14,14 @@ sys.path.insert(0, str(Path(__file__).parents[2] / "core"))
 _repository = importlib.import_module("kapisch_core.repository")
 _repository_git = importlib.import_module("kapisch_core._repository_git")
 _repository_worktree = importlib.import_module("kapisch_core._repository_worktree")
+_repository_fingerprint = importlib.import_module(
+    "kapisch_core._repository_fingerprint"
+)
 RepositoryCaptureError = _repository.RepositoryCaptureError
 capture_head = _repository.capture_head
 capture_index = _repository.capture_index
 capture_worktree = _repository.capture_worktree
+capture_repository_state = _repository.capture_repository_state
 
 
 class RepositoryGitCaptureTests(unittest.TestCase):
@@ -1025,6 +1029,198 @@ class RepositoryGitCaptureTests(unittest.TestCase):
             observed_index = capture_index(self.root)
         self.assertEqual(observed_head.commit, capture_head(self.root).commit)
         self.assertEqual(len(observed_index), 1)
+
+
+class RepositoryFingerprintTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.git("init", "-q")
+        self.git("config", "user.email", "a@b")
+        self.git("config", "user.name", "a")
+        (self.root / "tracked").write_bytes(b"one")
+        self.git("add", "tracked")
+        self.git("commit", "-qm", "initial")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def git(self, *args, **kwargs):
+        return subprocess.run(
+            ("git", "-C", str(self.root), *args),
+            check=True,
+            capture_output=True,
+            **kwargs,
+        )
+
+    def test_public_capture_returns_closed_fingerprint(self):
+        state = capture_repository_state(self.root)
+        self.assertIsInstance(state, _repository.RepositoryStateFingerprint)
+        self.assertEqual(state.object_format, "sha1")
+        self.assertEqual(state.worktree[0].path, b"tracked")
+        self.assertEqual(state.as_dict(), state.as_dict())
+        self.assertEqual(state.canonical_bytes(), state.canonical_bytes())
+
+    def test_staged_blob_change_changes_fingerprint(self):
+        before = capture_repository_state(self.root)
+        (self.root / "tracked").write_bytes(b"two")
+        self.git("add", "tracked")
+        after = capture_repository_state(self.root)
+        self.assertNotEqual(before.canonical_bytes(), after.canonical_bytes())
+        self.assertNotEqual(before.index[0].object_id, after.index[0].object_id)
+
+    def test_worktree_and_included_untracked_bytes_are_bound(self):
+        os.symlink("tracked", self.root / "link")
+        self.git("add", "link")
+        self.git("commit", "-qm", "symlink")
+        (self.root / "new").write_bytes(b"new")
+        state = capture_repository_state(self.root, (b"new",))
+        entries = {entry.path: entry for entry in state.worktree}
+        self.assertEqual(entries[b"link"].kind, "symlink")
+        untracked = {entry.path: entry for entry in state.untracked}
+        self.assertTrue(untracked[b"new"].included)
+        self.assertEqual(
+            untracked[b"new"].sha256,
+            hashlib.sha256(b"new").hexdigest(),
+        )
+
+    def test_capture_rejects_head_change_before_second_index(self):
+        original = _repository_fingerprint.capture_head
+        calls = 0
+
+        def change_head_after_observation(*args, **kwargs):
+            nonlocal calls
+            result = original(*args, **kwargs)
+            calls += 1
+            if calls == 3:
+                self.git("commit", "--allow-empty", "-qm", "late")
+            return result
+
+        with (
+            patch.object(
+                _repository_fingerprint,
+                "capture_head",
+                side_effect=change_head_after_observation,
+            ),
+            self.assertRaises(RepositoryCaptureError),
+        ):
+            capture_repository_state(self.root)
+        self.assertEqual(calls, 4)
+
+    def test_capture_rejects_index_change_before_second_worktree(self):
+        original = _repository_fingerprint.capture_worktree
+        calls = 0
+
+        def change_index_before_observation(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                self.git("update-index", "--chmod=+x", "--", "tracked")
+            return original(*args, **kwargs)
+
+        with (
+            patch.object(
+                _repository_fingerprint,
+                "capture_worktree",
+                side_effect=change_index_before_observation,
+            ),
+            self.assertRaises(RepositoryCaptureError),
+        ):
+            capture_repository_state(self.root)
+        self.assertEqual(calls, 2)
+
+    def test_capture_rejects_skip_worktree_change_before_second_worktree(self):
+        original = _repository_fingerprint.capture_worktree
+        calls = 0
+
+        def change_flags_before_observation(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                self.git("update-index", "--skip-worktree", "--", "tracked")
+            return original(*args, **kwargs)
+
+        with (
+            patch.object(
+                _repository_fingerprint,
+                "capture_worktree",
+                side_effect=change_flags_before_observation,
+            ),
+            self.assertRaises(RepositoryCaptureError),
+        ):
+            capture_repository_state(self.root)
+        self.assertEqual(calls, 2)
+
+    def test_unincluded_untracked_paths_are_inventory_only(self):
+        (self.root / "build.log").write_bytes(b"changing")
+        state = capture_repository_state(self.root)
+        entry = next(x for x in state.untracked if x.path == b"build.log")
+        self.assertFalse(entry.included)
+        self.assertIsNone(entry.sha256)
+
+    def test_capture_rejects_unmerged_index(self):
+        self.git("checkout", "-qb", "side")
+        (self.root / "tracked").write_bytes(b"side")
+        self.git("commit", "-qam", "side")
+        self.git("checkout", "-q", "-")
+        (self.root / "tracked").write_bytes(b"main")
+        self.git("commit", "-qam", "main")
+        merge = subprocess.run(
+            ("git", "-C", str(self.root), "merge", "side"),
+            capture_output=True,
+        )
+        self.assertNotEqual(merge.returncode, 0)
+        with self.assertRaises(RepositoryCaptureError):
+            capture_repository_state(self.root)
+
+    def test_capture_rejects_unborn_and_bare_repositories(self):
+        unborn = Path(self.tmp.name) / "unborn"
+        subprocess.run(("git", "init", "-q", str(unborn)), check=True)
+        with self.assertRaises(RepositoryCaptureError):
+            capture_repository_state(unborn)
+        bare = Path(self.tmp.name) / "bare"
+        subprocess.run(("git", "init", "--bare", "-q", str(bare)), check=True)
+        with self.assertRaises(RepositoryCaptureError):
+            capture_repository_state(bare)
+
+    def test_capture_ignores_inherited_git_redirects(self):
+        old = os.environ.copy()
+        os.environ.update(
+            {
+                "GIT_DIR": str(self.root / "missing"),
+                "GIT_INDEX_FILE": str(self.root / "missing-index"),
+                "GIT_WORK_TREE": str(self.root / "elsewhere"),
+            }
+        )
+        try:
+            captured = capture_repository_state(self.root)
+        finally:
+            os.environ.clear()
+            os.environ.update(old)
+        self.assertEqual(captured.head, capture_repository_state(self.root).head)
+
+    def test_capture_rejects_changes_between_passes(self):
+        original = _repository_fingerprint.capture_worktree
+        calls = 0
+
+        def mutate_after_first(*args, **kwargs):
+            nonlocal calls
+            result = original(*args, **kwargs)
+            calls += 1
+            if calls == 1:
+                (self.root / "tracked").write_bytes(b"changed")
+            return result
+
+        with (
+            patch.object(
+                _repository_fingerprint,
+                "capture_worktree",
+                side_effect=mutate_after_first,
+            ),
+            self.assertRaises(RepositoryCaptureError),
+        ):
+            capture_repository_state(self.root)
+        self.assertEqual(calls, 2)
 
 
 if __name__ == "__main__":
