@@ -26,6 +26,6 @@ Status: implemented and committed; no AcceptanceRecord producer/publication, pla
 
 Commits:
 - `d0c3a61b4c1a684e588c8bfb966ca904f8a5c20f` — `feat(v3): derive global authority bindings`.
-- Follow-up reconciliation commit: recorded in commit history immediately after the above, containing only formatter changes to the test and this report.
+- `159e662fe28b685322179c86176fc66f394683ab` — `test(v3): reconcile authority census test formatting` (intentional Ruff formatting plus report reconciliation).
 
 Final verification after follow-up: focused 4 tests passed; full core suite 280 passed; worktree clean.
