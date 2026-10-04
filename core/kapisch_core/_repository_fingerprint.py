@@ -1,4 +1,4 @@
-"""Two-pass repository composition."""
+"""Bounded repeated repository composition, not an atomic filesystem snapshot."""
 
 from pathlib import Path
 
