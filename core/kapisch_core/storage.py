@@ -147,6 +147,38 @@ def _read_contained(repo: Path, run_id: str, relative: str) -> bytes:
         _close(fds)
 
 
+def _read_repository_file(repo: Path, relative: str) -> bytes:
+    """Read one regular repository file without following symlinks."""
+    if (
+        not isinstance(relative, str)
+        or not relative
+        or relative.startswith("/")
+        or "\\" in relative
+        or "\x00" in relative
+    ):
+        raise ValueError("source dependency path must be repository-relative")
+    parts = relative.split("/")
+    if any(part in {"", ".", ".."} for part in parts):
+        raise ValueError("source dependency path is not canonical")
+
+    descriptors = [os.open(os.fspath(repo), _DIRECTORY_FLAGS)]
+    try:
+        for part in parts[:-1]:
+            descriptors.append(_open_dir(descriptors[-1], part))
+        descriptor = os.open(parts[-1], _FILE_FLAGS, dir_fd=descriptors[-1])
+        try:
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                raise ValueError("source dependency is not a regular file")
+            chunks = []
+            while chunk := os.read(descriptor, 1024 * 1024):
+                chunks.append(chunk)
+            return b"".join(chunks)
+        finally:
+            os.close(descriptor)
+    finally:
+        _close(descriptors)
+
+
 def _safe_relative(value: Any) -> bool:
     return (
         isinstance(value, str)

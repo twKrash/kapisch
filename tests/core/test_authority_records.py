@@ -696,6 +696,386 @@ class AuthorityCensusTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "acceptance record is malformed"):
             active_authority(self.fixture.repo, scope)
 
+    def test_acceptance_publication_and_recovery_are_distinct(self) -> None:
+        from kapisch_core._accepted_snapshot import load_acceptance
+        from kapisch_core.advisory import accept_repository_decision
+
+        fixture = self.fixture
+        source_path = fixture.repo / "requirements.md"
+        source_bytes = b"approved requirements\n"
+        source_path.write_bytes(source_bytes)
+        payload = fixture._repository_payload()
+        payload["subject"]["source_dependencies"] = [
+            {
+                "path": "requirements.md",
+                "sha256": hashlib.sha256(source_bytes).hexdigest(),
+            }
+        ]
+        approval_ref = publish_gate_approval(
+            fixture.repo,
+            payload,
+            fixture._external_input(fixture._artifact(fixture._target(payload))),
+        )
+        self.assertEqual(active_authority(fixture.repo, fixture.scope_ref), ())
+
+        changed_payload = fixture._repository_payload()
+        changed_payload["subject"]["decision"] = "changed decision"
+        changed_approval = publish_gate_approval(
+            fixture.repo,
+            changed_payload,
+            fixture._external_input(
+                fixture._artifact(fixture._target(changed_payload))
+            ),
+        )
+
+        # Approval survives producer-run loss; acceptance is a separate commit.
+        shutil.rmtree(fixture.repo / ".kapisch/v3/runs/run-1")
+        acceptance_ref = accept_repository_decision(fixture.repo, approval_ref)
+        self.assertEqual(len(active_authority(fixture.repo, fixture.scope_ref)), 1)
+        expected_record = {
+            "acceptance_contract": "global-authority/1",
+            "origin_run_id": payload["subject"]["origin_run_id"],
+            "snapshot_id": payload["subject"]["snapshot_id"],
+            "gate_approval_ref": {
+                "approval_id": approval_ref["approval_id"],
+                "sha256": approval_ref["sha256"],
+            },
+        }
+        expected_bytes = canonical_json(expected_record)
+        acceptance_identity = hashlib.sha256(
+            canonical_json(
+                {
+                    "origin_run_id": expected_record["origin_run_id"],
+                    "snapshot_id": expected_record["snapshot_id"],
+                }
+            )
+        ).hexdigest()
+        self.assertEqual(
+            acceptance_ref["sha256"], hashlib.sha256(expected_bytes).hexdigest()
+        )
+        self.assertEqual(
+            (
+                fixture.repo
+                / ".kapisch/v3/authority/acceptances"
+                / f"{acceptance_identity}.json"
+            ).read_bytes(),
+            expected_bytes,
+        )
+        self.assertEqual(
+            accept_repository_decision(fixture.repo, approval_ref), acceptance_ref
+        )
+
+        source_path.write_bytes(b"changed after acceptance\n")
+        record = load_acceptance(fixture.repo, acceptance_ref)
+        self.assertEqual(
+            accept_repository_decision(fixture.repo, approval_ref), acceptance_ref
+        )
+        self.assertEqual(load_acceptance(fixture.repo, acceptance_ref), record)
+        with self.assertRaisesRegex(ValueError, "occupied|different"):
+            accept_repository_decision(fixture.repo, changed_approval)
+
+    def test_acceptance_checks_current_sources_of_governing_authority(self) -> None:
+        from unittest.mock import patch
+
+        from kapisch_core import _accepted_snapshot
+        from kapisch_core._accepted_snapshot import load_acceptance
+        from kapisch_core._authority_records import _active_bindings
+        from kapisch_core._gate_approval import load_gate_approval
+        from kapisch_core.advisory import ProposedScopeRef, accept_repository_decision
+
+        fixture = self.fixture
+        source_path = fixture.repo / "governing-requirements.md"
+        original = b"governing source v1\n"
+        source_path.write_bytes(original)
+
+        first_payload = fixture._repository_payload()
+        first_payload["subject"]["source_dependencies"] = [
+            {
+                "path": "governing-requirements.md",
+                "sha256": hashlib.sha256(original).hexdigest(),
+            }
+        ]
+        first_approval = publish_gate_approval(
+            fixture.repo,
+            first_payload,
+            fixture._external_input(fixture._artifact(fixture._target(first_payload))),
+        )
+        first_ref = accept_repository_decision(fixture.repo, first_approval)
+
+        second_payload = fixture._repository_payload()
+        second_payload["subject"]["snapshot_id"] = "snapshot-next"
+        second_payload["subject"]["decision_id"] = "decision-next"
+        second_payload["identity"]["id"] = "decision-next"
+        second_payload["subject"]["authority_basis"] = _active_bindings(
+            fixture.repo, ProposedScopeRef(**fixture.scope_ref)
+        )
+        second_approval = publish_gate_approval(
+            fixture.repo,
+            second_payload,
+            fixture._external_input(fixture._artifact(fixture._target(second_payload))),
+        )
+
+        source_path.write_bytes(b"governing source v2\n")
+        with self.assertRaisesRegex(ValueError, "source dependency changed"):
+            accept_repository_decision(fixture.repo, second_approval)
+
+        read_source = _accepted_snapshot._read_repository_file
+
+        def unreadable_source(repo, path):
+            if path == "governing-requirements.md":
+                raise PermissionError("source is unreadable")
+            return read_source(repo, path)
+
+        with patch(
+            "kapisch_core._accepted_snapshot._read_repository_file",
+            side_effect=unreadable_source,
+        ):
+            with self.assertRaisesRegex(PermissionError, "source is unreadable"):
+                accept_repository_decision(fixture.repo, second_approval)
+
+        source_path.unlink()
+        with self.assertRaises(FileNotFoundError):
+            accept_repository_decision(fixture.repo, second_approval)
+        self.assertEqual(
+            load_gate_approval(fixture.repo, second_approval)["approval_id"],
+            second_approval["approval_id"],
+        )
+        self.assertEqual(
+            load_acceptance(fixture.repo, first_ref)["snapshot_id"], "snapshot-1"
+        )
+        self.assertEqual(len(active_authority(fixture.repo, fixture.scope_ref)), 1)
+
+    def test_acceptance_sync_failure_requires_durable_retry(self) -> None:
+        from unittest.mock import patch
+
+        import kapisch_core.storage as storage
+        from kapisch_core.advisory import accept_repository_decision
+
+        fixture = self.fixture
+        payload = fixture._repository_payload()
+        approval_ref = publish_gate_approval(
+            fixture.repo,
+            payload,
+            fixture._external_input(fixture._artifact(fixture._target(payload))),
+        )
+        original_sync = storage._sync_hierarchy
+        calls = 0
+
+        def fail_once(descriptors):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise OSError("acceptance sync failed")
+            return original_sync(descriptors)
+
+        with patch("kapisch_core.storage._sync_hierarchy", side_effect=fail_once):
+            acceptance_ref = accept_repository_decision(fixture.repo, approval_ref)
+        self.assertGreaterEqual(calls, 2)
+        self.assertEqual(
+            active_authority(fixture.repo, fixture.scope_ref)[0].snapshot_id,
+            acceptance_ref["snapshot_id"],
+        )
+
+    def test_acceptance_recovery_rejects_missing_approval_after_uncertain_write(
+        self,
+    ) -> None:
+        from contextlib import suppress
+        from unittest.mock import patch
+
+        from kapisch_core.advisory import accept_repository_decision
+
+        fixture = self.fixture
+        payload = fixture._repository_payload()
+        approval_ref = publish_gate_approval(
+            fixture.repo,
+            payload,
+            fixture._external_input(fixture._artifact(fixture._target(payload))),
+        )
+        approval_path = (
+            fixture.repo
+            / ".kapisch/v3/authority/gate-approvals"
+            / f"{approval_ref['approval_id']}.json"
+        )
+
+        def remove_approval_and_fail(_descriptors):
+            with suppress(FileNotFoundError):
+                approval_path.unlink()
+            raise OSError("acceptance sync failed")
+
+        with patch(
+            "kapisch_core.storage._sync_hierarchy",
+            side_effect=remove_approval_and_fail,
+        ):
+            with self.assertRaisesRegex(OSError, "acceptance sync failed"):
+                accept_repository_decision(fixture.repo, approval_ref)
+        with self.assertRaisesRegex(ValueError, "approval reference is not retained"):
+            accept_repository_decision(fixture.repo, approval_ref)
+
+    def test_acceptance_successful_sync_retry_still_validates_approval(self) -> None:
+        from contextlib import suppress
+        from unittest.mock import patch
+
+        import kapisch_core.storage as storage
+        from kapisch_core.advisory import accept_repository_decision
+
+        fixture = self.fixture
+        payload = fixture._repository_payload()
+        approval_ref = publish_gate_approval(
+            fixture.repo,
+            payload,
+            fixture._external_input(fixture._artifact(fixture._target(payload))),
+        )
+        approval_path = (
+            fixture.repo
+            / ".kapisch/v3/authority/gate-approvals"
+            / f"{approval_ref['approval_id']}.json"
+        )
+        original_sync = storage._sync_hierarchy
+        calls = 0
+
+        def remove_approval_then_fail_once(descriptors):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                with suppress(FileNotFoundError):
+                    approval_path.unlink()
+                raise OSError("acceptance sync failed")
+            return original_sync(descriptors)
+
+        with patch(
+            "kapisch_core.storage._sync_hierarchy",
+            side_effect=remove_approval_then_fail_once,
+        ):
+            with self.assertRaisesRegex(
+                ValueError, "approval reference is not retained"
+            ):
+                accept_repository_decision(fixture.repo, approval_ref)
+        self.assertGreaterEqual(calls, 2)
+
+    def test_persistent_acceptance_sync_failure_never_returns_success(self) -> None:
+        from unittest.mock import patch
+
+        from kapisch_core.advisory import accept_repository_decision
+
+        fixture = self.fixture
+        payload = fixture._repository_payload()
+        approval_ref = publish_gate_approval(
+            fixture.repo,
+            payload,
+            fixture._external_input(fixture._artifact(fixture._target(payload))),
+        )
+        with patch(
+            "kapisch_core.storage._sync_hierarchy",
+            side_effect=OSError("acceptance sync failed"),
+        ):
+            with self.assertRaisesRegex(OSError, "acceptance sync failed"):
+                accept_repository_decision(fixture.repo, approval_ref)
+            with self.assertRaisesRegex(OSError, "acceptance sync failed"):
+                accept_repository_decision(fixture.repo, approval_ref)
+        recovered = accept_repository_decision(fixture.repo, approval_ref)
+        self.assertEqual(recovered["snapshot_id"], "snapshot-1")
+
+    def test_acceptance_rejects_escaping_source_dependencies(self) -> None:
+        from kapisch_core.advisory import accept_repository_decision
+
+        fixture = self.fixture
+        outside = fixture.repo.parent / "outside-requirements.md"
+        outside.write_bytes(b"outside\n")
+        self.addCleanup(outside.unlink)
+        payload = fixture._repository_payload()
+        payload["subject"]["source_dependencies"] = [
+            {
+                "path": "../outside-requirements.md",
+                "sha256": hashlib.sha256(outside.read_bytes()).hexdigest(),
+            }
+        ]
+        approval = publish_gate_approval(
+            fixture.repo,
+            payload,
+            fixture._external_input(fixture._artifact(fixture._target(payload))),
+        )
+        with self.assertRaisesRegex(ValueError, "not canonical"):
+            accept_repository_decision(fixture.repo, approval)
+        self.assertFalse((fixture.repo / ".kapisch/v3/authority/acceptances").exists())
+
+    def test_acceptance_requires_active_fully_covered_predecessors(self) -> None:
+        from kapisch_core._authority_records import _active_bindings
+        from kapisch_core.advisory import ProposedScopeRef, accept_repository_decision
+
+        fixture = self.fixture
+        base_digest = self._commit_acceptance("base-decision", {"mode": "all"})
+        scope_ref = ProposedScopeRef(**fixture.scope_ref)
+
+        def make_approval(snapshot_id: str) -> dict[str, str]:
+            payload = fixture._repository_payload()
+            payload["subject"]["snapshot_id"] = snapshot_id
+            payload["subject"]["decision_id"] = snapshot_id
+            payload["identity"]["id"] = snapshot_id
+            payload["subject"]["authority_basis"] = _active_bindings(
+                fixture.repo, scope_ref
+            )
+            payload["subject"]["supersedes"] = [
+                {
+                    "origin_run_id": "run-1",
+                    "snapshot_id": "base-decision",
+                    "decision_id": "base-decision",
+                    "sha256": base_digest,
+                }
+            ]
+            return publish_gate_approval(
+                fixture.repo,
+                payload,
+                fixture._external_input(fixture._artifact(fixture._target(payload))),
+            )
+
+        first = make_approval("successor-one")
+        accept_repository_decision(fixture.repo, first)
+        second = make_approval("successor-two")
+        with self.assertRaisesRegex(ValueError, "no longer active"):
+            accept_repository_decision(fixture.repo, second)
+
+    def test_new_acceptance_rechecks_current_source_and_authority(self) -> None:
+        from kapisch_core.advisory import accept_repository_decision
+
+        fixture = self.fixture
+        source_path = fixture.repo / "requirements.md"
+        original = b"requirements v1\n"
+        source_path.write_bytes(original)
+        stale_payload = fixture._repository_payload()
+        stale_payload["subject"]["source_dependencies"] = [
+            {"path": "requirements.md", "sha256": hashlib.sha256(original).hexdigest()}
+        ]
+        stale_approval = publish_gate_approval(
+            fixture.repo,
+            stale_payload,
+            fixture._external_input(fixture._artifact(fixture._target(stale_payload))),
+        )
+        source_path.write_bytes(b"requirements changed\n")
+        with self.assertRaisesRegex(ValueError, "source dependency changed"):
+            accept_repository_decision(fixture.repo, stale_approval)
+        self.assertFalse((fixture.repo / ".kapisch/v3/authority/acceptances").exists())
+
+        source_path.write_bytes(original)
+        first_payload = fixture._repository_payload()
+        first_approval = publish_gate_approval(
+            fixture.repo,
+            first_payload,
+            fixture._external_input(fixture._artifact(fixture._target(first_payload))),
+        )
+        accept_repository_decision(fixture.repo, first_approval)
+
+        stale_basis = fixture._repository_payload()
+        stale_basis["subject"]["snapshot_id"] = "snapshot-stale-basis"
+        stale_basis["subject"]["decision_id"] = "decision-stale-basis"
+        stale_basis["identity"]["id"] = "decision-stale-basis"
+        basis_approval = publish_gate_approval(
+            fixture.repo,
+            stale_basis,
+            fixture._external_input(fixture._artifact(fixture._target(stale_basis))),
+        )
+        with self.assertRaisesRegex(ValueError, "authority basis is stale"):
+            accept_repository_decision(fixture.repo, basis_approval)
+
 
 if __name__ == "__main__":
     unittest.main()
