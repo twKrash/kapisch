@@ -107,7 +107,7 @@ def _validate_ref(value: Any, keys: set[str], id_key: str | None = None) -> None
     if not isinstance(value["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", value["sha256"]):
         raise ValueError("invalid artifact reference digest")
 
-def _parse_state(data: bytes) -> RunState:
+def _parse_state(data: bytes, *, bundle: Any) -> RunState:
     try:
         value = json.loads(data.decode("utf-8"), object_pairs_hook=_unique_pairs)
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -115,9 +115,18 @@ def _parse_state(data: bytes) -> RunState:
     if not isinstance(value, dict) or canonical_json(value) != data:
         raise ValueError("run state is not canonical JSON object")
     required = {"protocol_version", "run_id", "bundle_digest", "workflow", "revision", "history", "identity_contract"}
+    authority_contract = bundle.payload.get("authority_contract")
+    global_authority = authority_contract == "global-authority/1"
     allowed = required | {"accepted_snapshot", "approved_plan", "amends", "supersedes", "graph"}
+    if global_authority:
+        allowed |= {"acceptance_ref", "scope_ref", "work_scope_refs"}
     if required - value.keys() or value.keys() - allowed:
         raise ValueError("run state has missing or unknown fields")
+    work_scope_refs = value.get("work_scope_refs")
+    if isinstance(work_scope_refs, list):
+        encoded_refs = [canonical_json(ref) for ref in work_scope_refs]
+        if encoded_refs != sorted(encoded_refs):
+            raise ValueError("work_scope_refs must be sorted by canonical JSON bytes")
     if value["protocol_version"] != 3 or value["identity_contract"] != "stage-attempt/1":
         raise ValueError("unsupported run protocol or identity contract")
     if not isinstance(value["workflow"], str) or value["workflow"] not in {"advisory", "review", "task", "milestone"}:
@@ -129,18 +138,22 @@ def _parse_state(data: bytes) -> RunState:
     if not re.fullmatch(r"[0-9a-f]{64}", value["bundle_digest"]):
         raise ValueError("invalid bundle digest")
     _id(value["run_id"], "run_id")
-    for field, id_key in (("accepted_snapshot", "snapshot_id"), ("approved_plan", "plan_id")):
-        if field in value:
-            _validate_ref(value[field], {id_key, "path", "sha256"}, id_key)
+    if global_authority:
+        # These are validated against the retained run schema by the caller.
+        pass
+    else:
+        for field, id_key in (("accepted_snapshot", "snapshot_id"), ("approved_plan", "plan_id")):
+            if field in value:
+                _validate_ref(value[field], {id_key, "path", "sha256"}, id_key)
+        has_snapshot = "accepted_snapshot" in value
+        has_relationships = "amends" in value or "supersedes" in value
+        if has_snapshot and not {"amends", "supersedes"} <= value.keys() or has_relationships and not has_snapshot:
+            raise ValueError("accepted snapshot and relationship references must appear together")
+        for field in ("amends", "supersedes"):
+            if field in value and (not isinstance(value[field], list) or any(not isinstance(item, str) or not item for item in value[field]) or len(set(value[field])) != len(value[field])):
+                raise ValueError(f"invalid {field} relationship list")
     if "graph" in value:
         _validate_ref(value["graph"], {"path", "sha256"})
-    has_snapshot = "accepted_snapshot" in value
-    has_relationships = "amends" in value or "supersedes" in value
-    if has_snapshot and not {"amends", "supersedes"} <= value.keys() or has_relationships and not has_snapshot:
-        raise ValueError("accepted snapshot and relationship references must appear together")
-    for field in ("amends", "supersedes"):
-        if field in value and (not isinstance(value[field], list) or any(not isinstance(item, str) or not item for item in value[field]) or len(set(value[field])) != len(value[field])):
-            raise ValueError(f"invalid {field} relationship list")
     if value["workflow"] != "milestone" and "graph" in value:
         raise ValueError("graph is only valid for milestone runs")
     _validate_history(value["history"], value["workflow"])
@@ -150,15 +163,35 @@ def _parse_state(data: bytes) -> RunState:
         raise ValueError("node-scoped history requires a graph reference")
     return RunState(value)
 
+def _load_run_context(repo: Path, run_id: str, data: bytes | None = None) -> tuple[RunState, Any]:
+    if data is None:
+        run, fds = _run_dir(Path(repo), run_id, create=False)
+        try:
+            data = _read_file(run, "state.json")
+        finally:
+            _close(fds)
+    try:
+        routing = json.loads(data.decode("utf-8"), object_pairs_hook=_unique_pairs)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("invalid run state JSON") from error
+    if (not isinstance(routing, dict) or canonical_json(routing) != data
+            or routing.get("run_id") != run_id
+            or not isinstance(routing.get("bundle_digest"), str)
+            or not re.fullmatch(r"[0-9a-f]{64}", routing["bundle_digest"])):
+        raise ValueError("invalid run state routing identity")
+    bundle = load_bundle(Path(repo), routing["bundle_digest"])
+    from ._validation_schema import _validate_identity_contract, _validate_schema
+    _validate_identity_contract(bundle)
+    state = _parse_state(data, bundle=bundle)
+    _validate_schema(state, "run", bundle)
+    return state, bundle
+
 def load_state(repo: Path, run_id: str) -> RunState:
     run_id = _id(run_id, "run_id")
     run, fds = _run_dir(Path(repo), run_id, create=False)
     try:
-        state = _parse_state(_read_file(run, "state.json"))
-        if state["run_id"] != run_id:
-            raise ValueError("run state ID does not match requested run")
-        load_bundle(Path(repo), state["bundle_digest"])
-        _validate_state_snapshot(Path(repo), run_id, state)
+        state, bundle = _load_run_context(Path(repo), run_id)
+        _validate_state_snapshot(Path(repo), run_id, state, bundle)
         return state
     finally:
         _close(fds)
@@ -176,14 +209,22 @@ def _publish_state_locked(repo: Path, run_id: str, state: Mapping[str, Any], exp
                 raise ConcurrentModificationError("run state does not exist")
             previous = None
         else:
-            previous = _parse_state(current_bytes)
-            _validate_state_snapshot(repo, run_id, previous)
+            previous, previous_bundle = _load_run_context(repo, run_id, current_bytes)
+            _validate_state_snapshot(repo, run_id, previous, previous_bundle)
             if previous["revision"] != expected_revision:
                 raise ConcurrentModificationError("run revision changed")
-        proposed = _parse_state(canonical_json(dict(state)))
+        proposed_bytes = canonical_json(dict(state))
+        proposed_digest = _routing_digest(proposed_bytes, run_id)
+        if previous is not None and proposed_digest != previous["bundle_digest"]:
+            raise ValueError("run bundle and workflow are immutable")
+        proposed_bundle = load_bundle(repo, proposed_digest)
+        from ._validation_schema import _validate_identity_contract, _validate_schema
+        _validate_identity_contract(proposed_bundle)
+        proposed = _parse_state(proposed_bytes, bundle=proposed_bundle)
+        _validate_schema(proposed, "run", proposed_bundle)
         if proposed["run_id"] != run_id:
             raise ValueError("run state ID does not match requested run")
-        _validate_state_snapshot(repo, run_id, proposed)
+        _validate_state_snapshot(repo, run_id, proposed, proposed_bundle)
         if proposed["revision"] != expected_revision + 1:
             raise ValueError("new run revision must increment by one")
         load_bundle(repo, proposed["bundle_digest"])
@@ -223,6 +264,15 @@ def publish_state(repo: Path, run_id: str, state: Mapping[str, Any], expected_re
     run_id = _id(run_id, "run_id")
     with _locked(repo, run_id):
         _publish_state_locked(repo, run_id, state, expected_revision)
+
+def _routing_digest(data: bytes, run_id: str) -> str:
+    try:
+        value = json.loads(data.decode("utf-8"), object_pairs_hook=_unique_pairs)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("invalid run state JSON") from error
+    if not isinstance(value, dict) or canonical_json(value) != data or value.get("run_id") != run_id or not isinstance(value.get("bundle_digest"), str) or not re.fullmatch(r"[0-9a-f]{64}", value["bundle_digest"]):
+        raise ValueError("invalid run state routing identity")
+    return value["bundle_digest"]
 
 def _write_atomic(directory: int, name: str, data: bytes, *, replace: bool) -> None:
     _atomic_write_at(directory, name, data, replace=replace)

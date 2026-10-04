@@ -3,8 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from typing import Any, Mapping
 from pathlib import Path
+from typing import Any, Mapping
 
 from .bundle import canonical_json
 from .storage import _read_contained, _safe_relative
@@ -132,11 +132,15 @@ def _validate_snapshot_authority(repo: Path, run_id: str, ref: Mapping[str, Any]
     except RecursionError as error:
         raise ValueError("snapshot dependency lineage exceeds supported depth") from error
 
-def _validate_state_snapshot(repo: Path, run_id: str, state: Mapping[str, Any]) -> None:
-    if "accepted_snapshot" in state:
+def _validate_state_snapshot(repo: Path, run_id: str, state: Mapping[str, Any], bundle: Any) -> None:
+    if bundle.payload.get("authority_contract") != "global-authority/1" and "accepted_snapshot" in state:
         _validate_snapshot_authority(repo, run_id, state["accepted_snapshot"], state["amends"], state["supersedes"])
 
-def _validate_packet_authority(packet: Mapping[str, Any], state: Mapping[str, Any], attempt: Mapping[str, Any]) -> None:
+def _validate_packet_authority(packet: Mapping[str, Any], state: Mapping[str, Any], attempt: Mapping[str, Any], bundle: Any = None) -> None:
+    if bundle is not None and bundle.payload.get("authority_contract") == "global-authority/1" and (
+            any(field in packet for field in ("accepted_snapshot", "amends", "supersedes", "approved_plan", "acceptance_ref"))
+            or any(field in state for field in ("approved_plan", "acceptance_ref"))):
+        raise ValueError("unsupported-gate: global authority consumers are not implemented")
     if any((field in packet) != (field in state) or packet.get(field) != state.get(field)
            for field in ("accepted_snapshot", "amends", "supersedes")):
         raise ValueError("request must bind current accepted snapshot authority")

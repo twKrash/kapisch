@@ -35,21 +35,19 @@ _POLICY_IDS = (
     "review",
     "risk",
 )
+_LEGACY_SCHEMA_IDS = (
+    "approval", "bundle", "invocation", "repository-state", "run", "snapshot", "stage",
+)
 _SCHEMA_IDS = (
-    "approval",
-    "bundle",
-    "invocation",
-    "repository-state",
-    "run",
-    "snapshot",
-    "stage",
+    "approval", "bundle", "human-action", "invocation", "repository-state",
+    "run", "scope", "snapshot", "stage",
 )
 _SCHEMA_TYPES = frozenset({"array", "boolean", "integer", "null", "number", "object", "string"})
 _SCHEMA_KEYWORDS = frozenset(
     {
         "$defs", "$id", "$ref", "$schema", "additionalProperties", "allOf", "anyOf",
         "const", "description", "enum", "format", "if", "items", "maximum", "minimum",
-        "minLength", "not", "oneOf", "pattern", "properties", "required", "then", "title",
+        "minLength", "minItems", "not", "oneOf", "pattern", "properties", "required", "then", "title",
         "type", "uniqueItems",
     }
 )
@@ -154,8 +152,8 @@ def _require_sources(directory: Path, suffix: str, expected_ids: tuple[str, ...]
 
 
 def _validate_schema_set(schemas: Mapping[str, Any]) -> None:
-    if set(schemas) != set(_SCHEMA_IDS):
-        raise ValueError("CoreBundle must contain only v3 authority schemas")
+    if set(schemas) not in (set(_LEGACY_SCHEMA_IDS), set(_SCHEMA_IDS)):
+        raise ValueError("CoreBundle must contain an exact supported v3 schema set")
     by_id: dict[str, dict[str, Any]] = {}
     for name, schema in schemas.items():
         expected_id = f"kapisch://schemas/v3/{name}"
@@ -236,6 +234,12 @@ def _validate_schema_set(schemas: Mapping[str, Any]) -> None:
             or node["minLength"] < 0
         ):
             raise ValueError(f"invalid JSON Schema minLength: {label}")
+        if "minItems" in node and (
+            isinstance(node["minItems"], bool)
+            or not isinstance(node["minItems"], int)
+            or node["minItems"] < 0
+        ):
+            raise ValueError(f"invalid JSON Schema minItems: {label}")
         if "uniqueItems" in node and not isinstance(node["uniqueItems"], bool):
             raise ValueError(f"invalid JSON Schema uniqueItems: {label}")
         for key in ("properties", "$defs"):
@@ -276,7 +280,8 @@ def compile_bundle(source_root: Path) -> bytes:
     _require_sources(contracts / "roles", ".md", _ROLE_IDS)
     _require_sources(contracts / "workflows", ".md", _WORKFLOW_IDS)
     _require_sources(contracts / "policy", ".md", _POLICY_IDS)
-    _require_sources(root / "schemas/v3", ".json", _SCHEMA_IDS)
+    schema_names = _SCHEMA_IDS
+    _require_sources(root / "schemas/v3", ".json", schema_names)
     roles = {name: _contract_entry(contracts / "roles" / f"{name}.md") for name in _ROLE_IDS}
     workflows = {
         name: _workflow_entry(contracts / "workflows" / f"{name}.md", name)
@@ -287,13 +292,14 @@ def compile_bundle(source_root: Path) -> bytes:
     }
     controller_instructions = _source_text(contracts / "controller.md")
     schemas: dict[str, Any] = {}
-    for name in _SCHEMA_IDS:
+    for name in schema_names:
         value = _json_bytes((root / "schemas/v3" / f"{name}.json").read_bytes(), name)
         schemas[name] = value
     _validate_schema_set(schemas)
 
     payload = {
         "protocol_version": 3,
+        "authority_contract": "global-authority/1",
         "vocabulary": {
             "roles": _enum_values(Role),
             "workflows": _enum_values(Workflow),
@@ -335,8 +341,13 @@ def verify_bundle(data: bytes, digest: str) -> CoreBundle:
         "controller_instructions",
         "schemas",
     }
-    if not isinstance(payload, dict) or set(payload) != required or payload["protocol_version"] != 3:
+    if not isinstance(payload, dict) or payload.get("protocol_version") != 3:
         raise ValueError("invalid CoreBundle v3 top-level fields or protocol version")
+    schemas_value = payload.get("schemas")
+    legacy = isinstance(schemas_value, dict) and set(schemas_value) == set(_LEGACY_SCHEMA_IDS)
+    new = isinstance(schemas_value, dict) and set(schemas_value) == set(_SCHEMA_IDS)
+    if (legacy and set(payload) != required) or (new and (set(payload) != required | {"authority_contract"} or payload.get("authority_contract") != "global-authority/1")) or not (legacy or new):
+        raise ValueError("CoreBundle schema set and authority contract do not match")
     groups = ("vocabulary", "roles", "workflows", "policies", "schemas")
     if any(not isinstance(payload[name], dict) for name in groups):
         raise ValueError("CoreBundle contract collections must be objects")
@@ -346,7 +357,7 @@ def verify_bundle(data: bytes, digest: str) -> CoreBundle:
         raise ValueError("CoreBundle must contain exactly four workflows")
     if set(payload["policies"]) != set(_POLICY_IDS):
         raise ValueError("CoreBundle policy set is not canonical")
-    if set(payload["schemas"]) != set(_SCHEMA_IDS):
+    if set(payload["schemas"]) not in (set(_LEGACY_SCHEMA_IDS), set(_SCHEMA_IDS)):
         raise ValueError("CoreBundle must contain only v3 authority schemas")
     expected_vocabulary = {
         "roles": _enum_values(Role),
