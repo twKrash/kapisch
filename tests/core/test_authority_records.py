@@ -587,8 +587,11 @@ class AuthorityCensusTests(unittest.TestCase):
             except BaseException as error:
                 errors.append(error)
 
-        with patch.object(_locking, "_acquire_lock", side_effect=acquire), patch(
-            "kapisch_core._authority_records.load_proposed_scope", side_effect=read
+        with (
+            patch.object(_locking, "_acquire_lock", side_effect=acquire),
+            patch(
+                "kapisch_core._authority_records.load_proposed_scope", side_effect=read
+            ),
         ):
             try:
                 with _locking._locked(self.fixture.repo):
@@ -613,9 +616,12 @@ class AuthorityCensusTests(unittest.TestCase):
         scope = propose_scope(
             self.fixture.repo, "consumer", "work", "work", {"mode": "all"}
         )
-        with _locked(self.fixture.repo), patch(
-            "kapisch_core._authority_census._locked",
-            side_effect=AssertionError("nested repository lock"),
+        with (
+            _locked(self.fixture.repo),
+            patch(
+                "kapisch_core._authority_census._locked",
+                side_effect=AssertionError("nested repository lock"),
+            ),
         ):
             self.assertEqual(_active_authority_locked(self.fixture.repo, scope), ())
 
@@ -632,7 +638,10 @@ class AuthorityCensusTests(unittest.TestCase):
         data = (
             b'{"acceptance_contract":"global-authority/1","origin_run_id":"run-1",'
             b'"snapshot_id":"nested","gate_approval_ref":'
-            + b"[" * depth + b"0" + b"]" * depth + b"}"
+            + b"[" * depth
+            + b"0"
+            + b"]" * depth
+            + b"}"
         )
         store_authority_record(self.fixture.repo, "acceptances", "a" * 64, data)
         with self.assertRaisesRegex(
