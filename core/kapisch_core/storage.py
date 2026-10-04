@@ -28,7 +28,7 @@ _REQUIRED_SUPPORT = (
 
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _AUTHORITY_NAMESPACES = frozenset(
-    {"scopes", "human-actions", "gate-approvals", "human-artifacts"}
+    {"scopes", "human-actions", "gate-approvals", "human-artifacts", "acceptances"}
 )
 _HUMAN_ARTIFACT_ROOT = ".kapisch/v3/authority/human-artifacts"
 
