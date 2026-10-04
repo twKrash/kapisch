@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
-from ._validation_schema import _validate_identity_contract, _validate_schema
+from ._authority import _validate_state_snapshot
+from ._state import _load_run_context
 from ._validation_graph import _GraphAuthority, _validate_graph, _validate_plan
 from ._validation_inventory import _inventory
-from ._state import _parse_state, load_state
+from ._validation_schema import _validate_identity_contract, _validate_schema
 from .bundle import CoreBundle, canonical_json
 from .storage import (
     _close,
@@ -18,6 +20,7 @@ from .storage import (
     _run_dir,
     load_bundle,
 )
+
 
 @dataclass(frozen=True)
 class ValidationError:
@@ -31,7 +34,10 @@ class _ValidationFailure(ValueError):
         self.code = code
 
 def _validate_state(repo: Path, run_id: str, state_data: bytes) -> tuple[CoreBundle, Mapping[str, Any]]:
-    state = _parse_state(state_data)
+    try:
+        state, bundle = _load_run_context(repo, run_id, state_data)
+    except FileNotFoundError as error:
+        raise _ValidationFailure("bundle-unavailable", "retained CoreBundle is missing") from error
     if state["run_id"] != run_id:
         raise ValueError("run state ID does not match requested run")
     try:
@@ -42,10 +48,12 @@ def _validate_state(repo: Path, run_id: str, state_data: bytes) -> tuple[CoreBun
         _validate_identity_contract(bundle)
     except ValueError as error:
         raise _ValidationFailure("identity-contract-unsupported", str(error)) from error
-    loaded_state = load_state(repo, run_id)
-    if canonical_json(dict(loaded_state)) != state_data:
+    loaded_state, loaded_bundle = _load_run_context(repo, run_id)
+    if canonical_json(dict(loaded_state)) != state_data or loaded_bundle.payload != bundle.payload:
+        raise ValueError("run state changed during validation")
         raise ValueError("run state changed during validation")
     state = loaded_state
+    _validate_state_snapshot(repo, run_id, state, bundle)
     _validate_schema(state, "run", bundle)
     for row in state["history"]:
         _validate_schema(row, "stage", bundle)
@@ -53,6 +61,8 @@ def _validate_state(repo: Path, run_id: str, state_data: bytes) -> tuple[CoreBun
             body = _read_contained(repo, run_id, evidence["path"])
             if hashlib.sha256(body).hexdigest() != evidence["sha256"]:
                 raise ValueError("run history evidence digest mismatch")
+    if bundle.payload.get("authority_contract") == "global-authority/1" and "approved_plan" in state:
+        raise _ValidationFailure("unsupported-gate", "global-authority checked plan consumer is not implemented")
     plan_doc = _validate_plan(repo, run_id, state["approved_plan"]) if "approved_plan" in state else None
     graph_authority = _GraphAuthority(
         state["workflow"], state["bundle_digest"], state.get("graph"), state.get("approved_plan"),
@@ -62,6 +72,8 @@ def _validate_state(repo: Path, run_id: str, state_data: bytes) -> tuple[CoreBun
     try:
         _inventory(repo, run_id, state, bundle)
     except Exception as error:
+        if "unsupported-gate:" in str(error):
+            raise _ValidationFailure("unsupported-gate", str(error)) from error
         raise _ValidationFailure("inventory-veto", str(error)) from error
     return bundle, state
 
@@ -85,13 +97,13 @@ def validate_run(repo: Path, run_id: str, gate: str | None = None) -> list[Valid
             state_data = _read_file(run, "state.json")
         finally:
             _close(fds)
-        _, state = _validate_state(repo, run_id, state_data)
+        _validate_state(repo, run_id, state_data)
         if gate is not None:
             return [_error("unsupported-gate", f"gate {gate!r} is not implemented")]
         return []
     except _ValidationFailure as error:
         return [_error(error.code, str(error))]
-    except FileNotFoundError as error:
+    except FileNotFoundError:
         state_dir = repo / ".kapisch/v3/runs" / run_id
         try:
             state_dir.lstat()
@@ -102,7 +114,9 @@ def validate_run(repo: Path, run_id: str, gate: str | None = None) -> list[Valid
         return [_error("state-unavailable", "run state or required authority artifact is missing", str(state_dir))]
     except Exception as error:
         message = str(error)
-        if "bundle" in message.lower():
+        if "alters supported stage-attempt/1" in message:
+            code = "identity-contract-unsupported"
+        elif "bundle" in message.lower():
             code = "bundle-invalid"
         elif "unreferenced invocation" in message or "vetoes authority" in message:
             code = "inventory-veto"

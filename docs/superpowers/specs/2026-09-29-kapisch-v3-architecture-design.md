@@ -368,4 +368,4 @@ Stage 4.3 remains the structural-validation prerequisite, not the producer of a 
 
 ### 30.6 Review and implementation gate
 
-This amendment remains draft until standalone architecture review finds no in-scope blockers and the user explicitly approves the reviewed spec and ownership map. The structural applicability union, generic gate-payload envelope/subjects/hash, retained-bundle contract, exact producer ownership and historical-recovery semantics are specified above. No implementation, schema edit, bundle regeneration, or adapter change is authorized by this draft or its review result.
+**Status: APPROVED — user confirmation recorded 2026-10-03.** The user confirms that this amendment and its ownership map were reviewed, approved, and merged into `main`; this entry records that approval and authorizes implementation according to the accepted plan. The structural applicability union, generic gate-payload envelope/subjects/hash, retained-bundle contract, exact producer ownership and historical-recovery semantics above are binding. Stage 5 implementation must respect the plan's task boundaries and stop conditions.

@@ -33,6 +33,13 @@ class ValidationTests(unittest.TestCase):
         }
         self.canonical_json = canonical_json
 
+    def _use_legacy_bundle(self) -> None:
+        from kapisch_core.storage import store_bundle
+
+        self.bundle = (ROOT / "tests/conformance/fixtures/v3/legacy-bundle.json").read_bytes()
+        self.digest = store_bundle(self.repo, self.bundle)
+        self.state = {**self.state, "bundle_digest": self.digest}
+
     def _write_state(self, state: dict | None = None) -> None:
         state = state or self.state
         path = self.repo / ".kapisch/v3/runs" / state["run_id"] / "state.json"
@@ -41,7 +48,12 @@ class ValidationTests(unittest.TestCase):
 
     def _publish_uncertain_attempt(self, run_id: str, number: int, workflow: str = "task",
                                    approved_plan: dict | None = None) -> tuple[dict, dict, list[dict]]:
-        from kapisch_core.protocol import publish_state, persist_request, reserve_operation, publish_uncertainty
+        from kapisch_core.protocol import (
+            persist_request,
+            publish_state,
+            publish_uncertainty,
+            reserve_operation,
+        )
 
         operation_id = f"op-{number:032x}"
         stage_id = f"s-{number:032x}"
@@ -77,10 +89,24 @@ class ValidationTests(unittest.TestCase):
         publish_uncertainty(self.repo, run_id, state, 0, operation_id)
         return state, stage, evidence
 
-    def test_rejects_weakened_retained_identity_schemas(self) -> None:
+    def test_empty_run_validates_for_new_and_legacy_identity_contracts(self) -> None:
         from kapisch_core.protocol import publish_state
         from kapisch_core.storage import store_bundle
         from kapisch_core.validation import validate_run
+
+        for name, bundle_bytes in (
+            ("new", self.bundle),
+            ("legacy", (ROOT / "tests/conformance/fixtures/v3/legacy-bundle.json").read_bytes()),
+        ):
+            digest = store_bundle(self.repo, bundle_bytes)
+            run_id = f"run-identity-{name}"
+            state = {**self.state, "run_id": run_id, "bundle_digest": digest}
+            publish_state(self.repo, run_id, state, expected_revision=-1)
+            self.assertEqual(validate_run(self.repo, run_id), [])
+
+    def test_rejects_weakened_retained_identity_schemas(self) -> None:
+        from kapisch_core.protocol import publish_state
+        from kapisch_core.storage import store_bundle
 
         mutations = ("missing-marker", "wrong-marker", "weakened-stage-id", "missing-invocation-request",
                      "missing-scope-requirements", "open-scope", "weakened-node-id", "weakened-dependencies",
@@ -149,13 +175,120 @@ class ValidationTests(unittest.TestCase):
             bundle_digest = store_bundle(self.repo, self.canonical_json(bundle))
             run_id = f"run-identity-schema-{mutation}"
             state = {**self.state, "run_id": run_id, "bundle_digest": bundle_digest}
-            publish_state(self.repo, run_id, state, expected_revision=-1)
+            with self.assertRaisesRegex(ValueError, "alters supported stage-attempt/1"):
+                publish_state(self.repo, run_id, state, expected_revision=-1)
+
+    def test_changed_during_validation_rereads_persisted_state(self) -> None:
+        from unittest.mock import patch
+
+        import kapisch_core.validation as validation
+        from kapisch_core.protocol import publish_state
+        from kapisch_core.validation import validate_run
+
+        run_id = "run-validation-replacement"
+        state = {**self.state, "run_id": run_id}
+        publish_state(self.repo, run_id, state, -1)
+        original = validation._load_run_context
+        calls = 0
+
+        def replace_before_verification(repo, requested_run_id, data=None):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                changed = {**state, "revision": 1}
+                (self.repo / ".kapisch/v3/runs" / run_id / "state.json").write_bytes(self.canonical_json(changed))
+            return original(repo, requested_run_id, data)
+
+        with patch.object(validation, "_load_run_context", side_effect=replace_before_verification):
             errors = validate_run(self.repo, run_id)
-            self.assertTrue(any(error.code == "identity-contract-unsupported" for error in errors),
-                            (mutation, errors))
+        self.assertTrue(any("changed during validation" in error.message for error in errors), errors)
+
+    def test_new_checked_plan_is_not_read_by_legacy_plan_consumer(self) -> None:
+        from unittest.mock import patch
+
+        import kapisch_core.validation as validation
+        from kapisch_core.protocol import publish_state
+        from kapisch_core.validation import validate_run
+
+        run_id = "run-checked-plan-unconsumed"
+        state = {**self.state, "run_id": run_id, "approved_plan": {
+            "plan_id": "plan-new", "path": "plans/must-not-open.json", "plan_sha256": "a" * 64,
+            "gate_approval_ref": {"approval_id": "approval-1", "sha256": "b" * 64}}}
+        publish_state(self.repo, run_id, state, -1)
+        with patch.object(validation, "_validate_plan") as plan_reader:
+            errors = validate_run(self.repo, run_id)
+        plan_reader.assert_not_called()
+        self.assertTrue(any(error.code == "unsupported-gate" for error in errors), errors)
+
+    def test_validate_run_checks_legacy_snapshot_artifact(self) -> None:
+        from kapisch_core.storage import store_bundle
+        from kapisch_core.validation import validate_run
+
+        bundle_bytes = (ROOT / "tests/conformance/fixtures/v3/legacy-bundle.json").read_bytes()
+        digest = store_bundle(self.repo, bundle_bytes)
+        run_id = "run-legacy-snapshot-missing"
+        state = {**self.state, "run_id": run_id, "bundle_digest": digest,
+                 "accepted_snapshot": {"snapshot_id": "snap-missing", "path": "snapshots/missing.json",
+                                        "sha256": "0" * 64},
+                 "amends": [], "supersedes": []}
+        self._write_state(state)
+        errors = validate_run(self.repo, run_id)
+        self.assertTrue(any("accepted snapshot artifact is unavailable" in error.message for error in errors), errors)
+
+    def test_validate_run_checks_legacy_root_and_recursive_snapshot_corruption(self) -> None:
+        from kapisch_core.storage import store_bundle
+        from kapisch_core.validation import validate_run
+
+        bundle = (ROOT / "tests/conformance/fixtures/v3/legacy-bundle.json").read_bytes()
+        digest = store_bundle(self.repo, bundle)
+        scenarios = ("root-digest", "dependency-missing", "dependency-digest", "dependency-identity")
+        for index, scenario in enumerate(scenarios):
+            run_id = f"run-legacy-snapshot-corruption-{index}"
+            root = self.repo / ".kapisch/v3/runs" / run_id / "snapshots"
+            root.mkdir(parents=True)
+            child_path = root / "child.json"
+            child_id = "snap-child"
+            child = {"protocol_version": 3, "snapshot_id": child_id, "decision": "accepted", "scope": "task",
+                     "dependencies": [], "amends": [], "supersedes": []}
+            child_bytes = self.canonical_json(child)
+            if scenario == "dependency-identity":
+                child["snapshot_id"] = "wrong-child"
+                child_bytes = self.canonical_json(child)
+            child_digest = hashlib.sha256(child_bytes).hexdigest()
+            if scenario != "dependency-missing":
+                child_path.write_bytes(child_bytes)
+            expected_child_digest = ("0" * 64 if scenario == "dependency-digest" else child_digest)
+            dependency = {"kind": "snapshot", "snapshot_id": child_id, "path": "snapshots/child.json",
+                          "sha256": expected_child_digest}
+            root_doc = {"protocol_version": 3, "snapshot_id": "snap-root", "decision": "accepted", "scope": "task",
+                        "dependencies": [] if scenario == "root-digest" else [dependency],
+                        "amends": [], "supersedes": []}
+            root_bytes = self.canonical_json(root_doc)
+            root_path = root / "root.json"
+            root_path.write_bytes(root_bytes)
+            ref = {"snapshot_id": "snap-root", "path": "snapshots/root.json",
+                   "sha256": hashlib.sha256(root_bytes).hexdigest()}
+            if scenario == "root-digest":
+                root_path.write_bytes(self.canonical_json({**root_doc, "decision": "rejected"}))
+            state = {**self.state, "run_id": run_id, "bundle_digest": digest,
+                     "accepted_snapshot": ref, "amends": [], "supersedes": []}
+            self._write_state(state)
+            errors = validate_run(self.repo, run_id)
+            expected_message = {
+                "root-digest": "accepted snapshot artifact digest changed",
+                "dependency-missing": "snapshot dependency artifact is unavailable",
+                "dependency-digest": "snapshot dependency artifact digest changed",
+                "dependency-identity": "snapshot dependency identity does not match artifact",
+            }[scenario]
+            self.assertTrue(any(expected_message in error.message for error in errors), (scenario, errors))
 
     def test_operation_input_snapshot_cannot_precede_owner_creation(self) -> None:
-        from kapisch_core.protocol import persist_request, publish_state, publish_uncertainty, reserve_operation
+        from kapisch_core.protocol import (
+            persist_request,
+            publish_state,
+            publish_uncertainty,
+            reserve_operation,
+        )
         from kapisch_core.validation import validate_run
 
         run_id = "run-input-before-attempt"
@@ -208,7 +341,6 @@ class ValidationTests(unittest.TestCase):
 
     def test_planned_only_reservation_is_bound_by_retained_invocation_contract(self) -> None:
         from kapisch_core.storage import store_bundle
-        from kapisch_core.validation import validate_run
 
         original_digest = self.digest
         original_state = self.state
@@ -218,20 +350,11 @@ class ValidationTests(unittest.TestCase):
             self.digest = store_bundle(self.repo, self.canonical_json(bundle))
             self.state = {**original_state, "bundle_digest": self.digest}
             run_id = f"run-planned-schema-{number}"
-            state, stage, evidence = self._publish_uncertain_attempt(run_id, number)
-            operation_id = next(ref["path"].split("/")[1] for ref in evidence
-                                if ref["path"].endswith("/planned.json"))
-            run_root = self.repo / ".kapisch/v3/runs" / run_id
-            (run_root / "invocations" / operation_id / "dispatch-uncertain.json").unlink()
-            planned_evidence = [ref for ref in evidence if ref["kind"] in {"request", "protocol"}
-                                and not ref["path"].endswith("/dispatch-uncertain.json")]
-            blocked = {**stage, "sequence": 1, "status": "blocked", "evidence": planned_evidence}
-            self._write_state({**state, "revision": 1, "history": [stage, blocked]})
-            errors = validate_run(self.repo, run_id)
-            self.assertTrue(any(error.code == "identity-contract-unsupported" for error in errors),
-                            (field, errors))
+            with self.assertRaisesRegex(ValueError, "alters supported stage-attempt/1"):
+                self._publish_uncertain_attempt(run_id, number)
         self.digest = original_digest
         self.state = original_state
+
 
     def test_retained_identity_contract_survives_policy_only_bundle_upgrade(self) -> None:
         from kapisch_core.protocol import publish_state
@@ -255,6 +378,7 @@ class ValidationTests(unittest.TestCase):
 
     def test_filesystem_inspection_errors_return_typed_validation_errors(self) -> None:
         from unittest.mock import patch
+
         from kapisch_core.validation import validate_run
 
         self._write_state()
@@ -306,6 +430,7 @@ class ValidationTests(unittest.TestCase):
 
     def test_cold_restart_reads_only_persisted_state(self) -> None:
         import os
+
         from kapisch_core.protocol import publish_state
 
         publish_state(self.repo, self.state["run_id"], self.state, expected_revision=-1)
@@ -329,7 +454,11 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual([error.code for error in errors], ["unsupported-gate"])
 
     def test_orphaned_reservation_vetoes_authority(self) -> None:
-        from kapisch_core.protocol import publish_state, persist_request, reserve_operation
+        from kapisch_core.protocol import (
+            persist_request,
+            publish_state,
+            reserve_operation,
+        )
         from kapisch_core.validation import validate_run
 
         run_id = "run-orphan-reservation"
@@ -403,6 +532,7 @@ class ValidationTests(unittest.TestCase):
                                 for error in errors), errors)
 
     def test_validates_milestone_scope_graph_and_plan_binding(self) -> None:
+        self._use_legacy_bundle()
         from kapisch_core.protocol import publish_state
         from kapisch_core.storage import store_bundle
         from kapisch_core.validation import validate_run
@@ -527,6 +657,7 @@ class ValidationTests(unittest.TestCase):
         self.assertTrue(validate_run(self.repo, valid["run_id"]))
 
     def test_operation_request_must_match_current_plan_for_graph_free_and_run_wide_milestone(self) -> None:
+        self._use_legacy_bundle()
         from kapisch_core.validation import validate_run
 
         for number, workflow in ((22, "task"), (23, "milestone")):
@@ -546,6 +677,7 @@ class ValidationTests(unittest.TestCase):
             self.assertTrue(validate_run(self.repo, run_id))
 
     def test_approved_plan_artifact_is_resolved_without_graph(self) -> None:
+        self._use_legacy_bundle()
         from kapisch_core.protocol import publish_state
         from kapisch_core.validation import validate_run
 
@@ -570,9 +702,33 @@ class ValidationTests(unittest.TestCase):
                 self._write_state({**state, "approved_plan": ref})
                 self.assertTrue(validate_run(self.repo, run_id))
 
+    def test_new_bundle_rejects_legacy_approved_plan_reference_shape(self) -> None:
+        from kapisch_core.protocol import publish_state
+
+        run_id = "run-new-bundle-legacy-plan-ref"
+        run_root = self.repo / ".kapisch/v3/runs" / run_id
+        plan_body = self.canonical_json({"plan_id": "plan-matching"})
+        plan_path = "plans/plan-matching.json"
+        (run_root / plan_path).parent.mkdir(parents=True)
+        (run_root / plan_path).write_bytes(plan_body)
+        state = {**self.state, "run_id": run_id, "approved_plan": {
+            "plan_id": "plan-matching", "path": plan_path,
+            "sha256": hashlib.sha256(plan_body).hexdigest(),
+        }}
+        with self.assertRaisesRegex(ValueError, "missing gate_approval_ref.*unknown field sha256"):
+            publish_state(self.repo, run_id, state, expected_revision=-1)
+
+        self.assertFalse((self.repo / ".kapisch/v3/runs" / run_id / "state.json").exists())
+
+
     def test_invocation_fact_must_be_cited_by_owning_attempt(self) -> None:
         from kapisch_core.bundle import canonical_json
-        from kapisch_core.protocol import publish_state, persist_request, reserve_operation, publish_uncertainty
+        from kapisch_core.protocol import (
+            persist_request,
+            publish_state,
+            publish_uncertainty,
+            reserve_operation,
+        )
         from kapisch_core.validation import validate_run
 
         run_id = "run-invocation-owner"
@@ -611,7 +767,11 @@ class ValidationTests(unittest.TestCase):
         self.assertTrue(any(error.code == "inventory-veto" for error in errors), errors)
 
     def test_blocked_before_dispatch_requires_reservation_without_uncertainty(self) -> None:
-        from kapisch_core.protocol import persist_request, publish_state, reserve_operation
+        from kapisch_core.protocol import (
+            persist_request,
+            publish_state,
+            reserve_operation,
+        )
         from kapisch_core.validation import validate_run
 
         run_id = "run-blocked-before-dispatch"
@@ -684,7 +844,11 @@ class ValidationTests(unittest.TestCase):
         self.assertTrue(any(error.code == "inventory-veto" for error in errors), errors)
 
     def test_nonplanned_fact_cannot_be_borrowed_from_another_attempt(self) -> None:
-        from kapisch_core.protocol import publish_state, persist_request, reserve_operation
+        from kapisch_core.protocol import (
+            persist_request,
+            publish_state,
+            reserve_operation,
+        )
         from kapisch_core.validation import validate_run
 
         run_id = "run-borrowed-observation"
@@ -724,7 +888,12 @@ class ValidationTests(unittest.TestCase):
 
     def test_restored_planned_prefix_is_vetoed_by_uncertain_fact(self) -> None:
         from kapisch_core.bundle import canonical_json
-        from kapisch_core.protocol import publish_state, persist_request, reserve_operation, publish_uncertainty
+        from kapisch_core.protocol import (
+            persist_request,
+            publish_state,
+            publish_uncertainty,
+            reserve_operation,
+        )
         from kapisch_core.validation import validate_run
 
         run_id = "run-uncertain-veto"
@@ -760,6 +929,7 @@ class ValidationTests(unittest.TestCase):
         self.assertTrue(any(error.code == "inventory-veto" for error in errors), errors)
 
     def test_graph_cycle_is_blocked(self) -> None:
+        self._use_legacy_bundle()
         from kapisch_core.protocol import publish_state
         from kapisch_core.validation import validate_run
 
@@ -796,6 +966,7 @@ class ValidationTests(unittest.TestCase):
         self.assertTrue(any("cycle" in error.message for error in errors), errors)
 
     def test_graph_node_ids_must_use_exact_syntax(self) -> None:
+        self._use_legacy_bundle()
         from kapisch_core.protocol import publish_state
         from kapisch_core.validation import validate_run
 
@@ -832,7 +1003,7 @@ class ValidationTests(unittest.TestCase):
             self.assertTrue(any(expected_error in error.message for error in errors), (suffix, errors))
 
     def test_rejects_multiple_reservations_for_one_attempt(self) -> None:
-        from kapisch_core.protocol import publish_state, persist_request
+        from kapisch_core.protocol import persist_request, publish_state
         from kapisch_core.validation import validate_run
 
         run_id = "run-duplicate-attempt-operations"

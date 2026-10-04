@@ -6,6 +6,7 @@ from typing import Any, Mapping
 
 from .bundle import CoreBundle, canonical_json
 
+
 def _resolve_ref(bundle: CoreBundle, ref: str, local_root: Mapping[str, Any]) -> tuple[Mapping[str, Any], str]:
     schema_id, _, fragment = ref.partition("#")
     if ref.startswith("#"):
@@ -78,6 +79,9 @@ def _matches(value: Any, schema: Mapping[str, Any], root: Mapping[str, Any], bun
             if key in value:
                 _matches(value[key], child, root, bundle, errors, f"{path}.{key}")
     if isinstance(value, list):
+        minimum_items = schema.get("minItems")
+        if minimum_items is not None and len(value) < minimum_items:
+            errors.append(f"{path}: array has fewer than {minimum_items} items")
         if schema.get("uniqueItems") and len({canonical_json(item) for item in value}) != len(value):
             errors.append(f"{path}: duplicate array item")
         if "items" in schema:
@@ -107,10 +111,22 @@ def _matches(value: Any, schema: Mapping[str, Any], root: Mapping[str, Any], bun
         if not condition:
             errors.append(f"{path}: forbidden shape")
 
-def _validate_schema(value: Any, schema_name: str, bundle: CoreBundle) -> None:
-    schema = bundle.payload["schemas"][schema_name]
+def _validate_schema(
+    value: Any,
+    schema_name: str,
+    bundle: CoreBundle,
+    *,
+    definition_name: str | None = None,
+) -> None:
+    root = bundle.payload["schemas"][schema_name]
+    schema = root
+    if definition_name is not None:
+        definitions = root.get("$defs")
+        if not isinstance(definitions, Mapping) or not isinstance(definitions.get(definition_name), Mapping):
+            raise ValueError(f"schema definition is unavailable: {schema_name}#/$defs/{definition_name}")
+        schema = definitions[definition_name]
     errors: list[str] = []
-    _matches(value, schema, schema, bundle, errors, "$" )
+    _matches(value, schema, root, bundle, errors, "$")
     if errors:
         raise ValueError("; ".join(errors))
 
@@ -151,7 +167,19 @@ _IDENTITY_SCHEMA_KEYWORDS = frozenset({"additionalItems", "additionalProperties"
 
 _IDENTITY_SCHEMA_ARRAY_KEYWORDS = frozenset({"allOf", "anyOf", "oneOf", "prefixItems"})
 
-_SUPPORTED_IDENTITY_SCHEMA_DIGEST = "38ddaff3875010673d485689142ea500b3b6af85569942838ebbc91e1e22e108"
+_SUPPORTED_IDENTITY_SCHEMA_DIGESTS = {
+    None: "38ddaff3875010673d485689142ea500b3b6af85569942838ebbc91e1e22e108",
+    "global-authority/1": "48410162b2d3caa9518d26409e59eb929ee486a5837dbdfda324699f1b87a474",
+}
+
+# Freeze gate-schema semantics to the authority-contract version;
+# never replace a digest in-place.
+_SUPPORTED_GLOBAL_GATE_SCHEMA_DIGESTS = {
+    "global-authority/1": frozenset({
+        "cf5cde51be87a37c5585c00dcc8ab64c66c4f83cff20a77d7bc2d6b0840332e0"
+    }),
+}
+
 
 def _identity_schema_shape(value: Any, *, schema_node: bool = True) -> Any:
     if isinstance(value, Mapping):
@@ -172,26 +200,53 @@ def _identity_schema_shape(value: Any, *, schema_node: bool = True) -> Any:
         return [_identity_schema_shape(child, schema_node=False) for child in value]
     return value
 
-def _require_supported_identity_schemas(schemas: Mapping[str, Any]) -> None:
+def _require_supported_identity_schemas(schemas: Mapping[str, Any], authority_contract: Any) -> None:
+    expected_digest = _SUPPORTED_IDENTITY_SCHEMA_DIGESTS.get(authority_contract)
     shape = {name: _identity_schema_shape(schemas.get(name))
              for name in ("bundle", "invocation", "run", "stage")}
-    if any(not isinstance(schema, Mapping) for schema in shape.values()) or hashlib.sha256(
+    if expected_digest is None or any(not isinstance(schema, Mapping) for schema in shape.values()) or hashlib.sha256(
         canonical_json(shape)
-    ).hexdigest() != _SUPPORTED_IDENTITY_SCHEMA_DIGEST:
+    ).hexdigest() != expected_digest:
         raise ValueError("retained bundle alters supported stage-attempt/1 schema rules")
+
+
+def _require_supported_global_gate_schemas(
+    schemas: Mapping[str, Any], authority_contract: str | None
+) -> None:
+    if authority_contract is None:
+        return
+    expected_digests = _SUPPORTED_GLOBAL_GATE_SCHEMA_DIGESTS.get(
+        authority_contract
+    )
+    names = ("approval", "human-action", "scope")
+    shape = {name: _identity_schema_shape(schemas.get(name)) for name in names}
+    if (
+        expected_digests is None
+        or any(not isinstance(schemas.get(name), Mapping) for name in names)
+        or hashlib.sha256(canonical_json(shape)).hexdigest()
+        not in expected_digests
+    ):
+        raise ValueError(
+            "retained bundle alters supported global-authority/1 gate schemas"
+        )
+
 
 def _validate_identity_contract(bundle: CoreBundle) -> None:
     schemas = bundle.payload["schemas"]
-    _require_supported_identity_schemas(schemas)
+    contract = bundle.payload.get("authority_contract")
+    if contract is not None and (not isinstance(contract, str) or contract != "global-authority/1"):
+        raise ValueError("unsupported authority contract")
+    _require_supported_identity_schemas(schemas, contract)
+    _require_supported_global_gate_schemas(schemas, contract)
     run = schemas.get("run")
-    _validate_run_identity_schema(run)
+    _validate_run_identity_schema(run, contract)
     definitions = run.get("$defs", {}) if isinstance(run, Mapping) else None
     _validate_graph_identity_schemas(definitions)
     _validate_stage_identity_schema(schemas.get("stage"))
     _validate_invocation_identity_schema(schemas.get("invocation"))
 
 
-def _validate_run_identity_schema(run: Any) -> None:
+def _validate_run_identity_schema(run: Any, authority_contract: str | None) -> None:
     if not isinstance(run, Mapping) or run.get("$id") != "kapisch://schemas/v3/run":
         raise ValueError("retained bundle lacks supported stage-attempt/1 run schema")
     _require_schema_shape("run", run,
@@ -202,8 +257,12 @@ def _validate_run_identity_schema(run: Any) -> None:
                            "workflow":{"enum":["advisory","review","task","milestone"]},
                            "history":{"type":"array","items":{"$ref":"kapisch://schemas/v3/stage"}},
                            "approved_plan":{"$ref":"#/$defs/plan_ref"},"graph":{"$ref":"#/$defs/graph_ref"}},
-                          {"protocol_version", "run_id", "bundle_digest", "workflow", "revision", "history",
-                           "accepted_snapshot", "approved_plan", "amends", "supersedes", "identity_contract", "graph"})
+                           ({"protocol_version", "run_id", "bundle_digest", "workflow", "revision", "history",
+                             "accepted_snapshot", "approved_plan", "amends", "supersedes", "identity_contract",
+                             "graph", "acceptance_ref", "scope_ref", "work_scope_refs"}
+                            if authority_contract == "global-authority/1" else
+                            {"protocol_version", "run_id", "bundle_digest", "workflow", "revision", "history",
+                             "accepted_snapshot", "approved_plan", "amends", "supersedes", "identity_contract", "graph"}))
 
 
 def _validate_graph_identity_schemas(definitions: Any) -> None:
