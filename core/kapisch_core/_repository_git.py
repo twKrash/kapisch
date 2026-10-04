@@ -305,3 +305,24 @@ def capture_index(repo, identity=None):
         if any(flag in (b"S", b"s") for flag in records):
             raise RepositoryCaptureError("skip-worktree unsupported")
     return tuple(sorted(out, key=lambda x: (x.path, x.stage)))
+
+
+def capture_untracked(repo, identity=None):
+    seen = set()
+    paths = []
+    for path in _records(
+        _git(
+            repo,
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+            "-z",
+            identity=identity,
+        )
+    ):
+        _validate_path(path)
+        if path in seen:
+            raise RepositoryCaptureError("duplicate untracked path")
+        seen.add(path)
+        paths.append(path)
+    return tuple(sorted(paths))

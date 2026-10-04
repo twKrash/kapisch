@@ -1,3 +1,4 @@
+import hashlib
 import importlib
 import os
 import subprocess
@@ -10,9 +11,11 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).parents[2] / "core"))
 
 _repository = importlib.import_module("kapisch_core.repository")
+_repository_worktree = importlib.import_module("kapisch_core._repository_worktree")
 RepositoryCaptureError = _repository.RepositoryCaptureError
 capture_head = _repository.capture_head
 capture_index = _repository.capture_index
+capture_worktree = _repository.capture_worktree
 
 
 class RepositoryGitCaptureTests(unittest.TestCase):
@@ -109,6 +112,7 @@ class RepositoryGitCaptureTests(unittest.TestCase):
                         ("git", "-C", str(root), "cat-file", "-e", missing),
                         env=probe_env,
                         capture_output=True,
+                        check=False,
                     )
                     self.assertNotEqual(probe.returncode, 0)
 
@@ -155,6 +159,7 @@ class RepositoryGitCaptureTests(unittest.TestCase):
         merge = subprocess.run(
             ("git", "-C", str(self.root), "merge", "side"),
             capture_output=True,
+            check=False,
         )
         self.assertNotEqual(merge.returncode, 0)
         entries = capture_index(self.root)
@@ -178,6 +183,109 @@ class RepositoryGitCaptureTests(unittest.TestCase):
         )
         with self.assertRaises(RepositoryCaptureError):
             capture_index(self.root)
+
+    def test_worktree_digests_tracked_untracked_and_symlink_bytes(self):
+        link = self.root / "link"
+        os.symlink("tracked", link)
+        self.git("add", "-A")
+        self.git("commit", "-qm", "symlink")
+        (self.root / "new").write_bytes(b"new")
+        state = capture_worktree(
+            self.root, capture_index(self.root), (b"new",)
+        )
+        entries = {entry.path: entry for entry in state.worktree}
+        self.assertEqual(entries[b"link"].kind, "symlink")
+        self.assertEqual(entries[b"link"].mode, "120000")
+        self.assertEqual(
+            entries[b"link"].sha256,
+            hashlib.sha256(b"tracked").hexdigest(),
+        )
+        untracked = {entry.path: entry for entry in state.untracked}
+        self.assertTrue(untracked[b"new"].included)
+        self.assertEqual(
+            untracked[b"new"].sha256,
+            hashlib.sha256(b"new").hexdigest(),
+        )
+
+    def test_worktree_modes_deletions_and_unincluded_inventory(self):
+        self.git("update-index", "--chmod=+x", "--", "tracked")
+        os.chmod(self.root / "tracked", 0o755)
+        (self.root / "extra").write_bytes(b"extra")
+        state = capture_worktree(self.root, capture_index(self.root))
+        tracked = {entry.path: entry for entry in state.worktree}
+        self.assertEqual(tracked[b"tracked"].mode, "100755")
+        untracked = {entry.path: entry for entry in state.untracked}
+        self.assertFalse(untracked[b"extra"].included)
+        self.assertNotIn("sha256", untracked[b"extra"])
+
+        (self.root / "tracked").unlink()
+        deleted = capture_worktree(self.root, capture_index(self.root))
+        entry = {item.path: item for item in deleted.worktree}[b"tracked"]
+        self.assertEqual(entry.kind, "deletion")
+        self.assertEqual(entry.mode, "000000")
+        self.assertNotIn("sha256", entry.to_dict())
+
+    def test_included_untracked_paths_require_regular_files(self):
+        os.symlink("tracked", self.root / "link")
+        with self.assertRaises(RepositoryCaptureError):
+            capture_worktree(
+                self.root, capture_index(self.root), (b"link",)
+            )
+
+    def test_untracked_inventory_preserves_raw_paths_and_ignores_files(self):
+        raw_path = b"raw-\n\xff"
+        fd = os.open(
+            os.fsencode(self.root) + b"/" + raw_path,
+            os.O_WRONLY | os.O_CREAT,
+            0o644,
+        )
+        try:
+            os.write(fd, b"raw")
+        finally:
+            os.close(fd)
+        (self.root / ".gitignore").write_text("ignored\n")
+        (self.root / "ignored").write_bytes(b"ignored")
+        self.git("add", ".gitignore")
+        self.git("commit", "-qm", "ignore")
+        state = capture_worktree(
+            self.root, capture_index(self.root), (raw_path,)
+        )
+        paths = {entry.path: entry for entry in state.untracked}
+        self.assertTrue(paths[raw_path].included)
+        self.assertNotIn(b"ignored", paths)
+
+    def test_worktree_rejects_malformed_index(self):
+        with self.assertRaises(RepositoryCaptureError):
+            capture_worktree(self.root, (object(),))
+
+    def test_worktree_rejects_replaced_parent_during_read(self):
+        parent = self.root / "a"
+        parent.mkdir()
+        (parent / "old-child").write_bytes(b"old")
+        rootfd = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY)
+        original_open = _repository_worktree.os.open
+        replaced = False
+
+        def replace_parent(name, flags, *args, **kwargs):
+            nonlocal replaced
+            if name == b"b" and not replaced:
+                replaced = True
+                parent.rename(self.root / "old-a")
+                parent.mkdir()
+            return original_open(name, flags, *args, **kwargs)
+
+        try:
+            with (
+                patch.object(
+                    _repository_worktree.os, "open", side_effect=replace_parent
+                ),
+                self.assertRaises(RepositoryCaptureError),
+            ):
+                _repository_worktree._read(rootfd, b"a/b/file")
+        finally:
+            os.close(rootfd)
+        self.assertTrue(parent.is_dir())
+        self.assertTrue((self.root / "old-a").is_dir())
 
     def test_unborn_head_and_invalid_roots_are_rejected(self):
         unborn = Path(self.tmp.name) / "unborn"
@@ -206,7 +314,9 @@ class RepositoryGitCaptureTests(unittest.TestCase):
         self.git_at(root, "commit", "-qm", "initial")
 
         self.assertEqual(capture_head(root).object_format, "sha1")
-        self.assertEqual(len(capture_index(root)), 1)
+        index = capture_index(root)
+        self.assertEqual(len(index), 1)
+        self.assertEqual(len(capture_worktree(root, index).worktree), 1)
 
     def test_capture_index_disables_local_and_global_fsmonitor_hooks(self):
         marker = Path(self.tmp.name) / "fsmonitor-marker"
