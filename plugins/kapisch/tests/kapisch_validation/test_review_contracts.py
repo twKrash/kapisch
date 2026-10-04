@@ -3,7 +3,6 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -39,7 +38,9 @@ class ReviewContractTests(unittest.TestCase):
             iteration_scope,
         )
         self.assertIn("not automatically `material-scope-expansion`", iteration_scope)
-        self.assertNotIn("If one is blocking for the iteration's safety", iteration_scope)
+        self.assertNotIn(
+            "If one is blocking for the iteration's safety", iteration_scope
+        )
 
         self.assertIn("New code reaches a pre-existing defective path", scenarios)
         self.assertIn("Unrelated pre-existing defect", scenarios)
@@ -99,7 +100,9 @@ class ReviewContractTests(unittest.TestCase):
     def test_raised_risk_recomputes_derived_lenses(self) -> None:
         risk = " ".join(contract("skills/kapisch/references/risk.md").split())
         profile = " ".join(contract("agents/kapisch-reviewer.toml").split())
-        scenarios = " ".join(contract("skills/kapisch/references/pressure-scenarios.md").split())
+        scenarios = " ".join(
+            contract("skills/kapisch/references/pressure-scenarios.md").split()
+        )
 
         for required in (
             "When mandatory discovery reveals a trigger, recompute derived lenses from all discovered triggers whenever `focus=auto` is enabled, even when risk and depth remain unchanged",
@@ -116,8 +119,14 @@ class ReviewContractTests(unittest.TestCase):
         ):
             self.assertIn(required, profile)
 
-        self.assertIn("`focus=auto` is enabled and discovery reveals a same-level trigger", scenarios)
-        self.assertIn("Explicit-only `focus=security,permissions` is active and discovery reveals a migration trigger", scenarios)
+        self.assertIn(
+            "`focus=auto` is enabled and discovery reveals a same-level trigger",
+            scenarios,
+        )
+        self.assertIn(
+            "Explicit-only `focus=security,permissions` is active and discovery reveals a migration trigger",
+            scenarios,
+        )
 
     def test_semantic_bundles_remain_internal_to_one_review(self) -> None:
         review = contract("skills/kapisch/references/review.md")

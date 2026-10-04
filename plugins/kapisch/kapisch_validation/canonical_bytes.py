@@ -9,7 +9,9 @@ import math
 
 def _validate_json_value(value: object) -> None:
     if value is None or isinstance(value, (str, bool, int)):
-        if isinstance(value, str) and any(0xD800 <= ord(char) <= 0xDFFF for char in value):
+        if isinstance(value, str) and any(
+            0xD800 <= ord(char) <= 0xDFFF for char in value
+        ):
             raise ValueError("JSON strings cannot contain unpaired Unicode surrogates")
         return
     if isinstance(value, float):
@@ -25,7 +27,9 @@ def _validate_json_value(value: object) -> None:
             if not isinstance(key, str):
                 raise ValueError("JSON object keys must be strings")
             if any(0xD800 <= ord(char) <= 0xDFFF for char in key):
-                raise ValueError("JSON object keys cannot contain unpaired Unicode surrogates")
+                raise ValueError(
+                    "JSON object keys cannot contain unpaired Unicode surrogates"
+                )
             _validate_json_value(item)
         return
     raise ValueError(f"unsupported JSON value: {type(value).__name__}")
@@ -39,7 +43,9 @@ def canonical_text_bytes(text: str) -> bytes:
         raise ValueError("UTF-8 BOM is not permitted")
     if any(0xD800 <= ord(char) <= 0xDFFF for char in text):
         raise ValueError("text cannot contain unpaired Unicode surrogates")
-    return (text.replace("\r\n", "\n").replace("\r", "\n").rstrip("\n") + "\n").encode("utf-8")
+    return (text.replace("\r\n", "\n").replace("\r", "\n").rstrip("\n") + "\n").encode(
+        "utf-8"
+    )
 
 
 def normalize_utf8_text(data: bytes) -> bytes:
@@ -55,7 +61,13 @@ def normalize_utf8_text(data: bytes) -> bytes:
 def canonical_json_bytes(value: object) -> bytes:
     """Encode a JSON-compatible value with deterministic UTF-8 JSON spelling."""
     _validate_json_value(value)
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
 
 
 def canonical_json_line(value: object) -> bytes:

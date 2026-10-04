@@ -14,9 +14,15 @@ import sys
 import tempfile
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
-REQUIRED_MANIFEST_KEYS = {"name", "version", "description", "author", "skills", "interface"}
+REQUIRED_MANIFEST_KEYS = {
+    "name",
+    "version",
+    "description",
+    "author",
+    "skills",
+    "interface",
+}
 
 
 def main() -> int:
@@ -62,7 +68,14 @@ def main() -> int:
             print("portable package isolation retained an installed Codex profile")
             return 1
         result = subprocess.run(
-            [sys.executable, "-m", "unittest", "discover", "-s", "tests/kapisch_validation"],
+            [
+                sys.executable,
+                "-m",
+                "unittest",
+                "discover",
+                "-s",
+                "tests/kapisch_validation",
+            ],
             cwd=installed,
             text=True,
         )
@@ -70,7 +83,9 @@ def main() -> int:
             return result.returncode
         consumer = Path(tmp) / "consumer"
         run = consumer / ".kapisch" / "runs" / "dogfood"
-        shutil.copytree(installed / "tests/kapisch_validation/fixtures/valid-sequential-v2", run)
+        shutil.copytree(
+            installed / "tests/kapisch_validation/fixtures/valid-sequential-v2", run
+        )
         result = subprocess.run(
             [
                 sys.executable,

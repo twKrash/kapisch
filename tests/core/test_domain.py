@@ -8,6 +8,7 @@ import kapisch_core.capabilities as capabilities
 import kapisch_core.domain as domain
 import kapisch_core.policy as policy
 
+
 def evaluate(
     workflow: domain.Workflow,
     stage: domain.Stage,
@@ -32,17 +33,36 @@ class Stage1DomainTests(unittest.TestCase):
     def test_closed_vocabularies_and_transition_type_are_core_owned(self) -> None:
         self.assertEqual(
             {item.value for item in domain.Role},
-            {"architect", "researcher", "implementer", "implementer-lite", "mechanic", "reviewer"},
+            {
+                "architect",
+                "researcher",
+                "implementer",
+                "implementer-lite",
+                "mechanic",
+                "reviewer",
+            },
         )
-        self.assertEqual({item.value for item in domain.Workflow}, {"advisory", "review", "task", "milestone"})
-        self.assertEqual({item.value for item in domain.Risk}, {"low", "medium", "high"})
-        self.assertEqual({item.value for item in domain.LogicalTier}, {"cheap", "standard", "high"})
+        self.assertEqual(
+            {item.value for item in domain.Workflow},
+            {"advisory", "review", "task", "milestone"},
+        )
+        self.assertEqual(
+            {item.value for item in domain.Risk}, {"low", "medium", "high"}
+        )
+        self.assertEqual(
+            {item.value for item in domain.LogicalTier}, {"cheap", "standard", "high"}
+        )
         self.assertEqual(
             {item.value for item in domain.ExecutionClass},
             {"mechanical", "prescriptive", "bounded", "design"},
         )
-        self.assertEqual({item.value for item in domain.Gate}, {"human-decision", "approval", "side-effect"})
-        self.assertEqual({item.value for item in domain.ReviewDepth}, {"quick", "standard", "deep"})
+        self.assertEqual(
+            {item.value for item in domain.Gate},
+            {"human-decision", "approval", "side-effect"},
+        )
+        self.assertEqual(
+            {item.value for item in domain.ReviewDepth}, {"quick", "standard", "deep"}
+        )
         self.assertEqual(
             {item.value for item in domain.ReviewScope},
             {"standalone", "iteration", "whole-branch"},
@@ -56,18 +76,55 @@ class Stage1DomainTests(unittest.TestCase):
         self.assertTrue(domain.Transition.__dataclass_params__.frozen)
         with self.assertRaises(TypeError):
             domain.Transition(domain.TransitionKind.COMPLETE, domain.Stage.GATE, [])
-        transition_fields = {field.name for field in dataclasses.fields(domain.Transition)}
+        transition_fields = {
+            field.name for field in dataclasses.fields(domain.Transition)
+        }
         self.assertFalse({"from_state", "to_state"} & transition_fields)
 
     def test_implementation_assignment_floors(self) -> None:
         cases = (
-            (domain.ExecutionClass.MECHANICAL, domain.Risk.LOW, domain.Role.MECHANIC, domain.LogicalTier.CHEAP),
-            (domain.ExecutionClass.MECHANICAL, domain.Risk.HIGH, domain.Role.MECHANIC, domain.LogicalTier.CHEAP),
-            (domain.ExecutionClass.PRESCRIPTIVE, domain.Risk.LOW, domain.Role.IMPLEMENTER_LITE, domain.LogicalTier.CHEAP),
-            (domain.ExecutionClass.PRESCRIPTIVE, domain.Risk.MEDIUM, domain.Role.IMPLEMENTER_LITE, domain.LogicalTier.CHEAP),
-            (domain.ExecutionClass.PRESCRIPTIVE, domain.Risk.HIGH, domain.Role.IMPLEMENTER, domain.LogicalTier.STANDARD),
-            (domain.ExecutionClass.BOUNDED, domain.Risk.LOW, domain.Role.IMPLEMENTER, domain.LogicalTier.STANDARD),
-            (domain.ExecutionClass.BOUNDED, domain.Risk.HIGH, domain.Role.IMPLEMENTER, domain.LogicalTier.STANDARD),
+            (
+                domain.ExecutionClass.MECHANICAL,
+                domain.Risk.LOW,
+                domain.Role.MECHANIC,
+                domain.LogicalTier.CHEAP,
+            ),
+            (
+                domain.ExecutionClass.MECHANICAL,
+                domain.Risk.HIGH,
+                domain.Role.MECHANIC,
+                domain.LogicalTier.CHEAP,
+            ),
+            (
+                domain.ExecutionClass.PRESCRIPTIVE,
+                domain.Risk.LOW,
+                domain.Role.IMPLEMENTER_LITE,
+                domain.LogicalTier.CHEAP,
+            ),
+            (
+                domain.ExecutionClass.PRESCRIPTIVE,
+                domain.Risk.MEDIUM,
+                domain.Role.IMPLEMENTER_LITE,
+                domain.LogicalTier.CHEAP,
+            ),
+            (
+                domain.ExecutionClass.PRESCRIPTIVE,
+                domain.Risk.HIGH,
+                domain.Role.IMPLEMENTER,
+                domain.LogicalTier.STANDARD,
+            ),
+            (
+                domain.ExecutionClass.BOUNDED,
+                domain.Risk.LOW,
+                domain.Role.IMPLEMENTER,
+                domain.LogicalTier.STANDARD,
+            ),
+            (
+                domain.ExecutionClass.BOUNDED,
+                domain.Risk.HIGH,
+                domain.Role.IMPLEMENTER,
+                domain.LogicalTier.STANDARD,
+            ),
         )
         for execution_class, risk, role, tier in cases:
             with self.subTest(execution_class=execution_class, risk=risk):
@@ -98,14 +155,28 @@ class Stage1DomainTests(unittest.TestCase):
                         else domain.ReviewDepth.STANDARD
                     ),
                 )
-                self.assert_violation(below_floor, "implementation-below-role-tier-floor")
+                self.assert_violation(
+                    below_floor, "implementation-below-role-tier-floor"
+                )
 
     def test_implementation_assignments_accept_only_safe_role_upgrades(self) -> None:
         upgrades = (
             (domain.Stage.IMPLEMENT, domain.ExecutionClass.MECHANICAL, domain.Risk.LOW),
-            (domain.Stage.IMPLEMENT, domain.ExecutionClass.PRESCRIPTIVE, domain.Risk.MEDIUM),
-            (domain.Stage.BOUNDED_DELEGATE, domain.ExecutionClass.MECHANICAL, domain.Risk.LOW),
-            (domain.Stage.BOUNDED_DELEGATE, domain.ExecutionClass.PRESCRIPTIVE, domain.Risk.MEDIUM),
+            (
+                domain.Stage.IMPLEMENT,
+                domain.ExecutionClass.PRESCRIPTIVE,
+                domain.Risk.MEDIUM,
+            ),
+            (
+                domain.Stage.BOUNDED_DELEGATE,
+                domain.ExecutionClass.MECHANICAL,
+                domain.Risk.LOW,
+            ),
+            (
+                domain.Stage.BOUNDED_DELEGATE,
+                domain.ExecutionClass.PRESCRIPTIVE,
+                domain.Risk.MEDIUM,
+            ),
         )
         for stage, execution_class, risk in upgrades:
             with self.subTest(stage=stage, execution_class=execution_class, risk=risk):
@@ -120,8 +191,16 @@ class Stage1DomainTests(unittest.TestCase):
                 self.assertTrue(result.admissible, result.violations)
 
         downgrades = (
-            (domain.Stage.IMPLEMENT, domain.ExecutionClass.PRESCRIPTIVE, domain.Risk.HIGH),
-            (domain.Stage.BOUNDED_DELEGATE, domain.ExecutionClass.BOUNDED, domain.Risk.HIGH),
+            (
+                domain.Stage.IMPLEMENT,
+                domain.ExecutionClass.PRESCRIPTIVE,
+                domain.Risk.HIGH,
+            ),
+            (
+                domain.Stage.BOUNDED_DELEGATE,
+                domain.ExecutionClass.BOUNDED,
+                domain.Risk.HIGH,
+            ),
         )
         for stage, execution_class, risk in downgrades:
             reason = (
@@ -151,10 +230,14 @@ class Stage1DomainTests(unittest.TestCase):
 
     def test_design_research_and_review_roles_have_static_floors(self) -> None:
         self.assertTrue(
-            evaluate(domain.Workflow.ADVISORY, domain.Stage.RESEARCH, domain.Role.RESEARCHER).admissible
+            evaluate(
+                domain.Workflow.ADVISORY, domain.Stage.RESEARCH, domain.Role.RESEARCHER
+            ).admissible
         )
         self.assert_violation(
-            evaluate(domain.Workflow.ADVISORY, domain.Stage.RESEARCH, domain.Role.ARCHITECT),
+            evaluate(
+                domain.Workflow.ADVISORY, domain.Stage.RESEARCH, domain.Role.ARCHITECT
+            ),
             "research-requires-researcher",
         )
         self.assertTrue(
@@ -193,7 +276,11 @@ class Stage1DomainTests(unittest.TestCase):
         )
 
     def test_research_assignments_require_standard_tier(self) -> None:
-        for workflow in (domain.Workflow.ADVISORY, domain.Workflow.TASK, domain.Workflow.MILESTONE):
+        for workflow in (
+            domain.Workflow.ADVISORY,
+            domain.Workflow.TASK,
+            domain.Workflow.MILESTONE,
+        ):
             with self.subTest(workflow=workflow):
                 standard = evaluate(
                     workflow,
@@ -248,7 +335,9 @@ class Stage1DomainTests(unittest.TestCase):
                     execution_class=domain.ExecutionClass.DESIGN,
                     tier=tier,
                 )
-                self.assert_violation(result, "delegated-assignment-below-role-tier-floor")
+                self.assert_violation(
+                    result, "delegated-assignment-below-role-tier-floor"
+                )
 
     def test_high_risk_implementation_assignments_require_deep_review(self) -> None:
         for stage, execution_class in (
@@ -349,10 +438,16 @@ class Stage1DomainTests(unittest.TestCase):
 
     def test_advisory_is_non_executing_and_read_only(self) -> None:
         self.assertTrue(
-            evaluate(domain.Workflow.ADVISORY, domain.Stage.RESEARCH, domain.Role.RESEARCHER).admissible
+            evaluate(
+                domain.Workflow.ADVISORY, domain.Stage.RESEARCH, domain.Role.RESEARCHER
+            ).admissible
         )
         self.assert_violation(
-            evaluate(domain.Workflow.ADVISORY, domain.Stage.IMPLEMENT, domain.Role.IMPLEMENTER),
+            evaluate(
+                domain.Workflow.ADVISORY,
+                domain.Stage.IMPLEMENT,
+                domain.Role.IMPLEMENTER,
+            ),
             "advisory-workflow-does-not-execute",
         )
         write = evaluate(
@@ -406,8 +501,13 @@ class Stage1DomainTests(unittest.TestCase):
                 tier=domain.LogicalTier.HIGH,
                 review_scope=domain.ReviewScope.STANDALONE,
             )
-            self.assert_violation(standalone, "task-or-milestone-review-requires-scoped-review")
-            for scope in (domain.ReviewScope.ITERATION, domain.ReviewScope.WHOLE_BRANCH):
+            self.assert_violation(
+                standalone, "task-or-milestone-review-requires-scoped-review"
+            )
+            for scope in (
+                domain.ReviewScope.ITERATION,
+                domain.ReviewScope.WHOLE_BRANCH,
+            ):
                 scoped = evaluate(
                     workflow,
                     domain.Stage.REVIEW,
@@ -432,8 +532,12 @@ class Stage1DomainTests(unittest.TestCase):
             ("enforced", capabilities.CapabilityStatus.ENFORCED, True),
         )
         for label, status, allowed in cases:
-            claims = capabilities.CapabilityClaims() if status is None else capabilities.CapabilityClaims(
-                claims=(capabilities.CapabilityClaim(effect, status),)
+            claims = (
+                capabilities.CapabilityClaims()
+                if status is None
+                else capabilities.CapabilityClaims(
+                    claims=(capabilities.CapabilityClaim(effect, status),)
+                )
             )
             with self.subTest(claim=label):
                 result = evaluate(
@@ -445,12 +549,21 @@ class Stage1DomainTests(unittest.TestCase):
                 )
                 self.assertEqual(result.admissible, allowed)
                 if not allowed:
-                    self.assertIn("repository-write-capability-not-enforced", result.violations)
+                    self.assertIn(
+                        "repository-write-capability-not-enforced", result.violations
+                    )
 
     def test_external_write_and_destructive_effects_remain_unsupported(self) -> None:
-        for effect in (domain.CapabilityEffect.EXTERNAL_WRITE, domain.CapabilityEffect.DESTRUCTIVE):
+        for effect in (
+            domain.CapabilityEffect.EXTERNAL_WRITE,
+            domain.CapabilityEffect.DESTRUCTIVE,
+        ):
             claims = capabilities.CapabilityClaims(
-                claims=(capabilities.CapabilityClaim(effect, capabilities.CapabilityStatus.ENFORCED),)
+                claims=(
+                    capabilities.CapabilityClaim(
+                        effect, capabilities.CapabilityStatus.ENFORCED
+                    ),
+                )
             )
             result = evaluate(
                 domain.Workflow.TASK,
@@ -460,15 +573,25 @@ class Stage1DomainTests(unittest.TestCase):
                 effect=effect,
             )
             with self.subTest(effect=effect):
-                self.assert_violation(result, "external-write-or-destructive-effect-not-supported")
+                self.assert_violation(
+                    result, "external-write-or-destructive-effect-not-supported"
+                )
 
     def test_read_only_roles_cannot_request_write_effects(self) -> None:
         effect = domain.CapabilityEffect.REPOSITORY_WRITE
         claims = capabilities.CapabilityClaims(
-            claims=(capabilities.CapabilityClaim(effect, capabilities.CapabilityStatus.ENFORCED),)
+            claims=(
+                capabilities.CapabilityClaim(
+                    effect, capabilities.CapabilityStatus.ENFORCED
+                ),
+            )
         )
         cases = (
-            (domain.Stage.RESEARCH, domain.Role.RESEARCHER, domain.LogicalTier.STANDARD),
+            (
+                domain.Stage.RESEARCH,
+                domain.Role.RESEARCHER,
+                domain.LogicalTier.STANDARD,
+            ),
             (domain.Stage.DESIGN, domain.Role.ARCHITECT, domain.LogicalTier.HIGH),
             (domain.Stage.REVIEW, domain.Role.REVIEWER, domain.LogicalTier.HIGH),
         )
@@ -493,7 +616,11 @@ class Stage1DomainTests(unittest.TestCase):
             ("enforced", capabilities.CapabilityStatus.ENFORCED, True),
         )
         actions = (
-            (domain.Stage.GATE, domain.Role.IMPLEMENTER, {"gate": domain.Gate.APPROVAL}),
+            (
+                domain.Stage.GATE,
+                domain.Role.IMPLEMENTER,
+                {"gate": domain.Gate.APPROVAL},
+            ),
             (
                 domain.Stage.FINAL,
                 domain.Role.REVIEWER,
@@ -510,10 +637,14 @@ class Stage1DomainTests(unittest.TestCase):
                     claims = (
                         capabilities.CapabilityClaims()
                         if status is None
-                        else capabilities.CapabilityClaims(mutation_free_reviewer=status)
+                        else capabilities.CapabilityClaims(
+                            mutation_free_reviewer=status
+                        )
                     )
                     with self.subTest(workflow=workflow, stage=stage, claim=label):
-                        result = evaluate(workflow, stage, role, claims=claims, **fields)
+                        result = evaluate(
+                            workflow, stage, role, claims=claims, **fields
+                        )
                         self.assertEqual(result.admissible, allowed)
                         if not allowed:
                             self.assertIn(
@@ -544,7 +675,11 @@ class Stage1DomainTests(unittest.TestCase):
 
         effect = domain.CapabilityEffect.REPOSITORY_WRITE
         effect_claim = capabilities.CapabilityClaims(
-            claims=(capabilities.CapabilityClaim(effect, capabilities.CapabilityStatus.ENFORCED),)
+            claims=(
+                capabilities.CapabilityClaim(
+                    effect, capabilities.CapabilityStatus.ENFORCED
+                ),
+            )
         )
         side_effect = evaluate(
             domain.Workflow.TASK,
@@ -579,8 +714,12 @@ class Stage1DomainTests(unittest.TestCase):
         self.assertIn("PolicyEvaluation", domain.__all__)
 
     def test_invalid_policy_inputs_fail_closed(self) -> None:
-        action = domain.ProposedAction(stage=domain.Stage.IMPLEMENT, role=domain.Role.IMPLEMENTER)
-        result = policy.evaluate_action_policy("task", action, capabilities.CapabilityClaims())
+        action = domain.ProposedAction(
+            stage=domain.Stage.IMPLEMENT, role=domain.Role.IMPLEMENTER
+        )
+        result = policy.evaluate_action_policy(
+            "task", action, capabilities.CapabilityClaims()
+        )
         self.assert_violation(result, "invalid-policy-input")
 
     def test_policy_api_has_no_run_state_or_runtime_profile_inputs(self) -> None:

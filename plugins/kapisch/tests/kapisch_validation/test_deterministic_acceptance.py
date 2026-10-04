@@ -22,16 +22,20 @@ from kapisch_validation.delegations import render_route
 from kapisch_validation.knowledge import render_knowledge_records
 from kapisch_validation.manifest import render_manifest
 from kapisch_validation.outcomes import render_outcome
-from kapisch_validation.path_atoms import canonical_relative_path, validate_relative_posix_path
+from kapisch_validation.path_atoms import (
+    canonical_relative_path,
+    validate_relative_posix_path,
+)
 from kapisch_validation.presentations import render_metrics, render_state_markdown
 from kapisch_validation.references import render_state
 from kapisch_validation.review_evidence import render_reviewer_invocation
 
-
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 REPOSITORY_ROOT = PLUGIN_ROOT.parents[1]
 FIXTURES = Path(__file__).parent / "fixtures"
-EXPECTED_VECTOR = FIXTURES / "deterministic-generated-artifacts" / "expected-sha256.json"
+EXPECTED_VECTOR = (
+    FIXTURES / "deterministic-generated-artifacts" / "expected-sha256.json"
+)
 TASK_FIXTURE = FIXTURES / "valid-v4-controller"
 
 
@@ -98,9 +102,13 @@ def _eligible_v3_source(root: Path) -> Path:
 
 def _tree_digest(root: Path) -> str:
     records = []
-    for path in sorted(candidate for candidate in root.rglob("*") if candidate.is_file()):
+    for path in sorted(
+        candidate for candidate in root.rglob("*") if candidate.is_file()
+    ):
         relative = path.relative_to(root).as_posix().encode("utf-8")
-        records.append(relative + b"\0" + sha256_hex(path.read_bytes()).encode("ascii") + b"\n")
+        records.append(
+            relative + b"\0" + sha256_hex(path.read_bytes()).encode("ascii") + b"\n"
+        )
     return sha256_hex(b"".join(records))
 
 
@@ -118,7 +126,12 @@ def _portable(task_dir: Path, value: str) -> str:
     return canonical_relative_path(task_dir / value, root=task_dir)
 
 
-def _rebind_paths(task_dir: Path, manifest: dict[str, object], state: dict[str, object], route: dict[str, object]) -> None:
+def _rebind_paths(
+    task_dir: Path,
+    manifest: dict[str, object],
+    state: dict[str, object],
+    route: dict[str, object],
+) -> None:
     for field in ("source_plan", "controller_view"):
         if field in manifest:
             manifest[field] = _portable(task_dir, str(manifest[field]))
@@ -141,7 +154,11 @@ def _rebind_paths(task_dir: Path, manifest: dict[str, object], state: dict[str, 
                     attempt["outcome_path"] = _portable(
                         task_dir, str(attempt["outcome_path"])
                     )
-    for field in ("source_plan", "latest_approving_review_path", "controller_view_path"):
+    for field in (
+        "source_plan",
+        "latest_approving_review_path",
+        "controller_view_path",
+    ):
         if state.get(field) != "unavailable":
             state[field] = _portable(task_dir, str(state[field]))
     for step in route["steps"]:  # type: ignore[index]
@@ -150,24 +167,40 @@ def _rebind_paths(task_dir: Path, manifest: dict[str, object], state: dict[str, 
             step[field] = _portable(task_dir, str(step[field]))
 
 
-def _assert_portable_paths(manifest: dict[str, object], state: dict[str, object], route: dict[str, object]) -> None:
+def _assert_portable_paths(
+    manifest: dict[str, object], state: dict[str, object], route: dict[str, object]
+) -> None:
     paths: list[str] = []
     for field in ("source_plan", "controller_view"):
         if field in manifest:
             paths.append(str(manifest[field]))
     for node in manifest["nodes"]:  # type: ignore[index]
         assert isinstance(node, dict)
-        paths.extend(str(node[field]) for field in ("brief", "context", "report", "reviewer_invocation") if field in node)
+        paths.extend(
+            str(node[field])
+            for field in ("brief", "context", "report", "reviewer_invocation")
+            if field in node
+        )
         for field in ("reads", "writes", "shared_resources"):
             paths.extend(str(path) for path in node.get(field, []))
-        paths.extend(str(item["evidence_ref"]) for item in node.get("verification_evidence", []))
+        paths.extend(
+            str(item["evidence_ref"]) for item in node.get("verification_evidence", [])
+        )
         assignment = node.get("assignment")
         if isinstance(assignment, dict):
             for attempt in assignment.get("attempts", []):
                 assert isinstance(attempt, dict)
                 if attempt.get("outcome_path") != "unavailable":
                     paths.append(str(attempt["outcome_path"]))
-    paths.extend(str(state[field]) for field in ("source_plan", "latest_approving_review_path", "controller_view_path") if state.get(field) != "unavailable")
+    paths.extend(
+        str(state[field])
+        for field in (
+            "source_plan",
+            "latest_approving_review_path",
+            "controller_view_path",
+        )
+        if state.get(field) != "unavailable"
+    )
     for step in route["steps"]:  # type: ignore[index]
         assert isinstance(step, dict)
         paths.extend((str(step["context_path"]), str(step["evidence_path"])))
@@ -196,7 +229,9 @@ def _generate(root: Path, reverse_inputs: bool) -> dict[str, str]:
         invocation_digests[relative] = sha256_hex(rendered)
 
     outcome_digests: dict[str, str] = {}
-    for path in sorted((task_dir / "stage-outcomes").glob("*.toml"), reverse=reverse_inputs):
+    for path in sorted(
+        (task_dir / "stage-outcomes").glob("*.toml"), reverse=reverse_inputs
+    ):
         raw = tomllib.loads(path.read_text(encoding="utf-8"))
         invocation_path = raw["invocation_path"]
         if invocation_path != "unavailable":
@@ -214,11 +249,19 @@ def _generate(root: Path, reverse_inputs: bool) -> dict[str, str]:
     if reverse_inputs:
         manifest["nodes"] = list(reversed(manifest["nodes"]))
         route["steps"] = list(reversed(route["steps"]))
-        for field in ("completed_node_ids", "running_node_ids", "ready_node_ids", "blocked_node_ids", "failed_node_ids"):
+        for field in (
+            "completed_node_ids",
+            "running_node_ids",
+            "ready_node_ids",
+            "blocked_node_ids",
+            "failed_node_ids",
+        ):
             state[field] = list(reversed(state[field]))
     _rebind_paths(task_dir, manifest, state, route)
     route_bytes = render_route(_with_order(route, reverse=reverse_inputs))
-    manifest_bytes = render_manifest(_with_order(manifest, reverse=reverse_inputs), initial=False)
+    manifest_bytes = render_manifest(
+        _with_order(manifest, reverse=reverse_inputs), initial=False
+    )
     state_bytes = render_state(_with_order(state, reverse=reverse_inputs))
     route_path.write_bytes(route_bytes)
     graph_path.write_bytes(manifest_bytes)
@@ -226,7 +269,12 @@ def _generate(root: Path, reverse_inputs: bool) -> dict[str, str]:
     _assert_portable_paths(manifest, state, route)
 
     rendered_view = subprocess.run(
-        [sys.executable, str(PLUGIN_ROOT / "scripts/render_controller_view.py"), "--task-dir", str(task_dir)],
+        [
+            sys.executable,
+            str(PLUGIN_ROOT / "scripts/render_controller_view.py"),
+            "--task-dir",
+            str(task_dir),
+        ],
         cwd=root.parent,
         capture_output=True,
         text=True,
@@ -241,7 +289,12 @@ def _generate(root: Path, reverse_inputs: bool) -> dict[str, str]:
         (task_dir / "04-controller-view.toml").stat().st_mtime_ns,
     )
     rendered_view_again = subprocess.run(
-        [sys.executable, str(PLUGIN_ROOT / "scripts/render_controller_view.py"), "--task-dir", str(task_dir)],
+        [
+            sys.executable,
+            str(PLUGIN_ROOT / "scripts/render_controller_view.py"),
+            "--task-dir",
+            str(task_dir),
+        ],
         cwd=root.parent,
         capture_output=True,
         text=True,
@@ -256,7 +309,12 @@ def _generate(root: Path, reverse_inputs: bool) -> dict[str, str]:
     if rendered_view_again.returncode or before_noop != after_noop:
         raise AssertionError("controller-view regeneration was not a true no-op")
     validated = subprocess.run(
-        [sys.executable, str(PLUGIN_ROOT / "scripts/validate_kapisch.py"), "--task-dir", str(task_dir)],
+        [
+            sys.executable,
+            str(PLUGIN_ROOT / "scripts/validate_kapisch.py"),
+            "--task-dir",
+            str(task_dir),
+        ],
         cwd=root.parent,
         capture_output=True,
         text=True,
@@ -353,15 +411,25 @@ def _generate(root: Path, reverse_inputs: bool) -> dict[str, str]:
 
     agents = repository / ".codex/agents"
     agents.mkdir(parents=True, exist_ok=True)
-    profiles = (("alpha.toml", "kapisch-implementer.toml"), ("omega.toml", "kapisch-researcher.toml"))
+    profiles = (
+        ("alpha.toml", "kapisch-implementer.toml"),
+        ("omega.toml", "kapisch-researcher.toml"),
+    )
     if reverse_inputs:
         profiles = tuple(reversed(profiles))
     for destination, source in profiles:
         shutil.copyfile(PLUGIN_ROOT / "agents" / source, agents / destination)
     installed = subprocess.run(
         [
-            sys.executable, str(PLUGIN_ROOT / "scripts/setup_profile.py"), "--role", "reviewer",
-            "--profile-set", "balanced", "--project-dir", str(repository), "--install",
+            sys.executable,
+            str(PLUGIN_ROOT / "scripts/setup_profile.py"),
+            "--role",
+            "reviewer",
+            "--profile-set",
+            "balanced",
+            "--project-dir",
+            str(repository),
+            "--install",
         ],
         cwd=root.parent,
         capture_output=True,
@@ -402,8 +470,27 @@ def _generate(root: Path, reverse_inputs: bool) -> dict[str, str]:
     knowledge_input = {
         "version": 1,
         "records": [
-            {"id": "D-001", "kind": "decision", "scope": "task:vector", "authority": "binding", "status": "verified", "statement": "Bytes stay exact.", "source": "01-plan.md", "verified_at_revision": "abc1234", "applies_when": applies_when},
-            {"id": "P-002", "kind": "pitfall", "scope": "repository", "authority": "advisory", "status": "candidate", "statement": "Do not normalize evidence.", "source": "03-review.md", "applies_when": []},
+            {
+                "id": "D-001",
+                "kind": "decision",
+                "scope": "task:vector",
+                "authority": "binding",
+                "status": "verified",
+                "statement": "Bytes stay exact.",
+                "source": "01-plan.md",
+                "verified_at_revision": "abc1234",
+                "applies_when": applies_when,
+            },
+            {
+                "id": "P-002",
+                "kind": "pitfall",
+                "scope": "repository",
+                "authority": "advisory",
+                "status": "candidate",
+                "statement": "Do not normalize evidence.",
+                "source": "03-review.md",
+                "applies_when": [],
+            },
         ],
     }
     knowledge = render_knowledge_records(
@@ -412,8 +499,11 @@ def _generate(root: Path, reverse_inputs: bool) -> dict[str, str]:
     current_state = tomllib.loads(state_path.read_text(encoding="utf-8"))
     state_projection = _with_order(current_state, reverse=reverse_inputs)
     for field in (
-        "completed_node_ids", "running_node_ids", "ready_node_ids",
-        "blocked_node_ids", "failed_node_ids",
+        "completed_node_ids",
+        "running_node_ids",
+        "ready_node_ids",
+        "blocked_node_ids",
+        "failed_node_ids",
     ):
         if reverse_inputs:
             state_projection[field] = list(reversed(state_projection[field]))
@@ -435,8 +525,18 @@ def _generate(root: Path, reverse_inputs: bool) -> dict[str, str]:
         (task_dir / "stage-outcomes/AT-T01-1.toml").read_text(encoding="utf-8")
     )
     finding_outcome["findings"] = [
-        {"id": "F-2", "severity": "P2", "summary": "later", "evidence_ref": "tasks/T01-report.md"},
-        {"id": "F-1", "severity": "P0", "summary": "first", "evidence_ref": "tasks/T01-report.md"},
+        {
+            "id": "F-2",
+            "severity": "P2",
+            "summary": "later",
+            "evidence_ref": "tasks/T01-report.md",
+        },
+        {
+            "id": "F-1",
+            "severity": "P0",
+            "summary": "first",
+            "evidence_ref": "tasks/T01-report.md",
+        },
     ]
     if reverse_inputs:
         finding_outcome["findings"].reverse()
@@ -451,13 +551,24 @@ def _generate(root: Path, reverse_inputs: bool) -> dict[str, str]:
         for attempt_id in ("AT-T01-1", "AT-R01-1", "AT-F01-1")
     )
     portable_outputs = (
-        route_bytes, manifest_bytes, state_path.read_bytes(),
-        (task_dir / "04-controller-view.toml").read_bytes(), knowledge,
-        state_markdown, metrics, canonical_json, outcome_findings,
+        route_bytes,
+        manifest_bytes,
+        state_path.read_bytes(),
+        (task_dir / "04-controller-view.toml").read_bytes(),
+        knowledge,
+        state_markdown,
+        metrics,
+        canonical_json,
+        outcome_findings,
         benchmark.stdout,
-        *invocation_outputs, *outcome_outputs,
+        *invocation_outputs,
+        *outcome_outputs,
         installed_profile.read_bytes(),
-        *(path.read_bytes() for path in migration_destination.rglob("*") if path.is_file()),
+        *(
+            path.read_bytes()
+            for path in migration_destination.rglob("*")
+            if path.is_file()
+        ),
     )
     local_path_needles = {
         spelling.encode("utf-8")
@@ -475,12 +586,16 @@ def _generate(root: Path, reverse_inputs: bool) -> dict[str, str]:
             or b'"pid"' in output
             or b"pid=" in output
         ):
-            raise AssertionError("portable canonical output contains local process data")
+            raise AssertionError(
+                "portable canonical output contains local process data"
+            )
 
     return {
         "benchmark-json": sha256_hex(benchmark.stdout),
         "canonical-json": sha256_hex(canonical_json),
-        "controller-view": sha256_hex((task_dir / "04-controller-view.toml").read_bytes()),
+        "controller-view": sha256_hex(
+            (task_dir / "04-controller-view.toml").read_bytes()
+        ),
         "exact-evidence-crlf": sha256_hex(b"status: DONE\r\n"),
         "exact-evidence-lf": sha256_hex(b"status: DONE\n"),
         "knowledge": sha256_hex(knowledge),
@@ -492,8 +607,12 @@ def _generate(root: Path, reverse_inputs: bool) -> dict[str, str]:
         "outcome-at-t01-1": outcome_digests["AT-T01-1"],
         "outcome-findings": sha256_hex(outcome_findings),
         "profile": sha256_hex(installed_profile.read_bytes()),
-        "review-invocation-final": invocation_digests["reviews/final/00-final-invocation.toml"],
-        "review-invocation-round-0": invocation_digests["reviews/round-0/00-review-invocation.toml"],
+        "review-invocation-final": invocation_digests[
+            "reviews/final/00-final-invocation.toml"
+        ],
+        "review-invocation-round-0": invocation_digests[
+            "reviews/round-0/00-review-invocation.toml"
+        ],
         "route": sha256_hex(route_bytes),
         "state": sha256_hex(state_path.read_bytes()),
         "state-markdown": sha256_hex(state_markdown),
@@ -518,18 +637,27 @@ def _available_locales() -> tuple[str, ...]:
     return tuple(available)
 
 
-def _generate_subprocess(*, cwd: Path, seed: str, timezone: str, locale_name: str, unrelated_value: str) -> dict[str, str]:
+def _generate_subprocess(
+    *, cwd: Path, seed: str, timezone: str, locale_name: str, unrelated_value: str
+) -> dict[str, str]:
     with tempfile.TemporaryDirectory() as temporary:
         environment = dict(os.environ)
-        environment.update({
-            "PYTHONPATH": str(PLUGIN_ROOT),
-            "PYTHONHASHSEED": seed,
-            "TZ": timezone,
-            "LC_ALL": locale_name,
-            "KAPISCH_TEST_UNRELATED": unrelated_value,
-        })
+        environment.update(
+            {
+                "PYTHONPATH": str(PLUGIN_ROOT),
+                "PYTHONHASHSEED": seed,
+                "TZ": timezone,
+                "LC_ALL": locale_name,
+                "KAPISCH_TEST_UNRELATED": unrelated_value,
+            }
+        )
         result = subprocess.run(
-            [sys.executable, str(Path(__file__).resolve()), "--emit-digest", str(Path(temporary) / "generated")],
+            [
+                sys.executable,
+                str(Path(__file__).resolve()),
+                "--emit-digest",
+                str(Path(temporary) / "generated"),
+            ],
             cwd=cwd,
             env=environment,
             capture_output=True,
@@ -545,7 +673,9 @@ class DeterministicAcceptanceTests(unittest.TestCase):
     def test_committed_cross_platform_digest_vector(self) -> None:
         expected = json.loads(EXPECTED_VECTOR.read_text(encoding="utf-8"))
         with tempfile.TemporaryDirectory() as temporary:
-            self.assertEqual(_generate(Path(temporary) / "one", reverse_inputs=False), expected)
+            self.assertEqual(
+                _generate(Path(temporary) / "one", reverse_inputs=False), expected
+            )
 
     def test_relocation_and_input_order_do_not_change_portable_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -559,17 +689,36 @@ class DeterministicAcceptanceTests(unittest.TestCase):
         expected = json.loads(EXPECTED_VECTOR.read_text(encoding="utf-8"))
         locales = _available_locales()
         if len(locales) == 1:
-            print("coverage_note=non-C locale unavailable; C-locale perturbation coverage remains active")
+            print(
+                "coverage_note=non-C locale unavailable; C-locale perturbation coverage remains active"
+            )
         with tempfile.TemporaryDirectory() as unrelated:
             for cwd in (REPOSITORY_ROOT, PLUGIN_ROOT, Path(unrelated)):
                 for seed, timezone in (("1", "UTC"), ("8675309", "America/New_York")):
                     for locale_name in locales:
-                        with self.subTest(cwd=cwd, seed=seed, timezone=timezone, locale=locale_name):
-                            self.assertEqual(_generate_subprocess(cwd=cwd, seed=seed, timezone=timezone, locale_name=locale_name, unrelated_value="irrelevant"), expected)
+                        with self.subTest(
+                            cwd=cwd, seed=seed, timezone=timezone, locale=locale_name
+                        ):
+                            self.assertEqual(
+                                _generate_subprocess(
+                                    cwd=cwd,
+                                    seed=seed,
+                                    timezone=timezone,
+                                    locale_name=locale_name,
+                                    unrelated_value="irrelevant",
+                                ),
+                                expected,
+                            )
 
     def test_exact_evidence_newlines_remain_distinct(self) -> None:
-        self.assertEqual(sha256_hex(b"status: DONE\n"), "804aaae7bd1b6d3585d7f60cd58893771aa9439bbbfc76f62293ef7acb6898b4")
-        self.assertEqual(sha256_hex(b"status: DONE\r\n"), "801e597fbfe90fa4d5c41d36640ac24b97a19ad8e7b20daec399d9988c2ff1be")
+        self.assertEqual(
+            sha256_hex(b"status: DONE\n"),
+            "804aaae7bd1b6d3585d7f60cd58893771aa9439bbbfc76f62293ef7acb6898b4",
+        )
+        self.assertEqual(
+            sha256_hex(b"status: DONE\r\n"),
+            "801e597fbfe90fa4d5c41d36640ac24b97a19ad8e7b20daec399d9988c2ff1be",
+        )
 
     def test_persisted_evidence_newline_change_invalidates_exact_binding(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -709,6 +858,8 @@ class DeterministicAcceptanceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     if len(sys.argv) == 3 and sys.argv[1] == "--emit-digest":
-        sys.stdout.buffer.write(canonical_json_line(_generate(Path(sys.argv[2]), reverse_inputs=False)))
+        sys.stdout.buffer.write(
+            canonical_json_line(_generate(Path(sys.argv[2]), reverse_inputs=False))
+        )
     else:
         unittest.main()

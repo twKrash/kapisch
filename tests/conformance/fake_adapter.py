@@ -8,6 +8,7 @@ from kapisch_core.bundle import verify_bundle
 from kapisch_core.capabilities import CapabilityClaims
 from kapisch_core.domain import PolicyEvaluation, ProposedAction, Workflow
 from kapisch_core.policy import evaluate_action_policy
+
 from tooling.conformance.adapter import (
     AdapterManifest,
     GeneratedAsset,
@@ -37,7 +38,9 @@ class FakeHarnessAdapter:
     ) -> tuple[tuple[GeneratedAsset, ...], bytes]:
         bundle = verify_bundle(bundle_bytes, bundle_digest)
         assets = tuple(
-            GeneratedAsset(f"agents/kapisch-{role}.md", entry["contract"].encode("utf-8"))
+            GeneratedAsset(
+                f"agents/kapisch-{role}.md", entry["contract"].encode("utf-8")
+            )
             for role, entry in sorted(bundle.payload["roles"].items())
         )
         manifest = AdapterManifest(

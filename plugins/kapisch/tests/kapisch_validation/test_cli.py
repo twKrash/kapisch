@@ -71,9 +71,7 @@ class CliTests(unittest.TestCase):
             code = main(args)
         return code, json.loads(output.getvalue())
 
-    def assert_subprocess_failure(
-        self, task_dir: Path, expected_code: str
-    ) -> None:
+    def assert_subprocess_failure(self, task_dir: Path, expected_code: str) -> None:
         completed = self._run_subprocess(task_dir)
         findings = json.loads(completed.stdout)
         self.assertEqual(completed.returncode, 2)
@@ -138,7 +136,9 @@ class CliTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr.decode("utf-8"))
         self.assertEqual(result.stdout, b"")
 
-    @unittest.skipIf(os.name == "nt", "surrogateescaped native paths are POSIX-specific")
+    @unittest.skipIf(
+        os.name == "nt", "surrogateescaped native paths are POSIX-specific"
+    )
     def test_surrogateescaped_path_diagnostics_are_controlled_utf8(self) -> None:
         task_dir = os.fsdecode(b"/tmp/kapisch-missing-\xff")
         command = [
@@ -178,13 +178,16 @@ class CliTests(unittest.TestCase):
         state.write_text(
             state.read_text(encoding="utf-8")
             .replace('workflow_status="complete"', 'workflow_status="running"')
-            .replace('completed_node_ids=["F01","R01","T01"]', 'completed_node_ids=[]')
-            .replace('running_node_ids=[]', 'running_node_ids=["T01"]')
+            .replace('completed_node_ids=["F01","R01","T01"]', "completed_node_ids=[]")
+            .replace("running_node_ids=[]", 'running_node_ids=["T01"]')
             .replace(
                 'latest_approving_review_path="reviews/round-0/03-review.md"',
                 'latest_approving_review_path="unavailable"',
             )
-            .replace('latest_approving_invocation_id="I-REVIEW"', 'latest_approving_invocation_id="unavailable"')
+            .replace(
+                'latest_approving_invocation_id="I-REVIEW"',
+                'latest_approving_invocation_id="unavailable"',
+            )
             .replace('next_action="complete"', 'next_action="resolve:T01"'),
             encoding="utf-8",
         )
@@ -193,12 +196,12 @@ class CliTests(unittest.TestCase):
         manifest = task_dir / "02-execution-graph.toml"
         content = manifest.read_text(encoding="utf-8")
         evidence = (
-            'verification_evidence=['
+            "verification_evidence=["
             '{id="V01",check="tests",result="pass",evidence_ref="tasks/T01-report.md",'
             'output_sha256="331d26d6d8f862e46ba900811be8a7a1e4dbaa229b14c99becfd5e5151490d95",revision="head"},'
             '{id="V02",check="context",result="pass",evidence_ref="tasks/T01-context.md",'
             'output_sha256="1ee232df47462fa4a561adbe24ea4a0b67b6d79f9b5f6e15cb8a7ba80f2de117",revision="head"}'
-            ']'
+            "]"
         )
         content = content.replace(
             'verification_evidence=[{id="V01",check="tests",result="pass",evidence_ref="tasks/T01-report.md",output_sha256="331d26d6d8f862e46ba900811be8a7a1e4dbaa229b14c99becfd5e5151490d95",revision="head"}]',
@@ -224,10 +227,13 @@ outcome="running"
         marker = '[nodes.revision]\nbase="base"\nhead="head"\n[[nodes]]\nid="R01"'
         content = content.replace(
             marker,
-            '[nodes.revision]\nbase="base"\nhead="head"\n' + runtime + '[[nodes]]\nid="R01"',
+            '[nodes.revision]\nbase="base"\nhead="head"\n'
+            + runtime
+            + '[[nodes]]\nid="R01"',
             1,
         )
         manifest.write_text(content, encoding="utf-8")
+
     def add_terminal_legacy_attempt(self, task_dir: Path) -> None:
         manifest = task_dir / "02-execution-graph.toml"
         assignment = (
@@ -296,8 +302,10 @@ outcome="running"
             state.write_text(
                 state.read_text(encoding="utf-8")
                 .replace('workflow_status="complete"', 'workflow_status="running"')
-                .replace('completed_node_ids=["F01","R01","T01"]', 'completed_node_ids=[]')
-                .replace('ready_node_ids=[]', 'ready_node_ids=["T01"]')
+                .replace(
+                    'completed_node_ids=["F01","R01","T01"]', "completed_node_ids=[]"
+                )
+                .replace("ready_node_ids=[]", 'ready_node_ids=["T01"]')
                 .replace('next_action="complete"', 'next_action="select:T01"'),
                 encoding="utf-8",
             )
@@ -354,6 +362,7 @@ outcome="running"
             code, findings = self._run_paths(current, previous)
         self.assertEqual(code, 0)
         self.assertEqual(findings, [])
+
     def test_unchanged_legacy_terminal_snapshot_is_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -379,12 +388,14 @@ outcome="running"
         self.assertEqual(code, 0)
         self.assertEqual(findings, [])
 
-    def test_sparse_or_invalid_runtime_history_fails_standalone_validation(self) -> None:
+    def test_sparse_or_invalid_runtime_history_fails_standalone_validation(
+        self,
+    ) -> None:
         cases = (
             (
                 "assignment",
                 'source_revision="base"\ncontext_refs=[]\nattempts=',
-                'context_refs=[]\nattempts=',
+                "context_refs=[]\nattempts=",
                 "TWV-SCHEMA-MISSING-FIELD",
             ),
             (
@@ -423,7 +434,9 @@ outcome="running"
                 any(finding["code"] == expected_code for finding in findings), findings
             )
 
-    def test_previous_snapshot_rejects_runtime_late_binding_and_reordering(self) -> None:
+    def test_previous_snapshot_rejects_runtime_late_binding_and_reordering(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             current = root / "current"
@@ -434,7 +447,11 @@ outcome="running"
                 self.add_runtime_history(task_dir)
             manifest = current / "02-execution-graph.toml"
             content = manifest.read_text(encoding="utf-8")
-            content = content.replace('context_refs=[]\nattempts=', 'context_refs=[]\ncontext_fingerprint="new"\nattempts=', 1)
+            content = content.replace(
+                "context_refs=[]\nattempts=",
+                'context_refs=[]\ncontext_fingerprint="new"\nattempts=',
+                1,
+            )
             content = content.replace(
                 'id="AT-T01-1",source_revision="base",context_scope_ref="scope-1",status="pending",verification=[]},{id="AT-T01-2",source_revision="base",context_scope_ref="scope-2",status="running",verification=[]}',
                 'id="AT-T01-2",source_revision="base",context_scope_ref="scope-2",status="running",verification=[]},{id="AT-T01-1",source_revision="base",context_scope_ref="scope-1",status="pending",verification=[]}',
@@ -503,7 +520,9 @@ outcome="running"
             findings,
         )
 
-    def test_completed_node_requires_complete_verification_evidence_metadata(self) -> None:
+    def test_completed_node_requires_complete_verification_evidence_metadata(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             task_dir = Path(temporary) / "task"
             shutil.copytree(FIXTURES / "valid-sequential-v2", task_dir)
@@ -580,7 +599,10 @@ outcome="running"
             root = Path(temporary)
             current = root / "current"
             previous = root / "previous"
-            for task_dir, content in ((current, "not valid TOML"), (previous, "changed = [")):
+            for task_dir, content in (
+                (current, "not valid TOML"),
+                (previous, "changed = ["),
+            ):
                 shutil.copytree(FIXTURES / "valid-sequential-v2", task_dir)
                 route = task_dir / "delegations/00-route.toml"
                 route.parent.mkdir()
@@ -717,9 +739,10 @@ outcome="running"
             ("reviews/round-0/03-review.md", "TWV-REVIEW-RESULT-ENCODING"),
         )
         for relative_path, expected_code in cases:
-            with self.subTest(
-                artifact=relative_path
-            ), tempfile.TemporaryDirectory() as temporary:
+            with (
+                self.subTest(artifact=relative_path),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
                 task_dir = Path(temporary) / "task"
                 shutil.copytree(FIXTURES / "valid-sequential-v2", task_dir)
                 (task_dir / relative_path).write_bytes(b"\xff")
@@ -731,7 +754,10 @@ outcome="running"
             b"version = " + b"[" * 1_500 + b"]" * 1_500,
         )
         for content in cases:
-            with self.subTest(content_prefix=content[:10]), tempfile.TemporaryDirectory() as temporary:
+            with (
+                self.subTest(content_prefix=content[:10]),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
                 task_dir = Path(temporary) / "task"
                 shutil.copytree(FIXTURES / "valid-sequential-v2", task_dir)
                 (task_dir / "02-execution-graph.toml").write_bytes(content)
@@ -756,7 +782,10 @@ outcome="running"
             ),
         )
         for old, new in cases:
-            with self.subTest(replacement=new), tempfile.TemporaryDirectory() as temporary:
+            with (
+                self.subTest(replacement=new),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
                 task_dir = Path(temporary) / "task"
                 manifest = task_dir / "02-execution-graph.toml"
                 shutil.copytree(FIXTURES / "valid-sequential-v2", task_dir)
@@ -787,7 +816,9 @@ outcome="running"
             shutil.copytree(FIXTURES / "valid-sequential-v2", task_dir)
             loop.symlink_to(loop)
             manifest.write_text(
-                manifest.read_text().replace('brief="tasks/T01-brief.md"', 'brief="loop"', 1)
+                manifest.read_text().replace(
+                    'brief="tasks/T01-brief.md"', 'brief="loop"', 1
+                )
             )
             self.assert_subprocess_failure(task_dir, "TWV-REF-ARTIFACT")
 

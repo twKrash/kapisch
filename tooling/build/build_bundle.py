@@ -7,13 +7,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "core"))
 from kapisch_core.bundle import compile_bundle
 
-
 ROOT = Path(__file__).resolve().parents[2]
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Build or check the canonical CoreBundle")
-    parser.add_argument("--check", action="store_true", help="fail if generated bundle copies are stale")
+    parser = argparse.ArgumentParser(
+        description="Build or check the canonical CoreBundle"
+    )
+    parser.add_argument(
+        "--check", action="store_true", help="fail if generated bundle copies are stale"
+    )
     parser.add_argument("--root", type=Path, default=ROOT, help=argparse.SUPPRESS)
     args = parser.parse_args()
     root = args.root.resolve()
@@ -24,7 +27,11 @@ def main() -> int:
         root / "tests/conformance/fixtures/v3/bundle.json",
     )
     if args.check:
-        stale = [str(path.relative_to(root)) for path in outputs if not path.is_file() or path.read_bytes() != expected]
+        stale = [
+            str(path.relative_to(root))
+            for path in outputs
+            if not path.is_file() or path.read_bytes() != expected
+        ]
         if stale:
             print("stale or missing CoreBundle: " + ", ".join(stale), file=sys.stderr)
             return 1

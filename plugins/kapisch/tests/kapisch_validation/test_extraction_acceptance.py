@@ -14,10 +14,10 @@ from kapisch_validation.review_evidence import (
     CANONICAL_REVIEWER_PROFILE,
     LEGACY_REVIEWER_PROFILE,
 )
-from scripts import setup_profile as setup_profile_module
 from scripts.migrate_legacy_run import main as migrate
 from scripts.setup_profile import main as setup_profile
 
+from scripts import setup_profile as setup_profile_module
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -72,9 +72,9 @@ terminal_node_ids=["T01"]
     (history / "03-review.md").write_text(
         "historical terminal reviewer attempt\n", encoding="utf-8"
     )
-    invocation = (
-        root / "reviews/round-0/00-review-invocation.toml"
-    ).read_text(encoding="utf-8")
+    invocation = (root / "reviews/round-0/00-review-invocation.toml").read_text(
+        encoding="utf-8"
+    )
     replacements = {
         "invocation_id": "I-HISTORICAL",
         "requested_profile": LEGACY_REVIEWER_PROFILE,
@@ -97,9 +97,7 @@ terminal_node_ids=["T01"]
         invocation = re.sub(
             rf"^{field}=.*$", f'{field}="{value}"', invocation, flags=re.MULTILINE
         )
-    (history / "00-review-invocation.toml").write_text(
-        invocation, encoding="utf-8"
-    )
+    (history / "00-review-invocation.toml").write_text(invocation, encoding="utf-8")
 
     state = root / "03-state.toml"
     state_content = state.read_text(encoding="utf-8")
@@ -135,9 +133,7 @@ class ExtractionAcceptanceTests(unittest.TestCase):
                     (ROOT / "agents/kapisch-reviewer.toml").read_bytes()
                 ),
             )
-            reviewer_contract = (ROOT / "roles/reviewer.md").read_text(
-                encoding="utf-8"
-            )
+            reviewer_contract = (ROOT / "roles/reviewer.md").read_text(encoding="utf-8")
             self.assertIn("explicit user attestation", reviewer_contract)
             for role_contract in (ROOT / "roles").glob("*.md"):
                 self.assertNotIn(
@@ -202,14 +198,26 @@ class ExtractionAcceptanceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             user = Path(tmp) / "user"
             self.assertEqual(
-                setup_profile(["--role", "reviewer", "--scope", "user", "--user-dir", str(user), "--install"]),
+                setup_profile(
+                    [
+                        "--role",
+                        "reviewer",
+                        "--scope",
+                        "user",
+                        "--user-dir",
+                        str(user),
+                        "--install",
+                    ]
+                ),
                 0,
             )
             profile = user / ".codex/agents/kapisch-reviewer.toml"
             record = user / ".kapisch/local-state/profiles/reviewer.toml"
             self.assertTrue(profile.is_file())
             self.assertIn('profile_identity="kapisch-reviewer"', record.read_text())
-            profile.write_text(profile.read_text() + "# user change\n", encoding="utf-8")
+            profile.write_text(
+                profile.read_text() + "# user change\n", encoding="utf-8"
+            )
             record.write_text(
                 re.sub(
                     r'(?m)^template_sha256="[0-9a-f]{64}"$',
@@ -222,21 +230,36 @@ class ExtractionAcceptanceTests(unittest.TestCase):
             output = io.StringIO()
             with redirect_stdout(output):
                 self.assertEqual(
-                    setup_profile(["--role", "reviewer", "--scope", "user", "--user-dir", str(user)]),
+                    setup_profile(
+                        [
+                            "--role",
+                            "reviewer",
+                            "--scope",
+                            "user",
+                            "--user-dir",
+                            str(user),
+                        ]
+                    ),
                     0,
                 )
             self.assertIn("# user change", profile.read_text())
             self.assertIn("drift=user-modified", output.getvalue())
             self.assertIn("template_drift=updated", output.getvalue())
 
-    def test_primary_skill_keeps_routing_and_degraded_review_contract_explicit(self) -> None:
+    def test_primary_skill_keeps_routing_and_degraded_review_contract_explicit(
+        self,
+    ) -> None:
         skill = (ROOT / "skills/kapisch/SKILL.md").read_text(encoding="utf-8")
-        roles = (ROOT / "skills/kapisch/references/role-resolution.md").read_text(encoding="utf-8")
+        roles = (ROOT / "skills/kapisch/references/role-resolution.md").read_text(
+            encoding="utf-8"
+        )
         self.assertIn("Natural language is the complete normal interface", skill)
         self.assertIn("approval is blocked", skill)
         self.assertIn("Python does not resolve roles", roles)
 
-    def test_project_understanding_contract_separates_research_writing_and_review(self) -> None:
+    def test_project_understanding_contract_separates_research_writing_and_review(
+        self,
+    ) -> None:
         skill_path = ROOT / "skills/kapisch/SKILL.md"
         contract_path = ROOT / "skills/kapisch/references/project-understanding.md"
         skill = skill_path.read_text(encoding="utf-8")
@@ -404,7 +427,8 @@ class ExtractionAcceptanceTests(unittest.TestCase):
             handoffs,
         )
         self.assertIn(
-            "superseded or inapplicable candidate only with authoritative evidence", handoffs
+            "superseded or inapplicable candidate only with authoritative evidence",
+            handoffs,
         )
         self.assertIn(
             "unresolved material contradiction keeps the run at `decision-required`",
@@ -421,7 +445,9 @@ class ExtractionAcceptanceTests(unittest.TestCase):
         )
         self.assertIn("Confirm dependency coverage", architect)
 
-    def test_advisory_governing_authority_gate_and_dependency_modes_are_explicit(self) -> None:
+    def test_advisory_governing_authority_gate_and_dependency_modes_are_explicit(
+        self,
+    ) -> None:
         handoffs = " ".join(
             (ROOT / "skills/kapisch/references/handoffs.md")
             .read_text(encoding="utf-8")
@@ -454,8 +480,8 @@ class ExtractionAcceptanceTests(unittest.TestCase):
             "`problem` identifies the source path",
             "`why` explains why they cannot both be satisfied",
             "`recommendation` names a listed option or is `unavailable`",
-            "A direct repository-file authority is `{kind=\"repository-file\", path, digest}`",
-            "a direct accepted-architecture authority is `{kind=\"accepted-architecture\", path, digest, snapshot_id}`",
+            'A direct repository-file authority is `{kind="repository-file", path, digest}`',
+            'a direct accepted-architecture authority is `{kind="accepted-architecture", path, digest, snapshot_id}`',
             "`decision_id` is optional",
             "leaves `schema_version=1` unchanged",
         ):
@@ -464,9 +490,14 @@ class ExtractionAcceptanceTests(unittest.TestCase):
             "applicable repository instructions and normative constraints cannot be overridden",
             project_understanding,
         )
-        self.assertIn("Start with applicable `AGENTS.md` files and repository policy", researcher)
+        self.assertIn(
+            "Start with applicable `AGENTS.md` files and repository policy", researcher
+        )
         self.assertIn("does not establish authority", researcher)
-        self.assertIn("A material unresolved conflict keeps the run at `decision-required`", architect)
+        self.assertIn(
+            "A material unresolved conflict keeps the run at `decision-required`",
+            architect,
+        )
 
     def test_profile_identity_collision_is_not_adopted_or_changed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -475,10 +506,14 @@ class ExtractionAcceptanceTests(unittest.TestCase):
             target.mkdir(parents=True)
             profile = target / "kapisch-reviewer.toml"
             profile.write_text('name = "someone-else"\n', encoding="utf-8")
-            self.assertEqual(setup_profile(["--role", "reviewer", "--project-dir", str(project)]), 2)
+            self.assertEqual(
+                setup_profile(["--role", "reviewer", "--project-dir", str(project)]), 2
+            )
             self.assertEqual(profile.read_text(), 'name = "someone-else"\n')
 
-    def test_profile_identity_collision_in_another_filename_blocks_install(self) -> None:
+    def test_profile_identity_collision_in_another_filename_blocks_install(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp)
             agent_dir = project / ".codex/agents"
@@ -486,7 +521,9 @@ class ExtractionAcceptanceTests(unittest.TestCase):
             other = agent_dir / "reviewer.toml"
             other.write_text('name = "kapisch-reviewer"\n', encoding="utf-8")
             self.assertEqual(
-                setup_profile(["--role", "reviewer", "--project-dir", str(project), "--install"]),
+                setup_profile(
+                    ["--role", "reviewer", "--project-dir", str(project), "--install"]
+                ),
                 2,
             )
             self.assertFalse((agent_dir / "kapisch-reviewer.toml").exists())
@@ -498,11 +535,18 @@ class ExtractionAcceptanceTests(unittest.TestCase):
             source = project / ".planning/task-workflow/valid"
             shutil.copytree(FIXTURES / "valid-sequential-v2", source)
             before = digests(source)
-            self.assertEqual(migrate(["--project-dir", str(project), "--task-id", "valid", "--approve"]), 0)
+            self.assertEqual(
+                migrate(
+                    ["--project-dir", str(project), "--task-id", "valid", "--approve"]
+                ),
+                0,
+            )
             self.assertEqual(before, digests(source))
             self.assertEqual(before, digests(project / ".kapisch/runs/valid"))
 
-    def test_migration_preserves_completed_legacy_reviewer_profile_evidence(self) -> None:
+    def test_migration_preserves_completed_legacy_reviewer_profile_evidence(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp)
             source = project / ".planning/task-workflow/valid"
@@ -597,7 +641,18 @@ class ExtractionAcceptanceTests(unittest.TestCase):
             source = project / ".planning/task-workflow/missing-scope"
             shutil.copytree(FIXTURES / "missing-review-scope", source)
             before = digests(source)
-            self.assertEqual(migrate(["--project-dir", str(project), "--task-id", "missing-scope", "--approve"]), 2)
+            self.assertEqual(
+                migrate(
+                    [
+                        "--project-dir",
+                        str(project),
+                        "--task-id",
+                        "missing-scope",
+                        "--approve",
+                    ]
+                ),
+                2,
+            )
             self.assertEqual(before, digests(source))
             self.assertFalse((project / ".kapisch/runs/missing-scope").exists())
 
@@ -607,7 +662,12 @@ class ExtractionAcceptanceTests(unittest.TestCase):
             source = project / ".planning/task-workflow/example"
             shutil.copytree(FIXTURES / "valid-sequential-v2", source)
             before = digests(source)
-            self.assertEqual(migrate(["--project-dir", str(project), "--task-id", "example", "--approve"]), 2)
+            self.assertEqual(
+                migrate(
+                    ["--project-dir", str(project), "--task-id", "example", "--approve"]
+                ),
+                2,
+            )
             self.assertEqual(before, digests(source))
             self.assertFalse((project / ".kapisch/runs/example").exists())
 
@@ -615,7 +675,15 @@ class ExtractionAcceptanceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp)
             with self.assertRaises(SystemExit):
-                migrate(["--project-dir", str(project), "--task-id", "../valid", "--approve"])
+                migrate(
+                    [
+                        "--project-dir",
+                        str(project),
+                        "--task-id",
+                        "../valid",
+                        "--approve",
+                    ]
+                )
             self.assertFalse((project / ".planning").exists())
             self.assertFalse((project / ".kapisch").exists())
 
@@ -635,7 +703,12 @@ class ExtractionAcceptanceTests(unittest.TestCase):
                     self.skipTest("Windows account cannot create symbolic links")
                 raise
             self.assertTrue(link.is_symlink())
-            self.assertEqual(migrate(["--project-dir", str(project), "--task-id", "valid", "--approve"]), 2)
+            self.assertEqual(
+                migrate(
+                    ["--project-dir", str(project), "--task-id", "valid", "--approve"]
+                ),
+                2,
+            )
             self.assertTrue(link.is_symlink())
             self.assertFalse((project / ".kapisch/runs/valid").exists())
 

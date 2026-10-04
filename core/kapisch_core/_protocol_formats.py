@@ -1,19 +1,39 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import re
-
+from datetime import datetime, timezone
 
 # RFC 3339 permits second 60 only on known leap-second days; datetime rejects 60.
 # ponytail: IERS-listed leap seconds through Bulletin C 72; refresh set when IERS announces another.
 _LEAP_SECOND_DAYS = frozenset(
     {
-        "1972-06-30", "1972-12-31", "1973-12-31", "1974-12-31", "1975-12-31",
-        "1976-12-31", "1977-12-31", "1978-12-31", "1979-12-31", "1981-06-30",
-        "1982-06-30", "1983-06-30", "1985-06-30", "1987-12-31", "1989-12-31",
-        "1990-12-31", "1992-06-30", "1993-06-30", "1994-06-30", "1995-12-31",
-        "1997-06-30", "1998-12-31", "2005-12-31", "2008-12-31", "2012-06-30",
-        "2015-06-30", "2016-12-31",
+        "1972-06-30",
+        "1972-12-31",
+        "1973-12-31",
+        "1974-12-31",
+        "1975-12-31",
+        "1976-12-31",
+        "1977-12-31",
+        "1978-12-31",
+        "1979-12-31",
+        "1981-06-30",
+        "1982-06-30",
+        "1983-06-30",
+        "1985-06-30",
+        "1987-12-31",
+        "1989-12-31",
+        "1990-12-31",
+        "1992-06-30",
+        "1993-06-30",
+        "1994-06-30",
+        "1995-12-31",
+        "1997-06-30",
+        "1998-12-31",
+        "2005-12-31",
+        "2008-12-31",
+        "2012-06-30",
+        "2015-06-30",
+        "2016-12-31",
     }
 )
 # fromisoformat accepts broader ISO 8601 forms; this constrains the RFC 3339 shape.
@@ -52,4 +72,8 @@ def is_rfc3339_timestamp(value: object) -> bool:
         utc = parsed.astimezone(timezone.utc)
     except (ValueError, OverflowError):
         return False
-    return utc.hour == 23 and utc.minute == 59 and utc.date().isoformat() in _LEAP_SECOND_DAYS
+    return (
+        utc.hour == 23
+        and utc.minute == 59
+        and utc.date().isoformat() in _LEAP_SECOND_DAYS
+    )

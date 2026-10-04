@@ -27,16 +27,25 @@ def _bundles() -> tuple[bytes, bytes]:
 
 
 class StorageTests(unittest.TestCase):
-    def test_authority_records_are_no_replace_and_exact_retry_is_idempotent(self) -> None:
+    def test_authority_records_are_no_replace_and_exact_retry_is_idempotent(
+        self,
+    ) -> None:
         from kapisch_core.storage import store_authority_record
 
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory)
-            self.assertTrue(store_authority_record(repo, "scopes", "scope-1", b"canonical"))
-            self.assertFalse(store_authority_record(repo, "scopes", "scope-1", b"canonical"))
+            self.assertTrue(
+                store_authority_record(repo, "scopes", "scope-1", b"canonical")
+            )
+            self.assertFalse(
+                store_authority_record(repo, "scopes", "scope-1", b"canonical")
+            )
             with self.assertRaises(FileExistsError):
                 store_authority_record(repo, "scopes", "scope-1", b"different")
-            self.assertEqual((repo / ".kapisch/v3/authority/scopes/scope-1.json").read_bytes(), b"canonical")
+            self.assertEqual(
+                (repo / ".kapisch/v3/authority/scopes/scope-1.json").read_bytes(),
+                b"canonical",
+            )
 
     def test_human_approval_artifact_is_content_addressed_and_idempotent(self) -> None:
         from kapisch_core.storage import (
@@ -54,9 +63,13 @@ class StorageTests(unittest.TestCase):
             }
             self.assertEqual(retain_human_approval_artifact(repo, data), expected)
             self.assertEqual(retain_human_approval_artifact(repo, data), expected)
-            self.assertEqual(load_human_approval_artifact(repo, expected["path"], digest), data)
+            self.assertEqual(
+                load_human_approval_artifact(repo, expected["path"], digest), data
+            )
 
-    def test_human_approval_artifact_readback_rejects_tampering_and_noncanonical_path(self) -> None:
+    def test_human_approval_artifact_readback_rejects_tampering_and_noncanonical_path(
+        self,
+    ) -> None:
         from kapisch_core.storage import (
             load_human_approval_artifact,
             retain_human_approval_artifact,
@@ -66,11 +79,15 @@ class StorageTests(unittest.TestCase):
             repo = Path(directory)
             reference = retain_human_approval_artifact(repo, b"artifact")
             with self.assertRaises(ValueError):
-                load_human_approval_artifact(repo, "caller-selected.json", reference["sha256"])
+                load_human_approval_artifact(
+                    repo, "caller-selected.json", reference["sha256"]
+                )
             artifact_path = repo / reference["path"]
             artifact_path.write_bytes(b"tampered")
             with self.assertRaises(ValueError):
-                load_human_approval_artifact(repo, reference["path"], reference["sha256"])
+                load_human_approval_artifact(
+                    repo, reference["path"], reference["sha256"]
+                )
 
     def test_human_approval_artifact_sync_failure_is_not_success(self) -> None:
         from kapisch_core.storage import (
@@ -81,12 +98,18 @@ class StorageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory)
             data = b"canonical artifact bytes"
-            with patch("kapisch_core.storage._sync_hierarchy", side_effect=OSError("sync failed")):
+            with patch(
+                "kapisch_core.storage._sync_hierarchy",
+                side_effect=OSError("sync failed"),
+            ):
                 with self.assertRaisesRegex(OSError, "sync failed"):
                     retain_human_approval_artifact(repo, data)
             reference = retain_human_approval_artifact(repo, data)
             self.assertEqual(
-                load_human_approval_artifact(repo, reference["path"], reference["sha256"]), data
+                load_human_approval_artifact(
+                    repo, reference["path"], reference["sha256"]
+                ),
+                data,
             )
 
     def test_human_approval_artifact_occupied_digest_path_fails_closed(self) -> None:
@@ -172,18 +195,26 @@ class StorageTests(unittest.TestCase):
             retained.unlink()
             with self.assertRaises(FileNotFoundError):
                 load_bundle(repo, digest)
-            self.assertEqual(load_bundle(repo, upgraded_digest), verify_bundle(upgraded, upgraded_digest))
+            self.assertEqual(
+                load_bundle(repo, upgraded_digest),
+                verify_bundle(upgraded, upgraded_digest),
+            )
             store_bundle(repo, original)
             retained.write_bytes(upgraded)
             with self.assertRaises(ValueError):
                 load_bundle(repo, digest)
 
-    def test_store_rejects_symlinked_authority_components_without_external_writes(self) -> None:
+    def test_store_rejects_symlinked_authority_components_without_external_writes(
+        self,
+    ) -> None:
         from kapisch_core.storage import store_bundle
 
         original, _ = _bundles()
         for component in (".kapisch", "v3", "bundles"):
-            with self.subTest(component=component), tempfile.TemporaryDirectory() as directory:
+            with (
+                self.subTest(component=component),
+                tempfile.TemporaryDirectory() as directory,
+            ):
                 repo = Path(directory) / "repo"
                 repo.mkdir()
                 external = Path(directory) / "external"
@@ -192,10 +223,14 @@ class StorageTests(unittest.TestCase):
                     (repo / component).symlink_to(external, target_is_directory=True)
                 elif component == "v3":
                     (repo / ".kapisch").mkdir()
-                    (repo / ".kapisch/v3").symlink_to(external, target_is_directory=True)
+                    (repo / ".kapisch/v3").symlink_to(
+                        external, target_is_directory=True
+                    )
                 else:
                     (repo / ".kapisch/v3").mkdir(parents=True)
-                    (repo / ".kapisch/v3/bundles").symlink_to(external, target_is_directory=True)
+                    (repo / ".kapisch/v3/bundles").symlink_to(
+                        external, target_is_directory=True
+                    )
                 with self.assertRaises(OSError):
                     store_bundle(repo, original)
                 self.assertEqual(list(external.iterdir()), [])
@@ -206,7 +241,10 @@ class StorageTests(unittest.TestCase):
         original, _ = _bundles()
         digest = hashlib.sha256(original).hexdigest()
         for component in (".kapisch", "v3", "bundles"):
-            with self.subTest(component=component), tempfile.TemporaryDirectory() as directory:
+            with (
+                self.subTest(component=component),
+                tempfile.TemporaryDirectory() as directory,
+            ):
                 base = Path(directory)
                 repo = base / "repo"
                 repo.mkdir()
@@ -215,13 +253,19 @@ class StorageTests(unittest.TestCase):
                 bundle_dir.mkdir(parents=True)
                 (bundle_dir / f"{digest}.json").write_bytes(original)
                 if component == ".kapisch":
-                    (repo / component).symlink_to(target / ".kapisch", target_is_directory=True)
+                    (repo / component).symlink_to(
+                        target / ".kapisch", target_is_directory=True
+                    )
                 elif component == "v3":
                     (repo / ".kapisch").mkdir()
-                    (repo / ".kapisch/v3").symlink_to(target / ".kapisch/v3", target_is_directory=True)
+                    (repo / ".kapisch/v3").symlink_to(
+                        target / ".kapisch/v3", target_is_directory=True
+                    )
                 else:
                     (repo / ".kapisch/v3").mkdir(parents=True)
-                    (repo / ".kapisch/v3/bundles").symlink_to(bundle_dir, target_is_directory=True)
+                    (repo / ".kapisch/v3/bundles").symlink_to(
+                        bundle_dir, target_is_directory=True
+                    )
                 with self.assertRaises(OSError):
                     load_bundle(repo, digest)
 
@@ -245,7 +289,9 @@ class StorageTests(unittest.TestCase):
                 store_bundle(repo, original)
             self.assertEqual(external.read_bytes(), original)
 
-    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFO creation is unsupported on this platform")
+    @unittest.skipUnless(
+        hasattr(os, "mkfifo"), "FIFO creation is unsupported on this platform"
+    )
     def test_load_and_store_reject_fifo_digest_leaf_without_blocking(self) -> None:
         from kapisch_core.storage import store_bundle
 
@@ -269,7 +315,10 @@ else:
     raise AssertionError("FIFO digest leaf was accepted")
 """
         for operation in ("load", "store"):
-            with self.subTest(operation=operation), tempfile.TemporaryDirectory() as directory:
+            with (
+                self.subTest(operation=operation),
+                tempfile.TemporaryDirectory() as directory,
+            ):
                 repo = Path(directory)
                 store_bundle(repo, original)
                 leaf = repo / ".kapisch/v3/bundles" / f"{digest}.json"
@@ -277,8 +326,15 @@ else:
                 os.mkfifo(leaf)
                 try:
                     run = subprocess.run(
-                        [sys.executable, "-c", script, str(repo), digest, operation,
-                         str(ROOT / "core/dist/core-bundle.json")],
+                        [
+                            sys.executable,
+                            "-c",
+                            script,
+                            str(repo),
+                            digest,
+                            operation,
+                            str(ROOT / "core/dist/core-bundle.json"),
+                        ],
                         cwd=ROOT,
                         env={**os.environ, "PYTHONPATH": str(ROOT / "core")},
                         capture_output=True,
@@ -296,7 +352,10 @@ else:
         original, _ = _bundles()
         digest = hashlib.sha256(original).hexdigest()
         for component in (".kapisch", "v3", "bundles"):
-            with self.subTest(component=component), tempfile.TemporaryDirectory() as directory:
+            with (
+                self.subTest(component=component),
+                tempfile.TemporaryDirectory() as directory,
+            ):
                 repo = Path(directory) / "repo"
                 repo.mkdir()
                 if component == ".kapisch":
@@ -331,7 +390,10 @@ else:
                     raise OSError("injected directory fsync failure")
                 real_fsync(fd)
 
-            with patch.object(storage.os, "fsync", side_effect=fail_once), self.assertRaises(OSError):
+            with (
+                patch.object(storage.os, "fsync", side_effect=fail_once),
+                self.assertRaises(OSError),
+            ):
                 store_bundle(repo, original)
             self.assertEqual(load_bundle(repo, digest).protocol_version, 3)
             self.assertEqual(store_bundle(repo, original), digest)
@@ -345,7 +407,9 @@ else:
 
             with patch.object(storage.os, "fsync", side_effect=count_fsync):
                 self.assertEqual(store_bundle(repo, original), digest)
-            self.assertEqual(calls, 6)  # File, bundle directory, and all containing directories.
+            self.assertEqual(
+                calls, 6
+            )  # File, bundle directory, and all containing directories.
 
 
 if __name__ == "__main__":

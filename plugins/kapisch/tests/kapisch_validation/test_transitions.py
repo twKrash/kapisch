@@ -126,7 +126,10 @@ class TransitionTests(unittest.TestCase):
 
     def test_rejects_illegal_observed_transition(self) -> None:
         errors = validate_transition(
-            manifest("running"), state("resolve:T01"), manifest("complete"), state("complete")
+            manifest("running"),
+            state("resolve:T01"),
+            manifest("complete"),
+            state("complete"),
         )
         self.assertEqual(errors[0].code, "TWV-LIFECYCLE-ILLEGAL-TRANSITION")
 
@@ -146,7 +149,8 @@ class TransitionTests(unittest.TestCase):
             (
                 "policies",
                 snapshot_manifest(
-                    snapshot_node(), policies={"execution": "sequential", "dispatch": "auto"}
+                    snapshot_node(),
+                    policies={"execution": "sequential", "dispatch": "auto"},
                 ),
             ),
         )
@@ -413,7 +417,9 @@ class TransitionTests(unittest.TestCase):
                     errors,
                 )
 
-    def test_rejects_backdated_new_node_without_a_graph_amendment_protocol(self) -> None:
+    def test_rejects_backdated_new_node_without_a_graph_amendment_protocol(
+        self,
+    ) -> None:
         previous_node = snapshot_node("T01", sequence=2, status="ready")
         current = snapshot_manifest(
             snapshot_node("T02", sequence=1, status="pending"),
@@ -434,7 +440,9 @@ class TransitionTests(unittest.TestCase):
             errors,
         )
 
-    def test_rejects_append_only_graph_growth_without_an_amendment_protocol(self) -> None:
+    def test_rejects_append_only_graph_growth_without_an_amendment_protocol(
+        self,
+    ) -> None:
         previous_node = snapshot_node("T01", sequence=1, status="ready")
         for initial_status in ("pending", "ready"):
             with self.subTest(status=initial_status):
@@ -524,7 +532,9 @@ class TransitionTests(unittest.TestCase):
             errors,
         )
 
-    def test_allows_runtime_evidence_and_attempt_advancement_before_transition(self) -> None:
+    def test_allows_runtime_evidence_and_attempt_advancement_before_transition(
+        self,
+    ) -> None:
         assignment = {
             "id": "A-T01-1",
             "schema_version": 1,
@@ -541,7 +551,9 @@ class TransitionTests(unittest.TestCase):
             "escalations": [],
         }
         previous = snapshot_manifest(
-            snapshot_node(status="running", assignment=assignment, verification_evidence=[])
+            snapshot_node(
+                status="running", assignment=assignment, verification_evidence=[]
+            )
         )
         current_assignment = {
             **assignment,
@@ -746,10 +758,7 @@ class TransitionTests(unittest.TestCase):
         complete_errors = validate_lifecycle(empty_v1, complete_state)
         for errors in (running_errors, complete_errors):
             self.assertFalse(
-                any(
-                    error.code == "TWV-LIFECYCLE-WORKFLOW-STATUS"
-                    for error in errors
-                ),
+                any(error.code == "TWV-LIFECYCLE-WORKFLOW-STATUS" for error in errors),
                 errors,
             )
 

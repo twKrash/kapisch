@@ -1,16 +1,15 @@
-from copy import deepcopy
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
 import tomllib
 import unittest
+from copy import deepcopy
+from pathlib import Path
 
 from kapisch_validation.cli import validate
 from kapisch_validation.manifest import render_manifest
 from kapisch_validation.references import render_state
-
 
 FIXTURES = Path(__file__).parent / "fixtures"
 PLUGIN = Path(__file__).resolve().parents[2]
@@ -29,27 +28,44 @@ class CanonicalDurableArtifactTests(unittest.TestCase):
 
     def test_initial_manifest_and_state_ignore_unordered_input_order(self) -> None:
         root = FIXTURES / "valid-v4-controller"
-        manifest_a = tomllib.loads((root / "02-execution-graph.toml").read_text(encoding="utf-8"))
+        manifest_a = tomllib.loads(
+            (root / "02-execution-graph.toml").read_text(encoding="utf-8")
+        )
         manifest_b = deepcopy(manifest_a)
         manifest_a["nodes"] = list(reversed(manifest_a["nodes"]))
-        manifest_a["nodes"][0]["depends_on"] = list(reversed(manifest_a["nodes"][0]["depends_on"]))
+        manifest_a["nodes"][0]["depends_on"] = list(
+            reversed(manifest_a["nodes"][0]["depends_on"])
+        )
         manifest_a["nodes"][0]["reads"] = ["src/z.py", "src/a.py", "src/z.py"]
         manifest_b["nodes"][-1]["reads"] = ["src/a.py", "src/z.py"]
         state_a = tomllib.loads((root / "03-state.toml").read_text(encoding="utf-8"))
         state_b = deepcopy(state_a)
         state_a["completed_node_ids"] = list(reversed(state_a["completed_node_ids"]))
-        self.assertEqual(render_manifest(manifest_a, initial=True), render_manifest(manifest_b, initial=True))
+        self.assertEqual(
+            render_manifest(manifest_a, initial=True),
+            render_manifest(manifest_b, initial=True),
+        )
         self.assertEqual(render_state(state_a), render_state(state_b))
-        self.assertTrue(render_manifest(manifest_a, initial=True).startswith(b'"version" = 4\n"task_id" = '))
+        self.assertTrue(
+            render_manifest(manifest_a, initial=True).startswith(
+                b'"version" = 4\n"task_id" = '
+            )
+        )
         self.assertTrue(render_state(state_a).startswith(b'"task_id" = '))
 
     def test_semantic_sequence_order_is_preserved(self) -> None:
-        raw = tomllib.loads((FIXTURES / "valid-v4-controller/02-execution-graph.toml").read_text(encoding="utf-8"))
+        raw = tomllib.loads(
+            (FIXTURES / "valid-v4-controller/02-execution-graph.toml").read_text(
+                encoding="utf-8"
+            )
+        )
         first = deepcopy(raw)
         second = deepcopy(raw)
         first["nodes"][0]["verification"] = ["first", "second"]
         second["nodes"][0]["verification"] = ["second", "first"]
-        self.assertNotEqual(render_manifest(first, initial=True), render_manifest(second, initial=True))
+        self.assertNotEqual(
+            render_manifest(first, initial=True), render_manifest(second, initial=True)
+        )
 
     def test_reencoded_snapshot_passes_full_validator(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -57,19 +73,33 @@ class CanonicalDurableArtifactTests(unittest.TestCase):
             shutil.copytree(FIXTURES / "valid-v4-controller", task)
             graph = task / "02-execution-graph.toml"
             state = task / "03-state.toml"
-            graph.write_bytes(render_manifest(tomllib.loads(graph.read_text(encoding="utf-8")), initial=False))
-            state.write_bytes(render_state(tomllib.loads(state.read_text(encoding="utf-8"))))
+            graph.write_bytes(
+                render_manifest(
+                    tomllib.loads(graph.read_text(encoding="utf-8")), initial=False
+                )
+            )
+            state.write_bytes(
+                render_state(tomllib.loads(state.read_text(encoding="utf-8")))
+            )
             result = subprocess.run(
-                [sys.executable, str(PLUGIN / "scripts/render_controller_view.py"), "--task-dir", str(task)],
-                capture_output=True, text=True,
+                [
+                    sys.executable,
+                    str(PLUGIN / "scripts/render_controller_view.py"),
+                    "--task-dir",
+                    str(task),
+                ],
+                capture_output=True,
+                text=True,
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual(list(validate(PLUGIN / "skills/kapisch", task)), [])
 
     def test_manifest_renderer_accepts_each_supported_version(self) -> None:
         for fixture in (
-            "valid-v1-defaults", "valid-sequential-v2",
-            "valid-v3-durable", "valid-v4-controller",
+            "valid-v1-defaults",
+            "valid-sequential-v2",
+            "valid-v3-durable",
+            "valid-v4-controller",
         ):
             with self.subTest(fixture=fixture):
                 rendered = render_manifest(self.load_manifest(fixture), initial=False)
@@ -96,14 +126,18 @@ class CanonicalDurableArtifactTests(unittest.TestCase):
         del missing_attempt_field["nodes"][0]["assignment"]["attempts"][0]["status"]
         cases.append(missing_attempt_field)
         invalid_evidence = self.load_manifest()
-        invalid_evidence["nodes"][0]["verification_evidence"][0]["output_sha256"] = "ABC"
+        invalid_evidence["nodes"][0]["verification_evidence"][0]["output_sha256"] = (
+            "ABC"
+        )
         cases.append(invalid_evidence)
         for raw in cases:
             with self.subTest(raw=raw):
                 with self.assertRaises(ValueError):
                     render_manifest(raw, initial=False)
 
-    def test_manifest_renderer_validates_declared_paths_but_preserves_globs(self) -> None:
+    def test_manifest_renderer_validates_declared_paths_but_preserves_globs(
+        self,
+    ) -> None:
         raw = self.load_manifest()
         raw["nodes"][0]["writes"] = ["src/**/*.py", "https://example.test/data"]
         render_manifest(raw, initial=False)
@@ -169,7 +203,9 @@ class CanonicalDurableArtifactTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     render_state(raw)
 
-    def test_state_renderer_rejects_duplicate_membership_instead_of_masking_it(self) -> None:
+    def test_state_renderer_rejects_duplicate_membership_instead_of_masking_it(
+        self,
+    ) -> None:
         duplicate = self.load_state()
         duplicate["completed_node_ids"].append("T01")
         with self.assertRaises(ValueError):

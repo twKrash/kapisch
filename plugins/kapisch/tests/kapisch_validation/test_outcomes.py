@@ -13,7 +13,15 @@ from types import SimpleNamespace
 
 from kapisch_validation.canonical_toml import render_toml
 from kapisch_validation.manifest import parse_manifest
-from kapisch_validation.outcomes import _finding_binding_errors, _normalized_claim_errors, _redispatch_errors, _report_authorizes_finding, parse_outcome, render_outcome, validate_outcomes
+from kapisch_validation.outcomes import (
+    _finding_binding_errors,
+    _normalized_claim_errors,
+    _redispatch_errors,
+    _report_authorizes_finding,
+    parse_outcome,
+    render_outcome,
+    validate_outcomes,
+)
 from kapisch_validation.references import parse_state
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -21,20 +29,46 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 
 class OutcomeTests(unittest.TestCase):
-    def test_outcome_encoder_sorts_findings_and_preserves_verification_order(self) -> None:
+    def test_outcome_encoder_sorts_findings_and_preserves_verification_order(
+        self,
+    ) -> None:
         path = FIXTURES / "valid-v4-controller/stage-outcomes/AT-T01-1.toml"
         raw = tomllib.loads(path.read_text(encoding="utf-8"))
-        p2 = {"id": "F-2", "severity": "P2", "summary": "later", "evidence_ref": "tasks/T01-report.md"}
-        p0 = {"id": "F-1", "severity": "P0", "summary": "first", "evidence_ref": "tasks/T01-report.md"}
+        p2 = {
+            "id": "F-2",
+            "severity": "P2",
+            "summary": "later",
+            "evidence_ref": "tasks/T01-report.md",
+        }
+        p0 = {
+            "id": "F-1",
+            "severity": "P0",
+            "summary": "first",
+            "evidence_ref": "tasks/T01-report.md",
+        }
         raw["findings"] = [p2, p0]
         raw["verification"] = [
-            {"check": "first", "result": "pass", "evidence_ref": "tasks/T01-report.md", "output_sha256": "1" * 64},
-            {"check": "second", "result": "pass", "evidence_ref": "tasks/T01-report.md", "output_sha256": "2" * 64},
+            {
+                "check": "first",
+                "result": "pass",
+                "evidence_ref": "tasks/T01-report.md",
+                "output_sha256": "1" * 64,
+            },
+            {
+                "check": "second",
+                "result": "pass",
+                "evidence_ref": "tasks/T01-report.md",
+                "output_sha256": "2" * 64,
+            },
         ]
         encoded = render_outcome(raw)
         parsed = tomllib.loads(encoded.decode("utf-8"))
-        self.assertEqual([finding["id"] for finding in parsed["findings"]], ["F-1", "F-2"])
-        self.assertEqual([record["check"] for record in parsed["verification"]], ["first", "second"])
+        self.assertEqual(
+            [finding["id"] for finding in parsed["findings"]], ["F-1", "F-2"]
+        )
+        self.assertEqual(
+            [record["check"] for record in parsed["verification"]], ["first", "second"]
+        )
         reversed_verification = dict(raw)
         reversed_verification["verification"] = list(reversed(raw["verification"]))
         self.assertNotEqual(encoded, render_outcome(reversed_verification))
@@ -49,23 +83,29 @@ class OutcomeTests(unittest.TestCase):
             'version = 4\ncontroller_view = "04-controller-view.toml"',
             1,
         )
-        manifest = manifest.replace(
-            "[nodes.revision]",
-            'assignment={id="A-T01-1",schema_version=1,execution_class="bounded",reason_codes=[],source_revision="base",context_refs=[],attempts=[{id="AT-T01-1",source_revision="base",context_scope_ref="tasks/T01-context.md",status="complete",verification=[],outcome_path="stage-outcomes/AT-T01-1.toml"}],escalations=[]}\n[nodes.revision]',
-            1,
-        ).replace(
-            'id="R01"\ndelegation_ids=["D03"]\nsequence=2\ntitle="review"\nkind="review"\nrisk="high"\nstatus="complete"',
-            'id="R01"\ndelegation_ids=["D03"]\nsequence=2\ntitle="review"\nkind="review"\nrisk="high"\nstatus="pending"',
-        ).replace(
-            'id="F01"\ndelegation_ids=[]\nsequence=3\ntitle="final"\nkind="final"\nrisk="high"\nstatus="complete"',
-            'id="F01"\ndelegation_ids=[]\nsequence=3\ntitle="final"\nkind="final"\nrisk="high"\nstatus="pending"',
+        manifest = (
+            manifest.replace(
+                "[nodes.revision]",
+                'assignment={id="A-T01-1",schema_version=1,execution_class="bounded",reason_codes=[],source_revision="base",context_refs=[],attempts=[{id="AT-T01-1",source_revision="base",context_scope_ref="tasks/T01-context.md",status="complete",verification=[],outcome_path="stage-outcomes/AT-T01-1.toml"}],escalations=[]}\n[nodes.revision]',
+                1,
+            )
+            .replace(
+                'id="R01"\ndelegation_ids=["D03"]\nsequence=2\ntitle="review"\nkind="review"\nrisk="high"\nstatus="complete"',
+                'id="R01"\ndelegation_ids=["D03"]\nsequence=2\ntitle="review"\nkind="review"\nrisk="high"\nstatus="pending"',
+            )
+            .replace(
+                'id="F01"\ndelegation_ids=[]\nsequence=3\ntitle="final"\nkind="final"\nrisk="high"\nstatus="complete"',
+                'id="F01"\ndelegation_ids=[]\nsequence=3\ntitle="final"\nkind="final"\nrisk="high"\nstatus="pending"',
+            )
         )
         manifest_path.write_text(manifest, encoding="utf-8")
         state_path = task_dir / "03-state.toml"
         state_path.write_text(
             state_path.read_text(encoding="utf-8")
             + 'controller_view_path="04-controller-view.toml"\n'
-            + 'controller_view_sha256="' + "0" * 64 + '"\n',
+            + 'controller_view_sha256="'
+            + "0" * 64
+            + '"\n',
             encoding="utf-8",
         )
         parsed = parse_manifest(manifest_path)
@@ -76,14 +116,23 @@ class OutcomeTests(unittest.TestCase):
 
     def full_validation_codes(self, task_dir: Path) -> set[str]:
         result = subprocess.run(
-            [sys.executable, str(ROOT / "scripts" / "validate_kapisch.py"), "--task-dir", str(task_dir)],
+            [
+                sys.executable,
+                str(ROOT / "scripts" / "validate_kapisch.py"),
+                "--task-dir",
+                str(task_dir),
+            ],
             capture_output=True,
             text=True,
         )
         self.assertNotEqual(result.returncode, 0)
-        return {line.split(maxsplit=1)[0] for line in result.stdout.splitlines() if line}
+        return {
+            line.split(maxsplit=1)[0] for line in result.stdout.splitlines() if line
+        }
 
-    def write_outcome(self, task_dir: Path, *, report_sha256: str | None = None) -> None:
+    def write_outcome(
+        self, task_dir: Path, *, report_sha256: str | None = None
+    ) -> None:
         report_path = task_dir / "tasks/T01-report.md"
         digest = report_sha256 or hashlib.sha256(report_path.read_bytes()).hexdigest()
         outcome_dir = task_dir / "stage-outcomes"
@@ -142,7 +191,8 @@ class OutcomeTests(unittest.TestCase):
             outcome_path = task / "stage-outcomes/AT-T01-1.toml"
             outcome = tomllib.loads(outcome_path.read_text(encoding="utf-8"))
             outcome.update(
-                lifecycle="failed", role_status="failed",
+                lifecycle="failed",
+                role_status="failed",
                 next_action_reason="failed",
             )
             outcome_path.write_bytes(render_toml(outcome))
@@ -167,10 +217,17 @@ class OutcomeTests(unittest.TestCase):
         state, errors = parse_state(task / "03-state.toml")
         self.assertEqual(errors, [])
         for status in ("complete", "blocked", "failed"):
-            for attempt_status in ("pending", "running", "complete", "blocked", "failed"):
+            for attempt_status in (
+                "pending",
+                "running",
+                "complete",
+                "blocked",
+                "failed",
+            ):
                 with self.subTest(status=status, attempt_status=attempt_status):
                     node = SimpleNamespace(
-                        id="T01", status=status,
+                        id="T01",
+                        status=status,
                         raw={"assignment": {"attempts": [{"status": attempt_status}]}},
                     )
                     manifest = SimpleNamespace(version=4, nodes=[node])
@@ -187,26 +244,38 @@ class OutcomeTests(unittest.TestCase):
         for history, expected in cases:
             with self.subTest(history=history):
                 node = SimpleNamespace(
-                    id="T01", status="complete",
+                    id="T01",
+                    status="complete",
                     raw={"assignment": {"attempts": history}},
                 )
                 manifest = SimpleNamespace(version=4, nodes=[node])
                 codes = {e.code for e in validate_outcomes(manifest, state, task)}
                 self.assertEqual("TWV-OUTCOME-NODE-LIFECYCLE" in codes, expected)
         node = SimpleNamespace(
-            id="T01", status="complete",
+            id="T01",
+            status="complete",
             raw={"assignment": {"attempts": [{"status": "failed"}]}},
         )
-        self.assertEqual(validate_outcomes(SimpleNamespace(version=3, nodes=[node]), state, task), [])
+        self.assertEqual(
+            validate_outcomes(SimpleNamespace(version=3, nodes=[node]), state, task), []
+        )
+
     def test_outcome_version_requires_an_integer_one(self) -> None:
         for value in ("true", "1.0"):
             with self.subTest(value=value), tempfile.TemporaryDirectory() as temporary:
                 task_dir, manifest, state = self.make_v4_task(temporary)
                 self.write_outcome(task_dir)
                 outcome = task_dir / "stage-outcomes/AT-T01-1.toml"
-                outcome.write_text(outcome.read_text(encoding="utf-8").replace("version = 1", f"version = {value}", 1), encoding="utf-8")
+                outcome.write_text(
+                    outcome.read_text(encoding="utf-8").replace(
+                        "version = 1", f"version = {value}", 1
+                    ),
+                    encoding="utf-8",
+                )
                 errors = validate_outcomes(manifest, state, task_dir)
-                self.assertIn("TWV-OUTCOME-INVALID-VERSION", {error.code for error in errors})
+                self.assertIn(
+                    "TWV-OUTCOME-INVALID-VERSION", {error.code for error in errors}
+                )
 
     def test_full_validator_rejects_fabricated_compact_claims(self) -> None:
         mutations = {
@@ -231,7 +300,10 @@ class OutcomeTests(unittest.TestCase):
                 task_dir = Path(temporary) / "task"
                 shutil.copytree(FIXTURES / "valid-v4-controller", task_dir)
                 outcome = task_dir / "stage-outcomes" / "AT-T01-1.toml"
-                outcome.write_text(outcome.read_text(encoding="utf-8").replace(before, after, 1), encoding="utf-8")
+                outcome.write_text(
+                    outcome.read_text(encoding="utf-8").replace(before, after, 1),
+                    encoding="utf-8",
+                )
                 self.assertIn(code, self.full_validation_codes(task_dir))
 
     def test_full_validator_rejects_omitted_canonical_verification(self) -> None:
@@ -241,10 +313,18 @@ class OutcomeTests(unittest.TestCase):
             outcome = task_dir / "stage-outcomes" / "AT-T01-1.toml"
             lines = outcome.read_text(encoding="utf-8").splitlines()
             outcome.write_text(
-                "\n".join("verification = []" if line.startswith("verification = ") else line for line in lines) + "\n",
+                "\n".join(
+                    "verification = []" if line.startswith("verification = ") else line
+                    for line in lines
+                )
+                + "\n",
                 encoding="utf-8",
             )
-            self.assertIn("TWV-OUTCOME-VERIFICATION-EVIDENCE", self.full_validation_codes(task_dir))
+            self.assertIn(
+                "TWV-OUTCOME-VERIFICATION-EVIDENCE",
+                self.full_validation_codes(task_dir),
+            )
+
     def test_report_digest_mismatch_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             task_dir, manifest, state = self.make_v4_task(temporary)
@@ -254,11 +334,18 @@ class OutcomeTests(unittest.TestCase):
 
     def test_retry_budget_matches_each_redispatch_reason(self) -> None:
         for reason, expected in (
-            ("none", 0), ("interrupted-active-stage", 0), ("stale-review-state", 0),
-            ("dispatch-no-work", 0), ("reviewer-finding", 1), ("failed-attempt", 1),
+            ("none", 0),
+            ("interrupted-active-stage", 0),
+            ("stale-review-state", 0),
+            ("dispatch-no-work", 0),
+            ("reviewer-finding", 1),
+            ("failed-attempt", 1),
             ("approved-amendment", 1),
         ):
-            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as temporary:
+            with (
+                self.subTest(reason=reason),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
                 task_dir, _, _ = self.make_v4_task(temporary)
                 self.write_outcome(task_dir)
                 path = task_dir / "stage-outcomes/AT-T01-1.toml"
@@ -266,15 +353,27 @@ class OutcomeTests(unittest.TestCase):
                     'redispatch_reason = "none"', f'redispatch_reason = "{reason}"'
                 )
                 if reason != "none":
-                    text = text.replace('predecessor_attempt_id = "unavailable"', 'predecessor_attempt_id = "AT-PRIOR"')
+                    text = text.replace(
+                        'predecessor_attempt_id = "unavailable"',
+                        'predecessor_attempt_id = "AT-PRIOR"',
+                    )
                 for delta in (0, 1):
                     with self.subTest(delta=delta):
-                        path.write_text(text.replace("retry_budget_delta = 0", f"retry_budget_delta = {delta}"), encoding="utf-8")
+                        path.write_text(
+                            text.replace(
+                                "retry_budget_delta = 0",
+                                f"retry_budget_delta = {delta}",
+                            ),
+                            encoding="utf-8",
+                        )
                         _, errors = parse_outcome(path)
                         if delta == expected:
                             self.assertEqual(errors, [])
                         else:
-                            self.assertIn("TWV-OUTCOME-REDISPATCH-BUDGET", {error.code for error in errors})
+                            self.assertIn(
+                                "TWV-OUTCOME-REDISPATCH-BUDGET",
+                                {error.code for error in errors},
+                            )
 
     def test_verification_result_wrong_shapes_are_reported(self):
         for value in ([], {}, ["pass"], {"value": "pass"}, True, 1):
@@ -299,9 +398,17 @@ class OutcomeTests(unittest.TestCase):
             raw["verification"][0]["result"] = []
             path.write_bytes(render_toml(raw))
             result = subprocess.run(
-                [sys.executable, str(ROOT / "scripts/validate_kapisch.py"),
-                 "--task-dir", str(task), "--format", "json"],
-                capture_output=True, text=True, timeout=10,
+                [
+                    sys.executable,
+                    str(ROOT / "scripts/validate_kapisch.py"),
+                    "--task-dir",
+                    str(task),
+                    "--format",
+                    "json",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
             self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
             self.assertIn(
@@ -310,7 +417,9 @@ class OutcomeTests(unittest.TestCase):
             )
             self.assertNotIn("Traceback", result.stderr)
 
-    def test_graph_verification_result_wrong_shapes_are_structured_and_no_write(self) -> None:
+    def test_graph_verification_result_wrong_shapes_are_structured_and_no_write(
+        self,
+    ) -> None:
         for value in ([], {"result": "pass"}):
             with self.subTest(value=value), tempfile.TemporaryDirectory() as temporary:
                 task_dir = Path(temporary) / "task"
@@ -319,70 +428,146 @@ class OutcomeTests(unittest.TestCase):
                 graph = tomllib.loads(graph_path.read_text(encoding="utf-8"))
                 graph["nodes"][0]["verification_evidence"][0]["result"] = value
                 graph_path.write_bytes(render_toml(graph))
-                before = {path: path.read_bytes() for path in task_dir.rglob("*") if path.is_file()}
+                before = {
+                    path: path.read_bytes()
+                    for path in task_dir.rglob("*")
+                    if path.is_file()
+                }
                 validation = subprocess.run(
-                    [sys.executable, str(ROOT / "scripts" / "validate_kapisch.py"), "--task-dir", str(task_dir), "--format", "json"],
-                    capture_output=True, text=True, timeout=10,
+                    [
+                        sys.executable,
+                        str(ROOT / "scripts" / "validate_kapisch.py"),
+                        "--task-dir",
+                        str(task_dir),
+                        "--format",
+                        "json",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
                 )
-                self.assertEqual(validation.returncode, 2, validation.stdout + validation.stderr)
-                self.assertIn("TWV-SCHEMA-WRONG-SHAPE", {error["code"] for error in json.loads(validation.stdout)})
+                self.assertEqual(
+                    validation.returncode, 2, validation.stdout + validation.stderr
+                )
+                self.assertIn(
+                    "TWV-SCHEMA-WRONG-SHAPE",
+                    {error["code"] for error in json.loads(validation.stdout)},
+                )
                 self.assertNotIn("Traceback", validation.stderr)
                 rendering = subprocess.run(
-                    [sys.executable, str(ROOT / "scripts" / "render_controller_view.py"), "--task-dir", str(task_dir)],
-                    capture_output=True, text=True, timeout=10,
+                    [
+                        sys.executable,
+                        str(ROOT / "scripts" / "render_controller_view.py"),
+                        "--task-dir",
+                        str(task_dir),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
                 )
-                self.assertEqual(rendering.returncode, 2, rendering.stdout + rendering.stderr)
+                self.assertEqual(
+                    rendering.returncode, 2, rendering.stdout + rendering.stderr
+                )
                 self.assertNotIn("Traceback", rendering.stderr)
-                self.assertEqual({path: path.read_bytes() for path in task_dir.rglob("*") if path.is_file()}, before)
+                self.assertEqual(
+                    {
+                        path: path.read_bytes()
+                        for path in task_dir.rglob("*")
+                        if path.is_file()
+                    },
+                    before,
+                )
 
-    def assert_render_and_validate(self, task_dir: Path, error_code: str | None = None) -> None:
-        before = {path: path.read_bytes() for path in task_dir.rglob("*") if path.is_file()}
+    def assert_render_and_validate(
+        self, task_dir: Path, error_code: str | None = None
+    ) -> None:
+        before = {
+            path: path.read_bytes() for path in task_dir.rglob("*") if path.is_file()
+        }
         for script in ("render_controller_view.py", "validate_kapisch.py"):
             result = subprocess.run(
-                [sys.executable, str(ROOT / "scripts" / script), "--task-dir", str(task_dir)],
-                capture_output=True, text=True,
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / script),
+                    "--task-dir",
+                    str(task_dir),
+                ],
+                capture_output=True,
+                text=True,
             )
             with self.subTest(script=script):
-                self.assertEqual(result.returncode, 2 if error_code else 0, result.stdout + result.stderr)
+                self.assertEqual(
+                    result.returncode,
+                    2 if error_code else 0,
+                    result.stdout + result.stderr,
+                )
                 if error_code and script == "validate_kapisch.py":
                     self.assertIn(error_code, result.stdout)
         if error_code:
-            self.assertEqual({path: path.read_bytes() for path in task_dir.rglob("*") if path.is_file()}, before)
+            self.assertEqual(
+                {
+                    path: path.read_bytes()
+                    for path in task_dir.rglob("*")
+                    if path.is_file()
+                },
+                before,
+            )
 
     def test_renderer_and_validator_reject_invalid_retry_budget(self) -> None:
-        for delta in ('true', 'false', '"oops"', '0.0', '-1', '1', '2', '[]'):
+        for delta in ("true", "false", '"oops"', "0.0", "-1", "1", "2", "[]"):
             with self.subTest(delta=delta), tempfile.TemporaryDirectory() as temporary:
                 task_dir = Path(temporary) / "task"
                 shutil.copytree(FIXTURES / "valid-v4-controller", task_dir)
                 path = task_dir / "stage-outcomes/AT-T01-1.toml"
-                path.write_text(path.read_text(encoding="utf-8").replace(
-                    "retry_budget_delta = 0", f"retry_budget_delta = {delta}"
-                ), encoding="utf-8")
-                if delta == '1':
+                path.write_text(
+                    path.read_text(encoding="utf-8").replace(
+                        "retry_budget_delta = 0", f"retry_budget_delta = {delta}"
+                    ),
+                    encoding="utf-8",
+                )
+                if delta == "1":
                     state = task_dir / "03-state.toml"
-                    state.write_text(state.read_text(encoding="utf-8").replace(
-                        "current_fix_round = 0", "current_fix_round = 1"
-                    ), encoding="utf-8")
-                self.assert_render_and_validate(task_dir, "TWV-OUTCOME-REDISPATCH-BUDGET")
+                    state.write_text(
+                        state.read_text(encoding="utf-8").replace(
+                            "current_fix_round = 0", "current_fix_round = 1"
+                        ),
+                        encoding="utf-8",
+                    )
+                self.assert_render_and_validate(
+                    task_dir, "TWV-OUTCOME-REDISPATCH-BUDGET"
+                )
 
     def test_failed_attempt_cannot_assert_unsupported_next_action(self) -> None:
         for action in ("failed", "dispatch-failed", "retry-exhausted"):
-            with self.subTest(action=action), tempfile.TemporaryDirectory() as temporary:
+            with (
+                self.subTest(action=action),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
                 task_dir = Path(temporary) / "task"
                 shutil.copytree(FIXTURES / "valid-v4-controller", task_dir)
                 graph = task_dir / "02-execution-graph.toml"
-                graph.write_text(graph.read_text(encoding="utf-8").replace(
-                    'status = "complete"', 'status = "failed"', 1
-                ), encoding="utf-8")
+                graph.write_text(
+                    graph.read_text(encoding="utf-8").replace(
+                        'status = "complete"', 'status = "failed"', 1
+                    ),
+                    encoding="utf-8",
+                )
                 path = task_dir / "stage-outcomes/AT-T01-1.toml"
-                path.write_text(path.read_text(encoding="utf-8").replace(
-                    'lifecycle = "complete"', 'lifecycle = "failed"'
-                ).replace('role_status = "done"', 'role_status = "failed"').replace(
-                    'next_action_reason = "completed"', f'next_action_reason = "{action}"'
-                ), encoding="utf-8")
+                path.write_text(
+                    path.read_text(encoding="utf-8")
+                    .replace('lifecycle = "complete"', 'lifecycle = "failed"')
+                    .replace('role_status = "done"', 'role_status = "failed"')
+                    .replace(
+                        'next_action_reason = "completed"',
+                        f'next_action_reason = "{action}"',
+                    ),
+                    encoding="utf-8",
+                )
                 self.assert_render_and_validate(
                     task_dir,
-                    "TWV-OUTCOME-NODE-LIFECYCLE" if action == "failed" else "TWV-OUTCOME-NEXT-ACTION",
+                    "TWV-OUTCOME-NODE-LIFECYCLE"
+                    if action == "failed"
+                    else "TWV-OUTCOME-NEXT-ACTION",
                 )
 
     def test_nonexistent_redispatch_predecessor_is_rejected(self) -> None:
@@ -391,13 +576,22 @@ class OutcomeTests(unittest.TestCase):
             self.write_outcome(task_dir)
             outcome = task_dir / "stage-outcomes/AT-T01-1.toml"
             outcome.write_text(
-                outcome.read_text().replace('redispatch_reason = "none"', 'redispatch_reason = "failed-attempt"').replace(
-                    'predecessor_attempt_id = "unavailable"', 'predecessor_attempt_id = "AT-NOT-REAL"'
-                ).replace("retry_budget_delta = 0", "retry_budget_delta = 1"),
+                outcome.read_text()
+                .replace(
+                    'redispatch_reason = "none"', 'redispatch_reason = "failed-attempt"'
+                )
+                .replace(
+                    'predecessor_attempt_id = "unavailable"',
+                    'predecessor_attempt_id = "AT-NOT-REAL"',
+                )
+                .replace("retry_budget_delta = 0", "retry_budget_delta = 1"),
                 encoding="utf-8",
             )
             errors = validate_outcomes(manifest, state, task_dir)
-        self.assertIn("TWV-OUTCOME-REDISPATCH-PREDECESSOR", {error.code for error in errors})
+        self.assertIn(
+            "TWV-OUTCOME-REDISPATCH-PREDECESSOR", {error.code for error in errors}
+        )
+
     def test_no_redispatch_requires_unavailable_predecessor(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             task_dir, manifest, state = self.make_v4_task(temporary)
@@ -405,12 +599,17 @@ class OutcomeTests(unittest.TestCase):
             outcome = task_dir / "stage-outcomes/AT-T01-1.toml"
             outcome.write_text(
                 outcome.read_text(encoding="utf-8").replace(
-                    'predecessor_attempt_id = "unavailable"', 'predecessor_attempt_id = "AT-FABRICATED"', 1
+                    'predecessor_attempt_id = "unavailable"',
+                    'predecessor_attempt_id = "AT-FABRICATED"',
+                    1,
                 ),
                 encoding="utf-8",
             )
             errors = validate_outcomes(manifest, state, task_dir)
-        self.assertIn("TWV-OUTCOME-REDISPATCH-PREDECESSOR", {error.code for error in errors})
+        self.assertIn(
+            "TWV-OUTCOME-REDISPATCH-PREDECESSOR", {error.code for error in errors}
+        )
+
     def test_full_snapshot_rejects_second_attempt_claiming_no_redispatch(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             task_dir = Path(temporary) / "task"
@@ -422,21 +621,59 @@ class OutcomeTests(unittest.TestCase):
             second.update(id="AT-T01-2", outcome_path="stage-outcomes/AT-T01-2.toml")
             node["assignment"]["attempts"].append(second)
             graph_path.write_bytes(render_toml(graph))
-            outcome = tomllib.loads((task_dir / "stage-outcomes/AT-T01-1.toml").read_text(encoding="utf-8"))
+            outcome = tomllib.loads(
+                (task_dir / "stage-outcomes/AT-T01-1.toml").read_text(encoding="utf-8")
+            )
             outcome["attempt_id"] = "AT-T01-2"
-            (task_dir / "stage-outcomes/AT-T01-2.toml").write_bytes(render_toml(outcome))
+            (task_dir / "stage-outcomes/AT-T01-2.toml").write_bytes(
+                render_toml(outcome)
+            )
 
-            self.assert_render_and_validate(task_dir, "TWV-OUTCOME-REDISPATCH-AUTHORIZATION")
+            self.assert_render_and_validate(
+                task_dir, "TWV-OUTCOME-REDISPATCH-AUTHORIZATION"
+            )
 
-    def test_structured_canonical_concerns_preserve_content_not_order_or_clean_disposition(self) -> None:
+    def test_structured_canonical_concerns_preserve_content_not_order_or_clean_disposition(
+        self,
+    ) -> None:
         records = (("F1", "P1", "first concern"), ("F2", "P2", "second concern"))
         cases = (
-            ("reordered", (records[1], records[0]), "done-with-concerns", "await-user", None),
-            ("omitted", (records[0],), "done-with-concerns", "await-user", "TWV-OUTCOME-FINDING-EVIDENCE"),
-            ("duplicated", (records[0], records[1], records[1]), "done-with-concerns", "await-user", "TWV-OUTCOME-FINDING-EVIDENCE"),
-            ("altered", (records[0], ("F2", "P2", "altered concern")), "done-with-concerns", "await-user", "TWV-OUTCOME-FINDING-EVIDENCE"),
+            (
+                "reordered",
+                (records[1], records[0]),
+                "done-with-concerns",
+                "await-user",
+                None,
+            ),
+            (
+                "omitted",
+                (records[0],),
+                "done-with-concerns",
+                "await-user",
+                "TWV-OUTCOME-FINDING-EVIDENCE",
+            ),
+            (
+                "duplicated",
+                (records[0], records[1], records[1]),
+                "done-with-concerns",
+                "await-user",
+                "TWV-OUTCOME-FINDING-EVIDENCE",
+            ),
+            (
+                "altered",
+                (records[0], ("F2", "P2", "altered concern")),
+                "done-with-concerns",
+                "await-user",
+                "TWV-OUTCOME-FINDING-EVIDENCE",
+            ),
             ("clean-claim", records, "done", "completed", "TWV-OUTCOME-DISPOSITION"),
-            ("ambiguous-disposition", records, "done", "completed", "TWV-OUTCOME-DISPOSITION"),
+            (
+                "ambiguous-disposition",
+                records,
+                "done",
+                "completed",
+                "TWV-OUTCOME-DISPOSITION",
+            ),
             ("normalized", records, "done-with-concerns", "await-user", None),
         )
         for name, compact_records, role_status, action, error in cases:
@@ -448,7 +685,8 @@ class OutcomeTests(unittest.TestCase):
                 if name == "ambiguous-disposition":
                     header = "status: DONE\nconcerns: none\nfindings: none\n" + header
                 report.write_text(
-                    header + "".join(
+                    header
+                    + "".join(
                         f"finding_id: {identifier}\nfinding_severity: {severity}\nfinding_summary: {summary}\nfinding_scope: T01\n"
                         for identifier, severity, summary in records
                     ),
@@ -461,22 +699,37 @@ class OutcomeTests(unittest.TestCase):
                 graph_path.write_bytes(render_toml(graph))
                 outcome_path = task_dir / "stage-outcomes/AT-T01-1.toml"
                 outcome = tomllib.loads(outcome_path.read_text(encoding="utf-8"))
-                outcome.update(report_sha256=digest, role_status=role_status, next_action_reason=action, findings=[
-                    {"id": identifier, "severity": severity, "summary": summary, "evidence_ref": "tasks/T01-report.md"}
-                    for identifier, severity, summary in compact_records
-                ])
+                outcome.update(
+                    report_sha256=digest,
+                    role_status=role_status,
+                    next_action_reason=action,
+                    findings=[
+                        {
+                            "id": identifier,
+                            "severity": severity,
+                            "summary": summary,
+                            "evidence_ref": "tasks/T01-report.md",
+                        }
+                        for identifier, severity, summary in compact_records
+                    ],
+                )
                 outcome["verification"][0]["output_sha256"] = digest
                 outcome_path.write_bytes(render_toml(outcome))
                 self.assert_render_and_validate(task_dir, error)
 
-    def test_canonical_terminal_dispositions_bind_full_snapshot_projections(self) -> None:
+    def test_canonical_terminal_dispositions_bind_full_snapshot_projections(
+        self,
+    ) -> None:
         for status, error in (
             ("DONE", None),
             ("FAILED", "TWV-OUTCOME-DISPOSITION"),
             ("BLOCKED", "TWV-OUTCOME-DISPOSITION"),
             ("NEEDS_CONTEXT", "TWV-OUTCOME-DISPOSITION"),
         ):
-            with self.subTest(status=status), tempfile.TemporaryDirectory() as temporary:
+            with (
+                self.subTest(status=status),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
                 task_dir = Path(temporary) / "task"
                 shutil.copytree(FIXTURES / "valid-v4-controller", task_dir)
                 report = task_dir / "tasks/T01-report.md"
@@ -496,7 +749,9 @@ class OutcomeTests(unittest.TestCase):
                 outcome_path.write_bytes(render_toml(outcome))
                 self.assert_render_and_validate(task_dir, error)
 
-    def test_canonical_terminal_dispositions_accept_legitimate_full_snapshot_projections(self) -> None:
+    def test_canonical_terminal_dispositions_accept_legitimate_full_snapshot_projections(
+        self,
+    ) -> None:
         cases = (
             ("DONE", "complete", "done", "completed"),
             ("DONE_WITH_CONCERNS", "complete", "done-with-concerns", "await-user"),
@@ -505,11 +760,17 @@ class OutcomeTests(unittest.TestCase):
             ("FAILED", "failed", "failed", "failed"),
         )
         for status, lifecycle, role_status, action in cases:
-            with self.subTest(status=status), tempfile.TemporaryDirectory() as temporary:
+            with (
+                self.subTest(status=status),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
                 task_dir = Path(temporary) / "task"
                 shutil.copytree(FIXTURES / "valid-v4-controller", task_dir)
                 report = task_dir / "tasks/T01-report.md"
-                report.write_text(f"status: {status}\nconcerns: none\nfindings: none\n", encoding="utf-8")
+                report.write_text(
+                    f"status: {status}\nconcerns: none\nfindings: none\n",
+                    encoding="utf-8",
+                )
                 digest = hashlib.sha256(report.read_bytes()).hexdigest()
                 graph_path = task_dir / "02-execution-graph.toml"
                 graph = tomllib.loads(graph_path.read_text(encoding="utf-8"))
@@ -552,12 +813,15 @@ class OutcomeTests(unittest.TestCase):
             outcome = task_dir / "stage-outcomes/AT-T01-1.toml"
             outcome.write_text(
                 outcome.read_text(encoding="utf-8").replace(
-                    'next_action_reason = "completed"', 'next_action_reason = "retry-authorized"', 1
+                    'next_action_reason = "completed"',
+                    'next_action_reason = "retry-authorized"',
+                    1,
                 ),
                 encoding="utf-8",
             )
             errors = validate_outcomes(manifest, state, task_dir)
         self.assertIn("TWV-OUTCOME-NEXT-ACTION", {error.code for error in errors})
+
     def test_complete_outcome_rejects_blocked_next_action(self) -> None:
         node = SimpleNamespace(raw={"executor_class": "implementer"})
         raw = {
@@ -595,9 +859,6 @@ class OutcomeTests(unittest.TestCase):
             self.assertEqual(errors, [])
             self.assertEqual(validate_outcomes(manifest, state, task_dir), [])
 
-
-
-
     def test_terminal_outcome_requires_canonical_path(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             task_dir, _, _ = self.make_v4_task(temporary)
@@ -611,7 +872,6 @@ class OutcomeTests(unittest.TestCase):
             parsed = parse_manifest(manifest_path)
         self.assertTrue(parsed.errors)
 
-
     def test_reviewer_finding_requires_canonical_report_markers(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             task_dir = Path(temporary)
@@ -623,9 +883,14 @@ class OutcomeTests(unittest.TestCase):
                 encoding="utf-8",
             )
             outcome = {"report_path": "review.md"}
-            self.assertTrue(_report_authorizes_finding(outcome, finding, task_dir, "R01"))
+            self.assertTrue(
+                _report_authorizes_finding(outcome, finding, task_dir, "R01")
+            )
             report.write_text("finding_id: F01\n", encoding="utf-8")
-            self.assertFalse(_report_authorizes_finding(outcome, finding, task_dir, "R01"))
+            self.assertFalse(
+                _report_authorizes_finding(outcome, finding, task_dir, "R01")
+            )
+
     def test_reviewer_finding_cannot_match_prefixes_or_separate_records(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             task_dir = Path(temporary)
@@ -637,7 +902,9 @@ class OutcomeTests(unittest.TestCase):
                 "finding_summary: missing proof of authorization\nfinding_scope: R010\n",
                 encoding="utf-8",
             )
-            self.assertFalse(_report_authorizes_finding(outcome, finding, task_dir, "R01"))
+            self.assertFalse(
+                _report_authorizes_finding(outcome, finding, task_dir, "R01")
+            )
             report.write_text(
                 "finding_id: F01\nfinding_severity: P1\n"
                 "finding_summary: another finding\nfinding_scope: R01\n\n"
@@ -645,7 +912,9 @@ class OutcomeTests(unittest.TestCase):
                 "finding_summary: missing proof\nfinding_scope: R02\n",
                 encoding="utf-8",
             )
-            self.assertFalse(_report_authorizes_finding(outcome, finding, task_dir, "R01"))
+            self.assertFalse(
+                _report_authorizes_finding(outcome, finding, task_dir, "R01")
+            )
 
     def test_nonreviewer_concern_binds_to_its_canonical_report(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -663,10 +932,20 @@ class OutcomeTests(unittest.TestCase):
                 "redispatch_reason": "none",
                 "next_action_reason": "await-user",
                 "report_path": "implement.md",
-                "findings": [{"id": "F01", "severity": "P2", "summary": "incomplete proof", "evidence_ref": "implement.md"}],
+                "findings": [
+                    {
+                        "id": "F01",
+                        "severity": "P2",
+                        "summary": "incomplete proof",
+                        "evidence_ref": "implement.md",
+                    }
+                ],
             }
             self.assertEqual(_normalized_claim_errors(raw, report, node), [])
-            self.assertEqual(_finding_binding_errors(raw, report, report, task_dir, node), [])
+            self.assertEqual(
+                _finding_binding_errors(raw, report, report, task_dir, node), []
+            )
+
     def test_redispatch_reasons_require_predecessor_facts(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             task_dir = Path(temporary)
@@ -675,10 +954,22 @@ class OutcomeTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            def errors_for(reason: str, predecessor_status: str, predecessor_outcome: dict[str, object], *, same_node: bool = True):
-                predecessor_node = SimpleNamespace(id="R01" if not same_node else "T01", sequence=1)
+            def errors_for(
+                reason: str,
+                predecessor_status: str,
+                predecessor_outcome: dict[str, object],
+                *,
+                same_node: bool = True,
+            ):
+                predecessor_node = SimpleNamespace(
+                    id="R01" if not same_node else "T01", sequence=1
+                )
                 node = SimpleNamespace(id="T01", sequence=2)
-                predecessor = {"id": "AT-1", "status": predecessor_status, "outcome_path": "stage-outcomes/AT-1.toml"}
+                predecessor = {
+                    "id": "AT-1",
+                    "status": predecessor_status,
+                    "outcome_path": "stage-outcomes/AT-1.toml",
+                }
                 current = {"id": "AT-2", "status": "complete"}
                 raw = {"redispatch_reason": reason, "predecessor_attempt_id": "AT-1"}
                 return _redispatch_errors(
@@ -700,24 +991,62 @@ class OutcomeTests(unittest.TestCase):
                         "role": "reviewer",
                         "role_status": "done-with-concerns",
                         "report_path": "review.md",
-                        "findings": [{"id": "F01", "severity": "P1", "summary": "missing proof", "evidence_ref": "review.md"}],
+                        "findings": [
+                            {
+                                "id": "F01",
+                                "severity": "P1",
+                                "summary": "missing proof",
+                                "evidence_ref": "review.md",
+                            }
+                        ],
                     },
                     False,
                 ),
             )
             for reason, status, outcome, same_node in supported:
                 with self.subTest(reason=reason):
-                    self.assertEqual(errors_for(reason, status, outcome, same_node=same_node), [])
-                    self.assertTrue(errors_for(reason, "complete", {"lifecycle": "complete", "role_status": "done"}, same_node=same_node))
+                    self.assertEqual(
+                        errors_for(reason, status, outcome, same_node=same_node), []
+                    )
+                    self.assertTrue(
+                        errors_for(
+                            reason,
+                            "complete",
+                            {"lifecycle": "complete", "role_status": "done"},
+                            same_node=same_node,
+                        )
+                    )
             rejected = (
-                ("failed-attempt", "failed", {"lifecycle": "failed", "role_status": "failed"}),
-                ("interrupted-active-stage", "blocked", {"lifecycle": "blocked", "role_status": "blocked"}),
-                ("stale-review-state", "complete", {"lifecycle": "complete", "role_status": "done"}),
-                ("dispatch-no-work", "complete", {"lifecycle": "complete", "role_status": "done"}),
-                ("approved-amendment", "complete", {"lifecycle": "complete", "role_status": "done"}),
+                (
+                    "failed-attempt",
+                    "failed",
+                    {"lifecycle": "failed", "role_status": "failed"},
+                ),
+                (
+                    "interrupted-active-stage",
+                    "blocked",
+                    {"lifecycle": "blocked", "role_status": "blocked"},
+                ),
+                (
+                    "stale-review-state",
+                    "complete",
+                    {"lifecycle": "complete", "role_status": "done"},
+                ),
+                (
+                    "dispatch-no-work",
+                    "complete",
+                    {"lifecycle": "complete", "role_status": "done"},
+                ),
+                (
+                    "approved-amendment",
+                    "complete",
+                    {"lifecycle": "complete", "role_status": "done"},
+                ),
             )
             for reason, status, outcome in rejected:
                 with self.subTest(reason=reason):
                     self.assertTrue(errors_for(reason, status, outcome))
+
+
 if __name__ == "__main__":
     unittest.main()

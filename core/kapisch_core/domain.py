@@ -98,9 +98,13 @@ class Transition:
     evidence: tuple[EvidenceRef, ...] = ()
 
     def __post_init__(self) -> None:
-        if not isinstance(self.kind, TransitionKind) or not isinstance(self.stage, Stage):
+        if not isinstance(self.kind, TransitionKind) or not isinstance(
+            self.stage, Stage
+        ):
             raise TypeError("transition kind and stage must use core vocabularies")
-        if not isinstance(self.evidence, tuple) or any(not isinstance(ref, EvidenceRef) for ref in self.evidence):
+        if not isinstance(self.evidence, tuple) or any(
+            not isinstance(ref, EvidenceRef) for ref in self.evidence
+        ):
             raise TypeError("transition evidence must be a tuple of EvidenceRef")
 
 

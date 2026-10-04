@@ -14,7 +14,6 @@ from unittest import mock
 
 from kapisch_validation.cli import BUNDLED_CONTRACT_ERROR, main
 
-
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = Path(__file__).parent / "fixtures" / "valid-sequential-v2"
 CONTRACT = PLUGIN_ROOT / "skills" / "kapisch"
@@ -46,15 +45,21 @@ class ContractDiscoveryTests(unittest.TestCase):
 
     def test_missing_or_corrupt_bundled_contract_is_actionable(self) -> None:
         for corrupt in (False, True):
-            with self.subTest(corrupt=corrupt), tempfile.TemporaryDirectory() as temporary:
+            with (
+                self.subTest(corrupt=corrupt),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
                 contract = Path(temporary)
                 if corrupt:
                     (contract / "SKILL.md").write_bytes(b"\xff")
                 stderr = io.StringIO()
-                with mock.patch(
-                    "kapisch_validation.cli._bundled_contract_resource",
-                    return_value=contract,
-                ), redirect_stderr(stderr):
+                with (
+                    mock.patch(
+                        "kapisch_validation.cli._bundled_contract_resource",
+                        return_value=contract,
+                    ),
+                    redirect_stderr(stderr),
+                ):
                     code = main(["--task-dir", str(FIXTURE)])
                 self.assertEqual(code, 2)
                 self.assertEqual(stderr.getvalue().strip(), BUNDLED_CONTRACT_ERROR)
@@ -123,7 +128,11 @@ class WheelInstallationTests(unittest.TestCase):
             venv = root / "venv"
             subprocess.run([build_python, "-m", "venv", str(venv)], check=True)
             python = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-            command = venv / ("Scripts/kapisch-validate.exe" if os.name == "nt" else "bin/kapisch-validate")
+            command = venv / (
+                "Scripts/kapisch-validate.exe"
+                if os.name == "nt"
+                else "bin/kapisch-validate"
+            )
             installed = subprocess.run(
                 [str(python), "-m", "pip", "install", "--no-deps", str(wheel)],
                 capture_output=True,
@@ -131,7 +140,9 @@ class WheelInstallationTests(unittest.TestCase):
                 check=False,
                 timeout=120,
             )
-            self.assertEqual(installed.returncode, 0, installed.stdout + installed.stderr)
+            self.assertEqual(
+                installed.returncode, 0, installed.stdout + installed.stderr
+            )
 
             help_result = subprocess.run(
                 [str(command), "--help"],

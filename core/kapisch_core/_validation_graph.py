@@ -21,7 +21,9 @@ class _GraphAuthority:
     history: tuple[Mapping[str, Any], ...]
 
 
-def _validate_plan(repo: Path, run_id: str, ref: Mapping[str, Any]) -> Mapping[str, Any]:
+def _validate_plan(
+    repo: Path, run_id: str, ref: Mapping[str, Any]
+) -> Mapping[str, Any]:
     body = _read_contained(repo, run_id, ref["path"])
     if hashlib.sha256(body).hexdigest() != ref["sha256"]:
         raise ValueError("approved plan digest mismatch")
@@ -31,22 +33,35 @@ def _validate_plan(repo: Path, run_id: str, ref: Mapping[str, Any]) -> Mapping[s
     return plan
 
 
-def _validate_node_attempt_binding(graph: Mapping[str, Any] | None, plan: Mapping[str, Any] | None,
-                                   attempt: Mapping[str, Any]) -> None:
+def _validate_node_attempt_binding(
+    graph: Mapping[str, Any] | None,
+    plan: Mapping[str, Any] | None,
+    attempt: Mapping[str, Any],
+) -> None:
     if graph is None or plan is None:
         raise ValueError("node attempt lacks its approved graph/plan binding")
     evidence = attempt["evidence"]
     graph_refs = [ref for ref in evidence if ref["kind"] == "graph"]
     plan_refs = [ref for ref in evidence if ref["kind"] == "plan"]
-    if (len(graph_refs) != 1 or graph_refs[0]["path"] != graph["path"]
-            or graph_refs[0]["sha256"] != graph["sha256"]
-            or len(plan_refs) != 1 or plan_refs[0]["path"] != plan["path"]
-            or plan_refs[0]["sha256"] != plan["sha256"]):
-        raise ValueError("node attempt creation evidence does not bind exact graph and plan version")
+    if (
+        len(graph_refs) != 1
+        or graph_refs[0]["path"] != graph["path"]
+        or graph_refs[0]["sha256"] != graph["sha256"]
+        or len(plan_refs) != 1
+        or plan_refs[0]["path"] != plan["path"]
+        or plan_refs[0]["sha256"] != plan["sha256"]
+    ):
+        raise ValueError(
+            "node attempt creation evidence does not bind exact graph and plan version"
+        )
 
 
-def _validate_graph(repo: Path, run_id: str, authority: _GraphAuthority,
-                    plan_doc: Mapping[str, Any] | None) -> None:
+def _validate_graph(
+    repo: Path,
+    run_id: str,
+    authority: _GraphAuthority,
+    plan_doc: Mapping[str, Any] | None,
+) -> None:
     if authority.workflow != "milestone":
         return
     graph_ref = authority.graph
@@ -59,9 +74,13 @@ def _validate_graph(repo: Path, run_id: str, authority: _GraphAuthority,
     _validate_graph_attempts(authority, graph_ref, nodes)
 
 
-def _read_graph_document(repo: Path, run_id: str, authority: _GraphAuthority,
-                         graph_ref: Mapping[str, Any],
-                         plan_doc: Mapping[str, Any] | None) -> tuple[Mapping[str, Any], CoreBundle]:
+def _read_graph_document(
+    repo: Path,
+    run_id: str,
+    authority: _GraphAuthority,
+    graph_ref: Mapping[str, Any],
+    plan_doc: Mapping[str, Any] | None,
+) -> tuple[Mapping[str, Any], CoreBundle]:
     body = _read_contained(repo, run_id, graph_ref["path"])
     if hashlib.sha256(body).hexdigest() != graph_ref["sha256"]:
         raise ValueError("graph digest mismatch")
@@ -82,8 +101,9 @@ def _read_graph_document(repo: Path, run_id: str, authority: _GraphAuthority,
     return graph, bundle
 
 
-def _validate_graph_nodes(repo: Path, run_id: str, graph: Mapping[str, Any],
-                          bundle: CoreBundle) -> Mapping[str, Mapping[str, Any]]:
+def _validate_graph_nodes(
+    repo: Path, run_id: str, graph: Mapping[str, Any], bundle: CoreBundle
+) -> Mapping[str, Mapping[str, Any]]:
     root = bundle.payload["schemas"]["run"]
     nodes: dict[str, Mapping[str, Any]] = {}
     for node in graph["nodes"]:
@@ -98,8 +118,13 @@ def _validate_graph_nodes(repo: Path, run_id: str, graph: Mapping[str, Any],
     return nodes
 
 
-def _validate_scope_document(repo: Path, run_id: str, node: Mapping[str, Any],
-                             root: Mapping[str, Any], bundle: CoreBundle) -> None:
+def _validate_scope_document(
+    repo: Path,
+    run_id: str,
+    node: Mapping[str, Any],
+    root: Mapping[str, Any],
+    bundle: CoreBundle,
+) -> None:
     scope_ref = node["scope"]
     scope_bytes = _read_contained(repo, run_id, scope_ref["path"])
     if hashlib.sha256(scope_bytes).hexdigest() != scope_ref["sha256"]:
@@ -117,7 +142,9 @@ def _validate_scope_document(repo: Path, run_id: str, node: Mapping[str, Any],
 
 def _validate_dependencies(nodes: Mapping[str, Mapping[str, Any]]) -> None:
     for node in nodes.values():
-        if any(re.fullmatch(r"n-[0-9a-f]{32}", dep) is None for dep in node["depends_on"]):
+        if any(
+            re.fullmatch(r"n-[0-9a-f]{32}", dep) is None for dep in node["depends_on"]
+        ):
             raise ValueError("graph dependency node_id is invalid")
         if any(dep not in nodes for dep in node["depends_on"]):
             raise ValueError("milestone dependency is unresolved")
@@ -139,8 +166,11 @@ def _validate_dependencies(nodes: Mapping[str, Mapping[str, Any]]) -> None:
         visit(node_id)
 
 
-def _validate_graph_attempts(authority: _GraphAuthority, graph_ref: Mapping[str, Any],
-                             nodes: Mapping[str, Mapping[str, Any]]) -> None:
+def _validate_graph_attempts(
+    authority: _GraphAuthority,
+    graph_ref: Mapping[str, Any],
+    nodes: Mapping[str, Mapping[str, Any]],
+) -> None:
     attempts: set[str] = set()
     for row in authority.history:
         node_id = row.get("node_id")

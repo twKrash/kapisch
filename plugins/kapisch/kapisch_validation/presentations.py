@@ -6,7 +6,6 @@ from copy import deepcopy
 
 from .canonical_bytes import canonical_json_bytes
 
-
 _STATE_MEMBERSHIP_FIELDS = (
     "completed_node_ids",
     "running_node_ids",
@@ -66,5 +65,7 @@ def render_metrics(
         terminal_ids.add(terminal_id)
 
     copied_records.sort(key=lambda record: record["terminal_id"])
-    payload = canonical_json_bytes({"records": copied_records, "summary": deepcopy(summary)})
+    payload = canonical_json_bytes(
+        {"records": copied_records, "summary": deepcopy(summary)}
+    )
     return b"# KAPISCH Workflow Metrics\n\n```json\n" + payload + b"\n```\n"

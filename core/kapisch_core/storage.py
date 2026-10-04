@@ -11,7 +11,9 @@ from typing import Any
 
 from .bundle import CoreBundle, verify_bundle
 
-_DIRECTORY_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+_DIRECTORY_FLAGS = (
+    os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+)
 _FILE_FLAGS = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
 _REQUIRED_SUPPORT = (
     hasattr(os, "O_DIRECTORY")
@@ -25,7 +27,9 @@ _REQUIRED_SUPPORT = (
 
 
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
-_AUTHORITY_NAMESPACES = frozenset({"scopes", "human-actions", "gate-approvals", "human-artifacts"})
+_AUTHORITY_NAMESPACES = frozenset(
+    {"scopes", "human-actions", "gate-approvals", "human-artifacts"}
+)
 _HUMAN_ARTIFACT_ROOT = ".kapisch/v3/authority/human-artifacts"
 
 
@@ -33,6 +37,7 @@ def _id(value: str, label: str) -> str:
     if not isinstance(value, str) or not _NAME.fullmatch(value) or value in {".", ".."}:
         raise ValueError(f"invalid {label}")
     return value
+
 
 def _open_dir(parent: int, name: str, *, create: bool = False) -> int:
     try:
@@ -51,9 +56,14 @@ def _open_dir(parent: int, name: str, *, create: bool = False) -> int:
             raise
     return descriptor
 
-def _open_tree(repo: Path, *components: str, create: bool = False) -> tuple[int, list[int]]:
+
+def _open_tree(
+    repo: Path, *components: str, create: bool = False
+) -> tuple[int, list[int]]:
     if not _REQUIRED_SUPPORT:
-        raise OSError("safe descriptor-relative authority storage is unsupported on this platform")
+        raise OSError(
+            "safe descriptor-relative authority storage is unsupported on this platform"
+        )
     descriptors = [os.open(os.fspath(repo), _DIRECTORY_FLAGS)]
     try:
         for component in (".kapisch", "v3", *components):
@@ -64,9 +74,11 @@ def _open_tree(repo: Path, *components: str, create: bool = False) -> tuple[int,
             os.close(fd)
         raise
 
+
 def _close(fds: list[int]) -> None:
     for fd in reversed(fds):
         os.close(fd)
+
 
 def _read_file(directory: int, name: str) -> bytes:
     fd = os.open(name, _FILE_FLAGS, dir_fd=directory)
@@ -80,8 +92,10 @@ def _read_file(directory: int, name: str) -> bytes:
     finally:
         os.close(fd)
 
+
 def _runs_dir(repo: Path, *, create: bool) -> tuple[int, list[int]]:
     return _open_tree(repo, "runs", create=create)
+
 
 def _run_dir(repo: Path, run_id: str, *, create: bool) -> tuple[int, list[int]]:
     runs, fds = _runs_dir(repo, create=create)
@@ -93,8 +107,15 @@ def _run_dir(repo: Path, run_id: str, *, create: bool) -> tuple[int, list[int]]:
         _close(fds)
         raise
 
+
 def _read_contained(repo: Path, run_id: str, relative: str) -> bytes:
-    if not isinstance(relative, str) or not relative or relative.startswith("/") or "\\" in relative or "\x00" in relative:
+    if (
+        not isinstance(relative, str)
+        or not relative
+        or relative.startswith("/")
+        or "\\" in relative
+        or "\x00" in relative
+    ):
         raise ValueError("request input path must be run-relative")
     run, fds = _run_dir(repo, run_id, create=False)
     try:
@@ -125,9 +146,16 @@ def _read_contained(repo: Path, run_id: str, relative: str) -> bytes:
     finally:
         _close(fds)
 
+
 def _safe_relative(value: Any) -> bool:
-    return (isinstance(value, str) and bool(value) and not value.startswith("/") and "\\" not in value
-            and "\x00" not in value and all(part not in {"", ".", ".."} for part in value.split("/")))
+    return (
+        isinstance(value, str)
+        and bool(value)
+        and not value.startswith("/")
+        and "\\" not in value
+        and "\x00" not in value
+        and all(part not in {"", ".", ".."} for part in value.split("/"))
+    )
 
 
 def _validate_digest(digest: str) -> None:
@@ -137,7 +165,9 @@ def _validate_digest(digest: str) -> None:
 
 def _open_bundles(repo: Path, create: bool) -> tuple[int, list[int]]:
     if not _REQUIRED_SUPPORT:
-        raise OSError("safe descriptor-relative bundle storage is unsupported on this platform")
+        raise OSError(
+            "safe descriptor-relative bundle storage is unsupported on this platform"
+        )
     root = os.open(os.fspath(repo), _DIRECTORY_FLAGS)
     opened = [root]
     parent = root
@@ -185,7 +215,12 @@ def _read_bundle(directory: int, name: str) -> bytes:
 def _atomic_write_at(directory: int, name: str, data: bytes, *, replace: bool) -> None:
     """Durably publish bytes in a verified directory descriptor."""
     temporary = f".{name}.{secrets.token_hex(12)}.tmp"
-    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600, dir_fd=directory)
+    descriptor = os.open(
+        temporary,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+        0o600,
+        dir_fd=directory,
+    )
     try:
         view = memoryview(data)
         while view:
@@ -200,7 +235,13 @@ def _atomic_write_at(directory: int, name: str, data: bytes, *, replace: bool) -
         if replace:
             os.replace(temporary, name, src_dir_fd=directory, dst_dir_fd=directory)
         else:
-            os.link(temporary, name, src_dir_fd=directory, dst_dir_fd=directory, follow_symlinks=False)
+            os.link(
+                temporary,
+                name,
+                src_dir_fd=directory,
+                dst_dir_fd=directory,
+                follow_symlinks=False,
+            )
         os.fsync(directory)
     finally:
         with suppress(FileNotFoundError):
@@ -244,8 +285,7 @@ def load_authority_records(repo: Path, namespace: str) -> list[tuple[str, bytes]
         raise ValueError("invalid authority namespace")
     if os.listdir not in os.supports_fd:
         raise OSError(
-            "safe descriptor-relative authority listing is unsupported "
-            "on this platform"
+            "safe descriptor-relative authority listing is unsupported on this platform"
         )
     directory, opened = _open_tree(Path(repo), "authority", namespace, create=False)
     try:

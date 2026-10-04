@@ -9,11 +9,11 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import sys
 import tempfile
 from pathlib import Path
-import re
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -21,7 +21,6 @@ sys.path.insert(0, str(ROOT))
 from kapisch_validation.cli import validate
 from kapisch_validation.manifest import parse_manifest
 from kapisch_validation.references import parse_state
-
 
 TASK_ID_RE = re.compile(r"[a-z0-9][a-z0-9-]{2,79}\Z")
 
@@ -59,16 +58,22 @@ def main(argv: list[str] | None = None) -> int:
     if not source.is_dir():
         parser.error(f"legacy source is missing: {source}")
     if destination.exists():
-        parser.error(f"destination already exists and will not be replaced: {destination}")
+        parser.error(
+            f"destination already exists and will not be replaced: {destination}"
+        )
     links = symlink_paths(source)
     if links:
         for link in links:
-            print(f"legacy migration rejects symlinked evidence: {link.relative_to(source)}")
+            print(
+                f"legacy migration rejects symlinked evidence: {link.relative_to(source)}"
+            )
         print("status=not-migrated; legacy source was retained")
         return 2
 
     destination.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="kapisch-migration-", dir=destination.parent) as tmp:
+    with tempfile.TemporaryDirectory(
+        prefix="kapisch-migration-", dir=destination.parent
+    ) as tmp:
         staged = Path(tmp) / args.task_id
         shutil.copytree(source, staged, copy_function=shutil.copy2)
         errors = validate(ROOT / "skills" / "kapisch", staged)

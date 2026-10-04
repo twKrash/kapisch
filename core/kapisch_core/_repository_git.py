@@ -82,14 +82,9 @@ def _root(repo, identity=None):
             )
             expected = b"false\n" + os.fsencode(str(root)) + b"\n"
             if r.stdout != expected:
-                raise RepositoryCaptureError(
-                    "path is not supplied worktree root"
-                )
+                raise RepositoryCaptureError("path is not supplied worktree root")
             after = os.fstat(fd)
-            if (
-                (after.st_dev, after.st_ino) != ident
-                or _identity(root) != ident
-            ):
+            if (after.st_dev, after.st_ino) != ident or _identity(root) != ident:
                 raise RepositoryCaptureError("worktree replaced")
         finally:
             os.close(fd)
@@ -332,9 +327,7 @@ def capture_index(repo, identity=None):
         if key in seen:
             raise RepositoryCaptureError("duplicate index record")
         seen.add(key)
-        out.append(
-            IndexEntry(path, int(stage), _oid(oid, width), mode.decode())
-        )
+        out.append(IndexEntry(path, int(stage), _oid(oid, width), mode.decode()))
     flags = {}
     for rec in _records(_git(repo, "ls-files", "-v", "-z", identity=identity)):
         if len(rec) < 3 or rec[1:2] != b" ":
@@ -348,9 +341,7 @@ def capture_index(repo, identity=None):
     if set(flags) != paths or set(debug_flags) != paths:
         raise RepositoryCaptureError("flag/index mismatch")
     if any(
-        value & _INTENT_TO_ADD
-        for values in debug_flags.values()
-        for value in values
+        value & _INTENT_TO_ADD for values in debug_flags.values() for value in values
     ):
         raise RepositoryCaptureError("intent-to-add index entry unsupported")
     stages = {}

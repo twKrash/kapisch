@@ -1,0 +1,21 @@
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+include = [
+    "core/**/*.py",
+    "plugins/kapisch/**/*.py",
+    "scripts/**/*.py",
+    "tests/**/*.py",
+    "tooling/**/*.py",
+]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+"plugins/kapisch/scripts/migrate_controller_view_v4.py" = ["E402"]
+"plugins/kapisch/scripts/migrate_legacy_run.py" = ["E402"]
+"plugins/kapisch/scripts/render_controller_view.py" = ["E402"]
+"plugins/kapisch/scripts/setup_profile.py" = ["E402"]
+"plugins/kapisch/tests/kapisch_validation/test_controller_tools.py" = ["E402"]
+"tests/core/test_protocol.py" = ["E402"]

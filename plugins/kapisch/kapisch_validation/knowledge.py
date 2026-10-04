@@ -4,25 +4,46 @@ from __future__ import annotations
 
 import copy
 import re
-from .canonical_toml import render_toml
 
+from .canonical_toml import render_toml
 
 ROOT_FIELDS = ("version", "records", "extensions")
 RECORD_FIELDS = (
-    "id", "kind", "scope", "authority", "status", "statement", "source",
-    "verified_at_revision", "superseded_by", "expires_at_revision",
-    "applies_when", "preconditions", "forbidden_cases", "required_verification",
-    "fallback_executor", "fallback_behavior", "extensions",
+    "id",
+    "kind",
+    "scope",
+    "authority",
+    "status",
+    "statement",
+    "source",
+    "verified_at_revision",
+    "superseded_by",
+    "expires_at_revision",
+    "applies_when",
+    "preconditions",
+    "forbidden_cases",
+    "required_verification",
+    "fallback_executor",
+    "fallback_behavior",
+    "extensions",
 )
 REQUIRED_RECORD_FIELDS = {
-    "id", "kind", "scope", "authority", "status", "statement", "source", "applies_when",
+    "id",
+    "kind",
+    "scope",
+    "authority",
+    "status",
+    "statement",
+    "source",
+    "applies_when",
 }
 OPTIONAL_RECORD_FIELDS = set(RECORD_FIELDS) - REQUIRED_RECORD_FIELDS
 KINDS = {"fact", "decision", "tradeoff", "hint", "shortcut", "pitfall", "question"}
 AUTHORITIES = {"binding", "advisory", "informational"}
 STATUSES = {"candidate", "verified", "promoted", "rejected", "superseded", "expired"}
 SCOPES = {
-    "repository", "workflow:kapisch",
+    "repository",
+    "workflow:kapisch",
 }
 _EXTENSION_RE = re.compile(r"[a-z0-9-]+(?:\.[a-z0-9-]+)+\Z")
 
@@ -81,13 +102,22 @@ def _record(raw: object, index: int) -> dict[str, object]:
     scope = data["scope"]
     if scope not in SCOPES and not (
         isinstance(scope, str)
-        and any(scope.startswith(prefix) and len(scope) > len(prefix) for prefix in ("task:", "milestone:", "module:"))
+        and any(
+            scope.startswith(prefix) and len(scope) > len(prefix)
+            for prefix in ("task:", "milestone:", "module:")
+        )
     ):
         raise _error(f"records[{index}].scope has unsupported value")
 
     applies = _string_list(data["applies_when"], f"records[{index}].applies_when")
     data["applies_when"] = sorted(set(applies))
-    for field in ("verified_at_revision", "superseded_by", "expires_at_revision", "fallback_executor", "fallback_behavior"):
+    for field in (
+        "verified_at_revision",
+        "superseded_by",
+        "expires_at_revision",
+        "fallback_executor",
+        "fallback_behavior",
+    ):
         if field in data:
             _string(data[field], f"records[{index}].{field}")
     for field in ("preconditions", "forbidden_cases", "required_verification"):
@@ -102,15 +132,23 @@ def _record(raw: object, index: int) -> dict[str, object]:
         else:
             data["extensions"] = record_extensions
     if data["status"] == "superseded" and "superseded_by" not in data:
-        raise _error(f"records[{index}].superseded_by is required for superseded records")
+        raise _error(
+            f"records[{index}].superseded_by is required for superseded records"
+        )
     if data["status"] == "expired" and "expires_at_revision" not in data:
-        raise _error(f"records[{index}].expires_at_revision is required for expired records")
+        raise _error(
+            f"records[{index}].expires_at_revision is required for expired records"
+        )
     if data["kind"] == "shortcut":
         for field in ("preconditions", "forbidden_cases", "required_verification"):
             if not data.get(field):
-                raise _error(f"records[{index}].{field} is required for shortcut records")
+                raise _error(
+                    f"records[{index}].{field} is required for shortcut records"
+                )
         if not data.get("fallback_executor") and not data.get("fallback_behavior"):
-            raise _error("shortcut records require fallback_executor or fallback_behavior")
+            raise _error(
+                "shortcut records require fallback_executor or fallback_behavior"
+            )
     return data
 
 

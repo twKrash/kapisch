@@ -79,9 +79,7 @@ def validate_delegation_snapshot(manifest, task_dir: Path) -> list[ValidationErr
     route_path = task_dir / "delegations" / "00-route.toml"
     route_exists = route_path.is_file()
     routing = manifest.policies.get("ecosystem_routing")
-    has_delegation_ids = any(
-        node.raw.get("delegation_ids") for node in manifest.nodes
-    )
+    has_delegation_ids = any(node.raw.get("delegation_ids") for node in manifest.nodes)
     if routing == "off" and has_delegation_ids:
         errors.append(
             ValidationError(
@@ -109,7 +107,12 @@ def validate_delegation_snapshot(manifest, task_dir: Path) -> list[ValidationErr
 
 
 def validate_snapshot(
-    manifest, state, task_dir: Path, contract_dir: Path, *, include_controller_view: bool = True
+    manifest,
+    state,
+    task_dir: Path,
+    contract_dir: Path,
+    *,
+    include_controller_view: bool = True,
 ) -> list[ValidationError]:
     errors: list[ValidationError] = []
     errors.extend(validate_delegation_snapshot(manifest, task_dir))
@@ -133,18 +136,32 @@ def validate(
         advisory_errors.extend(validate_advisory(task_dir))
         if not (task_dir / "02-execution-graph.toml").is_file():
             if (task_dir / "03-state.toml").exists():
-                return sorted_errors(advisory_errors + [ValidationError(
-                    "TWV-GRAPH-MISSING", str(task_dir / "02-execution-graph.toml"), "graph",
-                    "execution state requires its execution graph",
-                )])
+                return sorted_errors(
+                    advisory_errors
+                    + [
+                        ValidationError(
+                            "TWV-GRAPH-MISSING",
+                            str(task_dir / "02-execution-graph.toml"),
+                            "graph",
+                            "execution state requires its execution graph",
+                        )
+                    ]
+                )
             if previous_task_dir is not None and (
                 (previous_task_dir / "02-execution-graph.toml").is_file()
                 or (previous_task_dir / "03-state.toml").is_file()
             ):
-                return sorted_errors(advisory_errors + [ValidationError(
-                    "TWV-GRAPH-MISSING", str(task_dir / "02-execution-graph.toml"), "graph",
-                    "prior execution history requires an execution graph",
-                )])
+                return sorted_errors(
+                    advisory_errors
+                    + [
+                        ValidationError(
+                            "TWV-GRAPH-MISSING",
+                            str(task_dir / "02-execution-graph.toml"),
+                            "graph",
+                            "prior execution history requires an execution graph",
+                        )
+                    ]
+                )
             return sorted_errors(validate_advisory(task_dir, previous_task_dir))
     parsed = parse_manifest(task_dir / "02-execution-graph.toml")
     errors = advisory_errors + list(parsed.errors)
@@ -154,15 +171,19 @@ def validate(
     errors.extend(state_errors)
     if state is None:
         return sorted_errors(errors)
-    if previous_task_dir is not None and (
-        previous_task_dir / "03-state.toml"
-    ).is_file() and not (previous_task_dir / "02-execution-graph.toml").is_file():
-        errors.append(ValidationError(
-            "TWV-GRAPH-MISSING",
-            str(previous_task_dir / "02-execution-graph.toml"),
-            "graph",
-            "prior execution state requires its execution graph",
-        ))
+    if (
+        previous_task_dir is not None
+        and (previous_task_dir / "03-state.toml").is_file()
+        and not (previous_task_dir / "02-execution-graph.toml").is_file()
+    ):
+        errors.append(
+            ValidationError(
+                "TWV-GRAPH-MISSING",
+                str(previous_task_dir / "02-execution-graph.toml"),
+                "graph",
+                "prior execution state requires its execution graph",
+            )
+        )
     current_advisory = advisory_state.is_file()
     previous_advisory = (
         previous_task_dir is not None
@@ -171,7 +192,9 @@ def validate(
     )
     if current_advisory:
         advisory_data, advisory_failure = load_toml_artifact(advisory_state)
-        accepted = advisory_data.get("accepted_architectures") if advisory_data else None
+        accepted = (
+            advisory_data.get("accepted_architectures") if advisory_data else None
+        )
         if (
             advisory_failure is None
             and advisory_data is not None
@@ -192,13 +215,21 @@ def validate(
     source_plan = state.raw.get("source_plan")
     needs_advisory_authority = current_advisory or previous_advisory
     advisory_source = (
-        task_dir if current_advisory else previous_task_dir if previous_advisory else None
+        task_dir
+        if current_advisory
+        else previous_task_dir
+        if previous_advisory
+        else None
     )
     if needs_advisory_authority and parsed.manifest.version not in {3, 4}:
-        errors.append(ValidationError(
-            "ADV-GRAPH-VERSION", str(task_dir / "02-execution-graph.toml"), "version",
-            "advisory-authorized execution requires graph version 3 or 4",
-        ))
+        errors.append(
+            ValidationError(
+                "ADV-GRAPH-VERSION",
+                str(task_dir / "02-execution-graph.toml"),
+                "version",
+                "advisory-authorized execution requires graph version 3 or 4",
+            )
+        )
     if needs_advisory_authority and (
         not isinstance(source_plan, str) or not source_plan.startswith("plans/")
     ):
@@ -226,7 +257,8 @@ def validate(
                 and prior is not None
                 and (
                     not isinstance(prior.get("status"), str)
-                    or prior.get("status") not in {"accepted", "implementation-planning"}
+                    or prior.get("status")
+                    not in {"accepted", "implementation-planning"}
                     or not isinstance(prior_architectures, list)
                     or not prior_architectures
                 )
@@ -240,7 +272,9 @@ def validate(
                     )
                 )
         else:
-            previous_result = parse_manifest(previous_task_dir / "02-execution-graph.toml")
+            previous_result = parse_manifest(
+                previous_task_dir / "02-execution-graph.toml"
+            )
             errors.extend(previous_result.errors)
             previous_manifest = previous_result.manifest
             previous_state, previous_state_errors = parse_state(

@@ -67,6 +67,12 @@ python -m pip install <plugin-root>
 kapisch-validate --task-dir <consumer-repository>/.kapisch/runs/<task-id> --format json
 ```
 
+## Python development
+
+Install Ruff, then run `scripts/install-hooks.sh` to enable the pre-commit formatter.
+Ruff checks and formats maintained Python files under `core/`, `plugins/kapisch/`,
+`scripts/`, `tests/`, and `tooling/`.
+
 ## Documentation
 
 - [Plugin guide](plugins/kapisch/README.md)

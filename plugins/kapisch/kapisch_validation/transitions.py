@@ -385,7 +385,9 @@ def _semantic_equal(current: object, previous: object) -> bool:
     return _semantic_value(current) == _semantic_value(previous)
 
 
-def _runtime_error(manifest: Manifest, node_id: str, field: str, message: str) -> ValidationError:
+def _runtime_error(
+    manifest: Manifest, node_id: str, field: str, message: str
+) -> ValidationError:
     return ValidationError(
         "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT",
         manifest.path,
@@ -421,11 +423,15 @@ def _validate_append_only_records(
     current_records = _records_by_id(current)
     previous_records = _records_by_id(previous)
     if current_records is None or previous_records is None:
-        return [_runtime_error(manifest, node_id, field, "runtime record shape changed")]
+        return [
+            _runtime_error(manifest, node_id, field, "runtime record shape changed")
+        ]
     errors: list[ValidationError] = []
     if not _is_record_prefix(current, previous):
         errors.append(
-            _runtime_error(manifest, node_id, field, "persisted runtime record chronology changed")
+            _runtime_error(
+                manifest, node_id, field, "persisted runtime record chronology changed"
+            )
         )
     for record_id, previous_record in previous_records.items():
         current_record = current_records.get(record_id)
@@ -452,7 +458,9 @@ def _validate_append_only_records(
             break
         if set(current_record) != set(previous_record):
             errors.append(
-                _runtime_error(manifest, node_id, field, "persisted runtime record shape changed")
+                _runtime_error(
+                    manifest, node_id, field, "persisted runtime record shape changed"
+                )
             )
     return errors
 
@@ -510,9 +518,12 @@ def _validate_attempt_advancement(
                 "persisted attempt verification cannot be removed or rewritten",
             )
         ]
-    if (
-        previous.get("status") in {"complete", "blocked", "failed"}
-        and not _semantic_equal(current.get("outcome_path"), previous.get("outcome_path"))
+    if previous.get("status") in {
+        "complete",
+        "blocked",
+        "failed",
+    } and not _semantic_equal(
+        current.get("outcome_path"), previous.get("outcome_path")
     ):
         return [
             _runtime_error(
@@ -534,7 +545,9 @@ def _validate_batch_advancement(
     if previous is None:
         return []
     if not isinstance(current, dict) or not isinstance(previous, dict):
-        return [_runtime_error(manifest, node_id, "batch", "persisted batch is missing")]
+        return [
+            _runtime_error(manifest, node_id, "batch", "persisted batch is missing")
+        ]
     if current.get("id") != previous.get("id"):
         return [_runtime_error(manifest, node_id, "batch", "batch identity changed")]
     errors: list[ValidationError] = []
@@ -546,15 +559,27 @@ def _validate_batch_advancement(
         )
     previous_outcomes = previous.get("member_outcomes")
     current_outcomes = current.get("member_outcomes")
-    if not isinstance(previous_outcomes, list) or not isinstance(current_outcomes, list):
-        errors.append(_runtime_error(manifest, node_id, "batch", "batch outcomes changed shape"))
+    if not isinstance(previous_outcomes, list) or not isinstance(
+        current_outcomes, list
+    ):
+        errors.append(
+            _runtime_error(manifest, node_id, "batch", "batch outcomes changed shape")
+        )
     elif len(current_outcomes) != len(previous_outcomes) or any(
         not _monotonic_status(new, old)
         for new, old in zip(current_outcomes, previous_outcomes)
     ):
-        errors.append(_runtime_error(manifest, node_id, "batch", "batch member outcome cannot regress"))
+        errors.append(
+            _runtime_error(
+                manifest, node_id, "batch", "batch member outcome cannot regress"
+            )
+        )
     if not _monotonic_status(current.get("outcome"), previous.get("outcome")):
-        errors.append(_runtime_error(manifest, node_id, "batch", "batch composite outcome cannot regress"))
+        errors.append(
+            _runtime_error(
+                manifest, node_id, "batch", "batch composite outcome cannot regress"
+            )
+        )
     return errors
 
 
@@ -568,13 +593,19 @@ def _validate_nonterminal_runtime_bindings(
     previous_assignment = previous.get("assignment")
     current_assignment = current.get("assignment")
     if previous_assignment is not None:
-        if not isinstance(previous_assignment, dict) or not isinstance(current_assignment, dict):
+        if not isinstance(previous_assignment, dict) or not isinstance(
+            current_assignment, dict
+        ):
             errors.append(
-                _runtime_error(manifest, node_id, "assignment", "persisted assignment is missing")
+                _runtime_error(
+                    manifest, node_id, "assignment", "persisted assignment is missing"
+                )
             )
         elif current_assignment.get("id") != previous_assignment.get("id"):
             errors.append(
-                _runtime_error(manifest, node_id, "assignment", "assignment identity changed")
+                _runtime_error(
+                    manifest, node_id, "assignment", "assignment identity changed"
+                )
             )
         else:
             if set(current_assignment) != set(previous_assignment):
@@ -593,7 +624,10 @@ def _validate_nonterminal_runtime_bindings(
                     continue
                 errors.append(
                     _runtime_error(
-                        manifest, node_id, "assignment", "persisted assignment was replaced or rebound"
+                        manifest,
+                        node_id,
+                        "assignment",
+                        "persisted assignment was replaced or rebound",
                     )
                 )
                 break
@@ -604,7 +638,9 @@ def _validate_nonterminal_runtime_bindings(
                     "assignment.attempts",
                     current_assignment.get("attempts", []),
                     previous_assignment.get("attempts", []),
-                    mutable_fields=frozenset({"status", "verification", "outcome_path"}),
+                    mutable_fields=frozenset(
+                        {"status", "verification", "outcome_path"}
+                    ),
                 )
             )
             current_attempts = _records_by_id(current_assignment.get("attempts", []))
@@ -630,7 +666,11 @@ def _validate_nonterminal_runtime_bindings(
     for field in ("verification_evidence",):
         errors.extend(
             _validate_append_only_records(
-                manifest, node_id, field, current.get(field, []), previous.get(field, [])
+                manifest,
+                node_id,
+                field,
+                current.get(field, []),
+                previous.get(field, []),
             )
         )
     errors.extend(
@@ -640,11 +680,16 @@ def _validate_nonterminal_runtime_bindings(
     )
     for field in ("revision", "blocker"):
         previous_value = previous.get(field)
-        if previous_value is None or _semantic_equal(current.get(field), previous_value):
+        if previous_value is None or _semantic_equal(
+            current.get(field), previous_value
+        ):
             continue
         errors.append(
             _runtime_error(
-                manifest, node_id, field, "persisted runtime binding was replaced or removed"
+                manifest,
+                node_id,
+                field,
+                "persisted runtime binding was replaced or removed",
             )
         )
     return errors
@@ -659,7 +704,9 @@ def _artifact_digest(task_dir: Path, relative_path: str) -> str | None:
         return None
 
 
-def _artifact_error(manifest: Manifest, reference: str, message: str) -> ValidationError:
+def _artifact_error(
+    manifest: Manifest, reference: str, message: str
+) -> ValidationError:
     return ValidationError(
         "TWV-LIFECYCLE-INCOMPATIBLE-SNAPSHOT", manifest.path, reference, message
     )
@@ -689,9 +736,9 @@ def _validate_artifact_compatibility(
                         _toml_value(previous_task_dir / previous_path),
                     )
                 else:
-                    unchanged = _artifact_digest(task_dir, current_path) == _artifact_digest(
-                        previous_task_dir, previous_path
-                    )
+                    unchanged = _artifact_digest(
+                        task_dir, current_path
+                    ) == _artifact_digest(previous_task_dir, previous_path)
                 if not unchanged:
                     errors.append(
                         _artifact_error(
@@ -704,7 +751,9 @@ def _validate_artifact_compatibility(
             continue
         previous_assignment = previous_node.raw.get("assignment")
         current_assignment = current_node.raw.get("assignment")
-        if not isinstance(previous_assignment, dict) or not isinstance(current_assignment, dict):
+        if not isinstance(previous_assignment, dict) or not isinstance(
+            current_assignment, dict
+        ):
             continue
         previous_attempts = _records_by_id(previous_assignment.get("attempts", []))
         current_attempts = _records_by_id(current_assignment.get("attempts", []))
@@ -715,13 +764,16 @@ def _validate_artifact_compatibility(
                 continue
             current_attempt = current_attempts.get(attempt_id)
             previous_path = previous_attempt.get("outcome_path")
-            current_path = current_attempt.get("outcome_path") if current_attempt else None
+            current_path = (
+                current_attempt.get("outcome_path") if current_attempt else None
+            )
             if (
                 not isinstance(previous_path, str)
                 or previous_path != current_path
                 or task_dir is None
                 or previous_task_dir is None
-                or _artifact_digest(task_dir, current_path) != _artifact_digest(previous_task_dir, previous_path)
+                or _artifact_digest(task_dir, current_path)
+                != _artifact_digest(previous_task_dir, previous_path)
             ):
                 errors.append(
                     _artifact_error(

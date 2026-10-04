@@ -1,0 +1,35 @@
+#!/usr/bin/env python3
+"""Format staged project Python files and stage the formatter changes."""
+
+import subprocess
+import sys
+
+
+PYTHON_ROOTS = ("core/", "plugins/kapisch/", "scripts/", "tests/", "tooling/")
+
+
+def main() -> int:
+    staged = subprocess.run(
+        ["git", "diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z", "--", "*.py"],
+        check=True,
+        capture_output=True,
+    ).stdout
+    paths = [
+        path.decode(sys.getfilesystemencoding())
+        for path in staged.split(b"\0")
+        if path and path.decode(sys.getfilesystemencoding()).startswith(PYTHON_ROOTS)
+    ]
+    if not paths:
+        return 0
+
+    try:
+        subprocess.run(["ruff", "format", "--quiet", "--", *paths], check=True)
+    except FileNotFoundError:
+        print("pre-commit: Ruff not found; install Ruff before committing", file=sys.stderr)
+        return 1
+    subprocess.run(["git", "add", "--", *paths], check=True)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

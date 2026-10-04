@@ -5,10 +5,10 @@ import re
 import tomllib
 from pathlib import Path
 
+from .canonical_toml import render_toml
 from .errors import ValidationError, sorted_errors
 from .helpers import is_integer, non_empty_string, nonfinite_float_references
 from .models import Manifest
-from .canonical_toml import render_toml
 from .path_atoms import validate_relative_posix_path
 
 ROUTE_FILE = "delegations/00-route.toml"
@@ -19,14 +19,31 @@ ROUTE_VERSION = 1
 # reconciliation are deferred to later changes backed by demonstrated needs
 # (see docs/change-7-execution-plan.md scope decision).
 ROUTE_KEY_ORDER = (
-    "version", "task_id", "route_id", "source_revision", "steps", "extensions",
+    "version",
+    "task_id",
+    "route_id",
+    "source_revision",
+    "steps",
+    "extensions",
 )
 ROUTE = set(ROUTE_KEY_ORDER)
 STEP_KEY_ORDER = (
-    "id", "sequence", "parent_node_id", "selection_mode", "capability_kind",
-    "requested_capability", "resolved_capability", "source_plugin", "effect_class",
-    "authority_mode", "authority_ref", "context_path", "context_sha256",
-    "evidence_path", "evidence_sha256", "extensions",
+    "id",
+    "sequence",
+    "parent_node_id",
+    "selection_mode",
+    "capability_kind",
+    "requested_capability",
+    "resolved_capability",
+    "source_plugin",
+    "effect_class",
+    "authority_mode",
+    "authority_ref",
+    "context_path",
+    "context_sha256",
+    "evidence_path",
+    "evidence_sha256",
+    "extensions",
 )
 STEP = set(STEP_KEY_ORDER)
 SELECTION_MODES = {"explicit", "automatic"}
@@ -51,7 +68,9 @@ def _render_error(message: str) -> ValueError:
     return ValueError(f"invalid delegation route: {message}")
 
 
-def _render_closed(data: object, allowed: set[str], reference: str) -> dict[str, object]:
+def _render_closed(
+    data: object, allowed: set[str], reference: str
+) -> dict[str, object]:
     if not isinstance(data, dict):
         raise _render_error(f"{reference} must be a table")
     unknown = set(data) - allowed
@@ -91,14 +110,24 @@ def _render_step(step: object) -> dict[str, object]:
     sequence = data["sequence"]
     if not is_integer(sequence) or sequence < 0:
         raise _render_error("steps[].sequence must be a non-negative integer")
-    for field in ("parent_node_id", "requested_capability", "resolved_capability", "authority_ref"):
+    for field in (
+        "parent_node_id",
+        "requested_capability",
+        "resolved_capability",
+        "authority_ref",
+    ):
         if not isinstance(data[field], str) or not data[field]:
             raise _render_error(f"steps[].{field} must be a non-empty string")
     if data["parent_node_id"] == UNAVAILABLE:
         raise _render_error("steps[].parent_node_id must identify an owning graph node")
-    if data["requested_capability"] == UNAVAILABLE or data["resolved_capability"] == UNAVAILABLE:
+    if (
+        data["requested_capability"] == UNAVAILABLE
+        or data["resolved_capability"] == UNAVAILABLE
+    ):
         raise _render_error("step capability fields must not be 'unavailable'")
-    if data["requested_capability"] in {"kapisch", "$kapisch"} or data["resolved_capability"] in {"kapisch", "$kapisch"}:
+    if data["requested_capability"] in {"kapisch", "$kapisch"} or data[
+        "resolved_capability"
+    ] in {"kapisch", "$kapisch"}:
         raise _render_error("steps[] may not delegate to KAPISCH")
     for field, values in (
         ("selection_mode", SELECTION_MODES),
@@ -111,7 +140,9 @@ def _render_step(step: object) -> dict[str, object]:
     if data["source_plugin"] != UNAVAILABLE and (
         not isinstance(data["source_plugin"], str) or not data["source_plugin"]
     ):
-        raise _render_error("steps[].source_plugin must be a non-empty string or 'unavailable'")
+        raise _render_error(
+            "steps[].source_plugin must be a non-empty string or 'unavailable'"
+        )
     if data["authority_ref"] == UNAVAILABLE:
         raise _render_error("steps[].authority_ref must not be 'unavailable'")
     if data["effect_class"] in EXTERNAL_WRITE_CLASSES:
@@ -123,7 +154,9 @@ def _render_step(step: object) -> dict[str, object]:
             raise _render_error(f"steps[].{field} must be {expected}")
     for field in ("context_sha256", "evidence_sha256"):
         if not isinstance(data[field], str) or SHA256_RE.fullmatch(data[field]) is None:
-            raise _render_error(f"steps[].{field} must be 64 lowercase hexadecimal characters")
+            raise _render_error(
+                f"steps[].{field} must be 64 lowercase hexadecimal characters"
+            )
     extensions = data.get("extensions")
     _render_extensions(extensions, "steps[].extensions")
     if extensions == {}:
@@ -147,7 +180,10 @@ def render_route(raw: dict[str, object]) -> bytes:
     for field in ("task_id", "source_revision"):
         if not isinstance(data[field], str) or not data[field]:
             raise _render_error(f"{field} must be a non-empty string")
-    if not isinstance(data["route_id"], str) or ROUTE_ID_RE.fullmatch(data["route_id"]) is None:
+    if (
+        not isinstance(data["route_id"], str)
+        or ROUTE_ID_RE.fullmatch(data["route_id"]) is None
+    ):
         raise _render_error("route_id has an invalid value")
     if not isinstance(data["steps"], list) or not data["steps"]:
         raise _render_error("steps must be a non-empty array")
@@ -178,7 +214,12 @@ def _closed(
         return
     for key in sorted(set(data) - allowed):
         errors.append(
-            _e("TWV-DELEG-SCHEMA-UNKNOWN-FIELD", p, f"{r}.{key}", "unknown normative field")
+            _e(
+                "TWV-DELEG-SCHEMA-UNKNOWN-FIELD",
+                p,
+                f"{r}.{key}",
+                "unknown normative field",
+            )
         )
 
 
@@ -188,7 +229,9 @@ def _extensions(
     if data is None:
         return
     if not isinstance(data, dict):
-        errors.append(_e("TWV-DELEG-SCHEMA-WRONG-SHAPE", path, reference, "must be a table"))
+        errors.append(
+            _e("TWV-DELEG-SCHEMA-WRONG-SHAPE", path, reference, "must be a table")
+        )
         return
     for namespace in sorted(data):
         if not re.fullmatch(r"[a-z0-9-]+(?:\.[a-z0-9-]+)+", namespace):
@@ -225,12 +268,19 @@ def _contained(task_dir: Path, relative: str) -> Path | None:
     return candidate
 
 
-def _digest_file(path: Path, reference: str, errors: list[ValidationError]) -> str | None:
+def _digest_file(
+    path: Path, reference: str, errors: list[ValidationError]
+) -> str | None:
     try:
         return hashlib.sha256(path.read_bytes()).hexdigest()
     except OSError:
         errors.append(
-            _e("TWV-DELEG-UNREADABLE-EVIDENCE", path, reference, "evidence file is unreadable")
+            _e(
+                "TWV-DELEG-UNREADABLE-EVIDENCE",
+                path,
+                reference,
+                "evidence file is unreadable",
+            )
         )
         return None
 
@@ -320,23 +370,46 @@ def _evidence_file(
         )
 
 
-def parse_route(task_dir: Path) -> tuple[dict[str, object] | None, tuple[ValidationError, ...]]:
+def parse_route(
+    task_dir: Path,
+) -> tuple[dict[str, object] | None, tuple[ValidationError, ...]]:
     errors: list[ValidationError] = []
     path = task_dir / ROUTE_FILE
     if not path.is_file():
         return None, sorted_errors(
-            [_e("TWV-DELEG-MISSING-ARTIFACT", path, ROUTE_FILE, "required route record is missing")]
+            [
+                _e(
+                    "TWV-DELEG-MISSING-ARTIFACT",
+                    path,
+                    ROUTE_FILE,
+                    "required route record is missing",
+                )
+            ]
         )
     try:
         with path.open("rb") as f:
             raw = tomllib.load(f)
     except OSError as exc:
         return None, sorted_errors(
-            [_e("TWV-DELEG-UNREADABLE-ROUTE", path, ROUTE_FILE, f"route file is unreadable: {exc}")]
+            [
+                _e(
+                    "TWV-DELEG-UNREADABLE-ROUTE",
+                    path,
+                    ROUTE_FILE,
+                    f"route file is unreadable: {exc}",
+                )
+            ]
         )
     except UnicodeDecodeError as exc:
         return None, sorted_errors(
-            [_e("TWV-DELEG-MALFORMED-TOML", path, "toml", f"route file is not valid UTF-8: {exc}")]
+            [
+                _e(
+                    "TWV-DELEG-MALFORMED-TOML",
+                    path,
+                    "toml",
+                    f"route file is not valid UTF-8: {exc}",
+                )
+            ]
         )
     except (tomllib.TOMLDecodeError, ValueError) as exc:
         return None, sorted_errors(
@@ -428,7 +501,12 @@ def parse_route(task_dir: Path) -> tuple[dict[str, object] | None, tuple[Validat
         ):
             if key not in step:
                 errors.append(
-                    _e("TWV-DELEG-MISSING-FIELD", path, f"{ref}.{key}", "required step field is missing")
+                    _e(
+                        "TWV-DELEG-MISSING-FIELD",
+                        path,
+                        f"{ref}.{key}",
+                        "required step field is missing",
+                    )
                 )
         parent_node_id = step.get("parent_node_id")
         if parent_node_id == UNAVAILABLE:
@@ -453,7 +531,12 @@ def parse_route(task_dir: Path) -> tuple[dict[str, object] | None, tuple[Validat
                 non_empty_string(
                     step[key],
                     errors,
-                    _e("TWV-DELEG-WRONG-SHAPE", path, f"{ref}.{key}", "must be a non-empty string"),
+                    _e(
+                        "TWV-DELEG-WRONG-SHAPE",
+                        path,
+                        f"{ref}.{key}",
+                        "must be a non-empty string",
+                    ),
                 )
         for capability_field in ("requested_capability", "resolved_capability"):
             capability = step.get(capability_field)
@@ -553,10 +636,14 @@ def parse_route(task_dir: Path) -> tuple[dict[str, object] | None, tuple[Validat
                     "must be a non-empty string",
                 )
             )
-        if isinstance(authority_mode, str) and authority_mode in AUTHORITY_MODES and (
-            not isinstance(authority_ref, str)
-            or not authority_ref
-            or authority_ref == UNAVAILABLE
+        if (
+            isinstance(authority_mode, str)
+            and authority_mode in AUTHORITY_MODES
+            and (
+                not isinstance(authority_ref, str)
+                or not authority_ref
+                or authority_ref == UNAVAILABLE
+            )
         ):
             errors.append(
                 _e(
@@ -615,7 +702,9 @@ def parse_route(task_dir: Path) -> tuple[dict[str, object] | None, tuple[Validat
                 )
             )
         elif isinstance(context_path, str) and isinstance(context_sha256, str):
-            _evidence_file(task_dir, context_path, context_sha256, ref, "context_path", errors)
+            _evidence_file(
+                task_dir, context_path, context_sha256, ref, "context_path", errors
+            )
         evidence_path = step.get("evidence_path")
         evidence_sha256 = step.get("evidence_sha256")
         if (
@@ -642,7 +731,9 @@ def parse_route(task_dir: Path) -> tuple[dict[str, object] | None, tuple[Validat
                 )
             )
         elif isinstance(evidence_path, str) and isinstance(evidence_sha256, str):
-            _evidence_file(task_dir, evidence_path, evidence_sha256, ref, "evidence_path", errors)
+            _evidence_file(
+                task_dir, evidence_path, evidence_sha256, ref, "evidence_path", errors
+            )
         _extensions(step.get("extensions"), path, f"{ref}.extensions", errors)
     if len(step_ids) != len(set(step_ids)):
         errors.append(
@@ -738,7 +829,10 @@ def validate_route_references(
                         "referenced step's parent_node_id must match the owning graph node",
                     )
                 )
-            if node.kind in {"review", "final"} and step.get("effect_class") not in READ_CLASSES:
+            if (
+                node.kind in {"review", "final"}
+                and step.get("effect_class") not in READ_CLASSES
+            ):
                 errors.append(
                     _e(
                         "TWV-DELEG-REVIEW-WRITE",

@@ -35,7 +35,9 @@ class MinimumArrayLengthValidationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             _validate_schema(descriptor, "scope", self.bundle)
 
-    def test_approval_subject_and_authority_bindings_enforce_minimum_items(self) -> None:
+    def test_approval_subject_and_authority_bindings_enforce_minimum_items(
+        self,
+    ) -> None:
         digest = "a" * 64
         scope_ref = {"origin_run_id": "origin", "scope_id": "scope", "sha256": digest}
         applicability = {"mode": "keys", "keys": ["alpha"]}
@@ -94,7 +96,10 @@ class MinimumArrayLengthValidationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             _validate_schema(record, "approval", self.bundle)
 
-        payload["subject"]["authority_basis"][0]["applicability"]["keys"] = ["alpha", "alpha"]
+        payload["subject"]["authority_basis"][0]["applicability"]["keys"] = [
+            "alpha",
+            "alpha",
+        ]
         with self.assertRaises(ValueError):
             _validate_schema(record, "approval", self.bundle)
 

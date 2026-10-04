@@ -17,7 +17,9 @@ def write_advisory(
     task_dir: Path, relationships: list[dict[str, str]] | None = None
 ) -> tuple[Path, str]:
     task_dir.mkdir(parents=True)
-    proposal_content = "# Session history architecture\n\nKeep history in durable storage.\n"
+    proposal_content = (
+        "# Session history architecture\n\nKeep history in durable storage.\n"
+    )
     (task_dir / "01-architecture.md").write_bytes(proposal_content.encode("utf-8"))
     decision = {
         "id": "D01",
@@ -25,7 +27,9 @@ def write_advisory(
         "answer": "Keep history in durable storage.",
         "source": "human",
     }
-    architecture_content = "# Session history architecture\n\nKeep history in durable storage.\n"
+    architecture_content = (
+        "# Session history architecture\n\nKeep history in durable storage.\n"
+    )
     snapshot = {
         "schema_version": 1,
         "task_id": task_dir.name,
@@ -33,7 +37,9 @@ def write_advisory(
         "status": "accepted",
         "source_revision": REVISION,
         "architecture_content": architecture_content,
-        "content_sha256": hashlib.sha256(architecture_content.encode("utf-8")).hexdigest(),
+        "content_sha256": hashlib.sha256(
+            architecture_content.encode("utf-8")
+        ).hexdigest(),
         "decisions": [decision],
         "evidence_refs": [],
         "dependencies": [],
@@ -73,7 +79,9 @@ class AdvisoryArtifactTests(unittest.TestCase):
             write_advisory(task_dir)
 
             errors = validate_advisory(task_dir)
-            cli_errors = validate(Path(__file__).resolve().parents[2] / "skills/kapisch", task_dir)
+            cli_errors = validate(
+                Path(__file__).resolve().parents[2] / "skills/kapisch", task_dir
+            )
 
             self.assertEqual(errors, [])
             self.assertEqual(list(cli_errors), [])
@@ -103,8 +111,12 @@ class AdvisoryArtifactTests(unittest.TestCase):
             root = Path(temporary)
             predecessor_dir = root / ".kapisch" / "runs" / "predecessor"
             predecessor_state_path, predecessor_digest = write_advisory(predecessor_dir)
-            predecessor_state = tomllib.loads(predecessor_state_path.read_text(encoding="utf-8"))
-            target = predecessor_dir / predecessor_state["accepted_architectures"][0]["path"]
+            predecessor_state = tomllib.loads(
+                predecessor_state_path.read_text(encoding="utf-8")
+            )
+            target = (
+                predecessor_dir / predecessor_state["accepted_architectures"][0]["path"]
+            )
             wrong_digest = "0" * 64 if predecessor_digest != "0" * 64 else "f" * 64
             successor_dir = root / ".kapisch" / "runs" / "successor"
             write_advisory(
@@ -132,7 +144,9 @@ class AdvisoryArtifactTests(unittest.TestCase):
                 relationships=[
                     {
                         "kind": "amends",
-                        "target_path": ".kapisch/runs/predecessor/architectures/A01-" + "0" * 64 + ".toml",
+                        "target_path": ".kapisch/runs/predecessor/architectures/A01-"
+                        + "0" * 64
+                        + ".toml",
                         "target_digest": "0" * 64,
                         "decision_id": "D01",
                     }
@@ -148,8 +162,12 @@ class AdvisoryArtifactTests(unittest.TestCase):
             root = Path(temporary)
             predecessor_dir = root / ".kapisch" / "runs" / "predecessor"
             predecessor_state_path, predecessor_digest = write_advisory(predecessor_dir)
-            predecessor_state = tomllib.loads(predecessor_state_path.read_text(encoding="utf-8"))
-            target = predecessor_dir / predecessor_state["accepted_architectures"][0]["path"]
+            predecessor_state = tomllib.loads(
+                predecessor_state_path.read_text(encoding="utf-8")
+            )
+            target = (
+                predecessor_dir / predecessor_state["accepted_architectures"][0]["path"]
+            )
             predecessor_state["accepted_architectures"] = []
             predecessor_state_path.write_bytes(render_toml(predecessor_state))
             successor_dir = root / ".kapisch" / "runs" / "successor"
@@ -174,7 +192,9 @@ class AdvisoryArtifactTests(unittest.TestCase):
             root = Path(temporary)
             predecessor_dir = root / ".kapisch" / "runs" / "predecessor"
             predecessor_state_path, _ = write_advisory(predecessor_dir)
-            predecessor_state = tomllib.loads(predecessor_state_path.read_text(encoding="utf-8"))
+            predecessor_state = tomllib.loads(
+                predecessor_state_path.read_text(encoding="utf-8")
+            )
             entry = predecessor_state["accepted_architectures"][0]
             original_target = predecessor_dir / entry["path"]
             snapshot = tomllib.loads(original_target.read_text(encoding="utf-8"))
@@ -208,8 +228,12 @@ class AdvisoryArtifactTests(unittest.TestCase):
             root = Path(temporary)
             predecessor_dir = root / ".kapisch" / "runs" / "predecessor"
             predecessor_state_path, predecessor_digest = write_advisory(predecessor_dir)
-            predecessor_state = tomllib.loads(predecessor_state_path.read_text(encoding="utf-8"))
-            target = predecessor_dir / predecessor_state["accepted_architectures"][0]["path"]
+            predecessor_state = tomllib.loads(
+                predecessor_state_path.read_text(encoding="utf-8")
+            )
+            target = (
+                predecessor_dir / predecessor_state["accepted_architectures"][0]["path"]
+            )
             predecessor_state["schema_version"] = 2
             predecessor_state_path.write_bytes(render_toml(predecessor_state))
             successor_dir = root / ".kapisch" / "runs" / "successor"
@@ -255,7 +279,9 @@ class AdvisoryArtifactTests(unittest.TestCase):
             task_dir = Path(temporary) / ".kapisch" / "runs" / "session-history-design"
             state_path, _ = write_advisory(task_dir)
             state = tomllib.loads(state_path.read_text(encoding="utf-8"))
-            state["decisions"][0]["answer"] = "Different decision from prior acceptance."
+            state["decisions"][0]["answer"] = (
+                "Different decision from prior acceptance."
+            )
             state_path.write_bytes(render_toml(state))
 
             errors = validate_advisory(task_dir)
@@ -265,22 +291,34 @@ class AdvisoryArtifactTests(unittest.TestCase):
     def test_resume_cannot_drop_previously_accepted_architecture(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            previous = root / "previous" / ".kapisch" / "runs" / "session-history-design"
+            previous = (
+                root / "previous" / ".kapisch" / "runs" / "session-history-design"
+            )
             current = root / "current" / ".kapisch" / "runs" / "session-history-design"
             write_advisory(previous)
             current_state_path, _ = write_advisory(current)
-            current_state = tomllib.loads(current_state_path.read_text(encoding="utf-8"))
+            current_state = tomllib.loads(
+                current_state_path.read_text(encoding="utf-8")
+            )
             current_state["status"] = "proposal-ready"
             current_state["accepted_architectures"] = []
             current_state_path.write_bytes(render_toml(current_state))
 
             errors = validate_advisory(current, previous)
-            cli_errors = validate(Path(__file__).resolve().parents[2] / "skills/kapisch", current, previous)
+            cli_errors = validate(
+                Path(__file__).resolve().parents[2] / "skills/kapisch",
+                current,
+                previous,
+            )
 
             self.assertIn("ADV-RESUME-ARCHITECTURE", {error.code for error in errors})
-            self.assertIn("ADV-RESUME-ARCHITECTURE", {error.code for error in cli_errors})
+            self.assertIn(
+                "ADV-RESUME-ARCHITECTURE", {error.code for error in cli_errors}
+            )
 
-    def test_implementation_planning_requires_human_accepted_snapshot_and_proposal(self) -> None:
+    def test_implementation_planning_requires_human_accepted_snapshot_and_proposal(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             task_dir = Path(temporary) / ".kapisch" / "runs" / "session-history-design"
             state_path, _ = write_advisory(task_dir)
@@ -316,7 +354,11 @@ class AdvisoryArtifactTests(unittest.TestCase):
                     "why": "Storage choice affects recovery.",
                     "decision_required": "Choose a storage model.",
                     "options": [
-                        {"id": f"O{i}", "description": f"Choice {i}", "consequences": f"Trade-off {i}"}
+                        {
+                            "id": f"O{i}",
+                            "description": f"Choice {i}",
+                            "consequences": f"Trade-off {i}",
+                        }
                         for i in range(1, 5)
                     ],
                     "recommendation": "O1",
@@ -331,7 +373,9 @@ class AdvisoryArtifactTests(unittest.TestCase):
     def test_non_string_decision_kinds_return_schema_errors(self) -> None:
         for field in ("decisions", "unresolved_decisions"):
             with self.subTest(field=field), tempfile.TemporaryDirectory() as temporary:
-                task_dir = Path(temporary) / ".kapisch" / "runs" / "session-history-design"
+                task_dir = (
+                    Path(temporary) / ".kapisch" / "runs" / "session-history-design"
+                )
                 state_path, _ = write_advisory(task_dir)
                 state = tomllib.loads(state_path.read_text(encoding="utf-8"))
                 if field == "decisions":
@@ -346,8 +390,16 @@ class AdvisoryArtifactTests(unittest.TestCase):
                             "why": "Storage choice affects recovery.",
                             "decision_required": "Choose a storage model.",
                             "options": [
-                                {"id": "O1", "description": "Choice 1", "consequences": "Trade-off 1"},
-                                {"id": "O2", "description": "Choice 2", "consequences": "Trade-off 2"},
+                                {
+                                    "id": "O1",
+                                    "description": "Choice 1",
+                                    "consequences": "Trade-off 1",
+                                },
+                                {
+                                    "id": "O2",
+                                    "description": "Choice 2",
+                                    "consequences": "Trade-off 2",
+                                },
                             ],
                             "recommendation": "O1",
                         }
@@ -366,14 +418,24 @@ class AdvisoryArtifactTests(unittest.TestCase):
             original = state["accepted_architectures"][0]
             original_path = task_dir / original["path"]
             snapshot = tomllib.loads(original_path.read_text(encoding="utf-8"))
-            content = snapshot["architecture_content"] + "\nA second accepted version.\n"
+            content = (
+                snapshot["architecture_content"] + "\nA second accepted version.\n"
+            )
             snapshot["architecture_content"] = content
-            snapshot["content_sha256"] = hashlib.sha256(content.encode("utf-8")).hexdigest()
+            snapshot["content_sha256"] = hashlib.sha256(
+                content.encode("utf-8")
+            ).hexdigest()
             snapshot_bytes = render_toml(snapshot)
             digest = hashlib.sha256(snapshot_bytes).hexdigest()
-            alternate_path = task_dir / "architectures" / f"{original['id']}-{digest}.toml"
+            alternate_path = (
+                task_dir / "architectures" / f"{original['id']}-{digest}.toml"
+            )
             alternate_path.write_bytes(snapshot_bytes)
-            alternate = {"id": original["id"], "path": alternate_path.relative_to(task_dir).as_posix(), "digest": digest}
+            alternate = {
+                "id": original["id"],
+                "path": alternate_path.relative_to(task_dir).as_posix(),
+                "digest": digest,
+            }
             state["accepted_architectures"].append(alternate)
             state_path.write_bytes(render_toml(state))
 
@@ -382,15 +444,24 @@ class AdvisoryArtifactTests(unittest.TestCase):
             self.assertIn("ADV-SNAPSHOT-REFERENCE", {error.code for error in errors})
 
     def test_malformed_enum_values_return_diagnostics(self) -> None:
-        for field, value in (("status", ["accepted"]), ("proposal_status", {"bad": "value"})):
+        for field, value in (
+            ("status", ["accepted"]),
+            ("proposal_status", {"bad": "value"}),
+        ):
             with self.subTest(field=field), tempfile.TemporaryDirectory() as temporary:
-                task_dir = Path(temporary) / ".kapisch" / "runs" / "session-history-design"
+                task_dir = (
+                    Path(temporary) / ".kapisch" / "runs" / "session-history-design"
+                )
                 state_path, _ = write_advisory(task_dir)
                 state = tomllib.loads(state_path.read_text(encoding="utf-8"))
                 state[field] = value
                 state_path.write_bytes(render_toml(state))
-                expected_code = "ADV-STATE-STATUS" if field == "status" else "ADV-PROPOSAL-STATUS"
-                self.assertIn(expected_code, {error.code for error in validate_advisory(task_dir)})
+                expected_code = (
+                    "ADV-STATE-STATUS" if field == "status" else "ADV-PROPOSAL-STATUS"
+                )
+                self.assertIn(
+                    expected_code, {error.code for error in validate_advisory(task_dir)}
+                )
 
     def test_malformed_recommendation_returns_diagnostic(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -398,9 +469,22 @@ class AdvisoryArtifactTests(unittest.TestCase):
             state_path, _ = write_advisory(task_dir)
             state = tomllib.loads(state_path.read_text(encoding="utf-8"))
             state["status"] = "decision-required"
-            state["unresolved_decisions"] = [{"id": "Q01", "kind": "architecture", "problem": "p", "why": "w", "decision_required": "d", "options": [], "recommendation": ["O1"]}]
+            state["unresolved_decisions"] = [
+                {
+                    "id": "Q01",
+                    "kind": "architecture",
+                    "problem": "p",
+                    "why": "w",
+                    "decision_required": "d",
+                    "options": [],
+                    "recommendation": ["O1"],
+                }
+            ]
             state_path.write_bytes(render_toml(state))
-            self.assertIn("ADV-DECISION-RECOMMENDATION", {error.code for error in validate_advisory(task_dir)})
+            self.assertIn(
+                "ADV-DECISION-RECOMMENDATION",
+                {error.code for error in validate_advisory(task_dir)},
+            )
 
     def test_list_snapshot_digest_returns_diagnostic(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
