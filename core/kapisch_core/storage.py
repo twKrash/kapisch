@@ -287,7 +287,10 @@ def load_authority_records(repo: Path, namespace: str) -> list[tuple[str, bytes]
         raise OSError(
             "safe descriptor-relative authority listing is unsupported on this platform"
         )
-    directory, opened = _open_tree(Path(repo), "authority", namespace, create=False)
+    try:
+        directory, opened = _open_tree(Path(repo), "authority", namespace, create=False)
+    except FileNotFoundError:
+        return []
     try:
         records = []
         for name in sorted(os.listdir(directory)):
@@ -295,7 +298,11 @@ def load_authority_records(repo: Path, namespace: str) -> list[tuple[str, bytes]
                 continue
             identity = name[:-5]
             _id(identity, "identity")
-            records.append((identity, _read_file(directory, name)))
+            try:
+                data = _read_file(directory, name)
+            except FileNotFoundError as error:
+                raise ValueError("authority record disappeared during census") from error
+            records.append((identity, data))
         return records
     finally:
         _close(opened)

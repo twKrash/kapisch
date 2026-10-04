@@ -33,10 +33,7 @@ def _unique_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 
 def _load_acceptances(repo: Path) -> tuple[_Acceptance, ...]:
-    try:
-        records = load_authority_records(repo, _ACCEPTANCE_NAMESPACE)
-    except FileNotFoundError:
-        return ()
+    records = load_authority_records(repo, _ACCEPTANCE_NAMESPACE)
     acceptances = []
     for identity, data in records:
         try:
@@ -108,6 +105,28 @@ def _validate_graph(acceptances: tuple[_Acceptance, ...]) -> None:
         if decision_key in by_decision:
             raise ValueError("qualified decision identity collision")
         by_decision[decision_key] = acceptance
+    for acceptance in acceptances:
+        for binding in acceptance.payload["subject"]["authority_basis"]:
+            identity = (
+                binding["origin_run_id"],
+                binding["snapshot_id"],
+                binding["decision_id"],
+            )
+            target = by_decision.get(identity)
+            if target is None:
+                raise ValueError("authority basis target is missing")
+            target_subject = target.payload["subject"]
+            expected = {
+                "origin_run_id": target.origin_run_id,
+                "snapshot_id": target.snapshot_id,
+                "decision_id": target_subject["decision_id"],
+                "acceptance_record_sha256": target.digest,
+                "scope_ref": target_subject["scope_ref"],
+                "applicability": target_subject["applicability"],
+                "source_dependencies": target_subject["source_dependencies"],
+            }
+            if binding != expected:
+                raise ValueError("authority basis binding differs from committed target")
     edges: dict[tuple[str, str], set[tuple[str, str]]] = {}
     superseded: dict[tuple[str, str], int] = {}
     for acceptance in acceptances:

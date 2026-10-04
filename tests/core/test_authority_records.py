@@ -26,6 +26,7 @@ class AuthorityCensusTests(unittest.TestCase):
         snapshot_id: str,
         applicability: dict,
         supersedes: list[dict] | None = None,
+        authority_basis: list[dict] | None = None,
     ) -> str:
         fixture = self.fixture
         payload = fixture._repository_payload()
@@ -43,6 +44,7 @@ class AuthorityCensusTests(unittest.TestCase):
         subject["snapshot_id"] = snapshot_id
         subject["decision_id"] = snapshot_id
         subject["supersedes"] = supersedes or []
+        subject["authority_basis"] = authority_basis or []
         payload["identity"]["id"] = snapshot_id
         reference = publish_gate_approval(
             fixture.repo,
@@ -61,6 +63,98 @@ class AuthorityCensusTests(unittest.TestCase):
         ).hexdigest()
         store_authority_record(fixture.repo, "acceptances", identity, data)
         return hashlib.sha256(data).hexdigest()
+
+    def test_invalid_historical_authority_basis_blocks_even_when_nonmatching(self):
+        prior_digest = self._commit_acceptance(
+            "basis-target", {"mode": "keys", "keys": ["applies-elsewhere"]}
+        )
+        prior_scope = propose_scope(
+            self.fixture.repo,
+            "run-1",
+            "scope-basis-target",
+            "requirements",
+            {"mode": "keys", "keys": ["applies-elsewhere"]},
+        )
+        valid = {
+            "origin_run_id": "run-1",
+            "snapshot_id": "basis-target",
+            "decision_id": "basis-target",
+            "acceptance_record_sha256": prior_digest,
+            "scope_ref": {
+                "origin_run_id": "run-1",
+                "scope_id": "scope-basis-target",
+                "sha256": prior_scope.sha256,
+            },
+            "applicability": {"mode": "keys", "keys": ["applies-elsewhere"]},
+            "source_dependencies": [],
+        }
+        malformed = (
+            {**valid, "snapshot_id": "absent"},
+            {**valid, "acceptance_record_sha256": "f" * 64},
+            {**valid, "origin_run_id": "other-run"},
+            {**valid, "applicability": {"mode": "all"}},
+        )
+        disjoint = propose_scope(
+            self.fixture.repo,
+            "consumer",
+            "disjoint-work",
+            "work",
+            {"mode": "keys", "keys": ["does-not-match"]},
+        )
+        for index, binding in enumerate(malformed):
+            with self.subTest(index=index):
+                self._commit_acceptance(
+                    f"invalid-basis-{index}",
+                    {"mode": "keys", "keys": ["elsewhere-too"]},
+                    authority_basis=[binding],
+                )
+                with self.assertRaises(ValueError):
+                    active_authority(self.fixture.repo, disjoint)
+
+    def test_valid_historical_basis_survives_target_supersession(self):
+        target_digest = self._commit_acceptance(
+            "historical-target", {"mode": "keys", "keys": ["alpha"]}
+        )
+        target_scope = propose_scope(
+            self.fixture.repo,
+            "run-1",
+            "scope-historical-target",
+            "requirements",
+            {"mode": "keys", "keys": ["alpha"]},
+        )
+        historical_basis = {
+            "origin_run_id": "run-1",
+            "snapshot_id": "historical-target",
+            "decision_id": "historical-target",
+            "acceptance_record_sha256": target_digest,
+            "scope_ref": {
+                "origin_run_id": "run-1",
+                "scope_id": "scope-historical-target",
+                "sha256": target_scope.sha256,
+            },
+            "applicability": {"mode": "keys", "keys": ["alpha"]},
+            "source_dependencies": [],
+        }
+        self._commit_acceptance(
+            "basis-owner", {"mode": "keys", "keys": ["beta"]},
+            authority_basis=[historical_basis],
+        )
+        self._commit_acceptance(
+            "successor", {"mode": "keys", "keys": ["alpha"]},
+            supersedes=[{
+                "origin_run_id": "run-1",
+                "snapshot_id": "historical-target",
+                "decision_id": "historical-target",
+                "sha256": target_digest,
+            }],
+        )
+        consuming = propose_scope(
+            self.fixture.repo, "consumer", "alpha", "work", {"mode": "keys", "keys": ["alpha"]}
+        )
+        self.assertEqual(
+            [binding.decision_id for binding in active_authority(self.fixture.repo, consuming)],
+            ["successor"],
+        )
 
     def test_authority_census_uses_persisted_structural_scope_and_rejects_invalid_graph(
         self,
@@ -159,6 +253,33 @@ class AuthorityCensusTests(unittest.TestCase):
             ValueError, "does not cover predecessor applicability"
         ):
             active_authority(self.fixture.repo, consumer)
+
+    def test_acceptance_disappearing_after_listing_blocks_census(self):
+        self._commit_acceptance("disappearing", {"mode": "all"})
+        scope = propose_scope(
+            self.fixture.repo, "consumer", "work", "work", {"mode": "all"}
+        )
+        from unittest.mock import patch
+        from kapisch_core.storage import _read_file
+
+        record_dir = self.fixture.repo / ".kapisch/v3/authority/acceptances"
+        record_path = next(record_dir.glob("*.json"))
+
+        def disappear(directory: int, name: str) -> bytes:
+            if name == record_path.name:
+                record_path.unlink()
+            return _read_file(directory, name)
+
+        with patch("kapisch_core.storage._read_file", side_effect=disappear) as read_file:
+            with self.assertRaisesRegex(ValueError, "disappeared during census"):
+                active_authority(self.fixture.repo, scope)
+            self.assertEqual(read_file.call_count, 2)
+
+    def test_missing_acceptance_namespace_is_empty_census(self):
+        scope = propose_scope(
+            self.fixture.repo, "consumer", "work", "work", {"mode": "all"}
+        )
+        self.assertEqual(active_authority(self.fixture.repo, scope), ())
 
     def test_invalid_unmatched_acceptance_blocks_filtering(self):
         scope = propose_scope(
