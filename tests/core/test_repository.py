@@ -1073,9 +1073,19 @@ class RepositoryFingerprintTests(unittest.TestCase):
         before = capture_repository_state(self.root)
         os.utime(self.root / "tracked", ns=(2_000_000_000, 2_000_000_000))
         self.git("update-index", "--refresh")
-        self.git("config", "diff.color.ui", "always")
-        after = capture_repository_state(self.root)
-        self.assertEqual(before.canonical_bytes(), after.canonical_bytes())
+        after_stat = capture_repository_state(self.root)
+        self.assertEqual(before.canonical_bytes(), after_stat.canonical_bytes())
+
+        (self.root / "tracked").write_bytes(b"two")
+        before_config = capture_repository_state(self.root)
+        plain_diff = self.git("diff", "--no-ext-diff").stdout
+        self.git("config", "color.diff", "always")
+        colored_diff = self.git("diff", "--no-ext-diff").stdout
+        self.assertNotEqual(plain_diff, colored_diff)
+        after_config = capture_repository_state(self.root)
+        self.assertEqual(
+            before_config.canonical_bytes(), after_config.canonical_bytes()
+        )
 
     def test_worktree_and_included_untracked_bytes_are_bound(self):
         os.symlink("tracked", self.root / "link")
