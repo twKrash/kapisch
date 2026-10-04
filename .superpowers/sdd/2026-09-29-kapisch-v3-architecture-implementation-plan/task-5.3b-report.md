@@ -17,6 +17,10 @@ Status: implemented and committed; no AcceptanceRecord producer/publication, pla
 - Absent namespace regression: `PYTHONPATH=core python -m unittest discover -s tests/core -k missing_acceptance_namespace -v` — passed.
 - Full suite: `PYTHONPATH=core python -m unittest discover -s tests/core` — 284 tests passed (expected CLI negative-argument usage text emitted).
 - `git diff --check` — passed before follow-up commit.
+- Reconciliation: `ruff format core/kapisch_core/_authority_records.py core/kapisch_core/storage.py tests/core/test_authority_records.py` — 3 files left unchanged; formatting diff from HEAD retained and reviewed, no behavior changes.
+- Final-file focused rerun: `PYTHONPATH=core python -m unittest discover -s tests/core -p test_authority_records.py -v` — 8 tests passed.
+- Final-file full-suite rerun: `PYTHONPATH=core python -m unittest discover -s tests/core` — 284 tests passed (expected CLI negative-argument usage text emitted).
+- Final `git status --porcelain` after the reconciliation commit: empty (clean).
 
 ## Review findings disposition
 - P1 addressed: before filtering, each historical repository-decision authority-basis binding now resolves by qualified identity to a committed AcceptanceRecord and must exactly match its digest, scope ref, applicability, and direct source dependencies. Tests cover absent target, altered digest, wrong qualified origin, mismatched applicability on nonmatching records, and valid historical basis after later supersession.
@@ -32,4 +36,5 @@ Status: implemented and committed; no AcceptanceRecord producer/publication, pla
 - `159e662fe28b685322179c86176fc66f394683ab` — test formatting/report reconciliation.
 - `37be6909d4a2bb0d957e83cf55cc0957844d391c` — report SHA correction.
 - `c46967c1e9e1313fe55eb8be92dd84b29ed7a365` — review findings fixes.
-- Final worktree status after this report update commit: clean.
+- Formatting/report reconciliation follow-up commit contains the Ruff-only diff for the three files and this report update; no behavior changes.
+- Final worktree status after formatting/report reconciliation: clean.

@@ -301,7 +301,9 @@ def load_authority_records(repo: Path, namespace: str) -> list[tuple[str, bytes]
             try:
                 data = _read_file(directory, name)
             except FileNotFoundError as error:
-                raise ValueError("authority record disappeared during census") from error
+                raise ValueError(
+                    "authority record disappeared during census"
+                ) from error
             records.append((identity, data))
         return records
     finally:

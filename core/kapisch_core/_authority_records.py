@@ -126,7 +126,9 @@ def _validate_graph(acceptances: tuple[_Acceptance, ...]) -> None:
                 "source_dependencies": target_subject["source_dependencies"],
             }
             if binding != expected:
-                raise ValueError("authority basis binding differs from committed target")
+                raise ValueError(
+                    "authority basis binding differs from committed target"
+                )
     edges: dict[tuple[str, str], set[tuple[str, str]]] = {}
     superseded: dict[tuple[str, str], int] = {}
     for acceptance in acceptances:

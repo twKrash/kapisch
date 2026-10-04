@@ -136,23 +136,34 @@ class AuthorityCensusTests(unittest.TestCase):
             "source_dependencies": [],
         }
         self._commit_acceptance(
-            "basis-owner", {"mode": "keys", "keys": ["beta"]},
+            "basis-owner",
+            {"mode": "keys", "keys": ["beta"]},
             authority_basis=[historical_basis],
         )
         self._commit_acceptance(
-            "successor", {"mode": "keys", "keys": ["alpha"]},
-            supersedes=[{
-                "origin_run_id": "run-1",
-                "snapshot_id": "historical-target",
-                "decision_id": "historical-target",
-                "sha256": target_digest,
-            }],
+            "successor",
+            {"mode": "keys", "keys": ["alpha"]},
+            supersedes=[
+                {
+                    "origin_run_id": "run-1",
+                    "snapshot_id": "historical-target",
+                    "decision_id": "historical-target",
+                    "sha256": target_digest,
+                }
+            ],
         )
         consuming = propose_scope(
-            self.fixture.repo, "consumer", "alpha", "work", {"mode": "keys", "keys": ["alpha"]}
+            self.fixture.repo,
+            "consumer",
+            "alpha",
+            "work",
+            {"mode": "keys", "keys": ["alpha"]},
         )
         self.assertEqual(
-            [binding.decision_id for binding in active_authority(self.fixture.repo, consuming)],
+            [
+                binding.decision_id
+                for binding in active_authority(self.fixture.repo, consuming)
+            ],
             ["successor"],
         )
 
@@ -260,6 +271,7 @@ class AuthorityCensusTests(unittest.TestCase):
             self.fixture.repo, "consumer", "work", "work", {"mode": "all"}
         )
         from unittest.mock import patch
+
         from kapisch_core.storage import _read_file
 
         record_dir = self.fixture.repo / ".kapisch/v3/authority/acceptances"
@@ -270,7 +282,9 @@ class AuthorityCensusTests(unittest.TestCase):
                 record_path.unlink()
             return _read_file(directory, name)
 
-        with patch("kapisch_core.storage._read_file", side_effect=disappear) as read_file:
+        with patch(
+            "kapisch_core.storage._read_file", side_effect=disappear
+        ) as read_file:
             with self.assertRaisesRegex(ValueError, "disappeared during census"):
                 active_authority(self.fixture.repo, scope)
             self.assertEqual(read_file.call_count, 2)
