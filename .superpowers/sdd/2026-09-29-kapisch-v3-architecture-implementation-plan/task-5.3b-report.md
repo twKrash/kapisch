@@ -7,7 +7,7 @@ Status: implemented and committed; no AcceptanceRecord producer/publication, pla
 - `core/kapisch_core/_authority_census.py`: census facade.
 - `core/kapisch_core/_authority_records.py`: validates committed acceptance records, referenced approvals, complete historical authority-basis projections and graph relationships before filtering.
 - `core/kapisch_core/storage.py`: permits the acceptance namespace and distinguishes absent namespace from records disappearing during census.
-- `tests/core/test_authority_records.py`: real persisted acceptance/approval regressions for applicability, cold reconstruction, authority-basis target/identity/digest/projection failures (including a nonmatching acceptance), historical basis validity after supersession, coverage rules, invalid global records, read-time disappearance, and empty namespace.
+- `tests/core/test_authority_records.py`: real persisted acceptance/approval regressions for applicability, cold reconstruction, authority-basis target/identity/digest/projection failures (including nonmatching acceptances), historical basis validity after supersession, deep histories, self-link/cycle rejection, coverage rules, invalid global records, read-time disappearance, and empty namespace.
 - Plan Stage 5.3b and architecture spec §30.5: approved `ProposedScopeRef` trust-boundary clarification.
 
 ## Validation — initial Stage 5.3b and K53B-01 review fixes
@@ -26,10 +26,13 @@ Status: implemented and committed; no AcceptanceRecord producer/publication, pla
 - P1 addressed: before filtering, each historical repository-decision authority-basis binding resolves by qualified identity to a committed AcceptanceRecord and must exactly match its record digest, scope ref, applicability, and direct source dependencies. The corrected regressions each use a fresh acceptance namespace and assert the expected error class/reason for absent snapshot, wrong origin run, wrong decision ID, altered digest, altered scope ref, altered applicability, and altered source dependencies. Each malformed record is nonmatching to the queried consuming scope. The mutation check confirms that removing the projection comparison breaks each projection-field test. Valid historical basis remains valid if its target is later superseded.
 - P2 addressed: only missing namespace/directory during namespace open yields an empty listing. A listed record disappearing at read time raises `ValueError("authority record disappeared during census")`; deterministic race regression confirms fail-closed behavior. Empty namespace remains a valid empty census.
 - K53B-01 addressed at commit `7c672d006eb72240907b2c69a5e0f2baedaab9b9`: replaced the shared, maskable malformed-basis subtests with seven independent fresh-repository regressions. No production change was made for K53B-01.
+- K53B-02 addressed at commit `3d9ac18eeb55621904380c54f361283d55728e57`: replaced recursive relationship traversal with an explicit DFS stack, retaining cycle detection without a depth cap; the persisted chain test exceeds `sys.getrecursionlimit()` and proves the terminal successor remains the sole active binding. Self-link and nontrivial-cycle tests remain green.
+- Fresh standalone whole-branch review at `3d9ac18eeb55621904380c54f361283d55728e57` found no remaining in-scope defects and verified all four prior findings plus cold-restart and producer-ownership invariants.
 
 ## Self-review and residual risks
 - Census verifies historical target bytes/projections but does not reject valid historical basis merely because the target later became superseded or its live source changed. Later authoritative gate owners check current source freshness under §30.5.
 - No schema/record format changes, AcceptanceRecord publication, plan promotion, or gate consumer was introduced.
+- Local validation used Python 3.14.4; the architecture's Python 3.11 target runtime was unavailable. Windows/platform and live adapter suites were not run; no adapter changes were made.
 - Initial Stage 5.3b RED/fixture details and earlier worktree reconciliation are retained in commit/report history.
 
 ## Commits
@@ -40,7 +43,8 @@ Status: implemented and committed; no AcceptanceRecord producer/publication, pla
 - `5da10887d086e7d01c2366cd8fb2773ef94e4953` — review-fix report update.
 - `59e72e3e432a751ff0fa7c1ae10e18ee2e0b51f6` — Ruff-format reconciliation.
 - `7c672d006eb72240907b2c69a5e0f2baedaab9b9` — K53B-01 test correction.
-- Report-only correction is now staged for commit; final `git status --porcelain` will be checked after that commit.
+- `7c9c53ffbd550f12527c46056b02044005f035c3` — restored the complete implementation report before the K53B-02 update.
+- `3d9ac18eeb55621904380c54f361283d55728e57` — iterative relationship validation, deep-history regressions, and K53B-02 report update.
 
 ## K53B-02 — iterative relationship graph validation
 
@@ -50,4 +54,4 @@ Status: implemented and committed; no AcceptanceRecord producer/publication, pla
 - Validation: `PYTHONPATH=core python -m unittest discover -s tests/core -p test_authority_records.py -v` — 17 tests passed (11.6s); `PYTHONPATH=core python -m unittest discover -s tests/core` — 293 tests passed (22.4s; expected CLI negative-argument usage text); `PYTHONPATH=core python -m unittest discover -s tests/conformance -v` — 18 tests passed; `python tooling/build/build_bundle.py --check` — CoreBundle copies match canonical sources; `ruff format --check core/kapisch_core/_authority_records.py tests/core/test_authority_records.py` — passed; `git diff --check` — passed.
 - Mutation/red evidence: the regression's pre-fix run fails with `RecursionError`, while post-fix exercises a chain 10 longer than the runtime recursion limit and asserts that the only active binding is its terminal successor. Self-link and nontrivial-cycle regressions exercise preserved graph rejection.
 - Scope: no publisher, promotion, gate consumer, schema, record format, or global recursion-limit changes. No bundle regeneration was needed.
-- Commit: pending validation commit; starting HEAD was `7c9c53ffbd550f12527c46056b02044005f035c3`. Final commit/worktree state to be recorded after commit.
+- Commit: `3d9ac18eeb55621904380c54f361283d55728e57`. Fresh standalone review verified this exact code/test commit; a subsequent report-only edit records review disposition and environment coverage.
