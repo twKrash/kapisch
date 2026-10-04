@@ -180,19 +180,23 @@ def _validate_graph(acceptances: tuple[_Acceptance, ...]) -> None:
     visiting: set[tuple[str, str]] = set()
     visited: set[tuple[str, str]] = set()
 
-    def visit(key: tuple[str, str]) -> None:
-        if key in visiting:
-            raise ValueError("acceptance relationship cycle detected")
-        if key in visited:
-            return
-        visiting.add(key)
-        for target in edges[key]:
-            visit(target)
-        visiting.remove(key)
-        visited.add(key)
-
     for key in edges:
-        visit(key)
+        if key in visited:
+            continue
+        visiting.add(key)
+        stack = [(key, iter(edges[key]))]
+        while stack:
+            current, targets = stack[-1]
+            target = next(targets, None)
+            if target is None:
+                stack.pop()
+                visiting.remove(current)
+                visited.add(current)
+            elif target in visiting:
+                raise ValueError("acceptance relationship cycle detected")
+            elif target not in visited:
+                visiting.add(target)
+                stack.append((target, iter(edges[target])))
 
 
 def _active_bindings(

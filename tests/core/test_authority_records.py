@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import shutil
+import sys
 import unittest
 
 from kapisch_core._gate_approval import publish_gate_approval
@@ -204,6 +205,112 @@ class AuthorityCensusTests(unittest.TestCase):
             ],
             ["successor"],
         )
+
+    def test_deep_supersession_chain_is_validated_iteratively(self):
+        depth = sys.getrecursionlimit() + 10
+        identifiers = [f"chain-{index}" for index in range(depth)]
+        filename = lambda value: hashlib.sha256(
+            canonical_json({"origin_run_id": "run-1", "snapshot_id": value})
+        ).hexdigest()
+        previous_names = [filename(value) for value in identifiers]
+        terminal = "terminal-0"
+        suffix = 1
+        while filename(terminal) >= min(previous_names):
+            terminal = f"terminal-{suffix}"
+            suffix += 1
+        identifiers[-1] = terminal
+
+        digest = None
+        for index, snapshot_id in enumerate(identifiers):
+            supersedes = []
+            if digest is not None:
+                predecessor = identifiers[index - 1]
+                supersedes = [
+                    {
+                        "origin_run_id": "run-1",
+                        "snapshot_id": predecessor,
+                        "decision_id": predecessor,
+                        "sha256": digest,
+                    }
+                ]
+            digest = self._commit_acceptance(
+                snapshot_id, {"mode": "keys", "keys": ["alpha"]}, supersedes
+            )
+
+        consumer = propose_scope(
+            self.fixture.repo,
+            "consumer",
+            "deep-chain",
+            "work",
+            {"mode": "keys", "keys": ["alpha"]},
+        )
+        self.assertEqual(
+            [
+                binding.decision_id
+                for binding in active_authority(self.fixture.repo, consumer)
+            ],
+            [terminal],
+        )
+
+    def test_validate_graph_rejects_self_link(self):
+        from kapisch_core._authority_records import _Acceptance, _validate_graph
+
+        acceptance = _Acceptance(
+            "run-1",
+            "self",
+            "digest",
+            {},
+            {
+                "subject": {
+                    "decision_id": "self",
+                    "authority_basis": [],
+                    "amends": [],
+                    "supersedes": [
+                        {
+                            "origin_run_id": "run-1",
+                            "snapshot_id": "self",
+                            "decision_id": "self",
+                            "sha256": "digest",
+                        }
+                    ],
+                    "applicability": {"mode": "all"},
+                }
+            },
+        )
+        with self.assertRaisesRegex(ValueError, "acceptance cannot relate to itself"):
+            _validate_graph((acceptance,))
+
+    def test_validate_graph_rejects_nontrivial_cycle(self):
+        from kapisch_core._authority_records import _Acceptance, _validate_graph
+
+        def record(name, target):
+            return _Acceptance(
+                "run-1",
+                name,
+                f"digest-{name}",
+                {},
+                {
+                    "subject": {
+                        "decision_id": name,
+                        "authority_basis": [],
+                        "amends": [],
+                        "supersedes": [
+                            {
+                                "origin_run_id": "run-1",
+                                "snapshot_id": target,
+                                "decision_id": target,
+                                "sha256": f"digest-{target}",
+                            }
+                        ],
+                        "applicability": {"mode": "all"},
+                    }
+                },
+            )
+
+        with self.assertRaisesRegex(
+            ValueError, "acceptance relationship cycle detected"
+        ):
+            _validate_graph((record("first", "second"), record("second", "first")))
 
     def test_authority_census_uses_persisted_structural_scope_and_rejects_invalid_graph(
         self,
