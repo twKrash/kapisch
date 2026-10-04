@@ -200,6 +200,35 @@ class RepositoryGitCaptureTests(unittest.TestCase):
         with self.assertRaises(RepositoryCaptureError):
             capture_index(self.root)
 
+    def test_leaf_observation_returns_explicit_kinds(self):
+        (self.root / "directory").mkdir()
+        os.mkfifo(self.root / "special")
+        os.symlink("tracked", self.root / "link")
+        rootfd = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            self.assertEqual(
+                _repository_worktree._observe_leaf(rootfd, b"tracked").kind,
+                "regular",
+            )
+            self.assertEqual(
+                _repository_worktree._observe_leaf(rootfd, b"directory").kind,
+                "directory",
+            )
+            self.assertEqual(
+                _repository_worktree._observe_leaf(rootfd, b"link").kind,
+                "symlink",
+            )
+            self.assertEqual(
+                _repository_worktree._observe_leaf(rootfd, b"special").kind,
+                "special",
+            )
+            self.assertEqual(
+                _repository_worktree._observe_leaf(rootfd, b"missing").kind,
+                "missing",
+            )
+        finally:
+            os.close(rootfd)
+
     def test_worktree_digests_tracked_untracked_and_symlink_bytes(self):
         link = self.root / "link"
         os.symlink("tracked", link)
@@ -227,6 +256,31 @@ class RepositoryGitCaptureTests(unittest.TestCase):
             untracked[b"new"].sha256,
             hashlib.sha256(b"new").hexdigest(),
         )
+
+    def test_worktree_rejects_endpoint_disappearance_during_observation(self):
+        link = self.root / "link"
+        os.symlink("tracked", link)
+        self.git("add", "link")
+        self.git("commit", "-qm", "endpoint")
+        index = capture_index(self.root)
+        original_stat = _repository_worktree.os.stat
+        calls = 0
+
+        def remove_before_final_stat(name, *args, **kwargs):
+            nonlocal calls
+            if name == b"link":
+                calls += 1
+                if calls == 2:
+                    link.unlink()
+            return original_stat(name, *args, **kwargs)
+
+        with (
+            patch.object(
+                _repository_worktree.os, "stat", side_effect=remove_before_final_stat
+            ),
+            self.assertRaisesRegex(RepositoryCaptureError, "replacement race"),
+        ):
+            capture_worktree(self.root, index)
 
     def test_worktree_rejects_tracked_same_inode_mutation_before_final_stat(self):
         with (
@@ -309,14 +363,16 @@ class RepositoryGitCaptureTests(unittest.TestCase):
 
     def test_unincluded_paths_are_inventory_only(self):
         (self.root / "extra").write_bytes(b"extra")
-        original_read = _repository_worktree._read
+        original_observe = _repository_worktree._observe_leaf
 
         def reject_extra(rootfd, path):
             if path == b"extra":
                 raise AssertionError("unincluded path was read")
-            return original_read(rootfd, path)
+            return original_observe(rootfd, path)
 
-        with patch.object(_repository_worktree, "_read", side_effect=reject_extra):
+        with patch.object(
+            _repository_worktree, "_observe_leaf", side_effect=reject_extra
+        ):
             state = capture_worktree(self.root, capture_index(self.root))
         untracked = {entry.path: entry for entry in state.untracked}
         self.assertFalse(untracked[b"extra"].included)
@@ -363,7 +419,7 @@ class RepositoryGitCaptureTests(unittest.TestCase):
         with self.assertRaises(RepositoryCaptureError):
             capture_worktree(self.root, (object(),))
 
-    def test_worktree_rejects_replaced_enotdir_parent_during_read(self):
+    def test_worktree_rejects_replaced_enotdir_parent_during_observation(self):
         parent = self.root / "a"
         parent.mkdir()
         (parent / "b").write_bytes(b"blocker")
@@ -390,11 +446,92 @@ class RepositoryGitCaptureTests(unittest.TestCase):
                 ),
                 self.assertRaises(RepositoryCaptureError),
             ):
-                _repository_worktree._read(rootfd, b"a/b/file")
+                _repository_worktree._observe_leaf(rootfd, b"a/b/file")
         finally:
             os.close(rootfd)
         self.assertTrue(parent.is_dir())
         self.assertTrue((self.root / "old-a").is_dir())
+
+    def test_worktree_rejects_blocker_parent_replacement_during_capture(self):
+        cases = ((b"regular", False), (b"symlink", True))
+        for parent_name, _ in cases:
+            parent = self.root / os.fsdecode(parent_name)
+            leaf = parent / "b" / "file"
+            leaf.parent.mkdir(parents=True)
+            leaf.write_bytes(b"tracked")
+        self.git("add", "regular", "symlink")
+        self.git("commit", "-qm", "blockers")
+
+        def assert_rejected(parent_name, symlink_blocker):
+            parent = self.root / os.fsdecode(parent_name)
+            leaf = parent / "b" / "file"
+            leaf.unlink()
+            leaf.parent.rmdir()
+            if symlink_blocker:
+                os.symlink("missing", parent / "b")
+            else:
+                (parent / "b").write_bytes(b"old")
+            index = tuple(
+                entry
+                for entry in capture_index(self.root)
+                if entry.path == parent_name + b"/b/file"
+            )
+            original_verify = _repository_worktree._verify_non_directory
+            original_stat = _repository_worktree.os.stat
+            verify_calls = 0
+            stat_calls = 0
+
+            def replace_during_final_check(
+                parentfd,
+                name,
+                *,
+                original_verify=original_verify,
+                original_stat=original_stat,
+            ):
+                nonlocal verify_calls, stat_calls
+                verify_calls += 1
+                if verify_calls != 2:
+                    return original_verify(parentfd, name)
+
+                def mutate(
+                    name_arg,
+                    *args,
+                    parent=parent,
+                    parent_name=parent_name,
+                    original_stat=original_stat,
+                    **kwargs,
+                ):
+                    nonlocal stat_calls
+                    if name_arg == b"b":
+                        stat_calls += 1
+                        if stat_calls == 2:
+                            parent.rename(
+                                self.root / (os.fsdecode(parent_name) + "-old")
+                            )
+                            parent.mkdir()
+                            (parent / "b").mkdir()
+                            (parent / "b" / "file").write_bytes(b"current")
+                    return original_stat(name_arg, *args, **kwargs)
+
+                with patch.object(
+                    _repository_worktree.os, "stat", side_effect=mutate
+                ):
+                    return original_verify(parentfd, name)
+
+            with (
+                patch.object(
+                    _repository_worktree,
+                    "_verify_non_directory",
+                    side_effect=replace_during_final_check,
+                ),
+                self.assertRaises(RepositoryCaptureError),
+            ):
+                capture_worktree(self.root, index)
+            self.assertEqual((parent / "b" / "file").read_bytes(), b"current")
+
+        for parent_name, symlink_blocker in cases:
+            with self.subTest(parent_name=parent_name):
+                assert_rejected(parent_name, symlink_blocker)
 
     def test_worktree_rejects_missing_parent_replacement_during_capture(self):
         parent = self.root / "a"
@@ -413,7 +550,7 @@ class RepositoryGitCaptureTests(unittest.TestCase):
             nonlocal calls
             if name == b"b":
                 calls += 1
-                if calls == 3:
+                if calls == 2:
                     parent.rename(self.root / "old-a")
                     parent.mkdir()
                     (parent / "b").mkdir()
@@ -494,7 +631,7 @@ class RepositoryGitCaptureTests(unittest.TestCase):
         ):
             capture_worktree(self.root, index)
 
-    def test_worktree_rejects_replaced_parent_during_read(self):
+    def test_worktree_rejects_replaced_parent_during_observation(self):
         parent = self.root / "a"
         parent.mkdir()
         (parent / "old-child").write_bytes(b"old")
@@ -517,7 +654,7 @@ class RepositoryGitCaptureTests(unittest.TestCase):
                 ),
                 self.assertRaises(RepositoryCaptureError),
             ):
-                _repository_worktree._read(rootfd, b"a/b/file")
+                _repository_worktree._observe_leaf(rootfd, b"a/b/file")
         finally:
             os.close(rootfd)
         self.assertTrue(parent.is_dir())

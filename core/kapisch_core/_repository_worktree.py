@@ -7,8 +7,9 @@ import hashlib
 import os
 import stat
 from contextlib import suppress
+from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast
 
 from ._repository_git import _identity, _root, capture_untracked
 from .repository import (
@@ -18,6 +19,21 @@ from .repository import (
     WorktreeEntry,
     WorktreeFacts,
 )
+
+
+@dataclass(frozen=True)
+class _Parent:
+    fd: int
+    name: bytes
+    parts: tuple[bytes, ...]
+    seen: tuple[os.stat_result, ...]
+
+
+@dataclass(frozen=True)
+class _LeafObservation:
+    kind: Literal["missing", "directory", "symlink", "regular", "special"]
+    data: bytes | str | None = None
+    mode: int | None = None
 
 
 def _digest(data):
@@ -36,6 +52,19 @@ def _parts(path):
     return path.split(b"/")
 
 
+def _same(a, b):
+    return (a.st_dev, a.st_ino, a.st_mode) == (b.st_dev, b.st_ino, b.st_mode)
+
+
+def _same_file_state(a, b):
+    return (
+        _same(a, b)
+        and a.st_size == b.st_size
+        and a.st_mtime_ns == b.st_mtime_ns
+        and a.st_ctime_ns == b.st_ctime_ns
+    )
+
+
 def _verify_non_directory(parentfd, name):
     try:
         observed = os.stat(name, dir_fd=parentfd, follow_symlinks=False)
@@ -48,143 +77,9 @@ def _verify_non_directory(parentfd, name):
         raise RepositoryCaptureError("parent replaced")
 
 
-def _walk(rootfd, path):
-    parts = _parts(path)
-    fd = os.dup(rootfd)
-    seen = []
-    try:
-        for index, part in enumerate(parts[:-1]):
-            try:
-                n = os.open(
-                    part,
-                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
-                    dir_fd=fd,
-                )
-            except OSError as e:
-                if e.errno not in (errno.ENOENT, errno.ENOTDIR, errno.ELOOP):
-                    raise RepositoryCaptureError("unsafe path traversal") from e
-                check = os.dup(rootfd)
-                try:
-                    for prior, expected in zip(parts[:index], seen, strict=True):
-                        current = os.open(
-                            prior,
-                            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
-                            dir_fd=check,
-                        )
-                        try:
-                            if not _same(os.fstat(current), expected):
-                                raise RepositoryCaptureError("parent replaced")
-                        except BaseException:
-                            os.close(current)
-                            raise
-                        os.close(check)
-                        check = current
-                    try:
-                        probe = os.open(
-                            part,
-                            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
-                            dir_fd=check,
-                        )
-                        os.close(probe)
-                    except OSError as missing:
-                        if (
-                            e.errno in (errno.ENOTDIR, errno.ELOOP)
-                            and missing.errno in (errno.ENOTDIR, errno.ELOOP)
-                        ):
-                            verify_blocker = _verify_non_directory
-                        else:
-                            verify_blocker = None
-                        if verify_blocker is not None:
-                            verify_blocker(check, part)
-                            current_parent = _open_verified_chain(
-                                rootfd, parts[:index], seen
-                            )
-                            try:
-                                verify_blocker(current_parent, part)
-                            finally:
-                                os.close(current_parent)
-                            os.close(fd)
-                            return None, None
-                        if missing.errno == errno.ENOENT:
-                            # Re-check the retained chain before classifying absence;
-                            # a replacement race must fail closed, not look deleted.
-                            verify = os.dup(rootfd)
-                            try:
-                                for prefix_index, prior in enumerate(
-                                    parts[: index + 1]
-                                ):
-                                    try:
-                                        current = os.open(
-                                            prior,
-                                            os.O_RDONLY
-                                            | os.O_DIRECTORY
-                                            | os.O_NOFOLLOW
-                                            | os.O_CLOEXEC,
-                                            dir_fd=verify,
-                                        )
-                                    except OSError as retry:
-                                        if (
-                                            prefix_index == index
-                                            and retry.errno == errno.ENOENT
-                                        ):
-                                            current_parent = _open_verified_chain(
-                                                rootfd, parts[:index], seen
-                                            )
-                                            os.close(current_parent)
-                                            os.close(fd)
-                                            return None, None
-                                        if (
-                                            prefix_index < index
-                                            and retry.errno == errno.ENOENT
-                                        ):
-                                            raise RepositoryCaptureError(
-                                                "parent replaced"
-                                            ) from retry
-                                        raise RepositoryCaptureError(
-                                            "unsafe path traversal"
-                                        ) from retry
-                                    try:
-                                        if prefix_index < index and not _same(
-                                            os.fstat(current), seen[prefix_index]
-                                        ):
-                                            raise RepositoryCaptureError(
-                                                "parent replaced"
-                                            )
-                                    except BaseException:
-                                        os.close(current)
-                                        raise
-                                    os.close(verify)
-                                    verify = current
-                                raise RepositoryCaptureError(
-                                    "parent replaced"
-                                ) from None
-                            finally:
-                                os.close(verify)
-                        raise RepositoryCaptureError(
-                            "unsafe path traversal"
-                        ) from missing
-                finally:
-                    os.close(check)
-                raise RepositoryCaptureError("parent replaced") from None
-            try:
-                seen.append(os.fstat(n))
-                os.close(fd)
-            except BaseException:
-                os.close(n)
-                raise
-            fd = n
-        return fd, parts[-1]
-    except BaseException:
-        with suppress(OSError):
-            os.close(fd)
-        raise
-
-
-def _same(a, b):
-    return (a.st_dev, a.st_ino, a.st_mode) == (b.st_dev, b.st_ino, b.st_mode)
-
-
 def _open_verified_chain(rootfd, parts, seen):
+    if len(parts) != len(seen):
+        raise RepositoryCaptureError("parent replaced")
     fd = os.dup(rootfd)
     try:
         for index, part in enumerate(parts):
@@ -202,127 +97,193 @@ def _open_verified_chain(rootfd, parts, seen):
                 raise
             fd = current
         return fd
+    except OSError as e:
+        with suppress(OSError):
+            os.close(fd)
+        raise RepositoryCaptureError("parent replaced") from e
     except BaseException:
         with suppress(OSError):
             os.close(fd)
         raise
 
 
-def _verify_parent(rootfd, path, parent):
-    fd = os.dup(rootfd)
+def _revalidate_chain(rootfd, parts, seen):
+    current = _open_verified_chain(rootfd, parts, seen)
+    os.close(current)
+
+
+def _verify_parent(rootfd, parent):
+    current = _open_verified_chain(rootfd, parent.parts, parent.seen)
     try:
-        for part in _parts(path)[:-1]:
-            nxt = os.open(
-                part,
-                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
-                dir_fd=fd,
-            )
-            try:
-                os.close(fd)
-            except BaseException:
-                os.close(nxt)
-                raise
-            fd = nxt
-        if not _same(os.fstat(fd), os.fstat(parent)):
+        if not _same(os.fstat(current), os.fstat(parent.fd)):
             raise RepositoryCaptureError("parent replaced")
     except OSError as e:
         raise RepositoryCaptureError("parent replaced") from e
     finally:
+        os.close(current)
+
+
+def _open_parent_beneath(rootfd, path):
+    parts = _parts(path)
+    fd = os.dup(rootfd)
+    seen = []
+    try:
+        for index, part in enumerate(parts[:-1]):
+            try:
+                current = os.open(
+                    part,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                    dir_fd=fd,
+                )
+            except OSError as error:
+                if error.errno not in (errno.ENOENT, errno.ENOTDIR, errno.ELOOP):
+                    raise RepositoryCaptureError("unsafe path traversal") from error
+                check = _open_verified_chain(rootfd, parts[:index], seen)
+                try:
+                    try:
+                        probe = os.open(
+                            part,
+                            os.O_RDONLY
+                            | os.O_DIRECTORY
+                            | os.O_NOFOLLOW
+                            | os.O_CLOEXEC,
+                            dir_fd=check,
+                        )
+                    except OSError as missing:
+                        if (
+                            error.errno in (errno.ENOTDIR, errno.ELOOP)
+                            and missing.errno in (errno.ENOTDIR, errno.ELOOP)
+                        ):
+                            _verify_non_directory(check, part)
+                            current_parent = _open_verified_chain(
+                                rootfd, parts[:index], seen
+                            )
+                            try:
+                                _verify_non_directory(current_parent, part)
+                            finally:
+                                os.close(current_parent)
+                            _revalidate_chain(rootfd, parts[:index], seen)
+                            os.close(fd)
+                            return None
+                        if missing.errno == errno.ENOENT:
+                            # Revalidate the retained ancestor chain after the final
+                            # probe before classifying the path as absent.
+                            _revalidate_chain(rootfd, parts[:index], seen)
+                            os.close(fd)
+                            return None
+                        raise RepositoryCaptureError(
+                            "unsafe path traversal"
+                        ) from missing
+                    else:
+                        os.close(probe)
+                        raise RepositoryCaptureError("parent replaced")
+                finally:
+                    os.close(check)
+            try:
+                seen.append(os.fstat(current))
+                os.close(fd)
+            except BaseException:
+                os.close(current)
+                raise
+            fd = current
+        return _Parent(fd, parts[-1], tuple(parts[:-1]), tuple(seen))
+    except BaseException:
         with suppress(OSError):
             os.close(fd)
+        raise
 
 
-def _read(rootfd, path):
-    parent, name = _walk(rootfd, path)
-    if parent is None:
-        return None
-    assert name is not None
-    try:
-        _verify_parent(rootfd, path, parent)
+def _observe_missing(rootfd, parent):
+    for _ in range(2):
+        _verify_parent(rootfd, parent)
         try:
-            st = os.stat(name, dir_fd=parent, follow_symlinks=False)
+            os.stat(parent.name, dir_fd=parent.fd, follow_symlinks=False)
         except FileNotFoundError:
-            _verify_parent(rootfd, path, parent)
-            try:
-                os.stat(name, dir_fd=parent, follow_symlinks=False)
-            except FileNotFoundError:
-                _verify_parent(rootfd, path, parent)
-                try:
-                    os.stat(name, dir_fd=parent, follow_symlinks=False)
-                except FileNotFoundError:
-                    _verify_parent(rootfd, path, parent)
-                    return None
-                raise RepositoryCaptureError("replacement race") from None
-            raise RepositoryCaptureError("replacement race") from None
-        if stat.S_ISLNK(st.st_mode):
-            target = os.readlink(name, dir_fd=parent)
-            target = os.fsencode(target) if isinstance(target, str) else target
-            _verify_parent(rootfd, path, parent)
-            final = os.stat(name, dir_fd=parent, follow_symlinks=False)
-            _verify_parent(rootfd, path, parent)
-            if not _same(st, final):
-                raise RepositoryCaptureError("replacement race")
-            return "symlink", target, st.st_mode
-        if stat.S_ISDIR(st.st_mode):
-            _verify_parent(rootfd, path, parent)
-            final = os.stat(name, dir_fd=parent, follow_symlinks=False)
-            _verify_parent(rootfd, path, parent)
-            if not _same(st, final):
-                raise RepositoryCaptureError("replacement race")
-            return None
-        if not stat.S_ISREG(st.st_mode):
-            raise RepositoryCaptureError("special file rejected")
-        try:
-            fd = os.open(
-                name,
-                os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
-                dir_fd=parent,
-            )
-        except OSError as e:
-            raise RepositoryCaptureError("file open failed") from e
-        try:
-            got = os.fstat(fd)
-            if not _same(got, st):
-                raise RepositoryCaptureError("replacement race")
-            digest = hashlib.sha256()
-            while True:
-                b = os.read(fd, 1024 * 1024)
-                if not b:
-                    break
-                digest.update(b)
-            end = os.fstat(fd)
-            final = os.stat(name, dir_fd=parent, follow_symlinks=False)
-            _verify_parent(rootfd, path, parent)
-            if (
-                not _same(end, got)
-                or not _same(final, got)
-                or end.st_size != got.st_size
-                or end.st_mtime_ns != got.st_mtime_ns
-                or end.st_ctime_ns != got.st_ctime_ns
-                or final.st_size != got.st_size
-                or final.st_mtime_ns != got.st_mtime_ns
-                or final.st_ctime_ns != got.st_ctime_ns
-            ):
-                raise RepositoryCaptureError("file mutated during read")
-            return "file", digest.hexdigest(), got.st_mode
-        finally:
-            os.close(fd)
+            continue
+        raise RepositoryCaptureError("replacement race")
+    _verify_parent(rootfd, parent)
+    return _LeafObservation("missing")
+
+
+def _observe_static(rootfd, parent, observed, kind, data=None):
+    _verify_parent(rootfd, parent)
+    try:
+        final = os.stat(parent.name, dir_fd=parent.fd, follow_symlinks=False)
+    except OSError as e:
+        raise RepositoryCaptureError("replacement race") from e
+    _verify_parent(rootfd, parent)
+    if not _same(observed, final):
+        raise RepositoryCaptureError("replacement race")
+    return _LeafObservation(kind, data, observed.st_mode)
+
+
+def _observe_regular(rootfd, parent, observed):
+    try:
+        fd = os.open(
+            parent.name,
+            os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+            dir_fd=parent.fd,
+        )
+    except OSError as e:
+        raise RepositoryCaptureError("file open failed") from e
+    try:
+        got = os.fstat(fd)
+        if not _same(got, observed):
+            raise RepositoryCaptureError("replacement race")
+        digest = hashlib.sha256()
+        while True:
+            data = os.read(fd, 1024 * 1024)
+            if not data:
+                break
+            digest.update(data)
+        end = os.fstat(fd)
+        final = os.stat(parent.name, dir_fd=parent.fd, follow_symlinks=False)
+        _verify_parent(rootfd, parent)
+        if not _same_file_state(end, got) or not _same_file_state(final, got):
+            raise RepositoryCaptureError("file mutated during read")
+        return _LeafObservation("regular", digest.hexdigest(), got.st_mode)
     finally:
-        os.close(parent)
+        os.close(fd)
+
+
+def _observe_leaf(rootfd, path):
+    parent = _open_parent_beneath(rootfd, path)
+    if parent is None:
+        return _LeafObservation("missing")
+    try:
+        _verify_parent(rootfd, parent)
+        try:
+            observed = os.stat(
+                parent.name, dir_fd=parent.fd, follow_symlinks=False
+            )
+        except FileNotFoundError:
+            return _observe_missing(rootfd, parent)
+        if stat.S_ISLNK(observed.st_mode):
+            target = os.readlink(parent.name, dir_fd=parent.fd)
+            target = os.fsencode(target) if isinstance(target, str) else target
+            return _observe_static(rootfd, parent, observed, "symlink", target)
+        if stat.S_ISDIR(observed.st_mode):
+            return _observe_static(rootfd, parent, observed, "directory")
+        if not stat.S_ISREG(observed.st_mode):
+            return _LeafObservation("special", mode=observed.st_mode)
+        return _observe_regular(rootfd, parent, observed)
+    finally:
+        os.close(parent.fd)
 
 
 def _tracked(rootfd, path):
-    got = _read(rootfd, path)
-    if got is None:
+    observed = _observe_leaf(rootfd, path)
+    if observed.kind in ("missing", "directory"):
         return WorktreeEntry(path, "deletion", "000000")
-    kind, data, mode = got
-    if kind == "symlink":
-        return WorktreeEntry(path, "symlink", "120000", _digest(data))
+    if observed.kind == "symlink":
+        return WorktreeEntry(path, "symlink", "120000", _digest(cast(bytes, observed.data)))
+    if observed.kind == "special":
+        raise RepositoryCaptureError("special file rejected")
     return WorktreeEntry(
         path,
         "file",
-        "100755" if mode & stat.S_IXUSR else "100644",
-        cast(str, data),
+        "100755" if cast(int, observed.mode) & stat.S_IXUSR else "100644",
+        cast(str, observed.data),
     )
 
 
@@ -361,17 +322,20 @@ def capture_worktree(
             _tracked(rootfd, path) for path in sorted({entry.path for entry in index})
         )
         unknown = []
-        for p in inventory:
-            if p not in inc:
-                unknown.append(UntrackedEntry(p, False))
+        for path in inventory:
+            if path not in inc:
+                unknown.append(UntrackedEntry(path, False))
                 continue
-            got = _read(rootfd, p)
-            if got is None:
+            observed = _observe_leaf(rootfd, path)
+            if observed.kind == "missing":
                 raise RepositoryCaptureError("untracked disappeared")
-            kind, data, _ = got
-            if kind != "file":
+            if observed.kind == "special":
+                raise RepositoryCaptureError("special file rejected")
+            if observed.kind != "regular":
                 raise RepositoryCaptureError("included untracked is not regular")
-            unknown.append(UntrackedEntry(p, True, cast(str, data)))
+            unknown.append(
+                UntrackedEntry(path, True, cast(str, observed.data))
+            )
         root_stat = os.fstat(rootfd)
         if (root_stat.st_dev, root_stat.st_ino) != ident or _identity(root) != ident:
             raise RepositoryCaptureError("worktree replaced")
