@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+from contextlib import suppress
 from pathlib import Path
 
 from .repository import HeadIdentity, IndexEntry, RepositoryCaptureError
@@ -33,7 +34,7 @@ def _env(*, no_replace=False):
     e = os.environ.copy()
     for k in list(e):
         if k in _REDIRECT or k.startswith(
-            ("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")
+            ("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_", "GIT_TRACE")
         ):
             e.pop(k, None)
     e["GIT_NO_LAZY_FETCH"] = "1"
@@ -101,19 +102,75 @@ def _root(repo, identity=None):
     return root, ident
 
 
-def _git(repo, *args, identity=None, no_replace=False):
-    root, ident = _root(repo, identity)
+def _git(
+    repo,
+    *args,
+    identity=None,
+    no_replace=False,
+    reject_stderr=False,
+    rootfd=None,
+):
+    if rootfd is None:
+        root, ident = _root(repo, identity)
+        try:
+            fd = os.open(
+                os.fspath(root),
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            )
+        except OSError as e:
+            raise RepositoryCaptureError("worktree unavailable") from e
+        try:
+            bound = os.fstat(fd)
+        except OSError as e:
+            os.close(fd)
+            raise RepositoryCaptureError("worktree unavailable") from e
+        if (bound.st_dev, bound.st_ino) != ident:
+            os.close(fd)
+            raise RepositoryCaptureError("worktree replaced")
+    else:
+        root = None
+        fd = None
+        try:
+            fd = os.dup(rootfd)
+            bound = os.fstat(fd)
+        except OSError as e:
+            if fd is not None:
+                with suppress(OSError):
+                    os.close(fd)
+            raise RepositoryCaptureError("worktree unavailable") from e
+        ident = (bound.st_dev, bound.st_ino)
+        if identity is not None and ident != identity:
+            os.close(fd)
+            raise RepositoryCaptureError("worktree replaced")
     try:
         r = subprocess.run(
-            ("git", "-c", "core.fsmonitor=false", "-C", str(root), *args),
+            (
+                "git",
+                "-c",
+                "core.fsmonitor=false",
+                "-c",
+                "core.worktree=.",
+                "--work-tree=.",
+                "-C",
+                ".",
+                *args,
+            ),
+            cwd=f"/proc/self/fd/{fd}",
             env=_env(no_replace=no_replace),
             check=True,
             capture_output=True,
         )
     except (OSError, subprocess.CalledProcessError) as e:
         raise RepositoryCaptureError("git observation failed") from e
-    if _identity(root) != ident:
-        raise RepositoryCaptureError("worktree replaced")
+    finally:
+        os.close(fd)
+    if reject_stderr and r.stderr:
+        raise RepositoryCaptureError("git observation emitted stderr")
+    try:
+        if root is not None and _identity(root) != ident:
+            raise RepositoryCaptureError("worktree replaced")
+    except OSError as e:
+        raise RepositoryCaptureError("worktree unavailable") from e
     return r.stdout
 
 
@@ -305,3 +362,28 @@ def capture_index(repo, identity=None):
         if any(flag in (b"S", b"s") for flag in records):
             raise RepositoryCaptureError("skip-worktree unsupported")
     return tuple(sorted(out, key=lambda x: (x.path, x.stage)))
+
+
+def capture_untracked(repo, identity=None, rootfd=None):
+    seen = set()
+    paths = []
+    for path in _records(
+        _git(
+            repo,
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+            "-z",
+            identity=identity,
+            reject_stderr=True,
+            rootfd=rootfd,
+        )
+    ):
+        if path.endswith(b"/"):
+            path = path[:-1]
+        _validate_path(path)
+        if path in seen:
+            raise RepositoryCaptureError("duplicate untracked path")
+        seen.add(path)
+        paths.append(path)
+    return tuple(sorted(paths))

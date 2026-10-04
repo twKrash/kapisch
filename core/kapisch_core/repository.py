@@ -229,6 +229,16 @@ def capture_index(repo: Path) -> tuple[IndexEntry, ...]:
     return _capture_index(repo)
 
 
+def capture_worktree(
+    repo: Path,
+    index: tuple[IndexEntry, ...],
+    included_untracked: tuple[bytes, ...] = (),
+) -> WorktreeFacts:
+    from ._repository_worktree import capture_worktree as _capture_worktree
+
+    return _capture_worktree(repo, index, included_untracked)
+
+
 __all__ = [
     "HeadIdentity",
     "IndexEntry",
@@ -240,6 +250,7 @@ __all__ = [
     "WorktreeFacts",
     "capture_head",
     "capture_index",
+    "capture_worktree",
     "encode_fact",
     "encode_git_path",
 ]
