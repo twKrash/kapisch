@@ -259,7 +259,7 @@ class RepositoryGitCaptureTests(unittest.TestCase):
 
     def test_worktree_rejects_ancestor_replacement_during_chain_validation(self):
         parent = self.root / "a"
-        leaf = parent / "b" / "file"
+        leaf = parent / "b" / "c" / "file"
         leaf.parent.mkdir(parents=True)
         leaf.write_bytes(b"old")
         self.git("add", "a")
@@ -272,11 +272,11 @@ class RepositoryGitCaptureTests(unittest.TestCase):
             nonlocal calls
             if name == b"b":
                 calls += 1
-                if calls == 3:
+                if calls == 5:
                     parent.rename(self.root / "old-a")
                     parent.mkdir()
-                    (parent / "b").mkdir()
-                    (parent / "b" / "file").write_bytes(b"current")
+                    (parent / "b" / "c").mkdir(parents=True)
+                    (parent / "b" / "c" / "file").write_bytes(b"current")
             return original_open(name, flags, *args, **kwargs)
 
         with (
