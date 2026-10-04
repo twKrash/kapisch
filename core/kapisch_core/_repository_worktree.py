@@ -127,6 +127,10 @@ def _walk(rootfd, path):
                                             prefix_index == index
                                             and retry.errno == errno.ENOENT
                                         ):
+                                            current_parent = _open_verified_chain(
+                                                rootfd, parts[:index], seen
+                                            )
+                                            os.close(current_parent)
                                             os.close(fd)
                                             return None, None
                                         if (
@@ -254,12 +258,16 @@ def _read(rootfd, path):
             target = os.readlink(name, dir_fd=parent)
             target = os.fsencode(target) if isinstance(target, str) else target
             _verify_parent(rootfd, path, parent)
-            if not _same(st, os.stat(name, dir_fd=parent, follow_symlinks=False)):
+            final = os.stat(name, dir_fd=parent, follow_symlinks=False)
+            _verify_parent(rootfd, path, parent)
+            if not _same(st, final):
                 raise RepositoryCaptureError("replacement race")
             return "symlink", target, st.st_mode
         if stat.S_ISDIR(st.st_mode):
             _verify_parent(rootfd, path, parent)
-            if not _same(st, os.stat(name, dir_fd=parent, follow_symlinks=False)):
+            final = os.stat(name, dir_fd=parent, follow_symlinks=False)
+            _verify_parent(rootfd, path, parent)
+            if not _same(st, final):
                 raise RepositoryCaptureError("replacement race")
             return None
         if not stat.S_ISREG(st.st_mode):

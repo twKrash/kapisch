@@ -396,6 +396,104 @@ class RepositoryGitCaptureTests(unittest.TestCase):
         self.assertTrue(parent.is_dir())
         self.assertTrue((self.root / "old-a").is_dir())
 
+    def test_worktree_rejects_missing_parent_replacement_during_capture(self):
+        parent = self.root / "a"
+        leaf = parent / "b" / "file"
+        leaf.parent.mkdir(parents=True)
+        leaf.write_bytes(b"tracked")
+        self.git("add", "a")
+        self.git("commit", "-qm", "nested")
+        leaf.unlink()
+        leaf.parent.rmdir()
+        index = capture_index(self.root)
+        original_open = _repository_worktree.os.open
+        calls = 0
+
+        def replace_before_final_missing(name, flags, *args, **kwargs):
+            nonlocal calls
+            if name == b"b":
+                calls += 1
+                if calls == 3:
+                    parent.rename(self.root / "old-a")
+                    parent.mkdir()
+                    (parent / "b").mkdir()
+                    (parent / "b" / "file").write_bytes(b"replacement")
+            return original_open(name, flags, *args, **kwargs)
+
+        with (
+            patch.object(
+                _repository_worktree.os, "open", side_effect=replace_before_final_missing
+            ),
+            self.assertRaises(RepositoryCaptureError),
+        ):
+            capture_worktree(self.root, index)
+
+    def test_worktree_rejects_directory_parent_replacement_during_capture(self):
+        parent = self.root / "a"
+        leaf = parent / "child"
+        leaf.parent.mkdir()
+        leaf.write_bytes(b"tracked")
+        self.git("add", "a")
+        self.git("commit", "-qm", "directory")
+        leaf.unlink()
+        leaf.mkdir()
+        index = capture_index(self.root)
+        original_stat = _repository_worktree.os.stat
+        calls = 0
+
+        def replace_before_final_directory_stat(name, *args, **kwargs):
+            nonlocal calls
+            if name == b"child":
+                calls += 1
+                if calls == 2:
+                    parent.rename(self.root / "old-a")
+                    parent.mkdir()
+                    (parent / "child").mkdir()
+            return original_stat(name, *args, **kwargs)
+
+        with (
+            patch.object(
+                _repository_worktree.os,
+                "stat",
+                side_effect=replace_before_final_directory_stat,
+            ),
+            self.assertRaises(RepositoryCaptureError),
+        ):
+            capture_worktree(self.root, index)
+
+    def test_worktree_rejects_symlink_parent_replacement_during_capture(self):
+        parent = self.root / "a"
+        leaf = parent / "link"
+        leaf.parent.mkdir()
+        leaf.write_bytes(b"tracked")
+        self.git("add", "a")
+        self.git("commit", "-qm", "symlink")
+        leaf.unlink()
+        os.symlink("target", leaf)
+        index = capture_index(self.root)
+        original_stat = _repository_worktree.os.stat
+        calls = 0
+
+        def replace_before_final_symlink_stat(name, *args, **kwargs):
+            nonlocal calls
+            if name == b"link":
+                calls += 1
+                if calls == 2:
+                    parent.rename(self.root / "old-a")
+                    parent.mkdir()
+                    os.symlink("target", parent / "link")
+            return original_stat(name, *args, **kwargs)
+
+        with (
+            patch.object(
+                _repository_worktree.os,
+                "stat",
+                side_effect=replace_before_final_symlink_stat,
+            ),
+            self.assertRaises(RepositoryCaptureError),
+        ):
+            capture_worktree(self.root, index)
+
     def test_worktree_rejects_replaced_parent_during_read(self):
         parent = self.root / "a"
         parent.mkdir()
