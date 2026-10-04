@@ -43,6 +43,20 @@ class RepositoryGitCaptureTests(unittest.TestCase):
             **kwargs,
         )
 
+    def _mutating_stat_before_final_path_stat(self, path, data):
+        original_stat = _repository_worktree.os.stat
+        calls = 0
+
+        def mutate(name, *args, **kwargs):
+            nonlocal calls
+            if name == path:
+                calls += 1
+                if calls == 2:
+                    (self.root / os.fsdecode(path)).write_bytes(data)
+            return original_stat(name, *args, **kwargs)
+
+        return patch.object(_repository_worktree.os, "stat", side_effect=mutate)
+
     def test_capture_head_binds_storage_format_and_commit(self):
         observed = capture_head(self.root)
         expected_format = self.git(
@@ -213,6 +227,23 @@ class RepositoryGitCaptureTests(unittest.TestCase):
             untracked[b"new"].sha256,
             hashlib.sha256(b"new").hexdigest(),
         )
+
+    def test_worktree_rejects_tracked_same_inode_mutation_before_final_stat(self):
+        with (
+            self._mutating_stat_before_final_path_stat(b"tracked", b"two"),
+            self.assertRaises(RepositoryCaptureError),
+        ):
+            capture_worktree(self.root, capture_index(self.root))
+
+    def test_worktree_rejects_included_same_inode_mutation_before_final_stat(self):
+        (self.root / "included").write_bytes(b"one")
+        with (
+            self._mutating_stat_before_final_path_stat(b"included", b"two"),
+            self.assertRaises(RepositoryCaptureError),
+        ):
+            capture_worktree(
+                self.root, capture_index(self.root), (b"included",)
+            )
 
     def test_worktree_modes_deletions_and_unincluded_inventory(self):
         self.git("update-index", "--chmod=+x", "--", "tracked")

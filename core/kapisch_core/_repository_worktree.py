@@ -284,6 +284,9 @@ def _read(rootfd, path):
                 or end.st_size != got.st_size
                 or end.st_mtime_ns != got.st_mtime_ns
                 or end.st_ctime_ns != got.st_ctime_ns
+                or final.st_size != got.st_size
+                or final.st_mtime_ns != got.st_mtime_ns
+                or final.st_ctime_ns != got.st_ctime_ns
             ):
                 raise RepositoryCaptureError("file mutated during read")
             return "file", digest.hexdigest(), got.st_mode
