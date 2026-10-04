@@ -279,6 +279,15 @@ def capture_worktree(
     return _capture_worktree(repo, index, included_untracked)
 
 
+def capture_repository_state(
+    repo: Path,
+    included_untracked: tuple[bytes, ...] = (),
+) -> RepositoryStateFingerprint:
+    from ._repository_fingerprint import capture_repository_state as _capture
+
+    return _capture(repo, included_untracked)
+
+
 __all__ = [
     "HeadIdentity",
     "IndexEntry",
@@ -290,6 +299,7 @@ __all__ = [
     "WorktreeFacts",
     "capture_head",
     "capture_index",
+    "capture_repository_state",
     "capture_worktree",
     "encode_fact",
     "encode_git_path",
