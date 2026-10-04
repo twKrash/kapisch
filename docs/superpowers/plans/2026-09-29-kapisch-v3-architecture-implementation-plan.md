@@ -410,6 +410,16 @@ The schema-preserving recommendations from the independent plan review are adopt
 
 These decisions preserve the existing repository-state schema and do not authorize Stage 6.5, validator, adapter, telemetry, or cutover changes. The implementation must amend tests and module contracts to enforce them before any green-claim.
 
+#### Stage 6.4/6.5 consistency contract (proposed; pending independent approval)
+
+This is the proposed clarification from the PR review. No independently sourced approval before Stage 6.4 implementation has been identified; the current-session discussion is not retroactive evidence and this section must not be treated as accepted authority until an independent approval is recorded.
+
+- `capture_repository_state()` performs a fixed number of repeated observations; it does not create an atomic filesystem snapshot.
+- On successful return, the HEAD, index, tracked-worktree, and untracked semantic facts compared at the required verification checkpoints agree under the approved fingerprint schema and inventory rules. Disagreements or races detected by those checks raise `RepositoryCaptureError`. The capture API accepts no caller-supplied digest override.
+- Capture does not prove that no mutation occurred between checkpoints, that the returned facts existed simultaneously, or that the repository is unchanged when the function returns or afterward.
+- Before treating a captured fingerprint as current authority, Stage 6.5 must establish and independently verify an enforceable writer-quiescence boundary covering the relevant fingerprint inputs, and hold it through capture, validation, and publication of the authoritative transition. The boundary must be bound to the repository and specific invocation/validation attempt; a controller or caller assertion alone is insufficient. Missing, unverifiable, lost, or mismatched enforcement—and any capture error—must block authority.
+- This enforcement is not supplied by `capture_repository_state()` and is not implemented by Stage 6.4. Cold restart must establish or reconcile live enforcement again; a persisted record of a prior boundary cannot prove it remains active. Stage 6.5 must define the boundary producer, evidence, writer/input coverage (including shared Git metadata and effective ignore policy where relevant), and restart behavior. The existing advisory repository lock alone does not stop arbitrary external writers.
+
 #### Execution tasks (one PR; each commit boundary is future-only)
 
 **6.1 Canonicalize repository path/fact encoding.** Files: `core/kapisch_core/repository.py` (public facade), `core/kapisch_core/_repository_encoding.py`, `tests/core/test_repository_encoding.py`. Interface: consumes Stage 2 canonical JSON; produces `encode_git_path(path: bytes) -> str` (lowercase hex), `encode_fact(fact: RepositoryFact) -> bytes` for 6.2–6.5.
@@ -430,14 +440,16 @@ These decisions preserve the existing repository-state schema and do not authori
 **6.4 Refuse ambiguous or racing repository observations.** Files: `core/kapisch_core/_repository_fingerprint.py`, `tests/core/test_repository.py`. Interface: consumes `capture_head`, `capture_index` and `capture_worktree`; produces `capture_repository_state(repo: Path, included_untracked: tuple[bytes, ...] = ()) -> RepositoryStateFingerprint` for validation/review.
 
 - [ ] Red: add `test_race_or_unmerged_index_blocks_fingerprint`; run `PYTHONPATH=core python -m unittest discover -s tests/core -p test_repository.py -k test_race_or_unmerged_index_blocks_fingerprint -v`; expect FAIL (partial snapshot accepted when Git facts change).
-- [ ] Green: re-read/compare complete semantic facts; explicitly block unborn HEAD, unmerged stage, unsupported submodule or inspection race instead of inferring state; run same command, expect PASS. **Commit boundary:** stable fingerprint + test (`feat(v3): reject ambiguous Git state`).
+- [ ] Green: re-read/compare complete semantic facts at the fixed verification checkpoints; reject disagreements detected by those checks, and explicitly block unborn HEAD, unmerged stage, unsupported submodule, or other unsupported state instead of inferring authority; do not claim an atomic/current-at-return snapshot; run same command, expect PASS. **Commit boundary:** stable fingerprint + test (`feat(v3): reject ambiguous Git state`).
+
+**6.4 acceptance status:** Pending independent approval of the proposed Stage 6.4/6.5 consistency contract above. Until that approval is independently recorded, this implementation must not be represented as accepted Stage 6.4 completion; Stage 6.5 writer-quiescence enforcement remains future work.
 
 **6.5 Bind review and distinct final invocation.** Files: `core/kapisch_core/review.py`, `core/kapisch_core/validation.py`, `tests/core/test_review.py`. Interface: consumes `capture_repository_state`, Stage 5 gate evidence and Stage 4 `validate_run`; produces `validate_review(repo: Path, invocation: ReviewInvocation, result: ReviewResult) -> list[ValidationError]` for graph-free approval and whole-branch final.
 
 - [ ] Red: add `test_final_rejects_iteration_or_stale_post_result_state`; run `PYTHONPATH=core python -m unittest discover -s tests/core -p test_review.py -k test_final_rejects_iteration_or_stale_post_result_state -v`; expect FAIL (iteration proof or stale current tree accepted).
-- [ ] Green: bind target/base/head and pre/post/current fingerprint, independent reviewer provenance, fresh whole-branch final and later-delta invalidation; run same command, expect PASS. **Commit boundary:** review/final bindings + test (`feat(v3): bind independent review evidence`).
+- [ ] Green: bind target/base/head and pre/post/current fingerprint, independent reviewer provenance, fresh whole-branch final and later-delta invalidation; independently verify the enforceable writer-quiescence boundary through capture, validation, and publication before treating the current fingerprint as authoritative; run same command, expect PASS. **Commit boundary:** review/final bindings + test (`feat(v3): bind independent review evidence`).
 
-**Invariants:** §27.5–7, .9. **Acceptance:** stale working tree/index cannot approve even with unchanged HEAD; controller claim alone cannot satisfy current-state validation. **Non-goals:** using rendered diffs for authority or treating findings-only as approval. **Cutover/rollback:** inactive v3 evidence only. **Depends on:** Stages 4–5.
+**Invariants:** §27.5–7, .9. **Acceptance:** stale working tree/index cannot approve even with unchanged HEAD; current-at-return authority requires independently verified writer quiescence through capture, validation, and publication; controller claim alone cannot satisfy current-state validation. **Non-goals:** using rendered diffs for authority or treating findings-only as approval. **Cutover/rollback:** inactive v3 evidence only. **Depends on:** Stages 4–5.
 
 ### Stage 7 — Durable transitions, delegation and crash-safe dispatch
 
