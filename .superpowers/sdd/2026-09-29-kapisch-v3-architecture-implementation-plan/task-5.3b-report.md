@@ -14,13 +14,18 @@ Status: implemented and committed; no AcceptanceRecord producer/publication, pla
 - RED: `PYTHONPATH=core python -m unittest discover -s tests/core -p test_authority_records.py -k test_authority_census_uses_persisted_structural_scope_and_rejects_invalid_graph -v` initially failed as expected because `active_authority` was absent. An early rerun then exposed invalid `propose_scope` test setup; corrected it to the five-argument API and persisted real acceptance/approval fixtures.
 - GREEN focused: same exact command — passed (1 test).
 - `PYTHONPATH=core python -m unittest discover -s tests/core -p test_authority_records.py -v` — passed (4 tests).
-- `PYTHONPATH=core python -m unittest discover -s tests/core` — passed (280 tests; expected CLI negative-argument usage text emitted).
-- `git diff --check` — passed.
+- `PYTHONPATH=core python -m unittest discover -s tests/core` — passed (280 tests; expected CLI negative-argument usage text emitted). This was rerun against final test file state during reconciliation.
+- `git diff --check` — passed before the initial commit.
 
 ## Self-review and residual risks
 - Census validates all discovered acceptance envelopes and referenced repository-decision approvals/evidence before filtering; plan approvals do not count as repository authority. Persisted scope bytes are reloaded by exact `ProposedScopeRef`; invalid unrelated global acceptance data blocks filtering. Relationships are qualified and digest-bound; cycles, competing supersessions, and incomplete structural coverage fail closed.
 - Bindings are transient and rebuilt from retained records. Deleted producer run state does not revoke a surviving acceptance.
 - Current-source freshness is intentionally not recomputed inside this census; later authoritative gate owners remain responsible for current source checks under §30.5. No claims of arbitrary-deletion detection are made.
+- The reconciliation diff in `tests/core/test_authority_records.py` was an automatic Ruff formatting pass; it is intentional formatting and was retained, not discarded. Focused and full core suites both pass with it.
 - Initial RED was the expected missing-API import failure; the subsequent fixture setup error was corrected before GREEN. No unresolved source/spec conflict found.
 
-Commit: `8dc5cca` (`feat(v3): derive global authority bindings`).
+Commits:
+- `d0c3a61b4c1a684e588c8bfb966ca904f8a5c20f` — `feat(v3): derive global authority bindings`.
+- Follow-up reconciliation commit: recorded in commit history immediately after the above, containing only formatter changes to the test and this report.
+
+Final verification after follow-up: focused 4 tests passed; full core suite 280 passed; worktree clean.

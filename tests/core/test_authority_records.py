@@ -22,7 +22,10 @@ class AuthorityCensusTests(unittest.TestCase):
         self.addCleanup(self.fixture.doCleanups)
 
     def _commit_acceptance(
-        self, snapshot_id: str, applicability: dict, supersedes: list[dict] | None = None
+        self,
+        snapshot_id: str,
+        applicability: dict,
+        supersedes: list[dict] | None = None,
     ) -> str:
         fixture = self.fixture
         payload = fixture._repository_payload()
@@ -59,29 +62,48 @@ class AuthorityCensusTests(unittest.TestCase):
         store_authority_record(fixture.repo, "acceptances", identity, data)
         return hashlib.sha256(data).hexdigest()
 
-    def test_authority_census_uses_persisted_structural_scope_and_rejects_invalid_graph(self):
+    def test_authority_census_uses_persisted_structural_scope_and_rejects_invalid_graph(
+        self,
+    ):
         self._commit_acceptance("decision-a", {"mode": "keys", "keys": ["alpha"]})
         consumer = propose_scope(
-            self.fixture.repo, "consumer", "work", "work", {"mode": "keys", "keys": ["alpha"]}
+            self.fixture.repo,
+            "consumer",
+            "work",
+            "work",
+            {"mode": "keys", "keys": ["alpha"]},
         )
         self.assertEqual(
-            [binding.decision_id for binding in active_authority(self.fixture.repo, consumer)],
+            [
+                binding.decision_id
+                for binding in active_authority(self.fixture.repo, consumer)
+            ],
             ["decision-a"],
         )
         disjoint = propose_scope(
-            self.fixture.repo, "consumer", "other", "other", {"mode": "keys", "keys": ["beta"]}
+            self.fixture.repo,
+            "consumer",
+            "other",
+            "other",
+            {"mode": "keys", "keys": ["beta"]},
         )
         self.assertEqual(active_authority(self.fixture.repo, disjoint), ())
         universal_work = propose_scope(
             self.fixture.repo, "consumer", "universal", "all work", {"mode": "all"}
         )
         self.assertEqual(
-            [binding.decision_id for binding in active_authority(self.fixture.repo, universal_work)],
+            [
+                binding.decision_id
+                for binding in active_authority(self.fixture.repo, universal_work)
+            ],
             ["decision-a"],
         )
         shutil.rmtree(self.fixture.repo / ".kapisch/v3/runs/run-1")
         self.assertEqual(
-            [binding.decision_id for binding in active_authority(self.fixture.repo, consumer)],
+            [
+                binding.decision_id
+                for binding in active_authority(self.fixture.repo, consumer)
+            ],
             ["decision-a"],
         )
 
@@ -92,18 +114,27 @@ class AuthorityCensusTests(unittest.TestCase):
         self._commit_acceptance(
             "decision-b",
             {"mode": "keys", "keys": ["alpha", "beta"]},
-            [{
-                "origin_run_id": "run-1",
-                "snapshot_id": "decision-a",
-                "decision_id": "decision-a",
-                "sha256": previous_digest,
-            }],
+            [
+                {
+                    "origin_run_id": "run-1",
+                    "snapshot_id": "decision-a",
+                    "decision_id": "decision-a",
+                    "sha256": previous_digest,
+                }
+            ],
         )
         consumer = propose_scope(
-            self.fixture.repo, "consumer", "work", "work", {"mode": "keys", "keys": ["alpha"]}
+            self.fixture.repo,
+            "consumer",
+            "work",
+            "work",
+            {"mode": "keys", "keys": ["alpha"]},
         )
         self.assertEqual(
-            [binding.decision_id for binding in active_authority(self.fixture.repo, consumer)],
+            [
+                binding.decision_id
+                for binding in active_authority(self.fixture.repo, consumer)
+            ],
             ["decision-b"],
         )
 
@@ -112,22 +143,30 @@ class AuthorityCensusTests(unittest.TestCase):
         self._commit_acceptance(
             "decision-b",
             {"mode": "keys", "keys": ["alpha"]},
-            [{
-                "origin_run_id": "run-1",
-                "snapshot_id": "decision-a",
-                "decision_id": "decision-a",
-                "sha256": previous_digest,
-            }],
+            [
+                {
+                    "origin_run_id": "run-1",
+                    "snapshot_id": "decision-a",
+                    "decision_id": "decision-a",
+                    "sha256": previous_digest,
+                }
+            ],
         )
         consumer = propose_scope(
             self.fixture.repo, "consumer", "work", "work", {"mode": "all"}
         )
-        with self.assertRaisesRegex(ValueError, "does not cover predecessor applicability"):
+        with self.assertRaisesRegex(
+            ValueError, "does not cover predecessor applicability"
+        ):
             active_authority(self.fixture.repo, consumer)
 
     def test_invalid_unmatched_acceptance_blocks_filtering(self):
         scope = propose_scope(
-            self.fixture.repo, "consumer", "work", "work", {"mode": "keys", "keys": ["none"]}
+            self.fixture.repo,
+            "consumer",
+            "work",
+            "work",
+            {"mode": "keys", "keys": ["none"]},
         )
         store_authority_record(self.fixture.repo, "acceptances", "a" * 64, b"not-json")
         with self.assertRaisesRegex(ValueError, "acceptance record is malformed"):
