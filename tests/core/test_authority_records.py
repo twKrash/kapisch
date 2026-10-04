@@ -28,6 +28,7 @@ class AuthorityCensusTests(unittest.TestCase):
         applicability: dict,
         supersedes: list[dict] | None = None,
         authority_basis: list[dict] | None = None,
+        source_dependencies: list[dict] | None = None,
     ) -> str:
         fixture = self.fixture
         payload = fixture._repository_payload()
@@ -46,6 +47,7 @@ class AuthorityCensusTests(unittest.TestCase):
         subject["decision_id"] = snapshot_id
         subject["supersedes"] = supersedes or []
         subject["authority_basis"] = authority_basis or []
+        subject["source_dependencies"] = source_dependencies or []
         payload["identity"]["id"] = snapshot_id
         reference = publish_gate_approval(
             fixture.repo,
@@ -64,6 +66,127 @@ class AuthorityCensusTests(unittest.TestCase):
         ).hexdigest()
         store_authority_record(fixture.repo, "acceptances", identity, data)
         return hashlib.sha256(data).hexdigest()
+
+    def test_authority_binding_is_not_publicly_exported(self) -> None:
+        import kapisch_core.authority as authority
+
+        self.assertIn("active_authority", authority.__all__)
+        self.assertNotIn("AuthorityBinding", authority.__all__)
+        self.assertFalse(hasattr(authority, "AuthorityBinding"))
+
+    def test_active_authority_returns_deeply_immutable_values(self) -> None:
+        import json
+
+        source_dependencies = [
+            {"path": "source-a.md", "sha256": "a" * 64},
+            {"path": "source-b.md", "sha256": "b" * 64},
+        ]
+        applicability = {"mode": "keys", "keys": ["alpha", "beta"]}
+        acceptance_digest = self._commit_acceptance(
+            "snapshot-immutable",
+            applicability,
+            source_dependencies=source_dependencies,
+        )
+        other_digest = self._commit_acceptance("snapshot-order", {"mode": "all"})
+        expected_scope_ref = propose_scope(
+            self.fixture.repo,
+            "run-1",
+            "scope-snapshot-immutable",
+            "requirements",
+            applicability,
+        )
+        consumer_ref = propose_scope(
+            self.fixture.repo,
+            "run-1",
+            "consumer-scope",
+            "requirements",
+            {"mode": "all"},
+        )
+
+        bindings = active_authority(self.fixture.repo, consumer_ref)
+
+        # Canonical JSON compares the acceptance digest first in each binding.
+        expected_order = sorted(
+            (
+                ("snapshot-immutable", acceptance_digest),
+                ("snapshot-order", other_digest),
+            ),
+            key=lambda binding: binding[1],
+        )
+        self.assertEqual(
+            tuple(
+                (binding.snapshot_id, binding.acceptance_record_sha256)
+                for binding in bindings
+            ),
+            tuple(expected_order),
+        )
+        binding = next(
+            item for item in bindings if item.snapshot_id == "snapshot-immutable"
+        )
+        self.assertEqual(
+            (
+                binding.origin_run_id,
+                binding.snapshot_id,
+                binding.decision_id,
+                binding.acceptance_record_sha256,
+            ),
+            ("run-1", "snapshot-immutable", "snapshot-immutable", acceptance_digest),
+        )
+        self.assertEqual(binding.scope_ref, expected_scope_ref)
+        self.assertEqual(binding.applicability["keys"], ("alpha", "beta"))
+        self.assertEqual(
+            tuple(dependency["path"] for dependency in binding.source_dependencies),
+            ("source-a.md", "source-b.md"),
+        )
+
+        with self.assertRaises(AttributeError):
+            binding.scope_ref.sha256 = "f" * 64
+        with self.assertRaises(TypeError):
+            binding.applicability["mode"] = "all"
+        with self.assertRaises(TypeError):
+            binding.applicability["keys"][0] = "changed"
+        with self.assertRaises(TypeError):
+            binding.source_dependencies[0]["path"] = "changed.md"
+        with self.assertRaises(AttributeError):
+            binding.source_dependencies.append({})
+        with self.assertRaises(AttributeError):
+            binding.origin_run_id = "changed"
+
+        payload = {
+            "origin_run_id": binding.origin_run_id,
+            "snapshot_id": binding.snapshot_id,
+            "decision_id": binding.decision_id,
+            "acceptance_record_sha256": binding.acceptance_record_sha256,
+            "scope_ref": {
+                "origin_run_id": binding.scope_ref.origin_run_id,
+                "scope_id": binding.scope_ref.scope_id,
+                "sha256": binding.scope_ref.sha256,
+            },
+            "applicability": {
+                "mode": binding.applicability["mode"],
+                "keys": list(binding.applicability["keys"]),
+            },
+            "source_dependencies": [
+                {"path": item["path"], "sha256": item["sha256"]}
+                for item in binding.source_dependencies
+            ],
+        }
+        self.assertEqual(
+            json.loads(canonical_json(payload)),
+            {
+                "origin_run_id": "run-1",
+                "snapshot_id": "snapshot-immutable",
+                "decision_id": "snapshot-immutable",
+                "acceptance_record_sha256": acceptance_digest,
+                "scope_ref": {
+                    "origin_run_id": "run-1",
+                    "scope_id": "scope-snapshot-immutable",
+                    "sha256": expected_scope_ref.sha256,
+                },
+                "applicability": {"mode": "keys", "keys": ["alpha", "beta"]},
+                "source_dependencies": source_dependencies,
+            },
+        )
 
     def _assert_invalid_authority_basis(self, change: dict, message: str) -> None:
         prior_digest = self._commit_acceptance(
