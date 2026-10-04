@@ -8,6 +8,7 @@ import os
 import stat
 from contextlib import suppress
 from pathlib import Path
+from typing import cast
 
 from ._repository_git import _identity, _root, capture_untracked
 from .repository import (
@@ -88,6 +89,13 @@ def _walk(rootfd, path):
                     except OSError as missing:
                         if e.errno == errno.ENOTDIR and missing.errno == errno.ENOTDIR:
                             _verify_non_directory(check, part)
+                            current_parent = _open_verified_chain(
+                                rootfd, parts[:index], seen
+                            )
+                            try:
+                                _verify_non_directory(current_parent, part)
+                            finally:
+                                os.close(current_parent)
                             os.close(fd)
                             return None, None
                         if missing.errno == errno.ENOENT:
@@ -163,6 +171,30 @@ def _walk(rootfd, path):
 
 def _same(a, b):
     return (a.st_dev, a.st_ino, a.st_mode) == (b.st_dev, b.st_ino, b.st_mode)
+
+
+def _open_verified_chain(rootfd, parts, seen):
+    fd = os.dup(rootfd)
+    try:
+        for index, part in enumerate(parts):
+            current = os.open(
+                part,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                dir_fd=fd,
+            )
+            try:
+                if not _same(os.fstat(current), seen[index]):
+                    raise RepositoryCaptureError("parent replaced")
+                os.close(fd)
+            except BaseException:
+                os.close(current)
+                raise
+            fd = current
+        return fd
+    except BaseException:
+        with suppress(OSError):
+            os.close(fd)
+        raise
 
 
 def _verify_parent(rootfd, path, parent):
@@ -261,15 +293,18 @@ def _read(rootfd, path):
         os.close(parent)
 
 
-def _tracked(rootfd, e):
-    got = _read(rootfd, e.path)
+def _tracked(rootfd, path):
+    got = _read(rootfd, path)
     if got is None:
-        return WorktreeEntry(e.path, "deletion", "000000")
+        return WorktreeEntry(path, "deletion", "000000")
     kind, data, mode = got
     if kind == "symlink":
-        return WorktreeEntry(e.path, "symlink", "120000", _digest(data))
+        return WorktreeEntry(path, "symlink", "120000", _digest(data))
     return WorktreeEntry(
-        e.path, "file", "100755" if mode & stat.S_IXUSR else "100644", data
+        path,
+        "file",
+        "100755" if mode & stat.S_IXUSR else "100644",
+        cast(str, data),
     )
 
 
@@ -305,7 +340,7 @@ def capture_worktree(
         if not inc.issubset(set(inventory)):
             raise RepositoryCaptureError("included path is not untracked")
         tracked = tuple(
-            sorted((_tracked(rootfd, e) for e in index), key=lambda x: x.path)
+            _tracked(rootfd, path) for path in sorted({entry.path for entry in index})
         )
         unknown = []
         for p in inventory:
@@ -318,7 +353,7 @@ def capture_worktree(
             kind, data, _ = got
             if kind != "file":
                 raise RepositoryCaptureError("included untracked is not regular")
-            unknown.append(UntrackedEntry(p, True, data))
+            unknown.append(UntrackedEntry(p, True, cast(str, data)))
         root_stat = os.fstat(rootfd)
         if (root_stat.st_dev, root_stat.st_ino) != ident or _identity(root) != ident:
             raise RepositoryCaptureError("worktree replaced")

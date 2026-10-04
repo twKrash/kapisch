@@ -164,6 +164,8 @@ class RepositoryGitCaptureTests(unittest.TestCase):
         self.assertNotEqual(merge.returncode, 0)
         entries = capture_index(self.root)
         self.assertEqual([entry.stage for entry in entries], [1, 2, 3])
+        state = capture_worktree(self.root, entries)
+        self.assertEqual([entry.path for entry in state.worktree], [b"tracked"])
 
     def test_skip_intent_and_gitlinks_are_rejected(self):
         self.git("update-index", "--skip-worktree", "--", "tracked")
@@ -313,6 +315,39 @@ class RepositoryGitCaptureTests(unittest.TestCase):
     def test_worktree_rejects_malformed_index(self):
         with self.assertRaises(RepositoryCaptureError):
             capture_worktree(self.root, (object(),))
+
+    def test_worktree_rejects_replaced_enotdir_parent_during_read(self):
+        parent = self.root / "a"
+        parent.mkdir()
+        (parent / "b").write_bytes(b"blocker")
+        rootfd = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY)
+        original_verify = _repository_worktree._verify_non_directory
+        replaced = False
+
+        def replace_after_verify(parentfd, name):
+            nonlocal replaced
+            result = original_verify(parentfd, name)
+            if not replaced:
+                replaced = True
+                parent.rename(self.root / "old-a")
+                parent.mkdir()
+                (parent / "b").write_bytes(b"replacement")
+            return result
+
+        try:
+            with (
+                patch.object(
+                    _repository_worktree,
+                    "_verify_non_directory",
+                    side_effect=replace_after_verify,
+                ),
+                self.assertRaises(RepositoryCaptureError),
+            ):
+                _repository_worktree._read(rootfd, b"a/b/file")
+        finally:
+            os.close(rootfd)
+        self.assertTrue(parent.is_dir())
+        self.assertTrue((self.root / "old-a").is_dir())
 
     def test_worktree_rejects_replaced_parent_during_read(self):
         parent = self.root / "a"
