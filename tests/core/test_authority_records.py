@@ -64,7 +64,7 @@ class AuthorityCensusTests(unittest.TestCase):
         store_authority_record(fixture.repo, "acceptances", identity, data)
         return hashlib.sha256(data).hexdigest()
 
-    def test_invalid_historical_authority_basis_blocks_even_when_nonmatching(self):
+    def _assert_invalid_authority_basis(self, change: dict, message: str) -> None:
         prior_digest = self._commit_acceptance(
             "basis-target", {"mode": "keys", "keys": ["applies-elsewhere"]}
         )
@@ -75,7 +75,7 @@ class AuthorityCensusTests(unittest.TestCase):
             "requirements",
             {"mode": "keys", "keys": ["applies-elsewhere"]},
         )
-        valid = {
+        binding = {
             "origin_run_id": "run-1",
             "snapshot_id": "basis-target",
             "decision_id": "basis-target",
@@ -88,11 +88,11 @@ class AuthorityCensusTests(unittest.TestCase):
             "applicability": {"mode": "keys", "keys": ["applies-elsewhere"]},
             "source_dependencies": [],
         }
-        malformed = (
-            {**valid, "snapshot_id": "absent"},
-            {**valid, "acceptance_record_sha256": "f" * 64},
-            {**valid, "origin_run_id": "other-run"},
-            {**valid, "applicability": {"mode": "all"}},
+        binding.update(change)
+        self._commit_acceptance(
+            "invalid-basis",
+            {"mode": "keys", "keys": ["acceptance-does-not-match"]},
+            authority_basis=[binding],
         )
         disjoint = propose_scope(
             self.fixture.repo,
@@ -101,15 +101,53 @@ class AuthorityCensusTests(unittest.TestCase):
             "work",
             {"mode": "keys", "keys": ["does-not-match"]},
         )
-        for index, binding in enumerate(malformed):
-            with self.subTest(index=index):
-                self._commit_acceptance(
-                    f"invalid-basis-{index}",
-                    {"mode": "keys", "keys": ["elsewhere-too"]},
-                    authority_basis=[binding],
-                )
-                with self.assertRaises(ValueError):
-                    active_authority(self.fixture.repo, disjoint)
+        with self.assertRaisesRegex(ValueError, message):
+            active_authority(self.fixture.repo, disjoint)
+
+    def test_authority_basis_rejects_missing_qualified_snapshot(self):
+        self._assert_invalid_authority_basis(
+            {"snapshot_id": "absent"}, "authority basis target is missing"
+        )
+
+    def test_authority_basis_rejects_wrong_origin_run(self):
+        self._assert_invalid_authority_basis(
+            {"origin_run_id": "other-run"}, "authority basis target is missing"
+        )
+
+    def test_authority_basis_rejects_wrong_decision_id(self):
+        self._assert_invalid_authority_basis(
+            {"decision_id": "other-decision"}, "authority basis target is missing"
+        )
+
+    def test_authority_basis_rejects_changed_acceptance_digest(self):
+        self._assert_invalid_authority_basis(
+            {"acceptance_record_sha256": "f" * 64},
+            "authority basis binding differs from committed target",
+        )
+
+    def test_authority_basis_rejects_changed_scope_ref(self):
+        self._assert_invalid_authority_basis(
+            {
+                "scope_ref": {
+                    "origin_run_id": "run-1",
+                    "scope_id": "scope-basis-target",
+                    "sha256": "f" * 64,
+                }
+            },
+            "authority basis binding differs from committed target",
+        )
+
+    def test_authority_basis_rejects_changed_applicability(self):
+        self._assert_invalid_authority_basis(
+            {"applicability": {"mode": "all"}},
+            "authority basis binding differs from committed target",
+        )
+
+    def test_authority_basis_rejects_changed_source_dependencies(self):
+        self._assert_invalid_authority_basis(
+            {"source_dependencies": [{"path": "source.md", "sha256": "a" * 64}]},
+            "authority basis binding differs from committed target",
+        )
 
     def test_valid_historical_basis_survives_target_supersession(self):
         target_digest = self._commit_acceptance(
