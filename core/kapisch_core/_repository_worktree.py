@@ -35,6 +35,18 @@ def _parts(path):
     return path.split(b"/")
 
 
+def _verify_non_directory(parentfd, name):
+    try:
+        observed = os.stat(name, dir_fd=parentfd, follow_symlinks=False)
+        current = os.stat(name, dir_fd=parentfd, follow_symlinks=False)
+    except OSError as e:
+        raise RepositoryCaptureError("parent replaced") from e
+    if not stat.S_ISREG(observed.st_mode):
+        raise RepositoryCaptureError("unsafe path traversal")
+    if not _same(observed, current):
+        raise RepositoryCaptureError("parent replaced")
+
+
 def _walk(rootfd, path):
     parts = _parts(path)
     fd = os.dup(rootfd)
@@ -48,7 +60,7 @@ def _walk(rootfd, path):
                     dir_fd=fd,
                 )
             except OSError as e:
-                if e.errno != errno.ENOENT:
+                if e.errno not in (errno.ENOENT, errno.ENOTDIR):
                     raise RepositoryCaptureError("unsafe path traversal") from e
                 check = os.dup(rootfd)
                 try:
@@ -74,6 +86,10 @@ def _walk(rootfd, path):
                         )
                         os.close(probe)
                     except OSError as missing:
+                        if e.errno == errno.ENOTDIR and missing.errno == errno.ENOTDIR:
+                            _verify_non_directory(check, part)
+                            os.close(fd)
+                            return None, None
                         if missing.errno == errno.ENOENT:
                             # Re-check the retained chain before classifying absence;
                             # a replacement race must fail closed, not look deleted.
@@ -288,16 +304,16 @@ def capture_worktree(
         )
         unknown = []
         for p in inventory:
+            if p not in inc:
+                unknown.append(UntrackedEntry(p, False))
+                continue
             got = _read(rootfd, p)
             if got is None:
                 raise RepositoryCaptureError("untracked disappeared")
             kind, data, _ = got
-            if p in inc:
-                if kind != "file":
-                    raise RepositoryCaptureError("included untracked is not regular")
-                unknown.append(UntrackedEntry(p, True, _digest(data)))
-            else:
-                unknown.append(UntrackedEntry(p, False))
+            if kind != "file":
+                raise RepositoryCaptureError("included untracked is not regular")
+            unknown.append(UntrackedEntry(p, True, _digest(data)))
         root_stat = os.fstat(rootfd)
         if (root_stat.st_dev, root_stat.st_ino) != ident or _identity(root) != ident:
             raise RepositoryCaptureError("worktree replaced")

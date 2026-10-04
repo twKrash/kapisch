@@ -225,6 +225,36 @@ class RepositoryGitCaptureTests(unittest.TestCase):
         self.assertEqual(entry.mode, "000000")
         self.assertNotIn("sha256", entry.to_dict())
 
+    def test_worktree_treats_non_directory_parent_as_tracked_deletion(self):
+        nested = self.root / "dir"
+        nested.mkdir()
+        (nested / "child").write_bytes(b"child")
+        self.git("add", "dir")
+        self.git("commit", "-qm", "nested")
+        (nested / "child").unlink()
+        nested.rmdir()
+        nested.write_bytes(b"replacement")
+
+        state = capture_worktree(self.root, capture_index(self.root))
+        tracked = {entry.path: entry for entry in state.worktree}
+        self.assertEqual(tracked[b"dir/child"].kind, "deletion")
+        untracked = {entry.path: entry for entry in state.untracked}
+        self.assertFalse(untracked[b"dir"].included)
+
+    def test_unincluded_paths_are_inventory_only(self):
+        (self.root / "extra").write_bytes(b"extra")
+        original_read = _repository_worktree._read
+
+        def reject_extra(rootfd, path):
+            if path == b"extra":
+                raise AssertionError("unincluded path was read")
+            return original_read(rootfd, path)
+
+        with patch.object(_repository_worktree, "_read", side_effect=reject_extra):
+            state = capture_worktree(self.root, capture_index(self.root))
+        untracked = {entry.path: entry for entry in state.untracked}
+        self.assertFalse(untracked[b"extra"].included)
+
     def test_included_untracked_paths_require_regular_files(self):
         os.symlink("tracked", self.root / "link")
         with self.assertRaises(RepositoryCaptureError):
