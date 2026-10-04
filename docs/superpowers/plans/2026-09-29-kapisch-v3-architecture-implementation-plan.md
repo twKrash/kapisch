@@ -440,7 +440,9 @@ This is the proposed clarification from the PR review. No independently sourced 
 **6.4 Refuse ambiguous or racing repository observations.** Files: `core/kapisch_core/_repository_fingerprint.py`, `tests/core/test_repository.py`. Interface: consumes `capture_head`, `capture_index` and `capture_worktree`; produces `capture_repository_state(repo: Path, included_untracked: tuple[bytes, ...] = ()) -> RepositoryStateFingerprint` for validation/review.
 
 - [ ] Red: add `test_race_or_unmerged_index_blocks_fingerprint`; run `PYTHONPATH=core python -m unittest discover -s tests/core -p test_repository.py -k test_race_or_unmerged_index_blocks_fingerprint -v`; expect FAIL (partial snapshot accepted when Git facts change).
-- [ ] Green: re-read/compare complete semantic facts; explicitly block unborn HEAD, unmerged stage, unsupported submodule or inspection race instead of inferring state; run same command, expect PASS. **Commit boundary:** stable fingerprint + test (`feat(v3): reject ambiguous Git state`).
+- [ ] Green: re-read/compare complete semantic facts at the fixed verification checkpoints; reject disagreements detected by those checks, and explicitly block unborn HEAD, unmerged stage, unsupported submodule, or other unsupported state instead of inferring authority; do not claim an atomic/current-at-return snapshot; run same command, expect PASS. **Commit boundary:** stable fingerprint + test (`feat(v3): reject ambiguous Git state`).
+
+**6.4 acceptance status:** Pending independent approval of the proposed Stage 6.4/6.5 consistency contract above. Until that approval is independently recorded, this implementation must not be represented as accepted Stage 6.4 completion; Stage 6.5 writer-quiescence enforcement remains future work.
 
 **6.5 Bind review and distinct final invocation.** Files: `core/kapisch_core/review.py`, `core/kapisch_core/validation.py`, `tests/core/test_review.py`. Interface: consumes `capture_repository_state`, Stage 5 gate evidence and Stage 4 `validate_run`; produces `validate_review(repo: Path, invocation: ReviewInvocation, result: ReviewResult) -> list[ValidationError]` for graph-free approval and whole-branch final.
 
