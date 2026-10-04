@@ -5,8 +5,9 @@ import hashlib
 import json
 import os
 import re
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from ._authority import (
     _unique_pairs,
@@ -15,7 +16,14 @@ from ._authority import (
     _validate_state_snapshot,
 )
 from ._locking import _locked
-from ._state import ConcurrentModificationError, _id, _parse_state, _publish_state_locked, load_state
+from ._state import (
+    ConcurrentModificationError,
+    _id,
+    _load_run_context,
+    _publish_state_locked,
+    _routing_digest,
+    load_state,
+)
 from .bundle import canonical_json
 from .storage import (
     _NAME,
@@ -27,7 +35,6 @@ from .storage import (
     _run_dir,
     _runs_dir,
     _safe_relative,
-    load_bundle,
 )
 
 _AUTHORITY_FIELDS = ("graph", "approved_plan", "accepted_snapshot", "amends", "supersedes")
@@ -37,7 +44,10 @@ def _valid_adapter_binding(binding: Any) -> bool:
     return (isinstance(binding, Mapping) and set(binding) == {"adapter_id", "lookup_context"}
             and all(isinstance(binding[field], str) and binding[field] for field in ("adapter_id", "lookup_context")))
 
-def _validate_packet_inputs(repo: Path, run_id: str, operation_id: str, packet: Mapping[str, Any]) -> None:
+def _validate_packet_inputs(repo: Path, run_id: str, operation_id: str, packet: Mapping[str, Any], bundle: Any) -> None:
+    if bundle.payload.get("authority_contract") == "global-authority/1" and any(
+            key in packet for key in ("accepted_snapshot", "amends", "supersedes", "approved_plan", "acceptance_ref")):
+        raise ValueError("unsupported-gate: global authority consumers are not implemented")
     inputs = packet.get("inputs", [])
     if not isinstance(inputs, list):
         raise ValueError("operation request inputs are invalid")
@@ -67,7 +77,7 @@ def _validate_packet_inputs(repo: Path, run_id: str, operation_id: str, packet: 
     if "accepted_snapshot" in packet:
         _validate_snapshot_authority(repo, run_id, packet["accepted_snapshot"], packet["amends"], packet["supersedes"])
 
-def _validate_reservation(repo: Path, run_id: str, operation_id: str, fact: Any) -> dict[str, Any]:
+def _validate_reservation(repo: Path, run_id: str, operation_id: str, fact: Any, *, validate_current_authority: bool = True) -> dict[str, Any]:
     fields = {"protocol_version", "operation_id", "run_id", "stage_id", "role", "request_digest", "status", "request", "adapter_binding"}
     if not isinstance(fact, dict) or set(fact) != fields:
         raise ValueError("operation reservation has missing or unknown fields")
@@ -105,17 +115,21 @@ def _validate_reservation(repo: Path, run_id: str, operation_id: str, fact: Any)
                 "role": fact["role"], "adapter_binding": binding}
     if any(packet.get(key) != value for key, value in expected.items()) or "request_digest" in packet:
         raise ValueError("operation request packet does not match reservation")
-    bundle_digest = packet.get("bundle_digest")
-    if not isinstance(bundle_digest, str) or not re.fullmatch(r"[0-9a-f]{64}", bundle_digest):
-        raise ValueError("operation request bundle digest is invalid")
-    load_bundle(repo, bundle_digest)
+    state, bundle = _load_run_context(repo, run_id)
+    if packet.get("bundle_digest") != state["bundle_digest"]:
+        raise ValueError("operation request bundle differs from retained run context")
     if not isinstance(packet.get("scope_digest"), str) or not re.fullmatch(r"[0-9a-f]{64}", packet["scope_digest"]):
         raise ValueError("operation request scope digest is invalid")
     if "node_id" in packet and (not isinstance(packet["node_id"], str) or not re.fullmatch(r"n-[0-9a-f]{32}", packet["node_id"])):
         raise ValueError("operation request node binding is invalid")
     if packet.get("node_id") is not None and ("graph" not in packet or "approved_plan" not in packet):
         raise ValueError("node-scoped reservation lacks approved graph and plan binding")
-    _validate_packet_inputs(repo, run_id, operation_id, packet)
+    if validate_current_authority:
+        attempt = next((row for row in reversed(state["history"]) if row["stage_id"] == packet.get("stage_id")), None)
+        if attempt is None:
+            raise ValueError("operation request does not resolve to retained run attempt")
+        _validate_packet_authority(packet, state, attempt, bundle)
+    _validate_packet_inputs(repo, run_id, operation_id, packet, bundle)
     return packet
 
 def _persist_request_locked(repo: Path, run_id: str, operation_id: str, packet: Mapping[str, Any]) -> tuple[str, str]:
@@ -124,7 +138,7 @@ def _persist_request_locked(repo: Path, run_id: str, operation_id: str, packet: 
     if not re.fullmatch(r"op-[0-9a-f]{32}", operation_id):
         raise ValueError("invalid operation_id")
     packet = copy.deepcopy(dict(packet))
-    state = load_state(Path(repo), run_id)
+    state, bundle = _load_run_context(Path(repo), run_id)
     stage_id = packet.get("stage_id")
     attempt = next((item for item in reversed(state["history"]) if item["stage_id"] == stage_id), None)
     if attempt is None or attempt["status"] != "planned" or attempt["role"] != packet.get("role"):
@@ -137,9 +151,10 @@ def _persist_request_locked(repo: Path, run_id: str, operation_id: str, packet: 
         raise ValueError("request identity does not match publication target")
     if not _valid_adapter_binding(packet.get("adapter_binding")):
         raise ValueError("adapter binding must contain nonempty strings")
-    _validate_packet_authority(packet, state, attempt)
+    _validate_packet_authority(packet, state, attempt, bundle)
+    _validate_state_snapshot(Path(repo), run_id, state, bundle)
     _publish_request_inputs(Path(repo), run_id, operation_id, packet)
-    _validate_packet_inputs(Path(repo), run_id, operation_id, packet)
+    _validate_packet_inputs(Path(repo), run_id, operation_id, packet, bundle)
     body = canonical_json(packet)
     digest = hashlib.sha256(body).hexdigest()
     run, fds = _run_dir(repo, run_id, create=True)
@@ -234,8 +249,8 @@ def reserve_operation(repo: Path, run_id: str, operation_id: str, stage_id: str,
             raise ValueError("request node binding or digest shape is invalid")
         if any(parsed_packet.get(key) != value for key, value in expected.items()):
             raise ValueError("request packet differs from reservation binding")
-        _validate_packet_authority(parsed_packet, state, attempt)
-        _validate_packet_inputs(repo, run_id, operation_id, parsed_packet)
+        _validate_packet_authority(parsed_packet, state, attempt, _load_run_context(repo, run_id)[1])
+        _validate_packet_inputs(repo, run_id, operation_id, parsed_packet, _load_run_context(repo, run_id)[1])
         runs, fds = _runs_dir(repo, create=False)
         try:
             for entry in os.listdir(runs):
@@ -257,7 +272,7 @@ def reserve_operation(repo: Path, run_id: str, operation_id: str, stage_id: str,
                                 fact = json.loads(planned.decode("utf-8"), object_pairs_hook=_unique_pairs)
                                 if canonical_json(fact) != planned:
                                     raise ValueError("operation reservation is not canonical")
-                                _validate_reservation(repo, entry, op, fact)
+                                _validate_reservation(repo, entry, op, fact, validate_current_authority=False)
                                 if op == operation_id:
                                     raise ValueError("operation ID is already reserved")
                                 if fact.get("run_id") == run_id and fact.get("stage_id") == stage_id:
@@ -295,10 +310,14 @@ def publish_uncertainty(repo: Path, run_id: str, state: Mapping[str, Any], expec
         current = load_state(repo, run_id)
         if current["revision"] != expected_revision:
             raise ConcurrentModificationError("run revision changed")
-        proposed_state = _parse_state(canonical_json(dict(state)))
+        proposed_bytes = canonical_json(dict(state))
+        proposed_digest = _routing_digest(proposed_bytes, run_id)
+        if proposed_digest != current["bundle_digest"]:
+            raise ValueError("uncertain state must preserve run bundle digest")
+        proposed_state, proposed_bundle = _load_run_context(repo, run_id, proposed_bytes)
         if proposed_state["revision"] != expected_revision + 1 or proposed_state["run_id"] != run_id:
             raise ValueError("uncertain state revision or run ID is invalid")
-        _validate_state_snapshot(repo, run_id, proposed_state)
+        _validate_state_snapshot(repo, run_id, proposed_state, proposed_bundle)
         if (proposed_state["bundle_digest"] != current["bundle_digest"]
                 or proposed_state["workflow"] != current["workflow"]
                 or proposed_state["history"][:len(current["history"])] != current["history"]):
@@ -345,7 +364,7 @@ def publish_uncertainty(repo: Path, run_id: str, state: Mapping[str, Any], expec
             raise ValueError("uncertain state must append matching attempt observation")
         if any(observation.get(key) != attempt.get(key) for key in ("stage_id", "stage_kind", "role", "scope_digest", "node_id")):
             raise ValueError("uncertain observation changed attempt binding")
-        _validate_packet_authority(packet, current, attempt)
+        _validate_packet_authority(packet, current, attempt, _load_run_context(repo, run_id)[1])
         cited = {ref.get("path"): ref.get("sha256") for ref in observation.get("evidence", [])}
         if any(cited.get(path) != digest for path, digest in required_refs.items()):
             raise ValueError("uncertain observation must cite request and immutable invocation facts")

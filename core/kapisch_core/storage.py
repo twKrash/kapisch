@@ -5,12 +5,11 @@ import os
 import re
 import secrets
 import stat
-from typing import Any
 from contextlib import suppress
 from pathlib import Path
+from typing import Any
 
 from .bundle import CoreBundle, verify_bundle
-
 
 _DIRECTORY_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
 _FILE_FLAGS = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
@@ -26,6 +25,8 @@ _REQUIRED_SUPPORT = (
 
 
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_AUTHORITY_NAMESPACES = frozenset({"scopes", "human-actions", "gate-approvals", "human-artifacts"})
+_HUMAN_ARTIFACT_ROOT = ".kapisch/v3/authority/human-artifacts"
 
 
 def _id(value: str, label: str) -> str:
@@ -39,10 +40,8 @@ def _open_dir(parent: int, name: str, *, create: bool = False) -> int:
     except FileNotFoundError:
         if not create:
             raise
-        try:
+        with suppress(FileExistsError):
             os.mkdir(name, 0o700, dir_fd=parent)
-        except FileExistsError:
-            pass
         descriptor = os.open(name, _DIRECTORY_FLAGS, dir_fd=parent)
     if create:
         try:
@@ -229,6 +228,99 @@ def _sync_hierarchy(descriptors: list[int]) -> None:
         os.fsync(descriptor)
 
 
+def load_authority_record(repo: Path, namespace: str, identity: str) -> bytes:
+    if namespace not in _AUTHORITY_NAMESPACES:
+        raise ValueError("invalid authority namespace")
+    name = f"{_id(identity, 'identity')}.json"
+    directory, opened = _open_tree(Path(repo), "authority", namespace, create=False)
+    try:
+        return _read_file(directory, name)
+    finally:
+        _close(opened)
+
+
+def load_authority_records(repo: Path, namespace: str) -> list[tuple[str, bytes]]:
+    if namespace not in _AUTHORITY_NAMESPACES:
+        raise ValueError("invalid authority namespace")
+    if os.listdir not in os.supports_fd:
+        raise OSError(
+            "safe descriptor-relative authority listing is unsupported "
+            "on this platform"
+        )
+    directory, opened = _open_tree(Path(repo), "authority", namespace, create=False)
+    try:
+        records = []
+        for name in sorted(os.listdir(directory)):
+            if not name.endswith(".json"):
+                continue
+            identity = name[:-5]
+            _id(identity, "identity")
+            records.append((identity, _read_file(directory, name)))
+        return records
+    finally:
+        _close(opened)
+
+
+def store_authority_record(
+    repo: Path, namespace: str, identity: str, data: bytes
+) -> bool:
+    """Publish immutable canonical bytes; return False for an identical retry."""
+    if namespace not in _AUTHORITY_NAMESPACES:
+        raise ValueError("invalid authority namespace")
+    name = f"{_id(identity, 'identity')}.json"
+    if not isinstance(data, bytes):
+        raise TypeError("authority record must be bytes")
+    directory, opened = _open_tree(Path(repo), "authority", namespace, create=True)
+    try:
+        try:
+            _atomic_write_at(directory, name, data, replace=False)
+        except FileExistsError:
+            existing = _read_file(directory, name)
+            if existing == data:
+                _sync_hierarchy(opened)
+                return False
+            raise
+        _sync_hierarchy(opened)
+        return True
+    finally:
+        _close(opened)
+
+
+def retain_human_approval_artifact(repo: Path, data: bytes) -> dict[str, str]:
+    """Retain exact external approval bytes at their digest-derived immutable path."""
+    if not isinstance(data, bytes):
+        raise TypeError("human approval artifact must be bytes")
+    digest = hashlib.sha256(data).hexdigest()
+    try:
+        store_authority_record(Path(repo), "human-artifacts", digest, data)
+    except OSError as error:
+        try:
+            retained = load_authority_record(Path(repo), "human-artifacts", digest)
+        except OSError:
+            raise error from None
+        if retained != data or hashlib.sha256(retained).hexdigest() != digest:
+            raise ValueError(
+                "retained human approval artifact differs from expected bytes"
+            ) from error
+        store_authority_record(Path(repo), "human-artifacts", digest, data)
+    retained = load_authority_record(Path(repo), "human-artifacts", digest)
+    if retained != data or hashlib.sha256(retained).hexdigest() != digest:
+        raise ValueError("retained human approval artifact read-back mismatch")
+    return {"path": f"{_HUMAN_ARTIFACT_ROOT}/{digest}.json", "sha256": digest}
+
+
+def load_human_approval_artifact(repo: Path, path: str, digest: str) -> bytes:
+    if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise ValueError("human approval artifact digest must be lowercase SHA-256")
+    expected_path = f"{_HUMAN_ARTIFACT_ROOT}/{digest}.json"
+    if path != expected_path:
+        raise ValueError("human approval artifact path is not canonical")
+    data = load_authority_record(Path(repo), "human-artifacts", digest)
+    if hashlib.sha256(data).hexdigest() != digest:
+        raise ValueError("human approval artifact digest mismatch")
+    return data
+
+
 def store_bundle(repo: Path, data: bytes) -> str:
     digest = hashlib.sha256(data).hexdigest()
     verify_bundle(data, digest)
@@ -261,7 +353,13 @@ def store_bundle(repo: Path, data: bytes) -> str:
             os.close(descriptor)
         try:
             try:
-                os.link(temporary, name, src_dir_fd=directory, dst_dir_fd=directory, follow_symlinks=False)
+                os.link(
+                    temporary,
+                    name,
+                    src_dir_fd=directory,
+                    dst_dir_fd=directory,
+                    follow_symlinks=False,
+                )
                 os.fsync(directory)
                 _sync_hierarchy(opened)
             except FileExistsError:

@@ -27,6 +27,118 @@ def _bundles() -> tuple[bytes, bytes]:
 
 
 class StorageTests(unittest.TestCase):
+    def test_authority_records_are_no_replace_and_exact_retry_is_idempotent(self) -> None:
+        from kapisch_core.storage import store_authority_record
+
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            self.assertTrue(store_authority_record(repo, "scopes", "scope-1", b"canonical"))
+            self.assertFalse(store_authority_record(repo, "scopes", "scope-1", b"canonical"))
+            with self.assertRaises(FileExistsError):
+                store_authority_record(repo, "scopes", "scope-1", b"different")
+            self.assertEqual((repo / ".kapisch/v3/authority/scopes/scope-1.json").read_bytes(), b"canonical")
+
+    def test_human_approval_artifact_is_content_addressed_and_idempotent(self) -> None:
+        from kapisch_core.storage import (
+            load_human_approval_artifact,
+            retain_human_approval_artifact,
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            data = b'{"protocol_version":3}\n'
+            digest = hashlib.sha256(data).hexdigest()
+            expected = {
+                "path": f".kapisch/v3/authority/human-artifacts/{digest}.json",
+                "sha256": digest,
+            }
+            self.assertEqual(retain_human_approval_artifact(repo, data), expected)
+            self.assertEqual(retain_human_approval_artifact(repo, data), expected)
+            self.assertEqual(load_human_approval_artifact(repo, expected["path"], digest), data)
+
+    def test_human_approval_artifact_readback_rejects_tampering_and_noncanonical_path(self) -> None:
+        from kapisch_core.storage import (
+            load_human_approval_artifact,
+            retain_human_approval_artifact,
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            reference = retain_human_approval_artifact(repo, b"artifact")
+            with self.assertRaises(ValueError):
+                load_human_approval_artifact(repo, "caller-selected.json", reference["sha256"])
+            artifact_path = repo / reference["path"]
+            artifact_path.write_bytes(b"tampered")
+            with self.assertRaises(ValueError):
+                load_human_approval_artifact(repo, reference["path"], reference["sha256"])
+
+    def test_human_approval_artifact_sync_failure_is_not_success(self) -> None:
+        from kapisch_core.storage import (
+            load_human_approval_artifact,
+            retain_human_approval_artifact,
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            data = b"canonical artifact bytes"
+            with patch("kapisch_core.storage._sync_hierarchy", side_effect=OSError("sync failed")):
+                with self.assertRaisesRegex(OSError, "sync failed"):
+                    retain_human_approval_artifact(repo, data)
+            reference = retain_human_approval_artifact(repo, data)
+            self.assertEqual(
+                load_human_approval_artifact(repo, reference["path"], reference["sha256"]), data
+            )
+
+    def test_human_approval_artifact_occupied_digest_path_fails_closed(self) -> None:
+        from kapisch_core.storage import retain_human_approval_artifact
+
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            data = b"expected bytes"
+            digest = hashlib.sha256(data).hexdigest()
+            path = repo / ".kapisch/v3/authority/human-artifacts" / f"{digest}.json"
+            path.parent.mkdir(parents=True)
+            path.write_bytes(b"different bytes")
+            with self.assertRaises((OSError, ValueError)):
+                retain_human_approval_artifact(repo, data)
+            self.assertEqual(path.read_bytes(), b"different bytes")
+
+    def test_load_authority_record_reads_exact_bytes(self) -> None:
+        from kapisch_core.storage import load_authority_record, store_authority_record
+
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            record = b'{"protocol_version":3}\n'
+            store_authority_record(repo, "scopes", "scope-1", record)
+            self.assertEqual(load_authority_record(repo, "scopes", "scope-1"), record)
+            with self.assertRaises(FileNotFoundError):
+                load_authority_record(repo, "scopes", "missing")
+
+    def test_authority_record_rejects_unsafe_leaf_types(self) -> None:
+        from kapisch_core.storage import store_authority_record
+
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            leaf = repo / ".kapisch/v3/authority/human-actions/action-1.json"
+            leaf.parent.mkdir(parents=True)
+            target = repo / "external"
+            target.write_bytes(b"outside")
+            leaf.symlink_to(target)
+            with self.assertRaises(OSError):
+                store_authority_record(repo, "human-actions", "action-1", b"record")
+            self.assertEqual(target.read_bytes(), b"outside")
+
+    def test_authority_record_rejects_nonregular_occupied_identity(self) -> None:
+        from kapisch_core.storage import store_authority_record
+
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            leaf = repo / ".kapisch/v3/authority/gate-approvals/approval-1.json"
+            leaf.parent.mkdir(parents=True)
+            leaf.mkdir()
+            with self.assertRaises(ValueError):
+                store_authority_record(repo, "gate-approvals", "approval-1", b"record")
+
     def test_retains_exact_bundle_after_distribution_upgrade(self) -> None:
         from kapisch_core.bundle import verify_bundle
         from kapisch_core.storage import load_bundle, store_bundle

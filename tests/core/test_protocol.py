@@ -55,7 +55,7 @@ class ProtocolTests(unittest.TestCase):
     def setUp(self) -> None:
         from kapisch_core.storage import store_bundle
 
-        self.bundle = (ROOT / "core/dist/core-bundle.json").read_bytes()
+        self.bundle = (ROOT / "tests/conformance/fixtures/v3/legacy-bundle.json").read_bytes()
         self.digest = hashlib.sha256(self.bundle).hexdigest()
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -114,6 +114,309 @@ class ProtocolTests(unittest.TestCase):
                   "scope_digest": stage["scope_digest"], "adapter_binding": {"adapter_id": "fake", "lookup_context": "ctx-1"}}
         packet["node_id"] = stage["node_id"]
         return protocol, state, stage, packet
+
+    def test_uncertainty_rejects_malformed_new_backlinks_before_marker(self) -> None:
+        from kapisch_core import protocol
+        from kapisch_core.bundle import canonical_json
+        from kapisch_core.storage import store_bundle
+
+        original_digest = self.digest
+        self.digest = store_bundle(self.repo, (ROOT / "core/dist/core-bundle.json").read_bytes())
+        run_id, operation_id = "run-uncertainty-malformed-backlink", "op-00000000000000000000000000000071"
+        _, initial, attempt, packet, request_path, request_digest = self._begin(run_id, operation_id)
+        planned = protocol.reserve_operation(self.repo, run_id, operation_id, attempt["stage_id"], attempt["role"],
+                                             {"path": request_path, "sha256": request_digest}, packet["adapter_binding"])
+        planned_bytes = canonical_json(planned)
+        uncertain_bytes = canonical_json({**planned, "status": "dispatch-uncertain"})
+        evidence = [
+            {"kind": "request", "path": request_path, "sha256": request_digest},
+            {"kind": "protocol", "path": f"invocations/{operation_id}/planned.json", "sha256": hashlib.sha256(planned_bytes).hexdigest()},
+            {"kind": "protocol", "path": f"invocations/{operation_id}/dispatch-uncertain.json", "sha256": hashlib.sha256(uncertain_bytes).hexdigest()},
+        ]
+        uncertain = {**attempt, "sequence": 1, "status": "dispatch-uncertain", "evidence": evidence}
+        proposed = {**initial, "revision": 1, "history": [attempt, uncertain], "scope_ref": {}}
+        path = self.repo / ".kapisch/v3/runs" / run_id / "state.json"
+        before = path.read_bytes()
+        planned_path = path.parent / "invocations" / operation_id / "planned.json"
+        planned_path.write_bytes(planned_bytes)
+        request_before = (path.parent / request_path).read_bytes()
+        with self.assertRaisesRegex(ValueError, "scope_ref|schema"):
+            protocol.publish_uncertainty(self.repo, run_id, proposed, 0, operation_id)
+        self.assertEqual(path.read_bytes(), before)
+        self.assertEqual(planned_path.read_bytes(), planned_bytes)
+        self.assertEqual((path.parent / request_path).read_bytes(), request_before)
+        self.assertFalse((path.parent / "invocations" / operation_id / "dispatch-uncertain.json").exists())
+        self.digest = original_digest
+
+    def test_uncertainty_bundle_change_precedes_proposed_snapshot_reads(self) -> None:
+        from unittest.mock import patch
+
+        from kapisch_core import _authority, protocol
+        from kapisch_core.bundle import canonical_json
+        from kapisch_core.storage import store_bundle
+
+        original_digest = self.digest
+        alternate_bundle = json.loads(self.bundle)
+        alternate_bundle["schemas"]["run"]["description"] = "Supported alternate retained legacy bundle."
+        self.digest = store_bundle(self.repo, canonical_json(alternate_bundle))
+        run_id, operation_id = "run-uncertainty-digest-order", "op-00000000000000000000000000000074"
+        _, initial, attempt, packet, request_path, request_digest = self._begin(run_id, operation_id)
+        planned = protocol.reserve_operation(self.repo, run_id, operation_id, attempt["stage_id"], attempt["role"],
+                                             {"path": request_path, "sha256": request_digest}, packet["adapter_binding"])
+        planned_bytes = canonical_json(planned)
+        uncertain_bytes = canonical_json({**planned, "status": "dispatch-uncertain"})
+        evidence = [
+            {"kind": "request", "path": request_path, "sha256": request_digest},
+            {"kind": "protocol", "path": f"invocations/{operation_id}/planned.json", "sha256": hashlib.sha256(planned_bytes).hexdigest()},
+            {"kind": "protocol", "path": f"invocations/{operation_id}/dispatch-uncertain.json", "sha256": hashlib.sha256(uncertain_bytes).hexdigest()},
+        ]
+        uncertain = {**attempt, "sequence": 1, "status": "dispatch-uncertain", "evidence": evidence}
+        proposed = {**initial, "revision": 1, "bundle_digest": original_digest,
+                    "history": [attempt, uncertain], "accepted_snapshot": {
+                        "snapshot_id": "would-open", "path": "snapshots/would-open.json", "sha256": "0" * 64},
+                    "amends": [], "supersedes": []}
+        state_path = self.repo / ".kapisch/v3/runs" / run_id / "state.json"
+        before = state_path.read_bytes()
+        request_file = state_path.parent / request_path
+        request_before = request_file.read_bytes()
+        planned_file = state_path.parent / "invocations" / operation_id / "planned.json"
+        planned_before = planned_file.read_bytes()
+        with (patch.object(_authority, "_validate_snapshot_authority", wraps=_authority._validate_snapshot_authority) as snapshot_reader,
+              patch.object(_authority, "_read_contained", wraps=_authority._read_contained) as contained_reader):
+            with self.assertRaises(ValueError) as raised:
+                protocol.publish_uncertainty(self.repo, run_id, proposed, 0, operation_id)
+        snapshot_reader.assert_not_called()
+        self.assertFalse(any(call.args[2] == "snapshots/would-open.json" for call in contained_reader.call_args_list))
+        self.assertIn("bundle digest", str(raised.exception))
+        self.assertEqual(state_path.read_bytes(), before)
+        self.assertEqual(request_file.read_bytes(), request_before)
+        self.assertEqual(planned_file.read_bytes(), planned_before)
+        self.assertFalse((state_path.parent / "invocations" / operation_id / "dispatch-uncertain.json").exists())
+        self.digest = original_digest
+
+    def test_persist_request_validates_legacy_snapshot_before_copying_inputs(self) -> None:
+        from kapisch_core import protocol
+        from kapisch_core.bundle import canonical_json
+
+        run_id, operation_id = "run-request-snapshot-input-order", "op-00000000000000000000000000000073"
+        snapshot = canonical_json({"protocol_version": 3, "snapshot_id": "snap-input", "decision": "accepted",
+                                  "scope": "task", "dependencies": [], "amends": [], "supersedes": []})
+        snapshot_ref = {"snapshot_id": "snap-input", "path": "snapshots/snap.json",
+                        "sha256": hashlib.sha256(snapshot).hexdigest()}
+        stage = _stage("planned")
+        root = self.repo / ".kapisch/v3/runs" / run_id
+        (root / "snapshots").mkdir(parents=True)
+        (root / "snapshots/snap.json").write_bytes(snapshot)
+        (root / "sources").mkdir()
+        input_bytes = b"input bytes"
+        (root / "sources/input.bin").write_bytes(input_bytes)
+        input_ref = {"path": "sources/input.bin", "sha256": hashlib.sha256(input_bytes).hexdigest()}
+        state = {**self._state(run_id, history=[stage]), "accepted_snapshot": snapshot_ref,
+                 "amends": [], "supersedes": []}
+        protocol.publish_state(self.repo, run_id, state, -1)
+        (root / "snapshots/snap.json").unlink()
+        packet = {"run_id": run_id, "operation_id": operation_id, "stage_id": stage["stage_id"],
+                  "role": stage["role"], "bundle_digest": self.digest, "scope_digest": stage["scope_digest"],
+                  "adapter_binding": {"adapter_id": "fake", "lookup_context": "ctx"},
+                  "accepted_snapshot": snapshot_ref, "amends": [], "supersedes": [], "inputs": [input_ref]}
+        before = (root / "state.json").read_bytes()
+        with self.assertRaisesRegex(ValueError, "accepted snapshot artifact is unavailable"):
+            protocol.persist_request(self.repo, run_id, operation_id, packet)
+        self.assertEqual((root / "state.json").read_bytes(), before)
+        self.assertFalse((root / "requests" / f"{operation_id}.json").exists())
+        self.assertFalse((root / "request-inputs" / operation_id).exists())
+        self.assertFalse((root / "invocations" / operation_id).exists())
+
+    def test_work_scope_refs_reject_unsorted_publication(self) -> None:
+        from kapisch_core.bundle import canonical_json
+        from kapisch_core.protocol import publish_state
+        from kapisch_core.storage import store_bundle
+
+        bundle_digest = store_bundle(
+            self.repo, (ROOT / "core/dist/core-bundle.json").read_bytes()
+        )
+        refs = [
+            {"origin_run_id": "origin\nb", "scope_id": "scope-1", "sha256": "b" * 64},
+            {"origin_run_id": "origin-a", "scope_id": "scope-2", "sha256": "a" * 64},
+        ]
+        ordered = sorted(refs, key=canonical_json)
+        self.assertNotEqual(
+            ordered, sorted(refs, key=lambda ref: ref["origin_run_id"])
+        )
+        unsorted = list(reversed(ordered))
+        state = {
+            **self._state("run-unsorted-work-scopes"),
+            "bundle_digest": bundle_digest,
+            "work_scope_refs": unsorted,
+        }
+
+        with self.assertRaisesRegex(
+            ValueError, "work_scope_refs.*canonical JSON bytes"
+        ):
+            publish_state(self.repo, state["run_id"], state, -1)
+        self.assertFalse(
+            (self.repo / ".kapisch/v3/runs" / state["run_id"] / "state.json").exists()
+        )
+
+    def test_work_scope_refs_reject_unsorted_reload(self) -> None:
+        from kapisch_core.bundle import canonical_json
+        from kapisch_core.protocol import load_state, publish_state
+        from kapisch_core.storage import store_bundle
+
+        bundle_digest = store_bundle(
+            self.repo, (ROOT / "core/dist/core-bundle.json").read_bytes()
+        )
+        refs = [
+            {"origin_run_id": "origin\nb", "scope_id": "scope-1", "sha256": "b" * 64},
+            {"origin_run_id": "origin-a", "scope_id": "scope-2", "sha256": "a" * 64},
+        ]
+        ordered = sorted(refs, key=canonical_json)
+        self.assertNotEqual(
+            ordered, sorted(refs, key=lambda ref: ref["origin_run_id"])
+        )
+        state = {
+            **self._state("run-unsorted-work-scope-reload"),
+            "bundle_digest": bundle_digest,
+            "work_scope_refs": ordered,
+        }
+        publish_state(self.repo, state["run_id"], state, -1)
+
+        state_path = self.repo / ".kapisch/v3/runs" / state["run_id"] / "state.json"
+        state_path.write_bytes(
+            canonical_json({**state, "work_scope_refs": list(reversed(ordered))})
+        )
+        with self.assertRaisesRegex(
+            ValueError, "work_scope_refs.*canonical JSON bytes"
+        ):
+            load_state(self.repo, state["run_id"])
+
+    def test_work_scope_refs_remain_unique_on_publish_and_reload(self) -> None:
+        from kapisch_core.bundle import canonical_json
+        from kapisch_core.protocol import load_state, publish_state
+        from kapisch_core.storage import store_bundle
+
+        bundle_digest = store_bundle(
+            self.repo, (ROOT / "core/dist/core-bundle.json").read_bytes()
+        )
+        reference = {
+            "origin_run_id": "origin-a",
+            "scope_id": "scope-1",
+            "sha256": "a" * 64,
+        }
+        duplicate_state = {
+            **self._state("run-duplicate-work-scopes"),
+            "bundle_digest": bundle_digest,
+            "work_scope_refs": [reference, reference],
+        }
+        with self.assertRaisesRegex(ValueError, "work_scope_refs"):
+            publish_state(
+                self.repo, duplicate_state["run_id"], duplicate_state, -1
+            )
+
+        valid_state = {
+            **self._state("run-duplicate-work-scope-reload"),
+            "bundle_digest": bundle_digest,
+            "work_scope_refs": [reference],
+        }
+        publish_state(self.repo, valid_state["run_id"], valid_state, -1)
+        state_path = (
+            self.repo / ".kapisch/v3/runs" / valid_state["run_id"] / "state.json"
+        )
+        state_path.write_bytes(
+            canonical_json({**valid_state, "work_scope_refs": [reference, reference]})
+        )
+        with self.assertRaisesRegex(ValueError, "work_scope_refs"):
+            load_state(self.repo, valid_state["run_id"])
+
+    def test_global_authority_backlinks_are_structural_only(self) -> None:
+        from kapisch_core.protocol import load_state, publish_state
+        from kapisch_core.storage import store_bundle
+
+        bundle = (ROOT / "core/dist/core-bundle.json").read_bytes()
+        digest = store_bundle(self.repo, bundle)
+        scope = {"origin_run_id": "origin", "scope_id": "scope-1", "sha256": "a" * 64}
+        state = {**self._state("run-structural-backlinks"), "bundle_digest": digest,
+                 "acceptance_ref": {"origin_run_id": "origin", "snapshot_id": "snap-1", "sha256": "b" * 64},
+                 "scope_ref": scope, "work_scope_refs": [scope],
+                 "approved_plan": {"plan_id": "plan-1", "path": "plans/plan.json",
+                                    "plan_sha256": "c" * 64,
+                                    "gate_approval_ref": {"approval_id": "approval-1", "sha256": "d" * 64}}}
+        publish_state(self.repo, state["run_id"], state, -1)
+        self.assertEqual(load_state(self.repo, state["run_id"])["approved_plan"], state["approved_plan"])
+
+    def test_new_contract_reservation_rejects_snapshot_before_snapshot_read(self) -> None:
+        from unittest.mock import patch
+
+        from kapisch_core import _invocation
+        from kapisch_core.bundle import canonical_json
+        from kapisch_core.protocol import publish_state
+        from kapisch_core.storage import store_bundle
+
+        digest = store_bundle(self.repo, (ROOT / "core/dist/core-bundle.json").read_bytes())
+        run_id = "run-reservation-backlink-guard"
+        stage = _stage("planned")
+        state = {**self._state(run_id, history=[stage]), "bundle_digest": digest}
+        operation_id = "op-00000000000000000000000000000072"
+        packet = {"run_id": run_id, "operation_id": operation_id, "stage_id": stage["stage_id"],
+                  "role": stage["role"], "bundle_digest": digest, "scope_digest": stage["scope_digest"],
+                  "adapter_binding": {"adapter_id": "fake", "lookup_context": "ctx"},
+                  "accepted_snapshot": {"snapshot_id": "snap-old", "path": "snapshots/missing.json", "sha256": "0" * 64},
+                  "amends": [], "supersedes": []}
+        request_bytes = canonical_json(packet)
+        request_path = self.repo / ".kapisch/v3/runs" / run_id / "requests" / f"{operation_id}.json"
+        request_path.parent.mkdir(parents=True)
+        request_path.write_bytes(request_bytes)
+        request_digest = hashlib.sha256(request_bytes).hexdigest()
+        fact = {"protocol_version": 3, "operation_id": operation_id, "run_id": run_id,
+                "stage_id": stage["stage_id"], "role": stage["role"], "request_digest": request_digest,
+                "status": "planned", "request": {"path": f"requests/{operation_id}.json", "sha256": request_digest},
+                "adapter_binding": packet["adapter_binding"]}
+        fact_bytes = canonical_json(fact)
+        planned_path = self.repo / ".kapisch/v3/runs" / run_id / "invocations" / operation_id / "planned.json"
+        planned_path.parent.mkdir(parents=True)
+        planned_path.write_bytes(fact_bytes)
+        stage["evidence"] = [{"kind": "protocol", "path": f"invocations/{operation_id}/planned.json",
+                              "sha256": hashlib.sha256(fact_bytes).hexdigest()}]
+        state["history"] = [stage]
+        publish_state(self.repo, run_id, state, -1)
+        from kapisch_core.validation import validate_run
+        with patch("kapisch_core._invocation._validate_snapshot_authority") as snapshot_reader:
+            errors = validate_run(self.repo, run_id)
+            self.assertTrue(any(error.code == "unsupported-gate" for error in errors), errors)
+            with self.assertRaisesRegex(ValueError, "unsupported-gate"):
+                _invocation._validate_reservation(self.repo, run_id, operation_id, fact,
+                                                  validate_current_authority=False)
+        snapshot_reader.assert_not_called()
+
+    def test_new_contract_snapshot_backlinks_are_not_opened_as_authority(self) -> None:
+        from unittest.mock import patch
+
+        from kapisch_core._authority import _validate_state_snapshot
+        from kapisch_core.storage import load_bundle
+
+        bundle_bytes = (ROOT / "core/dist/core-bundle.json").read_bytes()
+        digest = hashlib.sha256(bundle_bytes).hexdigest()
+        from kapisch_core.storage import store_bundle
+        store_bundle(self.repo, bundle_bytes)
+        state = {**self._state("run-backlink"), "bundle_digest": digest,
+                 "accepted_snapshot": {"snapshot_id": "snap-old", "path": "snapshots/old.json", "sha256": "0" * 64},
+                 "amends": [], "supersedes": []}
+        with patch("kapisch_core._authority._validate_snapshot_authority") as validate:
+            _validate_state_snapshot(self.repo, "run-backlink", state, load_bundle(self.repo, digest))
+        validate.assert_not_called()
+
+    def test_existing_state_cannot_change_retained_bundle(self) -> None:
+        from kapisch_core.protocol import load_state, publish_state
+        run_id = "run-no-bundle-upgrade"
+        state = self._state(run_id)
+        publish_state(self.repo, run_id, state, -1)
+        path = self.repo / ".kapisch/v3/runs" / run_id / "state.json"
+        original = path.read_bytes()
+        changed = {**state, "revision": 1, "bundle_digest": "f" * 64}
+        with self.assertRaises(ValueError):
+            publish_state(self.repo, run_id, changed, 0)
+        self.assertEqual(path.read_bytes(), original)
+        self.assertEqual(load_state(self.repo, run_id)["bundle_digest"], self.digest)
 
     def test_graphfree_request_binds_existing_approved_plan_through_uncertainty(self) -> None:
         from kapisch_core import protocol
@@ -747,6 +1050,7 @@ class ProtocolTests(unittest.TestCase):
     def test_request_publication_serializes_with_run_state_writer(self) -> None:
         import threading
         from unittest.mock import patch
+
         from kapisch_core import protocol
 
         run_id = "run-step-one-lock"
@@ -804,6 +1108,7 @@ class ProtocolTests(unittest.TestCase):
 
     def test_step_one_failure_before_publication_leaves_no_request(self) -> None:
         from unittest.mock import patch
+
         from kapisch_core import protocol
 
         run_id = "run-request-before"
@@ -871,18 +1176,13 @@ class ProtocolTests(unittest.TestCase):
 
         with patch.object(_invocation, "_publish_immutable", side_effect=publish_then_lose_ack):
             with self.assertRaisesRegex(OSError, "acknowledgment lost"):
-                protocol.persist_request(
-                    self.repo, "run-request-orphan", operation_id,
-                    {"run_id": "run-request-orphan", "operation_id": operation_id,
-                     "stage_id": "s-00000000000000000000000000000001", "role": "implementer",
-                     "bundle_digest": self.digest, "scope_digest": "0" * 64,
-                     "adapter_binding": {"adapter_id": "fake", "lookup_context": "ctx-1"}},
-                )
+                protocol.persist_request(self.repo, run_id, operation_id, packet)
         self.assertTrue(request.is_file())
         self.assertFalse((self.repo / ".kapisch/v3/runs/run-request-orphan/invocations").exists())
 
     def test_published_invocation_facts_match_closed_schema(self) -> None:
         import json
+
         from kapisch_core.bundle import canonical_json
 
         operation_id = "op-00000000000000000000000000000011"
@@ -932,6 +1232,7 @@ class ProtocolTests(unittest.TestCase):
 
     def test_step_one_input_publication_failure_precedes_request_and_reservation(self) -> None:
         from unittest.mock import patch
+
         from kapisch_core import protocol
 
         run_id, operation_id = "run-input-publication-failure", "op-00000000000000000000000000000020"
@@ -980,6 +1281,7 @@ class ProtocolTests(unittest.TestCase):
     def test_read_contained_closes_intermediate_directory_after_later_failure(self) -> None:
         import os
         from unittest.mock import patch
+
         from kapisch_core import protocol, storage
 
         run_id = "run-contained-descriptor-cleanup"
@@ -1061,6 +1363,7 @@ class ProtocolTests(unittest.TestCase):
     def test_retry_resyncs_authority_directories_after_creation_ack_loss(self) -> None:
         import os
         from unittest.mock import patch
+
         from kapisch_core import protocol, storage
 
         def assert_retry_syncs_directory_entry(parent_path: Path, action) -> None:
@@ -1216,7 +1519,7 @@ class ProtocolTests(unittest.TestCase):
     def test_reservation_detaches_request_reference_before_validation(self) -> None:
         from contextlib import contextmanager
         from unittest.mock import patch
-        from kapisch_core import protocol
+
         from kapisch_core.bundle import canonical_json
 
         run_id = "run-reservation-input-snapshot-request"
@@ -1247,6 +1550,7 @@ class ProtocolTests(unittest.TestCase):
     def test_reservation_detaches_adapter_binding_before_validation(self) -> None:
         from contextlib import contextmanager
         from unittest.mock import patch
+
         from kapisch_core import protocol
 
         run_id = "run-reservation-input-snapshot-adapter"
@@ -1410,6 +1714,7 @@ class ProtocolTests(unittest.TestCase):
 
     def test_state_publish_failure_retains_reserved_operation_and_uncertainty(self) -> None:
         from unittest.mock import patch
+
         from kapisch_core import protocol
         from kapisch_core.bundle import canonical_json
 

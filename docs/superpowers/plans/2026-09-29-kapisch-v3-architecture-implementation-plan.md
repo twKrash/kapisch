@@ -604,9 +604,10 @@ Do not implement Stage 7 behavior now.
 
 **Remaining execution risks requiring proof, not exceptions:** Codex Git-backed plugin installation may not install Python wheels; Stage 8 must prove supported strategy A or B in an isolated plugin activation or cutover blocks. Pi host-enforced write denial/tool isolation might be unavailable; mark Pi findings-only and seek explicit release-scope decision rather than fake authoritative parity. Host-observed inbound-human origin may not be exposed; block gates or require explicitly externally supplied byte-bound artifact input, without claiming filesystem authorship proof. Cross-platform Git path/mode/submodule behavior may need an explicit blocked category, never guessed authority. A pinned v2 maintenance distribution must be authorized and verified before deleting v3-tree legacy readers; if unavailable, cutover stops at Stage 11.
 
-## Proposed Task 5 global authority amendment — DRAFT
+## Proposed Task 5 global authority amendment — APPROVED
 
-**Status:** Draft for independent review and explicit user approval; not implementation authorization. This plan amendment implements proposed spec §30 only after that contract and this schema ownership map are approved. Until then, existing Stage 5.3 blocker remains binding and no production/schema/bundle changes are authorized.
+**Status: APPROVED — explicit user approval confirmed on 2026-10-03.** The user confirmed that this amendment and its ownership map were already approved and merged into `main`; this note records that approval. Implementation of revised Stage 5 tasks 5.3a–5.5 is authorized under this contract. The scope, producers, stop boundaries, and compatibility requirements below remain binding.
+
 
 ### Scope and ownership changes
 
@@ -657,4 +658,4 @@ Preserve completed 5.1/5.2 as historical work. Their old receipt fixtures remain
 - Producer-run deletion, archive or valid-prefix rollback leaves surviving global acceptance discoverable and governing if currently active. Missing/changed cited evidence blocks; unreferenced selective deletion/coherent store rollback remain outside the stated fault model. No index/journal is required; discard/rebuild any in-memory cache and compare exact output.
 - `git diff --check` and Markdown/schema ownership consistency checks pass; no production tests/CI or bundle generation occur in this draft-only task.
 
-**Implementation stop gates:** Do not begin Stage 5.3 implementation until standalone architecture review of this amended spec/plan finds no in-scope blockers and the user approves that reviewed contract. The reviewer result is findings-only and grants no implementation authority.
+**Implementation authorization:** The user confirmed this amended Stage 5 contract and ownership map were already approved and merged into `main`; approval is recorded above and in spec §30.6. Stage 5.3a implementation is authorized under this plan. The reviewer result remains findings-only and grants no authority beyond the user's approval.

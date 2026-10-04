@@ -77,7 +77,7 @@ def _inventory(repo: Path, run_id: str, state: Mapping[str, Any], bundle: CoreBu
         try:
             loaded = _read_invocation_inventory(invocations)
             inventory = _validate_inventory_operations(repo, run_id, loaded, authority, bundle, history_index)
-            _validate_uncertain_history(history, authority, inventory)
+            _validate_uncertain_history(history, authority, inventory, bundle)
         finally:
             os.close(invocations)
     finally:
@@ -193,7 +193,7 @@ def _validate_planned_fact(fact: Mapping[str, Any], digest: str, relative: str,
             or packet.get("scope_digest") != attempt["scope_digest"]
             or packet.get("node_id") != attempt.get("node_id")):
         raise ValueError("operation reservation scope, node, or bundle binding mismatch")
-    _validate_packet_authority(packet, authority, attempt)
+    _validate_packet_authority(packet, authority, attempt, bundle)
     _validate_fact_identity_and_producer(fact, relative, operation_id, run_id, index)
 
 
@@ -256,14 +256,14 @@ def _validate_observation_chronology(fact: Mapping[str, Any], filename: str, rel
 
 
 def _validate_uncertain_history(history: Sequence[Mapping[str, Any]], authority: Mapping[str, Any],
-                                inventory: Mapping[str, _OperationInventory]) -> None:
+                                inventory: Mapping[str, _OperationInventory], bundle: CoreBundle) -> None:
     for row in history:
         if row["status"] == "dispatch-uncertain":
-            _validate_uncertain_observation(row, authority, inventory)
+            _validate_uncertain_observation(row, authority, inventory, bundle)
 
 
 def _validate_uncertain_observation(row: Mapping[str, Any], authority: Mapping[str, Any],
-                                    inventory: Mapping[str, _OperationInventory]) -> None:
+                                    inventory: Mapping[str, _OperationInventory], bundle: CoreBundle) -> None:
     evidence = {ref["path"]: ref["sha256"] for ref in row["evidence"]}
     reservations = [path for path in evidence
                     if re.fullmatch(r"invocations/op-[0-9a-f]{32}/planned\.json", path)]
@@ -276,7 +276,7 @@ def _validate_uncertain_observation(row: Mapping[str, Any], authority: Mapping[s
     packet = operation.packet
     if planned["stage_id"] != row["stage_id"] or planned["role"] != row["role"]:
         raise ValueError("uncertain history cites another attempt's reservation")
-    _validate_packet_authority(packet, authority, row)
+    _validate_packet_authority(packet, authority, row, bundle)
     uncertain_path = f"invocations/{operation_id}/dispatch-uncertain.json"
     uncertain, uncertain_digest = operation.facts["dispatch-uncertain.json"]
     required_refs = {
