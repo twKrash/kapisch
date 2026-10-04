@@ -42,7 +42,7 @@ def _verify_non_directory(parentfd, name):
         current = os.stat(name, dir_fd=parentfd, follow_symlinks=False)
     except OSError as e:
         raise RepositoryCaptureError("parent replaced") from e
-    if not stat.S_ISREG(observed.st_mode):
+    if stat.S_IFMT(observed.st_mode) not in (stat.S_IFREG, stat.S_IFLNK):
         raise RepositoryCaptureError("unsafe path traversal")
     if not _same(observed, current):
         raise RepositoryCaptureError("parent replaced")
@@ -61,7 +61,7 @@ def _walk(rootfd, path):
                     dir_fd=fd,
                 )
             except OSError as e:
-                if e.errno not in (errno.ENOENT, errno.ENOTDIR):
+                if e.errno not in (errno.ENOENT, errno.ENOTDIR, errno.ELOOP):
                     raise RepositoryCaptureError("unsafe path traversal") from e
                 check = os.dup(rootfd)
                 try:
@@ -87,13 +87,20 @@ def _walk(rootfd, path):
                         )
                         os.close(probe)
                     except OSError as missing:
-                        if e.errno == errno.ENOTDIR and missing.errno == errno.ENOTDIR:
-                            _verify_non_directory(check, part)
+                        if (
+                            e.errno in (errno.ENOTDIR, errno.ELOOP)
+                            and missing.errno in (errno.ENOTDIR, errno.ELOOP)
+                        ):
+                            verify_blocker = _verify_non_directory
+                        else:
+                            verify_blocker = None
+                        if verify_blocker is not None:
+                            verify_blocker(check, part)
                             current_parent = _open_verified_chain(
                                 rootfd, parts[:index], seen
                             )
                             try:
-                                _verify_non_directory(current_parent, part)
+                                verify_blocker(current_parent, part)
                             finally:
                                 os.close(current_parent)
                             os.close(fd)

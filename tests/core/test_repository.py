@@ -245,6 +245,22 @@ class RepositoryGitCaptureTests(unittest.TestCase):
                 self.root, capture_index(self.root), (b"included",)
             )
 
+    def test_worktree_treats_symlink_parent_as_tracked_deletion(self):
+        nested = self.root / "dir"
+        nested.mkdir()
+        (nested / "child").write_bytes(b"child")
+        self.git("add", "dir")
+        self.git("commit", "-qm", "nested")
+        (nested / "child").unlink()
+        nested.rmdir()
+        os.symlink("nowhere", nested)
+
+        state = capture_worktree(self.root, capture_index(self.root))
+        tracked = {entry.path: entry for entry in state.worktree}
+        self.assertEqual(tracked[b"dir/child"].kind, "deletion")
+        untracked = {entry.path: entry for entry in state.untracked}
+        self.assertFalse(untracked[b"dir"].included)
+
     def test_worktree_modes_deletions_and_unincluded_inventory(self):
         self.git("update-index", "--chmod=+x", "--", "tracked")
         os.chmod(self.root / "tracked", 0o755)
