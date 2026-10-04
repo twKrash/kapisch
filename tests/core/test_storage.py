@@ -27,6 +27,56 @@ def _bundles() -> tuple[bytes, bytes]:
 
 
 class StorageTests(unittest.TestCase):
+    def test_authority_listing_missing_ancestors_propagate_and_close_descriptors(
+        self,
+    ):
+        from kapisch_core.storage import load_authority_records
+
+        for parent in (".", ".kapisch", ".kapisch/v3"):
+            with (
+                self.subTest(parent=parent),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                repo = Path(directory)
+                (repo / parent).mkdir(parents=True, exist_ok=True)
+                with patch("kapisch_core.storage.os.close", wraps=os.close) as close:
+                    with self.assertRaises(FileNotFoundError):
+                        load_authority_records(repo, "acceptances")
+                self.assertEqual(close.call_count, len(Path(parent).parts) + 1)
+
+    def test_authority_listing_missing_leaf_is_empty_and_closes_descriptors(
+        self,
+    ):
+        from kapisch_core.storage import load_authority_records
+
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            (repo / ".kapisch/v3/authority").mkdir(parents=True)
+            with patch("kapisch_core.storage.os.close", wraps=os.close) as close:
+                self.assertEqual(load_authority_records(repo, "acceptances"), [])
+            self.assertEqual(close.call_count, 4)
+
+    def test_authority_listing_rejects_symlinked_components(self):
+        from kapisch_core.storage import load_authority_records
+
+        for component in (".kapisch", "v3", "authority", "acceptances"):
+            with (
+                self.subTest(component=component),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                repo = Path(directory) / "repo"
+                external = Path(directory) / "external"
+                repo.mkdir()
+                external.mkdir()
+                parts = [".kapisch", "v3", "authority", "acceptances"]
+                leaf = repo.joinpath(*parts[: parts.index(component) + 1])
+                leaf.parent.mkdir(parents=True, exist_ok=True)
+                leaf.symlink_to(external, target_is_directory=True)
+                with patch("kapisch_core.storage.os.close", wraps=os.close) as close:
+                    with self.assertRaises(OSError):
+                        load_authority_records(repo, "acceptances")
+                self.assertEqual(close.call_count, parts.index(component) + 1)
+
     def test_authority_records_are_no_replace_and_exact_retry_is_idempotent(
         self,
     ) -> None:

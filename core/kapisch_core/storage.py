@@ -287,11 +287,13 @@ def load_authority_records(repo: Path, namespace: str) -> list[tuple[str, bytes]
         raise OSError(
             "safe descriptor-relative authority listing is unsupported on this platform"
         )
+    parent, opened = _open_tree(Path(repo), "authority", create=False)
     try:
-        directory, opened = _open_tree(Path(repo), "authority", namespace, create=False)
-    except FileNotFoundError:
-        return []
-    try:
+        try:
+            directory = _open_dir(parent, namespace)
+        except FileNotFoundError:
+            return []
+        opened.append(directory)
         records = []
         for name in sorted(os.listdir(directory)):
             if not name.endswith(".json"):

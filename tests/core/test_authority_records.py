@@ -557,11 +557,123 @@ class AuthorityCensusTests(unittest.TestCase):
                 active_authority(self.fixture.repo, scope)
             self.assertEqual(read_file.call_count, 2)
 
+    def test_census_waits_for_repository_lock_before_reading_scope(self):
+        import threading
+        from unittest.mock import patch
+
+        from kapisch_core import _locking
+        from kapisch_core._authority_records import load_proposed_scope
+
+        scope = propose_scope(
+            self.fixture.repo, "consumer", "work", "work", {"mode": "all"}
+        )
+        attempted = threading.Event()
+        read_started = threading.Event()
+        results = []
+        errors = []
+        original_acquire = _locking._acquire_lock
+
+        def acquire(fd):
+            attempted.set()
+            original_acquire(fd)
+
+        def read(*args):
+            read_started.set()
+            return load_proposed_scope(*args)
+
+        def census():
+            try:
+                results.append(active_authority(self.fixture.repo, scope))
+            except BaseException as error:
+                errors.append(error)
+
+        with patch.object(_locking, "_acquire_lock", side_effect=acquire), patch(
+            "kapisch_core._authority_records.load_proposed_scope", side_effect=read
+        ):
+            try:
+                with _locking._locked(self.fixture.repo):
+                    attempted.clear()
+                    thread = threading.Thread(target=census, daemon=True)
+                    thread.start()
+                    self.assertTrue(attempted.wait(2), "census did not acquire lock")
+                    self.assertFalse(read_started.wait(0.1))
+            finally:
+                thread.join(2)
+        self.assertFalse(thread.is_alive())
+        self.assertTrue(read_started.is_set())
+        self.assertEqual(errors, [])
+        self.assertEqual(results, [()])
+
+    def test_already_locked_census_core_does_not_reacquire_lock(self):
+        from unittest.mock import patch
+
+        from kapisch_core._authority_census import _active_authority_locked
+        from kapisch_core._locking import _locked
+
+        scope = propose_scope(
+            self.fixture.repo, "consumer", "work", "work", {"mode": "all"}
+        )
+        with _locked(self.fixture.repo), patch(
+            "kapisch_core._authority_census._locked",
+            side_effect=AssertionError("nested repository lock"),
+        ):
+            self.assertEqual(_active_authority_locked(self.fixture.repo, scope), ())
+
     def test_missing_acceptance_namespace_is_empty_census(self):
         scope = propose_scope(
             self.fixture.repo, "consumer", "work", "work", {"mode": "all"}
         )
         self.assertEqual(active_authority(self.fixture.repo, scope), ())
+
+    def test_deeply_nested_acceptance_is_malformed(self):
+        from kapisch_core._authority_records import _load_acceptances
+
+        depth = sys.getrecursionlimit() + 100
+        data = (
+            b'{"acceptance_contract":"global-authority/1","origin_run_id":"run-1",'
+            b'"snapshot_id":"nested","gate_approval_ref":'
+            + b"[" * depth + b"0" + b"]" * depth + b"}"
+        )
+        store_authority_record(self.fixture.repo, "acceptances", "a" * 64, data)
+        with self.assertRaisesRegex(
+            ValueError, "acceptance record (is malformed|has invalid canonical shape)"
+        ):
+            _load_acceptances(self.fixture.repo)
+
+    def test_acceptance_decoder_recursion_is_malformed(self):
+        from unittest.mock import patch
+
+        from kapisch_core._authority_records import _load_acceptances
+
+        store_authority_record(self.fixture.repo, "acceptances", "a" * 64, b"{}")
+        with patch(
+            "kapisch_core._authority_records.json.loads",
+            side_effect=RecursionError("decoder nesting"),
+        ):
+            with self.assertRaisesRegex(ValueError, "acceptance record is malformed"):
+                _load_acceptances(self.fixture.repo)
+
+    def test_acceptance_canonical_recursion_is_malformed(self):
+        from unittest.mock import patch
+
+        from kapisch_core._authority_records import _load_acceptances
+
+        record = {
+            "acceptance_contract": "global-authority/1",
+            "origin_run_id": "run-1",
+            "snapshot_id": "nested",
+            "gate_approval_ref": {},
+        }
+        store_authority_record(
+            self.fixture.repo, "acceptances", "a" * 64, canonical_json(record)
+        )
+        # Force the operation's failure independently of runtime nesting limits.
+        with patch(
+            "kapisch_core._authority_records.canonical_json",
+            side_effect=RecursionError("canonical nesting"),
+        ):
+            with self.assertRaisesRegex(ValueError, "acceptance record is malformed"):
+                _load_acceptances(self.fixture.repo)
 
     def test_invalid_unmatched_acceptance_blocks_filtering(self):
         scope = propose_scope(

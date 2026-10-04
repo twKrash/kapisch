@@ -38,25 +38,25 @@ def _load_acceptances(repo: Path) -> tuple[_Acceptance, ...]:
     for identity, data in records:
         try:
             record = json.loads(data.decode("utf-8"), object_pairs_hook=_unique_pairs)
-        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            if (
+                type(record) is not dict
+                or set(record)
+                != {
+                    "acceptance_contract",
+                    "origin_run_id",
+                    "snapshot_id",
+                    "gate_approval_ref",
+                }
+                or record["acceptance_contract"] != "global-authority/1"
+                or type(record["origin_run_id"]) is not str
+                or not record["origin_run_id"]
+                or type(record["snapshot_id"]) is not str
+                or not record["snapshot_id"]
+                or canonical_json(record) != data
+            ):
+                raise ValueError("acceptance record has invalid canonical shape")
+        except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as error:
             raise ValueError("acceptance record is malformed") from error
-        if (
-            type(record) is not dict
-            or set(record)
-            != {
-                "acceptance_contract",
-                "origin_run_id",
-                "snapshot_id",
-                "gate_approval_ref",
-            }
-            or record["acceptance_contract"] != "global-authority/1"
-            or type(record["origin_run_id"]) is not str
-            or not record["origin_run_id"]
-            or type(record["snapshot_id"]) is not str
-            or not record["snapshot_id"]
-            or canonical_json(record) != data
-        ):
-            raise ValueError("acceptance record has invalid canonical shape")
         record_identity = hashlib.sha256(
             canonical_json(
                 {
