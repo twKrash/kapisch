@@ -36,25 +36,71 @@ _POLICY_IDS = (
     "risk",
 )
 _LEGACY_SCHEMA_IDS = (
-    "approval", "bundle", "invocation", "repository-state", "run", "snapshot", "stage",
+    "approval",
+    "bundle",
+    "invocation",
+    "repository-state",
+    "run",
+    "snapshot",
+    "stage",
 )
 _SCHEMA_IDS = (
-    "approval", "bundle", "human-action", "invocation", "repository-state",
-    "run", "scope", "snapshot", "stage",
+    "approval",
+    "bundle",
+    "human-action",
+    "invocation",
+    "repository-state",
+    "run",
+    "scope",
+    "snapshot",
+    "stage",
 )
-_SCHEMA_TYPES = frozenset({"array", "boolean", "integer", "null", "number", "object", "string"})
+_SCHEMA_TYPES = frozenset(
+    {"array", "boolean", "integer", "null", "number", "object", "string"}
+)
 _SCHEMA_KEYWORDS = frozenset(
     {
-        "$defs", "$id", "$ref", "$schema", "additionalProperties", "allOf", "anyOf",
-        "const", "description", "enum", "format", "if", "items", "maximum", "minimum",
-        "minLength", "minItems", "not", "oneOf", "pattern", "properties", "required", "then", "title",
-        "type", "uniqueItems",
+        "$defs",
+        "$id",
+        "$ref",
+        "$schema",
+        "additionalProperties",
+        "allOf",
+        "anyOf",
+        "const",
+        "description",
+        "enum",
+        "format",
+        "if",
+        "items",
+        "maximum",
+        "minimum",
+        "minLength",
+        "minItems",
+        "not",
+        "oneOf",
+        "pattern",
+        "properties",
+        "required",
+        "then",
+        "title",
+        "type",
+        "uniqueItems",
     }
 )
+
+
 def canonical_json(value: Any) -> bytes:
-    return json.dumps(
-        value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
-    ).encode("utf-8") + b"\n"
+    return (
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+        + b"\n"
+    )
 
 
 def _pairs_no_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -79,7 +125,9 @@ def _source_text(path: Path) -> str:
     except UnicodeDecodeError as error:
         raise ValueError(f"contract is not UTF-8: {path}") from error
     if "\r" in text or not text.strip() or not text.endswith("\n"):
-        raise ValueError(f"contract must be non-empty LF UTF-8 ending in newline: {path}")
+        raise ValueError(
+            f"contract must be non-empty LF UTF-8 ending in newline: {path}"
+        )
     return text
 
 
@@ -103,7 +151,10 @@ def _enum_values(enum_type: type[Enum]) -> list[str]:
 
 def _contract_entry(path: Path) -> dict[str, str]:
     contract = _source_text(path)
-    return {"contract": contract, "sha256": hashlib.sha256(contract.encode("utf-8")).hexdigest()}
+    return {
+        "contract": contract,
+        "sha256": hashlib.sha256(contract.encode("utf-8")).hexdigest(),
+    }
 
 
 def _workflow_entry(path: Path, workflow_id: str) -> dict[str, Any]:
@@ -128,7 +179,9 @@ def _workflow_entry(path: Path, workflow_id: str) -> dict[str, Any]:
         values = metadata[field]
         if (
             not isinstance(values, list)
-            or any(not isinstance(value, str) or value not in allowed for value in values)
+            or any(
+                not isinstance(value, str) or value not in allowed for value in values
+            )
             or len(values) != len(set(values))
         ):
             raise ValueError(f"invalid workflow {field} metadata: {path}")
@@ -144,7 +197,9 @@ def _workflow_entry(path: Path, workflow_id: str) -> dict[str, Any]:
     }
 
 
-def _require_sources(directory: Path, suffix: str, expected_ids: tuple[str, ...]) -> None:
+def _require_sources(
+    directory: Path, suffix: str, expected_ids: tuple[str, ...]
+) -> None:
     expected = {f"{name}{suffix}" for name in expected_ids}
     actual = {path.name for path in directory.glob(f"*{suffix}") if path.is_file()}
     if actual != expected:
@@ -163,7 +218,9 @@ def _validate_schema_set(schemas: Mapping[str, Any]) -> None:
             or schema.get("$id") != expected_id
             or schema.get("$schema") != "https://json-schema.org/draft/2020-12/schema"
         ):
-            raise ValueError(f"CoreBundle contains an invalid or non-v3 authority schema: {name}")
+            raise ValueError(
+                f"CoreBundle contains an invalid or non-v3 authority schema: {name}"
+            )
         by_id[expected_id] = schema
 
     def resolve_pointer(target: Any, pointer: str, label: str) -> Any:
@@ -179,7 +236,9 @@ def _validate_schema_set(schemas: Mapping[str, Any]) -> None:
                 try:
                     index = int(segment)
                 except ValueError as error:
-                    raise ValueError(f"unresolved JSON Schema reference: {label}") from error
+                    raise ValueError(
+                        f"unresolved JSON Schema reference: {label}"
+                    ) from error
                 if index < 0 or index >= len(target) or str(index) != segment:
                     raise ValueError(f"unresolved JSON Schema reference: {label}")
                 target = target[index]
@@ -200,17 +259,35 @@ def _validate_schema_set(schemas: Mapping[str, Any]) -> None:
         checked.add(identity)
         unknown = set(node) - _SCHEMA_KEYWORDS
         if unknown:
-            raise ValueError(f"unsupported JSON Schema keyword in {label}: {sorted(unknown)[0]}")
-        for key in ("$id", "$ref", "$schema", "description", "format", "title", "pattern"):
+            raise ValueError(
+                f"unsupported JSON Schema keyword in {label}: {sorted(unknown)[0]}"
+            )
+        for key in (
+            "$id",
+            "$ref",
+            "$schema",
+            "description",
+            "format",
+            "title",
+            "pattern",
+        ):
             if key in node and not isinstance(node[key], str):
                 raise ValueError(f"invalid JSON Schema {key}: {label}")
-        if "$schema" in node and node["$schema"] != "https://json-schema.org/draft/2020-12/schema":
+        if (
+            "$schema" in node
+            and node["$schema"] != "https://json-schema.org/draft/2020-12/schema"
+        ):
             raise ValueError(f"unsupported JSON Schema dialect: {label}")
         if "type" in node:
             types = node["type"] if isinstance(node["type"], list) else [node["type"]]
-            if not types or any(
-                not isinstance(value, str) or value not in _SCHEMA_TYPES for value in types
-            ) or len(set(types)) != len(types):
+            if (
+                not types
+                or any(
+                    not isinstance(value, str) or value not in _SCHEMA_TYPES
+                    for value in types
+                )
+                or len(set(types)) != len(types)
+            ):
                 raise ValueError(f"invalid JSON Schema type: {label}")
         if "required" in node and (
             not isinstance(node["required"], list)
@@ -226,7 +303,9 @@ def _validate_schema_set(schemas: Mapping[str, Any]) -> None:
             except re.error as error:
                 raise ValueError(f"invalid JSON Schema pattern: {label}") from error
         for key in ("minimum", "maximum"):
-            if key in node and (isinstance(node[key], bool) or not isinstance(node[key], (int, float))):
+            if key in node and (
+                isinstance(node[key], bool) or not isinstance(node[key], (int, float))
+            ):
                 raise ValueError(f"invalid JSON Schema {key}: {label}")
         if "minLength" in node and (
             isinstance(node["minLength"], bool)
@@ -264,10 +343,18 @@ def _validate_schema_set(schemas: Mapping[str, Any]) -> None:
             schema_id, marker, fragment = reference.partition("#")
             reference_root = root if not schema_id else by_id.get(schema_id)
             if reference_root is None:
-                raise ValueError(f"unresolved JSON Schema reference: {label}: {reference}")
-            target = resolve_pointer(reference_root, fragment, f"{label}: {reference}") if marker else reference_root
+                raise ValueError(
+                    f"unresolved JSON Schema reference: {label}: {reference}"
+                )
+            target = (
+                resolve_pointer(reference_root, fragment, f"{label}: {reference}")
+                if marker
+                else reference_root
+            )
             if not isinstance(target, (dict, bool)):
-                raise ValueError(f"JSON Schema reference does not identify a schema: {label}: {reference}")
+                raise ValueError(
+                    f"JSON Schema reference does not identify a schema: {label}: {reference}"
+                )
             check_schema(target, reference_root, f"{label}: {reference}")
 
     for name, schema in schemas.items():
@@ -282,13 +369,16 @@ def compile_bundle(source_root: Path) -> bytes:
     _require_sources(contracts / "policy", ".md", _POLICY_IDS)
     schema_names = _SCHEMA_IDS
     _require_sources(root / "schemas/v3", ".json", schema_names)
-    roles = {name: _contract_entry(contracts / "roles" / f"{name}.md") for name in _ROLE_IDS}
+    roles = {
+        name: _contract_entry(contracts / "roles" / f"{name}.md") for name in _ROLE_IDS
+    }
     workflows = {
         name: _workflow_entry(contracts / "workflows" / f"{name}.md", name)
         for name in _WORKFLOW_IDS
     }
     policies = {
-        name: _contract_entry(contracts / "policy" / f"{name}.md") for name in _POLICY_IDS
+        name: _contract_entry(contracts / "policy" / f"{name}.md")
+        for name in _POLICY_IDS
     }
     controller_instructions = _source_text(contracts / "controller.md")
     schemas: dict[str, Any] = {}
@@ -344,9 +434,21 @@ def verify_bundle(data: bytes, digest: str) -> CoreBundle:
     if not isinstance(payload, dict) or payload.get("protocol_version") != 3:
         raise ValueError("invalid CoreBundle v3 top-level fields or protocol version")
     schemas_value = payload.get("schemas")
-    legacy = isinstance(schemas_value, dict) and set(schemas_value) == set(_LEGACY_SCHEMA_IDS)
+    legacy = isinstance(schemas_value, dict) and set(schemas_value) == set(
+        _LEGACY_SCHEMA_IDS
+    )
     new = isinstance(schemas_value, dict) and set(schemas_value) == set(_SCHEMA_IDS)
-    if (legacy and set(payload) != required) or (new and (set(payload) != required | {"authority_contract"} or payload.get("authority_contract") != "global-authority/1")) or not (legacy or new):
+    if (
+        (legacy and set(payload) != required)
+        or (
+            new
+            and (
+                set(payload) != required | {"authority_contract"}
+                or payload.get("authority_contract") != "global-authority/1"
+            )
+        )
+        or not (legacy or new)
+    ):
         raise ValueError("CoreBundle schema set and authority contract do not match")
     groups = ("vocabulary", "roles", "workflows", "policies", "schemas")
     if any(not isinstance(payload[name], dict) for name in groups):
@@ -374,11 +476,17 @@ def verify_bundle(data: bytes, digest: str) -> CoreBundle:
     }
     if payload["vocabulary"] != expected_vocabulary:
         raise ValueError("CoreBundle vocabulary differs from core protocol types")
-    if not isinstance(payload["controller_instructions"], str) or not payload["controller_instructions"].strip():
+    if (
+        not isinstance(payload["controller_instructions"], str)
+        or not payload["controller_instructions"].strip()
+    ):
         raise ValueError("CoreBundle controller instructions are missing")
     for group_name in ("roles", "policies"):
         for name, contract in payload[group_name].items():
-            if not isinstance(contract, dict) or set(contract) != {"contract", "sha256"}:
+            if not isinstance(contract, dict) or set(contract) != {
+                "contract",
+                "sha256",
+            }:
                 raise ValueError(f"invalid {group_name} contract: {name}")
             text = contract["contract"]
             if not isinstance(text, str) or not text.strip():
@@ -386,7 +494,14 @@ def verify_bundle(data: bytes, digest: str) -> CoreBundle:
             if hashlib.sha256(text.encode("utf-8")).hexdigest() != contract["sha256"]:
                 raise ValueError(f"contract digest mismatch: {name}")
     for name, workflow in payload["workflows"].items():
-        expected_workflow_fields = {"metadata_scope", "stages", "gates", "review_scopes", "contract", "sha256"}
+        expected_workflow_fields = {
+            "metadata_scope",
+            "stages",
+            "gates",
+            "review_scopes",
+            "contract",
+            "sha256",
+        }
         if not isinstance(workflow, dict) or set(workflow) != expected_workflow_fields:
             raise ValueError(f"invalid workflow metadata: {name}")
         if workflow["metadata_scope"] != "workflow-specific":
@@ -400,7 +515,10 @@ def verify_bundle(data: bytes, digest: str) -> CoreBundle:
             values = workflow[field]
             if (
                 not isinstance(values, list)
-                or any(not isinstance(value, str) or value not in allowed for value in values)
+                or any(
+                    not isinstance(value, str) or value not in allowed
+                    for value in values
+                )
                 or len(values) != len(set(values))
             ):
                 raise ValueError(f"invalid workflow {field} metadata: {name}")

@@ -39,7 +39,10 @@ class CapabilityClaims:
             raise ValueError("each capability effect may have one claim")
 
     def status_for(self, effect: CapabilityEffect) -> CapabilityStatus:
-        return next((claim.status for claim in self.claims if claim.effect is effect), CapabilityStatus.UNKNOWN)
+        return next(
+            (claim.status for claim in self.claims if claim.effect is effect),
+            CapabilityStatus.UNKNOWN,
+        )
 
 
 __all__ = ["CapabilityClaim", "CapabilityClaims", "CapabilityStatus"]

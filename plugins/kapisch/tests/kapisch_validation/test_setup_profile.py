@@ -1,20 +1,19 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import os
 import shutil
 import subprocess
 import sys
 import tomllib
 import unittest
-import io
 from contextlib import redirect_stdout
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import mock
 
 import scripts.setup_profile as setup_profile
-
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 REPOSITORY_ROOT = PLUGIN_ROOT.parents[1]

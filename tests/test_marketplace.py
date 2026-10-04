@@ -10,7 +10,6 @@ import tomllib
 import unittest
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 MARKETPLACE = ROOT / ".agents/plugins/marketplace.json"
 PLUGIN = ROOT / "plugins/kapisch"
@@ -105,9 +104,7 @@ class MarketplaceTests(unittest.TestCase):
         changelog = (PLUGIN / "CHANGELOG.md").read_text(encoding="utf-8")
         self.assertIn(f"## {version} -", changelog)
 
-        windows_acceptance = (
-            PLUGIN / "docs" / f"acceptance-windows-v{version}.md"
-        )
+        windows_acceptance = PLUGIN / "docs" / f"acceptance-windows-v{version}.md"
         self.assertTrue(windows_acceptance.is_file())
         acceptance = windows_acceptance.read_text(encoding="utf-8")
         self.assertIn(
@@ -120,7 +117,6 @@ class MarketplaceTests(unittest.TestCase):
         )
         matrix = (PLUGIN / "docs/acceptance.md").read_text(encoding="utf-8")
         self.assert_release_provenance(matrix, acceptance)
-
 
     def test_current_profile_docs_describe_the_legacy_boundary(self) -> None:
         expectations = {
@@ -150,9 +146,9 @@ class MarketplaceTests(unittest.TestCase):
                 for phrase in required:
                     self.assertIn(phrase.lower(), contents)
 
-        current_compatibility = (
-            PLUGIN / "docs/compatibility.md"
-        ).read_text(encoding="utf-8")
+        current_compatibility = (PLUGIN / "docs/compatibility.md").read_text(
+            encoding="utf-8"
+        )
         for phrase in (
             "Stop concurrent profile setup processes",
             "WSL users follow the POSIX procedure",
@@ -182,9 +178,9 @@ class MarketplaceTests(unittest.TestCase):
             (PLUGIN / "pyproject.toml").read_text(encoding="utf-8")
         )["project"]["version"]
         matrix = (PLUGIN / "docs/acceptance.md").read_text(encoding="utf-8")
-        acceptance = (
-            PLUGIN / "docs" / f"acceptance-windows-v{version}.md"
-        ).read_text(encoding="utf-8")
+        acceptance = (PLUGIN / "docs" / f"acceptance-windows-v{version}.md").read_text(
+            encoding="utf-8"
+        )
 
         with self.assertRaisesRegex(
             AssertionError,
@@ -266,8 +262,7 @@ class MarketplaceTests(unittest.TestCase):
         )["version"]
         # The released path is pinned to the versioned immutable tag.
         self.assertIn(
-            "codex plugin marketplace add "
-            f"twKrash/kapisch --ref v{version}",
+            f"codex plugin marketplace add twKrash/kapisch --ref v{version}",
             normalized,
         )
         # A runnable development path is preserved (against mutable code) and is
@@ -293,13 +288,9 @@ class MarketplaceTests(unittest.TestCase):
             self.assertTrue(ROOT.joinpath(relative).is_file())
 
     def test_moved_plugin_documents_explicit_consumer_targets(self) -> None:
-        readme = " ".join(
-            (PLUGIN / "README.md").read_text(encoding="utf-8").split()
-        )
+        readme = " ".join((PLUGIN / "README.md").read_text(encoding="utf-8").split())
         skill = " ".join(
-            (PLUGIN / "skills/kapisch/SKILL.md")
-            .read_text(encoding="utf-8")
-            .split()
+            (PLUGIN / "skills/kapisch/SKILL.md").read_text(encoding="utf-8").split()
         )
         guide = " ".join(
             (PLUGIN / "skills/kapisch/references/internal-scripts.md")
@@ -374,8 +365,7 @@ class MarketplaceTests(unittest.TestCase):
 
             legacy = consumer / ".planning/task-workflow/valid"
             shutil.copytree(
-                PLUGIN
-                / "tests/kapisch_validation/fixtures/valid-sequential-v2",
+                PLUGIN / "tests/kapisch_validation/fixtures/valid-sequential-v2",
                 legacy,
             )
             migration = subprocess.run(
@@ -399,7 +389,9 @@ class MarketplaceTests(unittest.TestCase):
             )
             self.assertTrue((consumer / ".kapisch/runs/valid").is_dir())
 
-    def test_validation_package_keeps_the_standard_library_runtime_boundary(self) -> None:
+    def test_validation_package_keeps_the_standard_library_runtime_boundary(
+        self,
+    ) -> None:
         project = tomllib.loads(
             (PLUGIN / "pyproject.toml").read_text(encoding="utf-8")
         )["project"]

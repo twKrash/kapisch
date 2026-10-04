@@ -48,7 +48,6 @@ class State:
     controller_view_sha256: str | None = None
 
 
-
 @dataclass(frozen=True)
 class ParseResult:
     manifest: Manifest | None

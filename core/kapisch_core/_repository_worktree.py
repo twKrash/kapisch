@@ -99,9 +99,7 @@ def _open_chain_once(rootfd, parts, seen):
             part = parts[index]
             parentfd = rootfd if index == 0 else chain[index - 1]
             try:
-                attached = os.stat(
-                    part, dir_fd=parentfd, follow_symlinks=False
-                )
+                attached = os.stat(part, dir_fd=parentfd, follow_symlinks=False)
             except OSError as e:
                 raise RepositoryCaptureError("parent replaced") from e
             if not _same(attached, seen[index]):
@@ -181,17 +179,14 @@ def _open_parent_beneath(rootfd, path):
                     try:
                         probe = os.open(
                             part,
-                            os.O_RDONLY
-                            | os.O_DIRECTORY
-                            | os.O_NOFOLLOW
-                            | os.O_CLOEXEC,
+                            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
                             dir_fd=check,
                         )
                     except OSError as missing:
-                        if (
-                            error.errno in (errno.ENOTDIR, errno.ELOOP)
-                            and missing.errno in (errno.ENOTDIR, errno.ELOOP)
-                        ):
+                        if error.errno in (
+                            errno.ENOTDIR,
+                            errno.ELOOP,
+                        ) and missing.errno in (errno.ENOTDIR, errno.ELOOP):
                             _verify_non_directory(check, part)
                             current_parent = _open_verified_chain(
                                 rootfd, parts[:index], seen
@@ -316,9 +311,7 @@ def _observe_leaf(rootfd, path):
     try:
         _verify_parent(rootfd, parent)
         try:
-            observed = os.stat(
-                parent.name, dir_fd=parent.fd, follow_symlinks=False
-            )
+            observed = os.stat(parent.name, dir_fd=parent.fd, follow_symlinks=False)
         except FileNotFoundError:
             return _observe_missing(rootfd, parent)
         if stat.S_ISLNK(observed.st_mode):
@@ -338,7 +331,9 @@ def _tracked(rootfd, path):
     if observed.kind in ("missing", "directory"):
         return WorktreeEntry(path, "deletion", "000000")
     if observed.kind == "symlink":
-        return WorktreeEntry(path, "symlink", "120000", _digest(cast(bytes, observed.data)))
+        return WorktreeEntry(
+            path, "symlink", "120000", _digest(cast(bytes, observed.data))
+        )
     if observed.kind == "special":
         raise RepositoryCaptureError("special file rejected")
     return WorktreeEntry(
@@ -395,9 +390,7 @@ def capture_worktree(
                 raise RepositoryCaptureError("special file rejected")
             if observed.kind != "regular":
                 raise RepositoryCaptureError("included untracked is not regular")
-            unknown.append(
-                UntrackedEntry(path, True, cast(str, observed.data))
-            )
+            unknown.append(UntrackedEntry(path, True, cast(str, observed.data)))
         root_stat = os.fstat(rootfd)
         if (root_stat.st_dev, root_stat.st_ino) != ident or _identity(root) != ident:
             raise RepositoryCaptureError("worktree replaced")

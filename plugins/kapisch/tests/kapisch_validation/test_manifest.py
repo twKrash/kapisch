@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import tempfile
 import shutil
-
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -131,7 +130,7 @@ class ManifestTests(unittest.TestCase):
             path = Path(temporary) / "02-execution-graph.toml"
             path.write_text(
                 V2_BODY.replace(
-                    '[nodes.revision]',
+                    "[nodes.revision]",
                     'verification_evidence=[{id="V01",check="tests",result="pass",evidence_ref="r.md",output_sha256="digest",revision="head"},{id="V01",check="tests",result="pass",evidence_ref="r.md",output_sha256="digest",revision="head"}]\n[nodes.revision]',
                 ),
                 encoding="utf-8",
@@ -141,10 +140,17 @@ class ManifestTests(unittest.TestCase):
             [(error.code, error.reference) for error in result.errors],
             [
                 ("TWV-SCHEMA-DUPLICATE-RUNTIME-ID", "nodes[0].verification_evidence"),
-                ("TWV-SCHEMA-INVALID-DIGEST", "nodes[0].verification_evidence[0].output_sha256"),
-                ("TWV-SCHEMA-INVALID-DIGEST", "nodes[0].verification_evidence[1].output_sha256"),
+                (
+                    "TWV-SCHEMA-INVALID-DIGEST",
+                    "nodes[0].verification_evidence[0].output_sha256",
+                ),
+                (
+                    "TWV-SCHEMA-INVALID-DIGEST",
+                    "nodes[0].verification_evidence[1].output_sha256",
+                ),
             ],
         )
+
     def test_v4_allows_nonexecuted_verification_sentinel(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             task_dir = Path(temporary) / "task"
@@ -160,22 +166,30 @@ class ManifestTests(unittest.TestCase):
             )
             result = parse_manifest(path)
         self.assertEqual(result.errors, ())
+
     def test_v4_rejects_nonportable_attempt_ids(self) -> None:
         for attempt_id in ("CON", "C:temp", "bad:name", "trail.", "trail "):
-            with self.subTest(attempt_id=attempt_id), tempfile.TemporaryDirectory() as temporary:
+            with (
+                self.subTest(attempt_id=attempt_id),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
                 task_dir = Path(temporary) / "task"
                 shutil.copytree(FIXTURES / "valid-v4-controller", task_dir)
                 path = task_dir / "02-execution-graph.toml"
                 path.write_text(
                     path.read_text(encoding="utf-8")
                     .replace('id = "AT-T01-1"', f'id = "{attempt_id}"', 1)
-                    .replace('stage-outcomes/AT-T01-1.toml', f"stage-outcomes/{attempt_id}.toml", 1),
+                    .replace(
+                        "stage-outcomes/AT-T01-1.toml",
+                        f"stage-outcomes/{attempt_id}.toml",
+                        1,
+                    ),
                     encoding="utf-8",
                 )
                 result = parse_manifest(path)
-            self.assertIn("nodes[0].attempts[0].id", {error.reference for error in result.errors})
-
-
+            self.assertIn(
+                "nodes[0].attempts[0].id", {error.reference for error in result.errors}
+            )
 
     def test_operational_wave_fixture_fails_closed(self) -> None:
         result = parse_manifest(
@@ -282,9 +296,9 @@ class ManifestTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "02-execution-graph.toml"
             body = self._v3_body()
-            body = body.replace(
-                'ecosystem_routing="auto"', ""
-            ).replace("\n\n[[nodes]]", "\n[[nodes]]")
+            body = body.replace('ecosystem_routing="auto"', "").replace(
+                "\n\n[[nodes]]", "\n[[nodes]]"
+            )
             path.write_text(body, encoding="utf-8")
             result = parse_manifest(path)
             self.assertEqual(
@@ -325,7 +339,9 @@ class ManifestTests(unittest.TestCase):
     def test_version_two_rejects_version_three_policy(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "02-execution-graph.toml"
-            body = V2_BODY.replace("max_fix_rounds=1", 'max_fix_rounds=1\necosystem_routing="auto"')
+            body = V2_BODY.replace(
+                "max_fix_rounds=1", 'max_fix_rounds=1\necosystem_routing="auto"'
+            )
             path.write_text(body, encoding="utf-8")
             result = parse_manifest(path)
             self.assertEqual(
@@ -372,9 +388,11 @@ class ManifestTests(unittest.TestCase):
         assignment = (
             'assignment={id="A-T01-1",schema_version=1,'
             'execution_class="bounded",reason_codes=[],source_revision="base",'
-            'context_refs=[],attempts=[{' + attempt_fields + '}],escalations=[]}\n'
+            "context_refs=[],attempts=[{" + attempt_fields + "}],escalations=[]}\n"
         )
-        return self._v4_body().replace("[nodes.revision]", assignment + "[nodes.revision]", 1)
+        return self._v4_body().replace(
+            "[nodes.revision]", assignment + "[nodes.revision]", 1
+        )
 
     def test_version_four_requires_controller_view_and_rejects_it_on_v3(self) -> None:
         cases = (
@@ -401,7 +419,9 @@ class ManifestTests(unittest.TestCase):
                         [expected],
                     )
 
-    def test_version_four_attempts_require_lifecycle_appropriate_outcome_path(self) -> None:
+    def test_version_four_attempts_require_lifecycle_appropriate_outcome_path(
+        self,
+    ) -> None:
         cases = (
             (
                 self._v4_body_with_attempt(outcome_path=None),
@@ -446,15 +466,22 @@ class ManifestTests(unittest.TestCase):
                         ("TWV-SCHEMA-INVALID-VALUE", "nodes[0].attempts[0].id"),
                         [(error.code, error.reference) for error in result.errors],
                     )
+
     def test_legacy_attempt_ids_remain_readable(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "02-execution-graph.toml"
-            body = self._v4_body_with_attempt().replace(
-                'version = 4\ncontroller_view = "04-controller-view.toml"', "version = 3"
-            ).replace('id="AT-T01-1"', 'id="../legacy-attempt"', 1)
+            body = (
+                self._v4_body_with_attempt()
+                .replace(
+                    'version = 4\ncontroller_view = "04-controller-view.toml"',
+                    "version = 3",
+                )
+                .replace('id="AT-T01-1"', 'id="../legacy-attempt"', 1)
+            )
             path.write_text(body, encoding="utf-8")
             result = parse_manifest(path)
         self.assertEqual(result.errors, ())
+
     def test_version_four_copy_of_durable_v3_fixture_parses(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "02-execution-graph.toml"

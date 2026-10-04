@@ -5,11 +5,16 @@ from copy import deepcopy
 from pathlib import Path
 
 from .artifact_io import ArtifactFailure, ArtifactFailureKind, load_toml_artifact
+from .canonical_toml import render_toml
 from .errors import ValidationError, sorted_errors
-from .helpers import is_integer, non_empty_string, nonfinite_float_references, string_list
+from .helpers import (
+    is_integer,
+    non_empty_string,
+    nonfinite_float_references,
+    string_list,
+)
 from .models import Manifest, Node, ParseResult
 from .path_atoms import is_portable_filename_atom, validate_relative_posix_path
-from .canonical_toml import render_toml
 from .vocabulary import (
     ASSIGNMENT_VALUES,
     MANIFEST_VERSION_VALUES,
@@ -22,8 +27,16 @@ from .vocabulary import (
 )
 
 MANIFEST_KEY_ORDER = (
-    "version", "task_id", "source_plan", "roadmap_item", "base_revision",
-    "policies", "nodes", "waves", "controller_view", "extensions",
+    "version",
+    "task_id",
+    "source_plan",
+    "roadmap_item",
+    "base_revision",
+    "policies",
+    "nodes",
+    "waves",
+    "controller_view",
+    "extensions",
 )
 ROOT = set(MANIFEST_KEY_ORDER)
 POLICIES = {
@@ -122,10 +135,26 @@ V1 = {
     "max_parallel_agents": 1,
     "max_fix_rounds": 1,
 }
-NODE_REQUIRED = {"id", "sequence", "kind", "status", "depends_on", "brief", "context", "report"}
+NODE_REQUIRED = {
+    "id",
+    "sequence",
+    "kind",
+    "status",
+    "depends_on",
+    "brief",
+    "context",
+    "report",
+}
 NODE_STATUS_VALUES = {
-    "pending", "ready", "running", "implemented", "reviewing",
-    "complete", "blocked", "failed", "cancelled",
+    "pending",
+    "ready",
+    "running",
+    "implemented",
+    "reviewing",
+    "complete",
+    "blocked",
+    "failed",
+    "cancelled",
 }
 GLOB_META = frozenset("*?[")
 URL_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
@@ -183,12 +212,17 @@ def _choice(value: object, choices: object, reference: str) -> str:
 
 
 def _extensions_render(value: object, reference: str) -> dict[str, object]:
-    result = _closed_render(value, set(value) if isinstance(value, dict) else set(), reference)
+    result = _closed_render(
+        value, set(value) if isinstance(value, dict) else set(), reference
+    )
     for namespace in result:
-        if not isinstance(namespace, str) or re.fullmatch(
-            r"[a-z0-9-]+(?:\.[a-z0-9-]+)+", namespace
-        ) is None:
-            raise _render_error(f"{reference}.{namespace} must be a reverse-DNS namespace")
+        if (
+            not isinstance(namespace, str)
+            or re.fullmatch(r"[a-z0-9-]+(?:\.[a-z0-9-]+)+", namespace) is None
+        ):
+            raise _render_error(
+                f"{reference}.{namespace} must be a reverse-DNS namespace"
+            )
     return result
 
 
@@ -206,7 +240,9 @@ def _normalize_list(
     return list(value)
 
 
-def _closed_render(data: object, allowed: set[str], reference: str) -> dict[str, object]:
+def _closed_render(
+    data: object, allowed: set[str], reference: str
+) -> dict[str, object]:
     if not isinstance(data, dict):
         raise _render_error(f"{reference} must be a table")
     unknown = set(data) - allowed
@@ -266,7 +302,9 @@ def _render_node(node: object, *, initial: bool, version: int) -> dict[str, obje
     for key in ("depends_on", "delegation_ids", "verification", "context_refs"):
         if key in raw:
             raw[key] = _normalize_list(
-                raw[key], f"nodes[].{key}", normalize=(key == "depends_on"),
+                raw[key],
+                f"nodes[].{key}",
+                normalize=(key == "depends_on"),
                 unique=key == "delegation_ids" or (key == "depends_on" and not initial),
             )
     if version in (1, 2) and "delegation_ids" in raw:
@@ -280,28 +318,41 @@ def _render_node(node: object, *, initial: bool, version: int) -> dict[str, obje
     model_tier = raw.get("model_tier")
     is_implementation = raw["kind"] not in {"review", "final", "research"}
     if executor_class == "reviewer" and is_implementation:
-        raise _render_error("nodes[].executor_class reviewer is invalid for implementation")
+        raise _render_error(
+            "nodes[].executor_class reviewer is invalid for implementation"
+        )
     if executor_class == "reviewer" and model_tier != "high":
-        raise _render_error("nodes[].executor_class reviewer requires model_tier='high'")
+        raise _render_error(
+            "nodes[].executor_class reviewer requires model_tier='high'"
+        )
     if executor_class == "researcher" and is_implementation:
         raise _render_error("nodes[].executor_class researcher is advisory only")
-    if raw["kind"] in {"review", "final"} and any(
-        key in raw for key in ("executor_class", "model_tier", "batching")
-    ) and (
-        executor_class != "reviewer"
-        or model_tier != "high"
-        or raw.get("batching") != "off"
+    if (
+        raw["kind"] in {"review", "final"}
+        and any(key in raw for key in ("executor_class", "model_tier", "batching"))
+        and (
+            executor_class != "reviewer"
+            or model_tier != "high"
+            or raw.get("batching") != "off"
+        )
     ):
         raise _render_error("review/final routing must be reviewer/high/off")
     if "review_scope" in raw:
         scope = _closed_render(raw["review_scope"], SCOPE, "nodes[].review_scope")
         for key, value in list(scope.items()):
             scope[key] = _normalize_list(
-                value, f"nodes[].review_scope.{key}", normalize=True,
+                value,
+                f"nodes[].review_scope.{key}",
+                normalize=True,
                 unique=not initial,
             )
-        if any(scope.get(key) for key in ("integrated_wave_ids", "wave_terminal_dependencies")):
-            raise _render_error("nodes[].review_scope contains unsupported operational waves")
+        if any(
+            scope.get(key)
+            for key in ("integrated_wave_ids", "wave_terminal_dependencies")
+        ):
+            raise _render_error(
+                "nodes[].review_scope contains unsupported operational waves"
+            )
         raw["review_scope"] = scope
     if "revision" in raw:
         revision = _closed_render(raw["revision"], REVISION, "nodes[].revision")
@@ -314,24 +365,31 @@ def _render_node(node: object, *, initial: bool, version: int) -> dict[str, obje
         _string(assignment["id"], "nodes[].assignment.id")
         _integer(assignment["schema_version"], "nodes[].assignment.schema_version")
         _choice(
-            assignment["execution_class"], ASSIGNMENT_VALUES["execution_class"],
+            assignment["execution_class"],
+            ASSIGNMENT_VALUES["execution_class"],
             "nodes[].assignment.execution_class",
         )
         _string(assignment["source_revision"], "nodes[].assignment.source_revision")
         if "reason_codes" in assignment:
             assignment["reason_codes"] = _normalize_list(
-                assignment["reason_codes"], "nodes[].assignment.reason_codes", normalize=initial
+                assignment["reason_codes"],
+                "nodes[].assignment.reason_codes",
+                normalize=initial,
             )
         if "context_refs" in assignment:
             assignment["context_refs"] = _normalize_list(
-                assignment["context_refs"], "nodes[].assignment.context_refs", normalize=False
+                assignment["context_refs"],
+                "nodes[].assignment.context_refs",
+                normalize=False,
             )
         for key in ("context_fingerprint", "scope_fingerprint"):
             if key in assignment:
                 _string(assignment[key], f"nodes[].assignment.{key}")
         attempt_required = ATTEMPT if version == 4 else ATTEMPT - {"outcome_path"}
         attempts = _render_runtime_records(
-            assignment.get("attempts"), allowed=ATTEMPT, required=attempt_required,
+            assignment.get("attempts"),
+            allowed=ATTEMPT,
+            required=attempt_required,
             reference="nodes[].assignment.attempts",
         )
         for index, attempt in enumerate(attempts):
@@ -341,18 +399,26 @@ def _render_node(node: object, *, initial: bool, version: int) -> dict[str, obje
                 raise _render_error(f"{ref}.id must be a portable filename atom")
             if "outcome_path" in attempt:
                 if version != 4:
-                    raise _render_error(f"{ref}.outcome_path is not legal before version 4")
+                    raise _render_error(
+                        f"{ref}.outcome_path is not legal before version 4"
+                    )
                 expected = (
                     UNAVAILABLE_OUTCOME_PATH
                     if attempt["status"] in {"pending", "running"}
                     else f"stage-outcomes/{attempt['id']}.toml"
                 )
                 if attempt["outcome_path"] != expected:
-                    raise _render_error(f"{ref}.outcome_path does not match attempt status and id")
-                _check_path_or_unavailable(attempt["outcome_path"], f"{ref}.outcome_path")
+                    raise _render_error(
+                        f"{ref}.outcome_path does not match attempt status and id"
+                    )
+                _check_path_or_unavailable(
+                    attempt["outcome_path"], f"{ref}.outcome_path"
+                )
         assignment["attempts"] = attempts
         escalations = _render_runtime_records(
-            assignment.get("escalations"), allowed=ESCALATION, required=ESCALATION,
+            assignment.get("escalations"),
+            allowed=ESCALATION,
+            required=ESCALATION,
             reference="nodes[].assignment.escalations",
         )
         assignment["escalations"] = escalations
@@ -362,24 +428,39 @@ def _render_node(node: object, *, initial: bool, version: int) -> dict[str, obje
         _require(batch, BATCH, "nodes[].batch")
         _string(batch["id"], "nodes[].batch.id")
         for key in ("member_node_ids", "member_assignment_ids", "member_outcomes"):
-            batch[key] = _normalize_list(batch[key], f"nodes[].batch.{key}", normalize=False)
+            batch[key] = _normalize_list(
+                batch[key], f"nodes[].batch.{key}", normalize=False
+            )
         for index, value in enumerate(batch["member_outcomes"]):
-            _choice(value, RUNTIME_RECORD_STATUS_VALUES, f"nodes[].batch.member_outcomes[{index}]")
+            _choice(
+                value,
+                RUNTIME_RECORD_STATUS_VALUES,
+                f"nodes[].batch.member_outcomes[{index}]",
+            )
         _choice(batch["outcome"], RUNTIME_RECORD_STATUS_VALUES, "nodes[].batch.outcome")
         raw["batch"] = batch
     if "verification_evidence" in raw:
         evidence = _render_runtime_records(
-            raw["verification_evidence"], allowed=VERIFICATION_EVIDENCE,
-            required=VERIFICATION_EVIDENCE, reference="nodes[].verification_evidence",
+            raw["verification_evidence"],
+            allowed=VERIFICATION_EVIDENCE,
+            required=VERIFICATION_EVIDENCE,
+            reference="nodes[].verification_evidence",
         )
         for index, record in enumerate(evidence):
             ref = f"nodes[].verification_evidence[{index}]"
             nonexecuted = record["result"] in {"not-run", "unavailable"}
             if version == 4 and nonexecuted:
-                if record["output_sha256"] != "unavailable" or record["evidence_ref"] != "unavailable":
-                    raise _render_error(f"{ref} must use unavailable evidence sentinels")
+                if (
+                    record["output_sha256"] != "unavailable"
+                    or record["evidence_ref"] != "unavailable"
+                ):
+                    raise _render_error(
+                        f"{ref} must use unavailable evidence sentinels"
+                    )
             elif re.fullmatch(r"[0-9a-f]{64}", record["output_sha256"]) is None:
-                raise _render_error(f"{ref}.output_sha256 must be a lowercase SHA-256 digest")
+                raise _render_error(
+                    f"{ref}.output_sha256 must be a lowercase SHA-256 digest"
+                )
             _check_path_or_unavailable(record["evidence_ref"], f"{ref}.evidence_ref")
         raw["verification_evidence"] = evidence
     if initial and "extensions" in raw and raw["extensions"] == {}:
@@ -392,7 +473,11 @@ def _render_node(node: object, *, initial: bool, version: int) -> dict[str, obje
 def render_manifest(raw: dict[str, object], *, initial: bool) -> bytes:
     """Return canonical bytes for a newly created or authorized graph snapshot."""
     data = _closed_render(deepcopy(raw), ROOT, "root")
-    _require(data, {"version", "task_id", "source_plan", "base_revision", "policies", "nodes"}, "root")
+    _require(
+        data,
+        {"version", "task_id", "source_plan", "base_revision", "policies", "nodes"},
+        "root",
+    )
     version = data["version"]
     if not is_integer(version) or version not in MANIFEST_VERSION_VALUES:
         raise _render_error("version must be integer 1, 2, 3, or 4")
@@ -403,12 +488,16 @@ def render_manifest(raw: dict[str, object], *, initial: bool) -> bytes:
         _check_path(data["source_plan"], "source_plan")
     if version == 4:
         if data.get("controller_view") != V4_CONTROLLER_VIEW_PATH:
-            raise _render_error(f"controller_view must be {V4_CONTROLLER_VIEW_PATH!r} for version 4")
+            raise _render_error(
+                f"controller_view must be {V4_CONTROLLER_VIEW_PATH!r} for version 4"
+            )
     elif "controller_view" in data:
         raise _render_error("controller_view is not legal before version 4")
     policies = data.get("policies")
     data["policies"] = _closed_render(policies, POLICIES, "policies")
-    required_policies = POLICIES if version in (3, 4) else POLICIES - {"ecosystem_routing"}
+    required_policies = (
+        POLICIES if version in (3, 4) else POLICIES - {"ecosystem_routing"}
+    )
     if version == 1:
         required_policies = set()
     _require(data["policies"], required_policies, "policies")
@@ -427,7 +516,9 @@ def render_manifest(raw: dict[str, object], *, initial: bool) -> bytes:
     nodes = data.get("nodes")
     if not isinstance(nodes, list):
         raise _render_error("nodes must be an array")
-    rendered_nodes = [_render_node(node, initial=initial, version=version) for node in nodes]
+    rendered_nodes = [
+        _render_node(node, initial=initial, version=version) for node in nodes
+    ]
     seen_ids: set[object] = set()
     seen_sequences: set[object] = set()
     for node in rendered_nodes:
@@ -450,7 +541,9 @@ def render_manifest(raw: dict[str, object], *, initial: bool) -> bytes:
             raise _render_error(
                 f"node {node_id!r} must use implementer/standard for single dispatch"
             )
-    data["nodes"] = sorted(rendered_nodes, key=lambda node: (node.get("sequence"), node.get("id")))
+    data["nodes"] = sorted(
+        rendered_nodes, key=lambda node: (node.get("sequence"), node.get("id"))
+    )
     if "extensions" in data and data["extensions"] == {}:
         del data["extensions"]
     elif "extensions" in data:
@@ -825,9 +918,7 @@ def parse_manifest(path: Path) -> ParseResult:
             is_implementation
             and policies.get("dispatch") == "single"
             and (executor_class is not None or model_tier is not None)
-            and (
-            executor_class != "implementer" or model_tier != "standard"
-            )
+            and (executor_class != "implementer" or model_tier != "standard")
         ):
             errors.append(
                 _e(
@@ -979,7 +1070,9 @@ def parse_manifest(path: Path) -> ParseResult:
             if key in n:
                 _closed(n[key], allowed, path, f"{ref}.{key}", errors)
                 if isinstance(n[key], dict):
-                    required_fields = ASSIGNMENT_REQUIRED if key == "assignment" else allowed
+                    required_fields = (
+                        ASSIGNMENT_REQUIRED if key == "assignment" else allowed
+                    )
                     for required in required_fields:
                         if required not in n[key]:
                             errors.append(
@@ -1149,7 +1242,11 @@ def parse_manifest(path: Path) -> ParseResult:
                             )
                             if status_error is not None:
                                 errors.append(status_error)
-                        if version == 4 and key == "attempts" and not is_portable_filename_atom(value.get("id")):
+                        if (
+                            version == 4
+                            and key == "attempts"
+                            and not is_portable_filename_atom(value.get("id"))
+                        ):
                             errors.append(
                                 _e(
                                     "TWV-SCHEMA-INVALID-VALUE",
@@ -1178,8 +1275,10 @@ def parse_manifest(path: Path) -> ParseResult:
                                         and outcome_path != UNAVAILABLE_OUTCOME_PATH
                                     )
                                     or (
-                                        value["status"] in {"complete", "blocked", "failed"}
-                                        and outcome_path != f"stage-outcomes/{value.get('id')}.toml"
+                                        value["status"]
+                                        in {"complete", "blocked", "failed"}
+                                        and outcome_path
+                                        != f"stage-outcomes/{value.get('id')}.toml"
                                     )
                                 )
                             ):
@@ -1191,16 +1290,26 @@ def parse_manifest(path: Path) -> ParseResult:
                                         "must be unavailable for pending/running attempts and a path for terminal attempts",
                                     )
                                 )
-                        if key == "verification_evidence" and "output_sha256" in value and isinstance(value.get("result"), str):
+                        if (
+                            key == "verification_evidence"
+                            and "output_sha256" in value
+                            and isinstance(value.get("result"), str)
+                        ):
                             digest = value["output_sha256"]
                             nonexecuted = value["result"] in {"not-run", "unavailable"}
                             invalid_digest = (
                                 version == 4
                                 and nonexecuted
-                                and (digest != "unavailable" or value.get("evidence_ref") != "unavailable")
+                                and (
+                                    digest != "unavailable"
+                                    or value.get("evidence_ref") != "unavailable"
+                                )
                             ) or (
                                 (version != 4 or not nonexecuted)
-                                and (not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None)
+                                and (
+                                    not isinstance(digest, str)
+                                    or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+                                )
                             )
                             if invalid_digest:
                                 errors.append(

@@ -226,17 +226,36 @@ class BundleTests(unittest.TestCase):
     def test_bundle_schema_sets_are_closed_and_contract_separated(self) -> None:
         from kapisch_core.bundle import canonical_json, verify_bundle
 
-        legacy = (ROOT / "tests/conformance/fixtures/v3/legacy-bundle.json").read_bytes()
+        legacy = (
+            ROOT / "tests/conformance/fixtures/v3/legacy-bundle.json"
+        ).read_bytes()
         legacy_bundle = verify_bundle(legacy, hashlib.sha256(legacy).hexdigest())
         self.assertNotIn("authority_contract", legacy_bundle.payload)
         current = json.loads((ROOT / "core/dist/core-bundle.json").read_bytes())
         self.assertEqual(current["authority_contract"], "global-authority/1")
         self.assertEqual(
             set(current["schemas"]),
-            {"approval", "bundle", "human-action", "invocation", "repository-state", "run", "scope", "snapshot", "stage"},
+            {
+                "approval",
+                "bundle",
+                "human-action",
+                "invocation",
+                "repository-state",
+                "run",
+                "scope",
+                "snapshot",
+                "stage",
+            },
         )
         for schemas, contract in (
-            ({name: value for name, value in current["schemas"].items() if name not in {"scope", "human-action"}}, "global-authority/1"),
+            (
+                {
+                    name: value
+                    for name, value in current["schemas"].items()
+                    if name not in {"scope", "human-action"}
+                },
+                "global-authority/1",
+            ),
             (current["schemas"], None),
             ({**current["schemas"], "unknown": {}}, "global-authority/1"),
         ):
@@ -467,11 +486,23 @@ class BundleTests(unittest.TestCase):
 
         schemas = json.loads(compile_bundle(ROOT / "core"))["schemas"]
         acceptance = schemas["snapshot"]
-        self.assertEqual(set(acceptance["required"]), {"acceptance_contract", "origin_run_id", "snapshot_id", "gate_approval_ref"})
+        self.assertEqual(
+            set(acceptance["required"]),
+            {
+                "acceptance_contract",
+                "origin_run_id",
+                "snapshot_id",
+                "gate_approval_ref",
+            },
+        )
         run_schema = schemas["run"]
-        self.assertTrue({"acceptance_ref", "scope_ref", "work_scope_refs", "approved_plan"} <= set(run_schema["properties"]))
-        self.assertIn("gate_approval_ref", run_schema["$defs"]["plan_ref"]["properties"])
-
+        self.assertTrue(
+            {"acceptance_ref", "scope_ref", "work_scope_refs", "approved_plan"}
+            <= set(run_schema["properties"])
+        )
+        self.assertIn(
+            "gate_approval_ref", run_schema["$defs"]["plan_ref"]["properties"]
+        )
 
     def test_bundle_schema_closes_canonical_member_maps(self) -> None:
         from kapisch_core.bundle import compile_bundle
@@ -735,15 +766,43 @@ class BundleTests(unittest.TestCase):
         approval = json.loads(
             (ROOT / "core/schemas/v3/approval.json").read_text(encoding="utf-8")
         )
-        human = json.loads((ROOT / "core/schemas/v3/human-action.json").read_text(encoding="utf-8"))
+        human = json.loads(
+            (ROOT / "core/schemas/v3/human-action.json").read_text(encoding="utf-8")
+        )
         claim = human["properties"]
-        self.assertEqual(set(claim["identity"]["required"]), {"session_namespace", "session_id", "action_id"})
-        self.assertEqual(set(claim["receipt"]["required"]) & {"session_namespace", "session_id", "action_id"}, {"session_namespace", "session_id", "action_id"})
+        self.assertEqual(
+            set(claim["identity"]["required"]),
+            {"session_namespace", "session_id", "action_id"},
+        )
+        self.assertEqual(
+            set(claim["receipt"]["required"])
+            & {"session_namespace", "session_id", "action_id"},
+            {"session_namespace", "session_id", "action_id"},
+        )
         self.assertEqual(human["additionalProperties"], False)
-        approval = json.loads((ROOT / "core/schemas/v3/approval.json").read_text(encoding="utf-8"))
-        self.assertEqual(set(approval["required"]), {"protocol_version", "approval_contract", "approval_id", "payload", "approved_target_sha256", "human_authority"})
-        self.assertEqual(approval["$defs"]["gate_approval_payload"]["properties"]["gate_kind"]["enum"], ["repository-decision", "plan-approval", "side-effect-permission"])
-        authority = (ROOT / "core/contracts/policy/authority.md").read_text(encoding="utf-8")
+        approval = json.loads(
+            (ROOT / "core/schemas/v3/approval.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            set(approval["required"]),
+            {
+                "protocol_version",
+                "approval_contract",
+                "approval_id",
+                "payload",
+                "approved_target_sha256",
+                "human_authority",
+            },
+        )
+        self.assertEqual(
+            approval["$defs"]["gate_approval_payload"]["properties"]["gate_kind"][
+                "enum"
+            ],
+            ["repository-decision", "plan-approval", "side-effect-permission"],
+        )
+        authority = (ROOT / "core/contracts/policy/authority.md").read_text(
+            encoding="utf-8"
+        )
         self.assertIn("Gate.APPROVAL", authority)
         self.assertIn("human approval of a plan", authority)
 

@@ -34,8 +34,12 @@ def state_payload(head: str, marker: str = EMPTY_SHA256) -> str:
 
 
 class ReviewEvidenceTests(unittest.TestCase):
-    def test_reviewer_invocation_encoder_is_canonical_and_preserves_exact_bindings(self) -> None:
-        path = FIXTURES / "valid-v4-controller/reviews/round-0/00-review-invocation.toml"
+    def test_reviewer_invocation_encoder_is_canonical_and_preserves_exact_bindings(
+        self,
+    ) -> None:
+        path = (
+            FIXTURES / "valid-v4-controller/reviews/round-0/00-review-invocation.toml"
+        )
         raw = tomllib.loads(path.read_text(encoding="utf-8"))
         reordered = dict(reversed(list(raw.items())))
         encoded = render_reviewer_invocation(raw)
@@ -49,8 +53,12 @@ class ReviewEvidenceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             render_reviewer_invocation(dict(raw, unknown="field"))
 
-    def test_reviewer_invocation_encoder_rejects_schema_and_lifecycle_invalid_envelopes(self) -> None:
-        path = FIXTURES / "valid-v4-controller/reviews/round-0/00-review-invocation.toml"
+    def test_reviewer_invocation_encoder_rejects_schema_and_lifecycle_invalid_envelopes(
+        self,
+    ) -> None:
+        path = (
+            FIXTURES / "valid-v4-controller/reviews/round-0/00-review-invocation.toml"
+        )
         valid = tomllib.loads(path.read_text(encoding="utf-8"))
         cases: list[dict[str, object]] = []
         missing = dict(valid)
@@ -71,8 +79,12 @@ class ReviewEvidenceTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     render_reviewer_invocation(raw)
 
-    def test_reviewer_invocation_encoder_validates_without_reading_result_evidence(self) -> None:
-        path = FIXTURES / "valid-v4-controller/reviews/round-0/00-review-invocation.toml"
+    def test_reviewer_invocation_encoder_validates_without_reading_result_evidence(
+        self,
+    ) -> None:
+        path = (
+            FIXTURES / "valid-v4-controller/reviews/round-0/00-review-invocation.toml"
+        )
         raw = tomllib.loads(path.read_text(encoding="utf-8"))
         with mock.patch(
             "kapisch_validation.review_evidence.read_utf8_artifact",
@@ -81,14 +93,18 @@ class ReviewEvidenceTests(unittest.TestCase):
             render_reviewer_invocation(raw)
 
     def test_completed_invocation_requires_matching_result_paths(self) -> None:
-        path = FIXTURES / "valid-v4-controller/reviews/round-0/00-review-invocation.toml"
+        path = (
+            FIXTURES / "valid-v4-controller/reviews/round-0/00-review-invocation.toml"
+        )
         raw = tomllib.loads(path.read_text(encoding="utf-8"))
         raw["produced_result_path"] = "reviews/different.md"
         with self.assertRaises(ValueError):
             render_reviewer_invocation(raw)
 
     def test_reviewer_invocation_encoder_enforces_noncompleted_sentinels(self) -> None:
-        path = FIXTURES / "valid-v4-controller/reviews/round-0/00-review-invocation.toml"
+        path = (
+            FIXTURES / "valid-v4-controller/reviews/round-0/00-review-invocation.toml"
+        )
         raw = tomllib.loads(path.read_text(encoding="utf-8"))
         for lifecycle in ("planned", "dispatched", "blocked", "failed"):
             invalid = dict(raw)
@@ -333,7 +349,9 @@ class ReviewEvidenceTests(unittest.TestCase):
                 )
                 self.assertEqual(findings, [])
 
-    def test_legacy_reviewer_profile_is_rejected_for_noncompleted_evidence(self) -> None:
+    def test_legacy_reviewer_profile_is_rejected_for_noncompleted_evidence(
+        self,
+    ) -> None:
         for lifecycle in ("planned", "dispatched"):
             with (
                 self.subTest(lifecycle=lifecycle),
@@ -363,7 +381,9 @@ class ReviewEvidenceTests(unittest.TestCase):
                 )
                 self.assertEqual(findings, [])
 
-    def test_completed_reviewer_profile_pair_must_match_a_supported_identity(self) -> None:
+    def test_completed_reviewer_profile_pair_must_match_a_supported_identity(
+        self,
+    ) -> None:
         for requested, returned in (
             (LEGACY_REVIEWER_PROFILE, CANONICAL_REVIEWER_PROFILE),
             (CANONICAL_REVIEWER_PROFILE, LEGACY_REVIEWER_PROFILE),
@@ -423,9 +443,7 @@ class ReviewEvidenceTests(unittest.TestCase):
                     self.subTest(lifecycle=lifecycle, field=field),
                     TemporaryDirectory() as temporary,
                 ):
-                    overrides = self.noncompleted_overrides(
-                        lifecycle, "unavailable"
-                    )
+                    overrides = self.noncompleted_overrides(lifecycle, "unavailable")
                     overrides[field] = value
                     findings, _ = self.validate_one(
                         Path(temporary),

@@ -16,12 +16,22 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         errors = validate_run(args.repo, args.run, args.gate)
-        result = {"protocol_version": 3, "ok": not errors,
-                  "errors": [{"code": error.code, "message": error.message, "path": error.path}
-                             for error in errors]}
+        result = {
+            "protocol_version": 3,
+            "ok": not errors,
+            "errors": [
+                {"code": error.code, "message": error.message, "path": error.path}
+                for error in errors
+            ],
+        }
     except (OSError, ValueError) as error:
-        result = {"protocol_version": 3, "ok": False,
-                  "errors": [{"code": "validation-failed", "message": str(error), "path": None}]}
+        result = {
+            "protocol_version": 3,
+            "ok": False,
+            "errors": [
+                {"code": "validation-failed", "message": str(error), "path": None}
+            ],
+        }
     print(json.dumps(result, sort_keys=True))
     return 0 if result["ok"] else 1
 

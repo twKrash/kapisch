@@ -1,17 +1,21 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import os
 import shutil
 import tempfile
-import copy
 import tomllib
 import unittest
-from unittest import mock
 from pathlib import Path
+from unittest import mock
 
 from kapisch_validation.cli import validate
-from kapisch_validation.delegations import parse_route, render_route, validate_route_references
+from kapisch_validation.delegations import (
+    parse_route,
+    render_route,
+    validate_route_references,
+)
 from kapisch_validation.models import Manifest, Node
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -174,7 +178,9 @@ class RouteSchemaTests(unittest.TestCase):
         parsed = tomllib.loads(render_route(left).decode("utf-8"))
         self.assertEqual([step["id"] for step in parsed["steps"]], ["D01", "D02"])
         self.assertEqual(parsed["steps"][0]["context_sha256"], first["context_sha256"])
-        self.assertEqual(parsed["steps"][0]["evidence_sha256"], first["evidence_sha256"])
+        self.assertEqual(
+            parsed["steps"][0]["evidence_sha256"], first["evidence_sha256"]
+        )
 
     def test_missing_route_record(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -185,7 +191,9 @@ class RouteSchemaTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             task = Path(temporary)
             (task / "delegations").mkdir()
-            (task / "delegations/00-route.toml").write_text("version = [", encoding="utf-8")
+            (task / "delegations/00-route.toml").write_text(
+                "version = [", encoding="utf-8"
+            )
             _, errors = parse_route(task)
             self.assertEqual(errors[0].code, "TWV-DELEG-MALFORMED-TOML")
 
@@ -214,7 +222,7 @@ class RouteSchemaTests(unittest.TestCase):
             task = Path(temporary)
             (task / "delegations").mkdir()
             (task / "delegations/00-route.toml").write_text(
-                '\n'.join(
+                "\n".join(
                     [
                         "version = 1",
                         'task_id = "test-task"',
@@ -290,7 +298,9 @@ class RouteSchemaTests(unittest.TestCase):
             write_route(task, "test-task", "r-1", [step])
             path = task / "delegations/00-route.toml"
             path.write_text(
-                path.read_text(encoding="utf-8").replace('route_id = "r-1"', 'route_id = "!"'),
+                path.read_text(encoding="utf-8").replace(
+                    'route_id = "r-1"', 'route_id = "!"'
+                ),
                 encoding="utf-8",
             )
             _, errors = parse_route(task)
@@ -332,7 +342,9 @@ class RouteSchemaTests(unittest.TestCase):
             step = materialize(task, minimal_step("D01", 1))
             lines = route_toml("test-task", "r-1", [step]).splitlines()
             lines = [
-                line if not line.startswith("capability_kind=") else 'capability_kind=["skill"]'
+                line
+                if not line.startswith("capability_kind=")
+                else 'capability_kind=["skill"]'
                 for line in lines
             ]
             (task / "delegations/00-route.toml").write_text(
@@ -352,12 +364,17 @@ class RouteSchemaTests(unittest.TestCase):
         }
         for field, value in allowed_values.items():
             for malformed in (f'["{value}"]', '{ value = "x" }'):
-                with self.subTest(field=field, malformed=malformed), tempfile.TemporaryDirectory() as temporary:
+                with (
+                    self.subTest(field=field, malformed=malformed),
+                    tempfile.TemporaryDirectory() as temporary,
+                ):
                     task = Path(temporary)
                     step = materialize(task, minimal_step("D01", 1))
                     lines = route_toml("test-task", "r-1", [step]).splitlines()
                     lines = [
-                        line if not line.startswith(f"{field}=") else f"{field}={malformed}"
+                        line
+                        if not line.startswith(f"{field}=")
+                        else f"{field}={malformed}"
                         for line in lines
                     ]
                     (task / "delegations/00-route.toml").write_text(
@@ -383,7 +400,9 @@ class RouteSchemaTests(unittest.TestCase):
             step = materialize(task, minimal_step("D01", 1))
             lines = route_toml("test-task", "r-1", [step]).splitlines()
             lines = [
-                line if not line.startswith("requested_capability=") else 'requested_capability=["$kapisch"]'
+                line
+                if not line.startswith("requested_capability=")
+                else 'requested_capability=["$kapisch"]'
                 for line in lines
             ]
             (task / "delegations/00-route.toml").write_text(
@@ -432,7 +451,9 @@ class RouteSchemaTests(unittest.TestCase):
                     ["TWV-DELEG-UNSUPPORTED-EXTERNAL-EFFECT"],
                 )
 
-    def test_unsupported_interrupted_external_write_is_not_safely_retryable(self) -> None:
+    def test_unsupported_interrupted_external_write_is_not_safely_retryable(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             current = root / "current"
@@ -474,7 +495,13 @@ class RouteSchemaTests(unittest.TestCase):
             task = Path(temporary)
             step = materialize(
                 task,
-                minimal_step("D01", 1, effect_class="external-write", authority_mode="explicit-step", authority_ref="unavailable"),
+                minimal_step(
+                    "D01",
+                    1,
+                    effect_class="external-write",
+                    authority_mode="explicit-step",
+                    authority_ref="unavailable",
+                ),
             )
             write_route(task, "test-task", "r-1", [step])
             _, errors = parse_route(task)
@@ -585,7 +612,9 @@ class EvidenceFileTests(unittest.TestCase):
             link = task / "delegations/D01"
             link.mkdir()
             (link / "01-evidence.md").symlink_to(outside)
-            (task / "delegations/D01/00-context.md").write_text("# context\n", encoding="utf-8")
+            (task / "delegations/D01/00-context.md").write_text(
+                "# context\n", encoding="utf-8"
+            )
             step = minimal_step("D01", 1)
             write_route(task, "test-task", "r-1", [step])
             _, errors = parse_route(task)
@@ -650,7 +679,9 @@ class EvidenceFileTests(unittest.TestCase):
 
 class RouteReferenceTests(unittest.TestCase):
     def test_unresolved_step_reference(self) -> None:
-        manifest = make_manifest([make_node("T01", "behavioral", delegation_ids=["D99"])])
+        manifest = make_manifest(
+            [make_node("T01", "behavioral", delegation_ids=["D99"])]
+        )
         with tempfile.TemporaryDirectory() as temporary:
             task = Path(temporary)
             step = materialize(task, minimal_step("D01", 1, parent="T01"))
@@ -673,7 +704,9 @@ class RouteReferenceTests(unittest.TestCase):
             self.assertEqual(errors[0].code, "TWV-DELEG-REUSED-STEP")
 
     def test_owner_mismatch(self) -> None:
-        manifest = make_manifest([make_node("T01", "behavioral", delegation_ids=["D01"])])
+        manifest = make_manifest(
+            [make_node("T01", "behavioral", delegation_ids=["D01"])]
+        )
         with tempfile.TemporaryDirectory() as temporary:
             task = Path(temporary)
             step = materialize(task, minimal_step("D01", 1, parent="OTHER"))
@@ -712,7 +745,9 @@ class RouteReferenceTests(unittest.TestCase):
             self.assertEqual(errors[0].code, "TWV-DELEG-REVIEW-WRITE")
 
     def test_route_task_id_mismatch(self) -> None:
-        manifest = make_manifest([make_node("T01", "behavioral", delegation_ids=["D01"])])
+        manifest = make_manifest(
+            [make_node("T01", "behavioral", delegation_ids=["D01"])]
+        )
         with tempfile.TemporaryDirectory() as temporary:
             task = Path(temporary)
             step = materialize(task, minimal_step("D01", 1, parent="T01"))
@@ -721,14 +756,18 @@ class RouteReferenceTests(unittest.TestCase):
             self.assertEqual(errors[0].code, "TWV-DELEG-TASK-MISMATCH")
 
     def test_route_source_revision_mismatch(self) -> None:
-        manifest = make_manifest([make_node("T01", "behavioral", delegation_ids=["D01"])])
+        manifest = make_manifest(
+            [make_node("T01", "behavioral", delegation_ids=["D01"])]
+        )
         with tempfile.TemporaryDirectory() as temporary:
             task = Path(temporary)
             step = materialize(task, minimal_step("D01", 1, parent="T01"))
             write_route(task, "test-task", "r-1", [step])
             path = task / "delegations/00-route.toml"
             path.write_text(
-                path.read_text(encoding="utf-8").replace('source_revision = "base"', 'source_revision = "other"'),
+                path.read_text(encoding="utf-8").replace(
+                    'source_revision = "base"', 'source_revision = "other"'
+                ),
                 encoding="utf-8",
             )
             errors = validate_route_references(manifest, task)
@@ -746,8 +785,12 @@ class RouteReferenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             task = Path(temporary)
             first = materialize(task, minimal_step("D01", 1, parent="T01"))
-            second = materialize(task, minimal_step("D02", 2, parent="T01", effect_class="external-read"))
-            third = materialize(task, minimal_step("D03", 3, parent="R01", effect_class="external-read"))
+            second = materialize(
+                task, minimal_step("D02", 2, parent="T01", effect_class="external-read")
+            )
+            third = materialize(
+                task, minimal_step("D03", 3, parent="R01", effect_class="external-read")
+            )
             write_route(task, "test-task", "r-1", [first, second, third])
             errors = validate_route_references(manifest, task)
             self.assertEqual(errors, ())
@@ -791,10 +834,12 @@ class DelegationCliTests(unittest.TestCase):
     def test_cli_durable_v3_empty_route_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             task = Path(temporary)
-            shutil.copytree(FIXTURES / "valid-v3-no-delegation", task, dirs_exist_ok=True)
+            shutil.copytree(
+                FIXTURES / "valid-v3-no-delegation", task, dirs_exist_ok=True
+            )
             (task / "delegations").mkdir(exist_ok=True)
             (task / "delegations/00-route.toml").write_text(
-                '\n'.join(
+                "\n".join(
                     [
                         "version = 1",
                         'task_id = "valid-v3-durable"',

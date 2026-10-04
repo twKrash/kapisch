@@ -30,9 +30,18 @@ _IMPLEMENTATION_FLOORS = MappingProxyType(
         (ExecutionClass.MECHANICAL, Risk.LOW): (Role.MECHANIC, LogicalTier.CHEAP),
         (ExecutionClass.MECHANICAL, Risk.MEDIUM): (Role.MECHANIC, LogicalTier.CHEAP),
         (ExecutionClass.MECHANICAL, Risk.HIGH): (Role.MECHANIC, LogicalTier.CHEAP),
-        (ExecutionClass.PRESCRIPTIVE, Risk.LOW): (Role.IMPLEMENTER_LITE, LogicalTier.CHEAP),
-        (ExecutionClass.PRESCRIPTIVE, Risk.MEDIUM): (Role.IMPLEMENTER_LITE, LogicalTier.CHEAP),
-        (ExecutionClass.PRESCRIPTIVE, Risk.HIGH): (Role.IMPLEMENTER, LogicalTier.STANDARD),
+        (ExecutionClass.PRESCRIPTIVE, Risk.LOW): (
+            Role.IMPLEMENTER_LITE,
+            LogicalTier.CHEAP,
+        ),
+        (ExecutionClass.PRESCRIPTIVE, Risk.MEDIUM): (
+            Role.IMPLEMENTER_LITE,
+            LogicalTier.CHEAP,
+        ),
+        (ExecutionClass.PRESCRIPTIVE, Risk.HIGH): (
+            Role.IMPLEMENTER,
+            LogicalTier.STANDARD,
+        ),
         (ExecutionClass.BOUNDED, Risk.LOW): (Role.IMPLEMENTER, LogicalTier.STANDARD),
         (ExecutionClass.BOUNDED, Risk.MEDIUM): (Role.IMPLEMENTER, LogicalTier.STANDARD),
         (ExecutionClass.BOUNDED, Risk.HIGH): (Role.IMPLEMENTER, LogicalTier.STANDARD),
@@ -70,7 +79,9 @@ _WORKFLOW_STAGES = MappingProxyType(
 )
 _APPROVAL_WORKFLOWS = frozenset({Workflow.TASK, Workflow.MILESTONE})
 _READ_ONLY_ROLES = frozenset({Role.ARCHITECT, Role.RESEARCHER, Role.REVIEWER})
-_READ_ONLY_EFFECTS = frozenset({CapabilityEffect.REPOSITORY_READ, CapabilityEffect.EXTERNAL_READ})
+_READ_ONLY_EFFECTS = frozenset(
+    {CapabilityEffect.REPOSITORY_READ, CapabilityEffect.EXTERNAL_READ}
+)
 
 
 def evaluate_action_policy(
@@ -121,7 +132,10 @@ def assignment_violations(action: ProposedAction) -> tuple[str, ...]:
         return ()
 
     if action.stage is Stage.BOUNDED_DELEGATE:
-        if action.execution_class is ExecutionClass.DESIGN and action.role is not Role.ARCHITECT:
+        if (
+            action.execution_class is ExecutionClass.DESIGN
+            and action.role is not Role.ARCHITECT
+        ):
             return ("delegated-assignment-below-role-tier-floor",)
         role_floor = _DELEGATE_ROLE_FLOORS.get(action.role)
         if role_floor is not None:
@@ -129,7 +143,9 @@ def assignment_violations(action: ProposedAction) -> tuple[str, ...]:
                 return ("delegated-assignment-below-role-tier-floor",)
             return ()
         floor = _IMPLEMENTATION_FLOORS.get((action.execution_class, action.risk))
-        if floor is None or not _meets_implementation_floor(action.role, action.tier, floor):
+        if floor is None or not _meets_implementation_floor(
+            action.role, action.tier, floor
+        ):
             return ("delegated-assignment-below-role-tier-floor",)
         return ()
 
@@ -144,7 +160,10 @@ def assignment_violations(action: ProposedAction) -> tuple[str, ...]:
                     Stage.FINAL: "review-requires-high-tier-reviewer",
                 }[action.stage],
             )
-        if minimum_tier is not None and _TIER_ORDER[action.tier] < _TIER_ORDER[minimum_tier]:
+        if (
+            minimum_tier is not None
+            and _TIER_ORDER[action.tier] < _TIER_ORDER[minimum_tier]
+        ):
             reason = (
                 "research-requires-standard-tier"
                 if action.stage is Stage.RESEARCH
@@ -176,34 +195,51 @@ def review_violations(
 ) -> tuple[str, ...]:
     violations: list[str] = []
     if action.stage is Stage.REVIEW:
-        if workflow is Workflow.REVIEW and action.review_scope is not ReviewScope.STANDALONE:
+        if (
+            workflow is Workflow.REVIEW
+            and action.review_scope is not ReviewScope.STANDALONE
+        ):
             violations.append("standalone-review-requires-standalone-scope")
-        if workflow in _APPROVAL_WORKFLOWS and action.review_scope is ReviewScope.STANDALONE:
+        if (
+            workflow in _APPROVAL_WORKFLOWS
+            and action.review_scope is ReviewScope.STANDALONE
+        ):
             violations.append("task-or-milestone-review-requires-scoped-review")
-    if action.stage is Stage.FINAL and action.review_scope is not ReviewScope.WHOLE_BRANCH:
+    if (
+        action.stage is Stage.FINAL
+        and action.review_scope is not ReviewScope.WHOLE_BRANCH
+    ):
         violations.append("final-requires-whole-branch-review")
     if (
         action.risk is Risk.HIGH
         and (
-            action.stage in (Stage.IMPLEMENT, Stage.BOUNDED_DELEGATE, Stage.REVIEW, Stage.FINAL)
+            action.stage
+            in (Stage.IMPLEMENT, Stage.BOUNDED_DELEGATE, Stage.REVIEW, Stage.FINAL)
             or action.gate is Gate.APPROVAL
         )
         and action.review_depth is not ReviewDepth.DEEP
     ):
         violations.append("high-risk-review-requires-deep-depth")
-    if workflow in _APPROVAL_WORKFLOWS and (
-        action.gate is Gate.APPROVAL or action.stage is Stage.FINAL
-    ) and capabilities.mutation_free_reviewer is not CapabilityStatus.ENFORCED:
+    if (
+        workflow in _APPROVAL_WORKFLOWS
+        and (action.gate is Gate.APPROVAL or action.stage is Stage.FINAL)
+        and capabilities.mutation_free_reviewer is not CapabilityStatus.ENFORCED
+    ):
         violations.append("reviewer-mutation-free-capability-not-enforced")
     return tuple(violations)
 
 
-def effect_violations(action: ProposedAction, capabilities: CapabilityClaims) -> tuple[str, ...]:
+def effect_violations(
+    action: ProposedAction, capabilities: CapabilityClaims
+) -> tuple[str, ...]:
     violations: list[str] = []
     status = capabilities.status_for(action.effect)
     if status is CapabilityStatus.UNSUPPORTED:
         violations.append("unsupported-capability-effect")
-    if action.effect is CapabilityEffect.REPOSITORY_WRITE and status is not CapabilityStatus.ENFORCED:
+    if (
+        action.effect is CapabilityEffect.REPOSITORY_WRITE
+        and status is not CapabilityStatus.ENFORCED
+    ):
         violations.append("repository-write-capability-not-enforced")
     if action.effect in (CapabilityEffect.EXTERNAL_WRITE, CapabilityEffect.DESTRUCTIVE):
         violations.append("external-write-or-destructive-effect-not-supported")

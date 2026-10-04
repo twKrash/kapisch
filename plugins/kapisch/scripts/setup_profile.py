@@ -3,21 +3,20 @@
 from __future__ import annotations
 
 import argparse
-from contextlib import contextmanager
 import hashlib
 import os
-from pathlib import Path
 import secrets
 import sys
-from typing import Any, Callable, Iterator
 import tomllib
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Callable, Iterator
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from kapisch_validation.canonical_bytes import normalize_utf8_text
 from kapisch_validation.canonical_toml import toml_basic_string as _toml_basic_string
-
 
 AGENT_DIR = Path(__file__).resolve().parents[1] / "agents"
 ROLE_CATALOG = (

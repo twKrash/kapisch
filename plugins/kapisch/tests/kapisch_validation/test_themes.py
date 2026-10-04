@@ -4,11 +4,11 @@ import tomllib
 import unittest
 from pathlib import Path
 
-from kapisch_validation.manifest import NODE, POLICIES, ROOT as MANIFEST_ROOT
+from kapisch_validation.manifest import NODE, POLICIES
+from kapisch_validation.manifest import ROOT as MANIFEST_ROOT
 from kapisch_validation.references import STATE
 from kapisch_validation.review_evidence import ENVELOPE, LIFECYCLE_STATUSES
 from kapisch_validation.transitions import ALLOWED
-
 
 ROOT = Path(__file__).resolve().parents[2]
 THEME_DIR = ROOT / "skills/kapisch/themes"
@@ -70,7 +70,10 @@ class ThemeContractTests(unittest.TestCase):
                     self.assertIsInstance(labels, dict)
                     self.assertEqual(set(labels), expected)
                     self.assertTrue(
-                        all(isinstance(label, str) and label for label in labels.values())
+                        all(
+                            isinstance(label, str) and label
+                            for label in labels.values()
+                        )
                     )
 
     def test_foundry_is_a_distinct_label_layer(self) -> None:
@@ -89,9 +92,9 @@ class ThemeContractTests(unittest.TestCase):
     def test_theme_is_not_a_normative_artifact_field(self) -> None:
         for schema in (MANIFEST_ROOT, POLICIES, NODE, STATE, ENVELOPE):
             self.assertNotIn("theme", schema)
-        contract = (
-            ROOT / "skills/kapisch/references/themes.md"
-        ).read_text(encoding="utf-8")
+        contract = (ROOT / "skills/kapisch/references/themes.md").read_text(
+            encoding="utf-8"
+        )
         normalized = " ".join(contract.split())
         for invariant in (
             "logical role IDs",

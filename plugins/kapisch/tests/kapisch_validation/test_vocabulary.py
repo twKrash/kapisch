@@ -47,9 +47,7 @@ class VocabularyTests(unittest.TestCase):
         shutil.copytree(FIXTURES / fixture, target)
         return target
 
-    def replace_first_string(
-        self, path: Path, field: str, value: str
-    ) -> None:
+    def replace_first_string(self, path: Path, field: str, value: str) -> None:
         pattern = rf'^{re.escape(field)}\s*=\s*"[^"]*"$'
         content = path.read_text(encoding="utf-8")
         updated, count = re.subn(
@@ -62,9 +60,7 @@ class VocabularyTests(unittest.TestCase):
         self.assertEqual(count, 1, field)
         path.write_text(updated, encoding="utf-8")
 
-    def replace_first_node_string(
-        self, path: Path, field: str, value: str
-    ) -> None:
+    def replace_first_node_string(self, path: Path, field: str, value: str) -> None:
         content = path.read_text(encoding="utf-8")
         node_start = content.index("[[nodes]]")
         prefix, nodes = content[:node_start], content[node_start:]
@@ -101,7 +97,10 @@ class VocabularyTests(unittest.TestCase):
     def test_every_supported_policy_value_parses(self) -> None:
         for field, supported in POLICY_VALUES.items():
             for value in supported:
-                with self.subTest(field=field, value=value), TemporaryDirectory() as temporary:
+                with (
+                    self.subTest(field=field, value=value),
+                    TemporaryDirectory() as temporary,
+                ):
                     fixture = (
                         "valid-v3-no-delegation"
                         if field == "ecosystem_routing"
@@ -123,11 +122,16 @@ class VocabularyTests(unittest.TestCase):
             ("reviewer", "high", "review"),
         )
         for executor_class, model_tier, kind in cases:
-            with self.subTest(executor_class=executor_class), TemporaryDirectory() as temporary:
+            with (
+                self.subTest(executor_class=executor_class),
+                TemporaryDirectory() as temporary,
+            ):
                 root = self.copy_fixture(temporary, "valid-v3-no-delegation")
                 manifest_path = root / "02-execution-graph.toml"
                 self.replace_first_string(manifest_path, "dispatch", "auto")
-                self.replace_first_node_string(manifest_path, "executor_class", executor_class)
+                self.replace_first_node_string(
+                    manifest_path, "executor_class", executor_class
+                )
                 self.replace_first_node_string(manifest_path, "model_tier", model_tier)
                 self.replace_first_node_string(manifest_path, "kind", kind)
                 parsed = parse_manifest(manifest_path)
@@ -284,9 +288,7 @@ class VocabularyTests(unittest.TestCase):
                     field if relative_path == "03-state.toml" else f"policies.{field}"
                 )
                 matching = [
-                    finding
-                    for finding in findings
-                    if finding["reference"] == reference
+                    finding for finding in findings if finding["reference"] == reference
                 ]
                 self.assertEqual(len(matching), 1, findings)
                 self.assertIn(repr(invalid), matching[0]["message"])
@@ -297,9 +299,10 @@ class VocabularyTests(unittest.TestCase):
             ("complete", "block:no-ready-node"),
         )
         for workflow_status, next_action in cases:
-            with self.subTest(
-                workflow_status=workflow_status, next_action=next_action
-            ), TemporaryDirectory() as temporary:
+            with (
+                self.subTest(workflow_status=workflow_status, next_action=next_action),
+                TemporaryDirectory() as temporary,
+            ):
                 root = self.copy_fixture(temporary, "valid-sequential-v2")
                 state_path = root / "03-state.toml"
                 self.replace_first_string(
@@ -324,13 +327,21 @@ class VocabularyTests(unittest.TestCase):
             ("model_tier", "cheap"),
         )
         for field, value in cases:
-            with self.subTest(field=field, value=value), TemporaryDirectory() as temporary:
+            with (
+                self.subTest(field=field, value=value),
+                TemporaryDirectory() as temporary,
+            ):
                 root = self.copy_fixture(temporary, "valid-sequential-v2")
-                self.replace_first_node_string(root / "02-execution-graph.toml", field, value)
+                self.replace_first_node_string(
+                    root / "02-execution-graph.toml", field, value
+                )
                 code, findings = self.run_cli(root)
                 self.assertEqual(code, 2)
                 self.assertTrue(
-                    any(finding["code"] == "TWV-SCHEMA-INVALID-ROUTING" for finding in findings),
+                    any(
+                        finding["code"] == "TWV-SCHEMA-INVALID-ROUTING"
+                        for finding in findings
+                    ),
                     findings,
                 )
 
@@ -344,9 +355,13 @@ class VocabularyTests(unittest.TestCase):
                 manifest_path = root / "02-execution-graph.toml"
                 content = manifest_path.read_text(encoding="utf-8")
                 before, node = content.split(f'[[nodes]]\nid="{node_id}"', 1)
-                node, after = node.split("[[nodes]]", 1) if "[[nodes]]" in node else (node, "")
+                node, after = (
+                    node.split("[[nodes]]", 1) if "[[nodes]]" in node else (node, "")
+                )
                 node = node.replace('status="complete"', 'status="ready"', 1)
-                node = node.replace('executor_class="reviewer"', 'executor_class="implementer"')
+                node = node.replace(
+                    'executor_class="reviewer"', 'executor_class="implementer"'
+                )
                 node = node.replace('model_tier="high"', 'model_tier="standard"')
                 manifest_path.write_text(
                     before + f'[[nodes]]\nid="{node_id}"' + node + "[[nodes]]" + after,
@@ -354,17 +369,25 @@ class VocabularyTests(unittest.TestCase):
                 )
                 state_path = root / "03-state.toml"
                 state = state_path.read_text(encoding="utf-8")
-                state = state.replace('workflow_status="complete"', 'workflow_status="running"')
-                state = state.replace('completed_node_ids=["F01","R01","T01"]', f"completed_node_ids={completed}")
-                state = state.replace('ready_node_ids=[]', f"ready_node_ids={ready}")
-                state = state.replace('next_action="complete"', f'next_action="select:{node_id}"')
+                state = state.replace(
+                    'workflow_status="complete"', 'workflow_status="running"'
+                )
+                state = state.replace(
+                    'completed_node_ids=["F01","R01","T01"]',
+                    f"completed_node_ids={completed}",
+                )
+                state = state.replace("ready_node_ids=[]", f"ready_node_ids={ready}")
+                state = state.replace(
+                    'next_action="complete"', f'next_action="select:{node_id}"'
+                )
                 state_path.write_text(state, encoding="utf-8")
                 code, findings = self.run_cli(root)
                 self.assertEqual(code, 2)
                 self.assertTrue(
                     any(
                         finding["code"] == "TWV-SCHEMA-INVALID-ROUTING"
-                        and finding["reference"] == f"nodes[{1 if node_id == 'R01' else 2}]"
+                        and finding["reference"]
+                        == f"nodes[{1 if node_id == 'R01' else 2}]"
                         for finding in findings
                     ),
                     findings,
@@ -381,7 +404,7 @@ class VocabularyTests(unittest.TestCase):
                     'head="head"\n[nodes.assignment]\nid="A-T01-1"\n'
                     'schema_version=1\nexecution_class="banana"\n'
                     'reason_codes=[]\nsource_revision="base"\ncontext_refs=[]\n'
-                    'escalations=[]\n[[nodes]]',
+                    "escalations=[]\n[[nodes]]",
                     1,
                 ),
                 encoding="utf-8",
@@ -396,14 +419,14 @@ class VocabularyTests(unittest.TestCase):
             ),
             findings,
         )
+
     def test_normative_vocabulary_table_matches_code(self) -> None:
         contract = (
             PLUGIN_ROOT / "skills/kapisch/references/execution-graph.md"
         ).read_text(encoding="utf-8")
         normalized_contract = " ".join(contract.split())
         documented: dict[str, tuple[str, ...]] = {
-            f"policies.{field}": values
-            for field, values in POLICY_VALUES.items()
+            f"policies.{field}": values for field, values in POLICY_VALUES.items()
         }
         documented.update(
             {

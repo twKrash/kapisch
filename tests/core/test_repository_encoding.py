@@ -141,7 +141,10 @@ class RepositoryEncodingTests(unittest.TestCase):
             RepositoryStateFingerprint(
                 "sha1",
                 "0" * 40,
-                (IndexEntry(b"z", 0, "1" * 40, "100644"), IndexEntry(b"a", 0, "2" * 40, "100644")),
+                (
+                    IndexEntry(b"z", 0, "1" * 40, "100644"),
+                    IndexEntry(b"a", 0, "2" * 40, "100644"),
+                ),
                 (),
                 (),
             )
@@ -149,7 +152,10 @@ class RepositoryEncodingTests(unittest.TestCase):
             RepositoryStateFingerprint(
                 "sha1",
                 "0" * 40,
-                (IndexEntry(b"same", 0, "1" * 40, "100644"), IndexEntry(b"same", 0, "2" * 40, "100644")),
+                (
+                    IndexEntry(b"same", 0, "1" * 40, "100644"),
+                    IndexEntry(b"same", 0, "2" * 40, "100644"),
+                ),
                 (),
                 (),
             )

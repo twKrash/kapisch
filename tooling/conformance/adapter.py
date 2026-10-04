@@ -4,10 +4,15 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from kapisch_core._protocol_formats import is_rfc3339_timestamp, is_sha256_digest
 from kapisch_core.bundle import canonical_json
 from kapisch_core.capabilities import CapabilityClaims
-from kapisch_core.domain import CapabilityEffect, PolicyEvaluation, ProposedAction, Workflow
-from kapisch_core._protocol_formats import is_rfc3339_timestamp, is_sha256_digest
+from kapisch_core.domain import (
+    CapabilityEffect,
+    PolicyEvaluation,
+    ProposedAction,
+    Workflow,
+)
 
 
 @dataclass(frozen=True)
@@ -39,19 +44,22 @@ class AdapterManifest:
     capabilities: CapabilityClaims
 
     def __post_init__(self) -> None:
-        if not isinstance(self.adapter_version, str) or not self.adapter_version.strip():
+        if (
+            not isinstance(self.adapter_version, str)
+            or not self.adapter_version.strip()
+        ):
             raise ValueError("adapter version must be non-empty")
         if (
             not isinstance(self.supported_protocol_range, tuple)
             or len(self.supported_protocol_range) != 2
             or any(
-                isinstance(version, bool)
-                or not isinstance(version, int)
-                or version < 1
+                isinstance(version, bool) or not isinstance(version, int) or version < 1
                 for version in self.supported_protocol_range
             )
         ):
-            raise ValueError("supported protocol range must contain two positive integer versions")
+            raise ValueError(
+                "supported protocol range must contain two positive integer versions"
+            )
         minimum, maximum = self.supported_protocol_range
         if minimum > maximum:
             raise ValueError("supported protocol range minimum exceeds maximum")
@@ -60,10 +68,11 @@ class AdapterManifest:
             or not isinstance(self.protocol_version, int)
             or not minimum <= self.protocol_version <= maximum
         ):
-            raise ValueError("bundle protocol version is outside supported protocol range")
-        if (
-            not isinstance(self.bundle_digest, str)
-            or not is_sha256_digest(self.bundle_digest)
+            raise ValueError(
+                "bundle protocol version is outside supported protocol range"
+            )
+        if not isinstance(self.bundle_digest, str) or not is_sha256_digest(
+            self.bundle_digest
         ):
             raise ValueError("bundle digest must be lowercase SHA-256")
         if any(
@@ -151,13 +160,23 @@ def human_receipt_matches(
     Stage 5 verifies input digests, provenance, and durable authority; this does
     not authenticate human identity or establish approval.
     """
-    if not isinstance(receipt, HumanActionReceipt) or not isinstance(target, HumanActionTarget):
+    if not isinstance(receipt, HumanActionReceipt) or not isinstance(
+        target, HumanActionTarget
+    ):
         return False
     target_fields = (
-        target.run_id, target.gate, target.decision_id, target.target, target.scope_digest
+        target.run_id,
+        target.gate,
+        target.decision_id,
+        target.target,
+        target.scope_digest,
     )
     receipt_fields = (
-        receipt.run_id, receipt.gate, receipt.decision_id, receipt.target, receipt.scope_digest
+        receipt.run_id,
+        receipt.gate,
+        receipt.decision_id,
+        receipt.target,
+        receipt.scope_digest,
     )
     required_strings = (
         *target_fields,

@@ -35,10 +35,13 @@ class ArtifactIoTests(unittest.TestCase):
             self.assertEqual(artifact.data, b'key = "value"\n')
             self.assertEqual(artifact.text, 'key = "value"\n')
 
-    def test_read_utf8_classifies_os_errors_without_catching_unexpected_ones(self) -> None:
+    def test_read_utf8_classifies_os_errors_without_catching_unexpected_ones(
+        self,
+    ) -> None:
         path = Path("artifact.toml")
         with mock.patch(
-            "kapisch_validation.artifact_io.os.open", side_effect=PermissionError("denied")
+            "kapisch_validation.artifact_io.os.open",
+            side_effect=PermissionError("denied"),
         ):
             artifact, failure = read_utf8_artifact(path)
         self.assertIsNone(artifact)
@@ -51,7 +54,8 @@ class ArtifactIoTests(unittest.TestCase):
                 return_value=SimpleNamespace(st_mode=0o100000),
             ),
             mock.patch(
-                "kapisch_validation.artifact_io.os.read", side_effect=RuntimeError("bug")
+                "kapisch_validation.artifact_io.os.read",
+                side_effect=RuntimeError("bug"),
             ),
             mock.patch("kapisch_validation.artifact_io.os.close"),
         ):
@@ -76,14 +80,19 @@ class ArtifactIoTests(unittest.TestCase):
 
     def test_read_utf8_requests_binary_mode_when_available(self) -> None:
         with (
-            mock.patch("kapisch_validation.artifact_io.os.O_BINARY", 0x8000, create=True),
-            mock.patch("kapisch_validation.artifact_io.os.open", return_value=3) as open,
+            mock.patch(
+                "kapisch_validation.artifact_io.os.O_BINARY", 0x8000, create=True
+            ),
+            mock.patch(
+                "kapisch_validation.artifact_io.os.open", return_value=3
+            ) as open,
             mock.patch(
                 "kapisch_validation.artifact_io.os.fstat",
                 return_value=SimpleNamespace(st_mode=0o100000),
             ),
             mock.patch(
-                "kapisch_validation.artifact_io.os.read", side_effect=(b"a\r\nb\r\n", b"")
+                "kapisch_validation.artifact_io.os.read",
+                side_effect=(b"a\r\nb\r\n", b""),
             ),
             mock.patch("kapisch_validation.artifact_io.os.close"),
         ):

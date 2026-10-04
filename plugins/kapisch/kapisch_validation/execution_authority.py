@@ -23,9 +23,7 @@ PLAN_FIELDS = frozenset(
     }
 )
 BINDING_FIELDS = frozenset({"snapshot_id", "path", "digest"})
-DEPENDENCY_FIELDS = frozenset(
-    {"decision_id", "kind", "path", "digest", "snapshot_id"}
-)
+DEPENDENCY_FIELDS = frozenset({"decision_id", "kind", "path", "digest", "snapshot_id"})
 DIGEST_RE = re.compile(r"[0-9a-f]{64}\Z")
 PLAN_PATH_RE = re.compile(r"plans/([0-9a-f]{64})\.md\Z")
 
@@ -83,12 +81,30 @@ def _record_accepted_snapshot(
     plan_path = project_root / "00-advisory.toml"
     snapshot_path = _safe_file(project_root, relative)
     if snapshot_path is None:
-        errors.append(_error("ADV-AUTHORITY-MISSING", plan_path, field, "accepted architecture reference must exist inside repository"))
+        errors.append(
+            _error(
+                "ADV-AUTHORITY-MISSING",
+                plan_path,
+                field,
+                "accepted architecture reference must exist inside repository",
+            )
+        )
         return None
     if not isinstance(snapshot_path, Path):
         return None
-    if not isinstance(snapshot_id, str) or not isinstance(digest, str) or DIGEST_RE.fullmatch(digest) is None:
-        errors.append(_error("ADV-AUTHORITY-IDENTITY", snapshot_path, field, "snapshot ID and 64-character digest are required"))
+    if (
+        not isinstance(snapshot_id, str)
+        or not isinstance(digest, str)
+        or DIGEST_RE.fullmatch(digest) is None
+    ):
+        errors.append(
+            _error(
+                "ADV-AUTHORITY-IDENTITY",
+                snapshot_path,
+                field,
+                "snapshot ID and 64-character digest are required",
+            )
+        )
         return None
 
         return None
@@ -96,20 +112,51 @@ def _record_accepted_snapshot(
 
     actual_digest = hashlib.sha256(snapshot_path.read_bytes()).hexdigest()
     if actual_digest != digest or not snapshot_path.name.endswith(f"-{digest}.toml"):
-        errors.append(_error("ADV-AUTHORITY-STALE", snapshot_path, field, "accepted architecture bytes differ from bound digest"))
+        errors.append(
+            _error(
+                "ADV-AUTHORITY-STALE",
+                snapshot_path,
+                field,
+                "accepted architecture bytes differ from bound digest",
+            )
+        )
         return None
     snapshot, failure = load_toml_artifact(snapshot_path)
     if failure is not None or snapshot is None:
-        errors.append(_error("ADV-AUTHORITY-INVALID", snapshot_path, field, "accepted architecture snapshot is invalid TOML"))
+        errors.append(
+            _error(
+                "ADV-AUTHORITY-INVALID",
+                snapshot_path,
+                field,
+                "accepted architecture snapshot is invalid TOML",
+            )
+        )
         return None
-    if snapshot.get("status") != "accepted" or snapshot.get("snapshot_id") != snapshot_id:
-        errors.append(_error("ADV-AUTHORITY-IDENTITY", snapshot_path, field, "snapshot identity or accepted status does not match"))
+    if (
+        snapshot.get("status") != "accepted"
+        or snapshot.get("snapshot_id") != snapshot_id
+    ):
+        errors.append(
+            _error(
+                "ADV-AUTHORITY-IDENTITY",
+                snapshot_path,
+                field,
+                "snapshot identity or accepted status does not match",
+            )
+        )
         return None
     owner_dir = snapshot_path.parent.parent
     owner_state_path = owner_dir / STATE_PATH
     owner_state, state_failure = load_toml_artifact(owner_state_path)
     if state_failure is not None or owner_state is None:
-        errors.append(_error("ADV-AUTHORITY-INVALID", owner_state_path, "state", "owning advisory state is missing or invalid"))
+        errors.append(
+            _error(
+                "ADV-AUTHORITY-INVALID",
+                owner_state_path,
+                "state",
+                "owning advisory state is missing or invalid",
+            )
+        )
         return None
     expected_path = snapshot_path.relative_to(owner_dir).as_posix()
     accepted = owner_state.get("accepted_architectures")
@@ -120,7 +167,14 @@ def _record_accepted_snapshot(
         and entry.get("digest") == digest
         for entry in accepted
     ):
-        errors.append(_error("ADV-AUTHORITY-UNACCEPTED", snapshot_path, field, "snapshot is not listed as accepted by its owning run"))
+        errors.append(
+            _error(
+                "ADV-AUTHORITY-UNACCEPTED",
+                snapshot_path,
+                field,
+                "snapshot is not listed as accepted by its owning run",
+            )
+        )
         return None
     owner_errors = validate_advisory(owner_dir)
     if owner_errors:
@@ -130,7 +184,10 @@ def _record_accepted_snapshot(
 
 
 def _is_superseded(
-    project_root: Path, target_path: str, target_digest: str, errors: list[ValidationError]
+    project_root: Path,
+    target_path: str,
+    target_digest: str,
+    errors: list[ValidationError],
 ) -> bool:
     resolved_root = project_root.resolve()
     target_file = _safe_file(resolved_root, target_path)
@@ -154,7 +211,8 @@ def _is_superseded(
         relative = candidate.relative_to(owner_dir).as_posix()
         accepted = owner_state.get("accepted_architectures")
         if not isinstance(accepted, list) or not any(
-            isinstance(entry, dict) and entry.get("path") == relative for entry in accepted
+            isinstance(entry, dict) and entry.get("path") == relative
+            for entry in accepted
         ):
             continue
         if owner_dir not in validation_cache:
@@ -167,11 +225,29 @@ def _is_superseded(
             continue
         candidate_digest = hashlib.sha256(candidate.read_bytes()).hexdigest()
         snapshot, failure = load_toml_artifact(candidate)
-        if failure is not None or snapshot is None or snapshot.get("status") != "accepted":
-            errors.append(_error("ADV-AUTHORITY-INVALID", candidate, "snapshot", "accepted architecture snapshot is invalid"))
+        if (
+            failure is not None
+            or snapshot is None
+            or snapshot.get("status") != "accepted"
+        ):
+            errors.append(
+                _error(
+                    "ADV-AUTHORITY-INVALID",
+                    candidate,
+                    "snapshot",
+                    "accepted architecture snapshot is invalid",
+                )
+            )
             continue
         if not candidate.name.endswith(f"-{candidate_digest}.toml"):
-            errors.append(_error("ADV-AUTHORITY-STALE", candidate, "snapshot", "accepted architecture bytes differ from their content-addressed filename"))
+            errors.append(
+                _error(
+                    "ADV-AUTHORITY-STALE",
+                    candidate,
+                    "snapshot",
+                    "accepted architecture bytes differ from their content-addressed filename",
+                )
+            )
             continue
         relations = snapshot.get("relationships", [])
         if not isinstance(relations, list):
@@ -197,7 +273,11 @@ def _validate_dependency(
     field: str,
 ) -> tuple[str, str, str, str, str] | None:
     if not isinstance(record, dict):
-        errors.append(_error("ADV-PLAN-DEPENDENCY", project_root, field, "dependency must be a table"))
+        errors.append(
+            _error(
+                "ADV-PLAN-DEPENDENCY", project_root, field, "dependency must be a table"
+            )
+        )
         return None
     errors.extend(_closed(record, DEPENDENCY_FIELDS, project_root, field))
     decision_id, kind, relative, digest = (
@@ -209,28 +289,89 @@ def _validate_dependency(
     if "decision_id" in record and (
         not isinstance(decision_id, str) or decision_id not in snapshot_decisions
     ):
-        errors.append(_error("ADV-PLAN-DEPENDENCY", project_root, f"{field}.decision_id", "must reference a decision in a bound accepted architecture"))
-    if not isinstance(kind, str) or kind not in {"repository-file", "accepted-architecture"}:
-        errors.append(_error("ADV-PLAN-DEPENDENCY", project_root, f"{field}.kind", "must be repository-file or accepted-architecture"))
+        errors.append(
+            _error(
+                "ADV-PLAN-DEPENDENCY",
+                project_root,
+                f"{field}.decision_id",
+                "must reference a decision in a bound accepted architecture",
+            )
+        )
+    if not isinstance(kind, str) or kind not in {
+        "repository-file",
+        "accepted-architecture",
+    }:
+        errors.append(
+            _error(
+                "ADV-PLAN-DEPENDENCY",
+                project_root,
+                f"{field}.kind",
+                "must be repository-file or accepted-architecture",
+            )
+        )
     if not isinstance(digest, str) or DIGEST_RE.fullmatch(digest) is None:
-        errors.append(_error("ADV-PLAN-DEPENDENCY", project_root, f"{field}.digest", "must be 64 lowercase hexadecimal characters"))
+        errors.append(
+            _error(
+                "ADV-PLAN-DEPENDENCY",
+                project_root,
+                f"{field}.digest",
+                "must be 64 lowercase hexadecimal characters",
+            )
+        )
         return None
     path = _safe_file(project_root, relative)
     if path is None:
-        errors.append(_error("ADV-AUTHORITY-MISSING", project_root, f"{field}.path", "decision dependency must exist inside repository"))
+        errors.append(
+            _error(
+                "ADV-AUTHORITY-MISSING",
+                project_root,
+                f"{field}.path",
+                "decision dependency must exist inside repository",
+            )
+        )
         return None
     if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
-        errors.append(_error("ADV-AUTHORITY-STALE", path, field, "decision dependency bytes differ from bound digest"))
+        errors.append(
+            _error(
+                "ADV-AUTHORITY-STALE",
+                path,
+                field,
+                "decision dependency bytes differ from bound digest",
+            )
+        )
     if kind == "accepted-architecture":
         snapshot_id = record.get("snapshot_id")
         if not isinstance(snapshot_id, str):
-            errors.append(_error("ADV-PLAN-DEPENDENCY", path, f"{field}.snapshot_id", "required for accepted-architecture dependency"))
+            errors.append(
+                _error(
+                    "ADV-PLAN-DEPENDENCY",
+                    path,
+                    f"{field}.snapshot_id",
+                    "required for accepted-architecture dependency",
+                )
+            )
         else:
-            _record_accepted_snapshot(project_root, relative, snapshot_id, digest, errors, field)
+            _record_accepted_snapshot(
+                project_root, relative, snapshot_id, digest, errors, field
+            )
             if _is_superseded(project_root, str(relative), digest, errors):
-                errors.append(_error("ADV-AUTHORITY-STALE", path, field, "decision dependency was amended or superseded"))
+                errors.append(
+                    _error(
+                        "ADV-AUTHORITY-STALE",
+                        path,
+                        field,
+                        "decision dependency was amended or superseded",
+                    )
+                )
     elif "snapshot_id" in record:
-        errors.append(_error("ADV-PLAN-DEPENDENCY", path, f"{field}.snapshot_id", "only accepted-architecture dependencies have snapshot_id"))
+        errors.append(
+            _error(
+                "ADV-PLAN-DEPENDENCY",
+                path,
+                f"{field}.snapshot_id",
+                "only accepted-architecture dependencies have snapshot_id",
+            )
+        )
     return _dependency_key(record)
 
 
@@ -259,14 +400,35 @@ def validate_plan_authority(
             ]
         return []
     if plan_path is None:
-        return [_error("ADV-PLAN-MISSING", task_dir / STATE_PATH, "source_plan", "approved plan artifact is missing or unsafe")]
+        return [
+            _error(
+                "ADV-PLAN-MISSING",
+                task_dir / STATE_PATH,
+                "source_plan",
+                "approved plan artifact is missing or unsafe",
+            )
+        ]
     match = PLAN_PATH_RE.fullmatch(source_plan)
     errors: list[ValidationError] = []
     if match is None:
-        return [_error("ADV-PLAN-PATH", plan_path, "source_plan", "approved plans must use plans/<sha256>.md")]
+        return [
+            _error(
+                "ADV-PLAN-PATH",
+                plan_path,
+                "source_plan",
+                "approved plans must use plans/<sha256>.md",
+            )
+        ]
     plan_digest = hashlib.sha256(plan_path.read_bytes()).hexdigest()
     if plan_digest != match.group(1):
-        return [_error("ADV-PLAN-DIGEST", plan_path, "source_plan", "plan bytes differ from content-addressed filename")]
+        return [
+            _error(
+                "ADV-PLAN-DIGEST",
+                plan_path,
+                "source_plan",
+                "plan bytes differ from content-addressed filename",
+            )
+        ]
     try:
         data = plan_path.read_bytes()
         text = data.decode("utf-8")
@@ -277,70 +439,191 @@ def validate_plan_authority(
             raise ValueError("frontmatter closing marker missing")
         frontmatter = tomllib.loads(data[4 : end + 1].decode("utf-8"))
     except (UnicodeError, ValueError, tomllib.TOMLDecodeError, RecursionError):
-        return [_error("ADV-PLAN-PARSE", plan_path, "frontmatter", "plan requires valid UTF-8 TOML frontmatter")]
+        return [
+            _error(
+                "ADV-PLAN-PARSE",
+                plan_path,
+                "frontmatter",
+                "plan requires valid UTF-8 TOML frontmatter",
+            )
+        ]
     errors.extend(_closed(frontmatter, PLAN_FIELDS, plan_path, ""))
     for required in PLAN_FIELDS:
         if required not in frontmatter:
-            errors.append(_error("ADV-PLAN-SCHEMA", plan_path, required, "required field is missing"))
-    if frontmatter.get("schema_version") != 1 or isinstance(frontmatter.get("schema_version"), bool):
-        errors.append(_error("ADV-PLAN-SCHEMA", plan_path, "schema_version", "must equal 1"))
+            errors.append(
+                _error(
+                    "ADV-PLAN-SCHEMA", plan_path, required, "required field is missing"
+                )
+            )
+    if frontmatter.get("schema_version") != 1 or isinstance(
+        frontmatter.get("schema_version"), bool
+    ):
+        errors.append(
+            _error("ADV-PLAN-SCHEMA", plan_path, "schema_version", "must equal 1")
+        )
     if frontmatter.get("task_id") != task_dir.name:
-        errors.append(_error("ADV-PLAN-IDENTITY", plan_path, "task_id", "must match run directory"))
-    if frontmatter.get("status") != "approved" or frontmatter.get("approval_source") != "human":
-        errors.append(_error("ADV-PLAN-APPROVAL", plan_path, "status", "plan must record human approval"))
+        errors.append(
+            _error(
+                "ADV-PLAN-IDENTITY", plan_path, "task_id", "must match run directory"
+            )
+        )
+    if (
+        frontmatter.get("status") != "approved"
+        or frontmatter.get("approval_source") != "human"
+    ):
+        errors.append(
+            _error(
+                "ADV-PLAN-APPROVAL",
+                plan_path,
+                "status",
+                "plan must record human approval",
+            )
+        )
     reviewed = frontmatter.get("decision_dependencies_reviewed")
     if not isinstance(reviewed, bool) or not reviewed:
-        errors.append(_error("ADV-PLAN-REVIEW", plan_path, "decision_dependencies_reviewed", "plan approval requires review of candidate decision dependencies"))
-    if not isinstance(frontmatter.get("source_revision"), str) or not frontmatter["source_revision"].strip():
-        errors.append(_error("ADV-PLAN-SCHEMA", plan_path, "source_revision", "must be a non-empty source revision"))
+        errors.append(
+            _error(
+                "ADV-PLAN-REVIEW",
+                plan_path,
+                "decision_dependencies_reviewed",
+                "plan approval requires review of candidate decision dependencies",
+            )
+        )
+    if (
+        not isinstance(frontmatter.get("source_revision"), str)
+        or not frontmatter["source_revision"].strip()
+    ):
+        errors.append(
+            _error(
+                "ADV-PLAN-SCHEMA",
+                plan_path,
+                "source_revision",
+                "must be a non-empty source revision",
+            )
+        )
 
     project_root = repository_root(task_dir)
     if project_root is None:
-        return list(sorted_errors(errors + [_error("ADV-PLAN-ROOT", plan_path, "task_dir", "run must be beneath <repository>/.kapisch/runs/<task-id>")]))
+        return list(
+            sorted_errors(
+                errors
+                + [
+                    _error(
+                        "ADV-PLAN-ROOT",
+                        plan_path,
+                        "task_dir",
+                        "run must be beneath <repository>/.kapisch/runs/<task-id>",
+                    )
+                ]
+            )
+        )
     expected_advisory_dir = advisory_task_dir
     if expected_advisory_dir is None and (task_dir / STATE_PATH).is_file():
         expected_advisory_dir = task_dir.resolve()
     elif expected_advisory_dir is not None:
         expected_advisory_dir = Path(expected_advisory_dir).resolve()
-    if expected_advisory_dir is not None and repository_root(expected_advisory_dir) != project_root:
-        errors.append(_error("ADV-PLAN-BINDINGS", plan_path, "architecture_bindings", "advisory source must be a run in the same repository"))
+    if (
+        expected_advisory_dir is not None
+        and repository_root(expected_advisory_dir) != project_root
+    ):
+        errors.append(
+            _error(
+                "ADV-PLAN-BINDINGS",
+                plan_path,
+                "architecture_bindings",
+                "advisory source must be a run in the same repository",
+            )
+        )
 
     bindings = frontmatter.get("architecture_bindings")
     if not isinstance(bindings, list):
-        errors.append(_error("ADV-PLAN-BINDINGS", plan_path, "architecture_bindings", "must be an array of accepted snapshot references"))
+        errors.append(
+            _error(
+                "ADV-PLAN-BINDINGS",
+                plan_path,
+                "architecture_bindings",
+                "must be an array of accepted snapshot references",
+            )
+        )
         bindings = []
     elif not bindings:
-        errors.append(_error("ADV-PLAN-BINDINGS", plan_path, "architecture_bindings", "content-addressed promotion plan requires at least one accepted architecture binding"))
+        errors.append(
+            _error(
+                "ADV-PLAN-BINDINGS",
+                plan_path,
+                "architecture_bindings",
+                "content-addressed promotion plan requires at least one accepted architecture binding",
+            )
+        )
     expected_dependencies: set[tuple[str, str, str, str, str]] = set()
     binding_ids: set[str] = set()
     binding_paths: set[str] = set()
     for index, binding in enumerate(bindings):
         field = f"architecture_bindings[{index}]"
         if not isinstance(binding, dict):
-            errors.append(_error("ADV-PLAN-BINDINGS", plan_path, field, "must be a table"))
+            errors.append(
+                _error("ADV-PLAN-BINDINGS", plan_path, field, "must be a table")
+            )
             continue
         errors.extend(_closed(binding, BINDING_FIELDS, plan_path, field))
         snapshot_id = binding.get("snapshot_id")
         relative = binding.get("path")
         digest = binding.get("digest")
-        if not isinstance(snapshot_id, str) or not snapshot_id or not isinstance(relative, str):
-            errors.append(_error("ADV-PLAN-BINDINGS", plan_path, field, "snapshot_id and path are required"))
+        if (
+            not isinstance(snapshot_id, str)
+            or not snapshot_id
+            or not isinstance(relative, str)
+        ):
+            errors.append(
+                _error(
+                    "ADV-PLAN-BINDINGS",
+                    plan_path,
+                    field,
+                    "snapshot_id and path are required",
+                )
+            )
             continue
 
             continue
         if snapshot_id in binding_ids or relative in binding_paths:
-            errors.append(_error("ADV-PLAN-BINDINGS", plan_path, field, "architecture bindings must be unique"))
+            errors.append(
+                _error(
+                    "ADV-PLAN-BINDINGS",
+                    plan_path,
+                    field,
+                    "architecture bindings must be unique",
+                )
+            )
         binding_ids.add(snapshot_id)
         binding_paths.add(relative)
-        accepted = _record_accepted_snapshot(project_root, relative, snapshot_id, digest, errors, field)
+        accepted = _record_accepted_snapshot(
+            project_root, relative, snapshot_id, digest, errors, field
+        )
         if accepted is None:
             continue
         snapshot_path, snapshot = accepted
-        if expected_advisory_dir is not None and snapshot_path.parent.parent.resolve() != expected_advisory_dir:
-            errors.append(_error("ADV-PLAN-BINDINGS", plan_path, field, "snapshot must belong to the advisory run being promoted"))
+        if (
+            expected_advisory_dir is not None
+            and snapshot_path.parent.parent.resolve() != expected_advisory_dir
+        ):
+            errors.append(
+                _error(
+                    "ADV-PLAN-BINDINGS",
+                    plan_path,
+                    field,
+                    "snapshot must belong to the advisory run being promoted",
+                )
+            )
             continue
         if _is_superseded(project_root, relative, str(digest), errors):
-            errors.append(_error("ADV-AUTHORITY-STALE", snapshot_path, field, "bound architecture was amended or superseded"))
+            errors.append(
+                _error(
+                    "ADV-AUTHORITY-STALE",
+                    snapshot_path,
+                    field,
+                    "bound architecture was amended or superseded",
+                )
+            )
         decisions = snapshot.get("decisions")
         decision_ids: set[str] = set()
         if isinstance(decisions, list):
@@ -349,7 +632,14 @@ def validate_plan_authority(
                     decision_ids.add(decision["id"])
         dependencies = snapshot.get("dependencies", [])
         if not isinstance(dependencies, list):
-            errors.append(_error("ADV-PLAN-DEPENDENCY", snapshot_path, "dependencies", "must be an array"))
+            errors.append(
+                _error(
+                    "ADV-PLAN-DEPENDENCY",
+                    snapshot_path,
+                    "dependencies",
+                    "must be an array",
+                )
+            )
             continue
         for dep_index, dependency in enumerate(dependencies):
             key = _validate_dependency(
@@ -364,7 +654,14 @@ def validate_plan_authority(
 
     plan_dependencies = frontmatter.get("decision_dependencies")
     if not isinstance(plan_dependencies, list):
-        errors.append(_error("ADV-PLAN-DEPENDENCY", plan_path, "decision_dependencies", "must be an array"))
+        errors.append(
+            _error(
+                "ADV-PLAN-DEPENDENCY",
+                plan_path,
+                "decision_dependencies",
+                "must be an array",
+            )
+        )
         plan_dependencies = []
     all_decision_ids: set[str] = set()
     for binding in bindings:
@@ -381,7 +678,9 @@ def validate_plan_authority(
                 decisions = accepted[1].get("decisions")
                 if isinstance(decisions, list):
                     for decision in decisions:
-                        if isinstance(decision, dict) and isinstance(decision.get("id"), str):
+                        if isinstance(decision, dict) and isinstance(
+                            decision.get("id"), str
+                        ):
                             all_decision_ids.add(decision["id"])
     actual_dependencies: set[tuple[str, str, str, str, str]] = set()
     for index, dependency in enumerate(plan_dependencies):
@@ -394,8 +693,22 @@ def validate_plan_authority(
         )
         if key is not None:
             if key in actual_dependencies:
-                errors.append(_error("ADV-PLAN-DEPENDENCY", plan_path, f"decision_dependencies[{index}]", "duplicate dependency"))
+                errors.append(
+                    _error(
+                        "ADV-PLAN-DEPENDENCY",
+                        plan_path,
+                        f"decision_dependencies[{index}]",
+                        "duplicate dependency",
+                    )
+                )
             actual_dependencies.add(key)
     if actual_dependencies != expected_dependencies:
-        errors.append(_error("ADV-PLAN-DEPENDENCY-MISMATCH", plan_path, "decision_dependencies", "plan dependencies must exactly match bound architecture dependencies"))
+        errors.append(
+            _error(
+                "ADV-PLAN-DEPENDENCY-MISMATCH",
+                plan_path,
+                "decision_dependencies",
+                "plan dependencies must exactly match bound architecture dependencies",
+            )
+        )
     return list(sorted_errors(errors))

@@ -19,7 +19,9 @@ class CanonicalBytesTests(unittest.TestCase):
         self.assertEqual(
             canonical_json_bytes(payload), '{"z":[2,1],"é":"é"}'.encode("utf-8")
         )
-        self.assertEqual(canonical_json_line(payload), canonical_json_bytes(payload) + b"\n")
+        self.assertEqual(
+            canonical_json_line(payload), canonical_json_bytes(payload) + b"\n"
+        )
         self.assertEqual(
             sha256_hex(b"status: DONE\n"),
             "804aaae7bd1b6d3585d7f60cd58893771aa9439bbbfc76f62293ef7acb6898b4",
@@ -30,7 +32,10 @@ class CanonicalBytesTests(unittest.TestCase):
 
     def test_unsupported_values_fail_before_bytes_exist(self) -> None:
         for value in (float("nan"), float("inf"), {"set"}, b"bytes", ("tuple",)):
-            with self.subTest(value=type(value).__name__), self.assertRaises(ValueError):
+            with (
+                self.subTest(value=type(value).__name__),
+                self.assertRaises(ValueError),
+            ):
                 canonical_json_bytes(value)
         with self.assertRaises(ValueError):
             canonical_text_bytes("bad\udcff")

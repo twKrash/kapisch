@@ -7,8 +7,13 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
+from fake_adapter import FakeHarnessAdapter
 from kapisch_core.bundle import CoreBundle, canonical_json, verify_bundle
-from kapisch_core.capabilities import CapabilityClaim, CapabilityClaims, CapabilityStatus
+from kapisch_core.capabilities import (
+    CapabilityClaim,
+    CapabilityClaims,
+    CapabilityStatus,
+)
 from kapisch_core.domain import (
     CapabilityEffect,
     ExecutionClass,
@@ -20,7 +25,7 @@ from kapisch_core.domain import (
     Stage,
     Workflow,
 )
-from fake_adapter import FakeHarnessAdapter
+
 from tooling.conformance.adapter import (
     HumanActionReceipt,
     HumanActionTarget,
@@ -48,7 +53,9 @@ class FakeAdapterTests(unittest.TestCase):
         )
         for asset in assets:
             role = Path(asset.path).stem.removeprefix("kapisch-")
-            self.assertEqual(asset.content, bundle.payload["roles"][role]["contract"].encode())
+            self.assertEqual(
+                asset.content, bundle.payload["roles"][role]["contract"].encode()
+            )
         manifest_data = json.loads(manifest)
         self.assertEqual(manifest_data["bundle_digest"], BUNDLE_DIGEST)
         self.assertEqual(manifest_data.get("adapter_version"), "1.0.0")
@@ -58,7 +65,10 @@ class FakeAdapterTests(unittest.TestCase):
         )
         self.assertEqual(manifest_data["protocol_version"], bundle.protocol_version)
         self.assertEqual(
-            {asset["path"]: asset["sha256"] for asset in manifest_data.get("asset_digests", [])},
+            {
+                asset["path"]: asset["sha256"]
+                for asset in manifest_data.get("asset_digests", [])
+            },
             {asset.path: hashlib.sha256(asset.content).hexdigest() for asset in assets},
         )
         self.assertEqual(manifest, canonical_json(manifest_data))
@@ -92,19 +102,23 @@ class FakeAdapterTests(unittest.TestCase):
     def test_rejects_bundle_protocol_outside_supported_range(self) -> None:
         bundle = verify_bundle(BUNDLE_BYTES, BUNDLE_DIGEST)
         incompatible = CoreBundle(protocol_version=4, payload=bundle.payload)
-        with patch(
-            "fake_adapter.verify_bundle", return_value=incompatible
-        ), self.assertRaisesRegex(ValueError, "protocol.*supported"):
+        with (
+            patch("fake_adapter.verify_bundle", return_value=incompatible),
+            self.assertRaisesRegex(ValueError, "protocol.*supported"),
+        ):
             FakeHarnessAdapter().compile(
                 BUNDLE_BYTES, BUNDLE_DIGEST, RuntimeProfile("test")
             )
 
     def test_compiler_never_reads_host_directories(self) -> None:
         adapter = FakeHarnessAdapter()
-        with patch("builtins.open", side_effect=AssertionError("filesystem read")), patch(
-            "pathlib.Path.open", side_effect=AssertionError("filesystem read")
+        with (
+            patch("builtins.open", side_effect=AssertionError("filesystem read")),
+            patch("pathlib.Path.open", side_effect=AssertionError("filesystem read")),
         ):
-            assets, _ = adapter.compile(BUNDLE_BYTES, BUNDLE_DIGEST, RuntimeProfile("test"))
+            assets, _ = adapter.compile(
+                BUNDLE_BYTES, BUNDLE_DIGEST, RuntimeProfile("test")
+            )
         self.assertEqual(len(assets), 6)
 
     def test_manifest_and_assets_are_byte_stable(self) -> None:
@@ -116,15 +130,25 @@ class FakeAdapterTests(unittest.TestCase):
 
     def test_profiles_do_not_change_role_contracts(self) -> None:
         adapter = FakeHarnessAdapter()
-        assets_a, manifest_a = adapter.compile(BUNDLE_BYTES, BUNDLE_DIGEST, RuntimeProfile("alpha"))
-        assets_b, manifest_b = adapter.compile(BUNDLE_BYTES, BUNDLE_DIGEST, RuntimeProfile("beta"))
+        assets_a, manifest_a = adapter.compile(
+            BUNDLE_BYTES, BUNDLE_DIGEST, RuntimeProfile("alpha")
+        )
+        assets_b, manifest_b = adapter.compile(
+            BUNDLE_BYTES, BUNDLE_DIGEST, RuntimeProfile("beta")
+        )
         self.assertEqual(assets_a, assets_b)
-        self.assertNotEqual(json.loads(manifest_a)["profile_id"], json.loads(manifest_b)["profile_id"])
+        self.assertNotEqual(
+            json.loads(manifest_a)["profile_id"], json.loads(manifest_b)["profile_id"]
+        )
 
     def test_descriptive_metadata_cannot_override_static_policy(self) -> None:
         adapter = FakeHarnessAdapter(
             CapabilityClaims(
-                claims=(CapabilityClaim(CapabilityEffect.REPOSITORY_WRITE, CapabilityStatus.UNKNOWN),)
+                claims=(
+                    CapabilityClaim(
+                        CapabilityEffect.REPOSITORY_WRITE, CapabilityStatus.UNKNOWN
+                    ),
+                )
             )
         )
         action = ProposedAction(
@@ -143,16 +167,25 @@ class FakeAdapterTests(unittest.TestCase):
         for metadata in metadata_cases:
             with self.subTest(metadata=metadata):
                 result = adapter.evaluate_action(
-                    BUNDLE_BYTES, BUNDLE_DIGEST, Workflow.TASK, action, workflow_metadata=metadata
+                    BUNDLE_BYTES,
+                    BUNDLE_DIGEST,
+                    Workflow.TASK,
+                    action,
+                    workflow_metadata=metadata,
                 )
                 self.assertFalse(result.admissible)
-                self.assertIn("repository-write-capability-not-enforced", result.violations)
+                self.assertIn(
+                    "repository-write-capability-not-enforced", result.violations
+                )
 
         allowed_action = ProposedAction(stage=Stage.RESEARCH, role=Role.RESEARCHER)
         for metadata in metadata_cases:
             with self.subTest(allowed_metadata=metadata):
                 result = adapter.evaluate_action(
-                    BUNDLE_BYTES, BUNDLE_DIGEST, Workflow.TASK, allowed_action,
+                    BUNDLE_BYTES,
+                    BUNDLE_DIGEST,
+                    Workflow.TASK,
+                    allowed_action,
                     workflow_metadata=metadata,
                 )
                 self.assertTrue(result.admissible, result.violations)
@@ -160,11 +193,17 @@ class FakeAdapterTests(unittest.TestCase):
     def test_unsupported_effect_is_blocked(self) -> None:
         adapter = FakeHarnessAdapter(
             CapabilityClaims(
-                claims=(CapabilityClaim(CapabilityEffect.REPOSITORY_READ, CapabilityStatus.UNSUPPORTED),)
+                claims=(
+                    CapabilityClaim(
+                        CapabilityEffect.REPOSITORY_READ, CapabilityStatus.UNSUPPORTED
+                    ),
+                )
             )
         )
         action = ProposedAction(stage=Stage.RESEARCH, role=Role.RESEARCHER)
-        result = adapter.evaluate_action(BUNDLE_BYTES, BUNDLE_DIGEST, Workflow.TASK, action)
+        result = adapter.evaluate_action(
+            BUNDLE_BYTES, BUNDLE_DIGEST, Workflow.TASK, action
+        )
         self.assertFalse(result.admissible)
         self.assertIn("unsupported-capability-effect", result.violations)
 
@@ -176,9 +215,13 @@ class FakeAdapterTests(unittest.TestCase):
             review_scope=ReviewScope.ITERATION,
             gate=Gate.APPROVAL,
         )
-        result = adapter.evaluate_action(BUNDLE_BYTES, BUNDLE_DIGEST, Workflow.TASK, action)
+        result = adapter.evaluate_action(
+            BUNDLE_BYTES, BUNDLE_DIGEST, Workflow.TASK, action
+        )
         self.assertFalse(result.admissible)
-        self.assertIn("reviewer-mutation-free-capability-not-enforced", result.violations)
+        self.assertIn(
+            "reviewer-mutation-free-capability-not-enforced", result.violations
+        )
 
     def test_unknown_capability_does_not_downgrade_policy(self) -> None:
         adapter = FakeHarnessAdapter()
@@ -189,22 +232,31 @@ class FakeAdapterTests(unittest.TestCase):
             tier=LogicalTier.STANDARD,
             effect=CapabilityEffect.REPOSITORY_WRITE,
         )
-        result = adapter.evaluate_action(BUNDLE_BYTES, BUNDLE_DIGEST, Workflow.TASK, action)
+        result = adapter.evaluate_action(
+            BUNDLE_BYTES, BUNDLE_DIGEST, Workflow.TASK, action
+        )
         self.assertFalse(result.admissible)
         self.assertIn("repository-write-capability-not-enforced", result.violations)
 
     def test_human_receipt_fixture_is_stage3_shaped_and_accepted(self) -> None:
-        payload = json.loads((ROOT / "tests/conformance/fixtures/v3/receipt.json").read_text())
+        payload = json.loads(
+            (ROOT / "tests/conformance/fixtures/v3/receipt.json").read_text()
+        )
         self.assertIn(payload["gate"], {"human-decision", "side-effect"})
         receipt = HumanActionReceipt(**payload)
         target = HumanActionTarget(
-            payload["run_id"], payload["gate"], payload["decision_id"],
-            payload["target"], payload["scope_digest"],
+            payload["run_id"],
+            payload["gate"],
+            payload["decision_id"],
+            payload["target"],
+            payload["scope_digest"],
         )
         self.assertTrue(human_receipt_matches(receipt, target))
 
     def test_human_receipt_match_is_structural_and_binds_exact_target(self) -> None:
-        target = HumanActionTarget("run-1", "human-decision", "decision-1", "plan.md", "a" * 64)
+        target = HumanActionTarget(
+            "run-1", "human-decision", "decision-1", "plan.md", "a" * 64
+        )
         valid = HumanActionReceipt(
             action_id="action-1",
             session_id="session-1",
@@ -230,21 +282,31 @@ class FakeAdapterTests(unittest.TestCase):
         self.assertTrue(human_receipt_matches(unverified_claims, target))
         self.assertFalse(
             human_receipt_matches(
-                FakeHarnessAdapter(human_action=replace(valid, origin="controller")).observe_human_action(),
+                FakeHarnessAdapter(
+                    human_action=replace(valid, origin="controller")
+                ).observe_human_action(),
                 target,
             )
         )
         self.assertFalse(
             human_receipt_matches(
-                FakeHarnessAdapter(human_action=replace(valid, target="other.md")).observe_human_action(),
+                FakeHarnessAdapter(
+                    human_action=replace(valid, target="other.md")
+                ).observe_human_action(),
                 target,
             )
         )
-        self.assertFalse(human_receipt_matches(FakeHarnessAdapter().observe_human_action(), target))
+        self.assertFalse(
+            human_receipt_matches(FakeHarnessAdapter().observe_human_action(), target)
+        )
         for field in ("run_id", "gate", "decision_id", "target", "scope_digest"):
             with self.subTest(missing=field):
-                self.assertFalse(human_receipt_matches(replace(valid, **{field: ""}), target))
-                self.assertFalse(human_receipt_matches(valid, replace(target, **{field: ""})))
+                self.assertFalse(
+                    human_receipt_matches(replace(valid, **{field: ""}), target)
+                )
+                self.assertFalse(
+                    human_receipt_matches(valid, replace(target, **{field: ""}))
+                )
                 self.assertFalse(
                     human_receipt_matches(
                         replace(valid, **{field: ""}), replace(target, **{field: ""})
@@ -253,11 +315,19 @@ class FakeAdapterTests(unittest.TestCase):
         for field in ("run_id", "gate", "decision_id", "target", "scope_digest"):
             with self.subTest(mismatch=field):
                 value = "c" * 64 if field == "scope_digest" else "mismatch"
-                self.assertFalse(human_receipt_matches(replace(valid, **{field: value}), target))
+                self.assertFalse(
+                    human_receipt_matches(replace(valid, **{field: value}), target)
+                )
         self.assertFalse(human_receipt_matches(replace(valid, observed_at=""), target))
-        self.assertFalse(human_receipt_matches(replace(valid, text_digest="not-a-digest"), target))
-        self.assertFalse(human_receipt_matches(replace(valid, text_digest=None), target))
-        self.assertFalse(human_receipt_matches(replace(valid, observed_at="not-a-date"), target))
+        self.assertFalse(
+            human_receipt_matches(replace(valid, text_digest="not-a-digest"), target)
+        )
+        self.assertFalse(
+            human_receipt_matches(replace(valid, text_digest=None), target)
+        )
+        self.assertFalse(
+            human_receipt_matches(replace(valid, observed_at="not-a-date"), target)
+        )
         for timestamp in (
             "2026-09-30t00:00:00z",
             "2026-09-30T00:00:00.123+05:30",
@@ -268,7 +338,9 @@ class FakeAdapterTests(unittest.TestCase):
             "2017-01-01T00:59:60.123+01:00",
         ):
             with self.subTest(timestamp=timestamp):
-                self.assertTrue(human_receipt_matches(replace(valid, observed_at=timestamp), target))
+                self.assertTrue(
+                    human_receipt_matches(replace(valid, observed_at=timestamp), target)
+                )
         for timestamp in (
             "2026-09-30T00:00:00+00:60",
             "2026-09-30T00:00:00+24:00",
@@ -289,9 +361,9 @@ class FakeAdapterTests(unittest.TestCase):
             "2017-01-01T00:59:60.123+02:00",
         ):
             with self.subTest(invalid_timestamp=timestamp):
-                self.assertFalse(human_receipt_matches(replace(valid, observed_at=timestamp), target))
-
-
+                self.assertFalse(
+                    human_receipt_matches(replace(valid, observed_at=timestamp), target)
+                )
 
 
 if __name__ == "__main__":

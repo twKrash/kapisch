@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import os
+import stat
 import tomllib
 from dataclasses import dataclass
 from enum import Enum
-import os
 from pathlib import Path
-import stat
 
 
 class ArtifactFailureKind(str, Enum):
@@ -33,9 +33,7 @@ def read_utf8_artifact(
 ) -> tuple[Utf8Artifact | None, ArtifactFailure | None]:
     """Read a user-controlled artifact without leaking expected I/O failures."""
     try:
-        flags = (
-            os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
-        )
+        flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
         descriptor = os.open(path, flags)
     except FileNotFoundError:
         return None, ArtifactFailure(ArtifactFailureKind.MISSING)

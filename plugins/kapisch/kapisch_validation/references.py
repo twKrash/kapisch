@@ -10,10 +10,15 @@ from .artifact_io import (
     ArtifactFailureKind,
     load_toml_artifact,
 )
-from .errors import ValidationError
-from .helpers import is_integer, non_empty_string, nonfinite_float_references, string_list
-from .models import Manifest, State
 from .canonical_toml import render_toml
+from .errors import ValidationError
+from .helpers import (
+    is_integer,
+    non_empty_string,
+    nonfinite_float_references,
+    string_list,
+)
+from .models import Manifest, State
 from .path_atoms import validate_relative_posix_path
 from .vocabulary import (
     V4_CONTROLLER_VIEW_PATH,
@@ -22,18 +27,37 @@ from .vocabulary import (
 )
 
 STATE_KEY_ORDER = (
-    "task_id", "source_plan", "base_revision", "current_revision",
-    "workflow_status", "completed_node_ids", "running_node_ids",
-    "ready_node_ids", "blocked_node_ids", "failed_node_ids",
-    "latest_approving_review_path", "latest_approving_invocation_id",
-    "current_fix_round", "max_fix_rounds", "next_action",
-    "controller_view_path", "controller_view_sha256", "extensions",
+    "task_id",
+    "source_plan",
+    "base_revision",
+    "current_revision",
+    "workflow_status",
+    "completed_node_ids",
+    "running_node_ids",
+    "ready_node_ids",
+    "blocked_node_ids",
+    "failed_node_ids",
+    "latest_approving_review_path",
+    "latest_approving_invocation_id",
+    "current_fix_round",
+    "max_fix_rounds",
+    "next_action",
+    "controller_view_path",
+    "controller_view_sha256",
+    "extensions",
 )
 STATE = set(STATE_KEY_ORDER)
-STATE_REQUIRED = STATE - {"extensions", "controller_view_path", "controller_view_sha256"}
+STATE_REQUIRED = STATE - {
+    "extensions",
+    "controller_view_path",
+    "controller_view_sha256",
+}
 STATE_MEMBERSHIPS = (
-    "completed_node_ids", "running_node_ids", "ready_node_ids",
-    "blocked_node_ids", "failed_node_ids",
+    "completed_node_ids",
+    "running_node_ids",
+    "ready_node_ids",
+    "blocked_node_ids",
+    "failed_node_ids",
 )
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
 
@@ -64,18 +88,26 @@ def _state_extensions(value: object, *, v4: bool) -> dict[str, object]:
         raise _state_error("extensions must be a table")
     result = deepcopy(value)
     for namespace in result:
-        if not isinstance(namespace, str) or re.fullmatch(
-            r"[a-z0-9-]+(?:\.[a-z0-9-]+)+", namespace
-        ) is None:
-            raise _state_error(f"extensions.{namespace} must be a reverse-DNS namespace")
+        if (
+            not isinstance(namespace, str)
+            or re.fullmatch(r"[a-z0-9-]+(?:\.[a-z0-9-]+)+", namespace) is None
+        ):
+            raise _state_error(
+                f"extensions.{namespace} must be a reverse-DNS namespace"
+            )
     if v4:
         try:
             json.dumps(
-                result, sort_keys=True, separators=(",", ":"),
-                ensure_ascii=False, allow_nan=False,
+                result,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+                allow_nan=False,
             )
         except (TypeError, ValueError) as error:
-            raise _state_error("v4 extensions must contain JSON-compatible values") from error
+            raise _state_error(
+                "v4 extensions must contain JSON-compatible values"
+            ) from error
     return result
 
 
@@ -96,7 +128,10 @@ def render_state(raw: dict[str, object]) -> bytes:
         raise _state_error("controller view path and digest must be present together")
 
     for key in (
-        "task_id", "base_revision", "current_revision", "next_action",
+        "task_id",
+        "base_revision",
+        "current_revision",
+        "next_action",
         "latest_approving_invocation_id",
     ):
         _state_string(data[key], key)
@@ -105,14 +140,19 @@ def render_state(raw: dict[str, object]) -> bytes:
     _state_path(data["source_plan"], "source_plan")
     _state_path(
         data["latest_approving_review_path"],
-        "latest_approving_review_path", sentinel=True,
+        "latest_approving_review_path",
+        sentinel=True,
     )
     approval_path_unavailable = data["latest_approving_review_path"] == "unavailable"
     approval_id_unavailable = data["latest_approving_invocation_id"] == "unavailable"
     if approval_path_unavailable != approval_id_unavailable:
-        raise _state_error("latest approving review path and invocation ID must use matching sentinels")
+        raise _state_error(
+            "latest approving review path and invocation ID must use matching sentinels"
+        )
     if data["workflow_status"] not in WORKFLOW_STATUS_VALUES:
-        raise _state_error(f"workflow_status has unsupported value {data['workflow_status']!r}")
+        raise _state_error(
+            f"workflow_status has unsupported value {data['workflow_status']!r}"
+        )
     if (data["workflow_status"] == "complete") != (data["next_action"] == "complete"):
         raise _state_error("workflow_status and next_action terminal state disagree")
     for key in ("current_fix_round", "max_fix_rounds"):
@@ -132,7 +172,9 @@ def render_state(raw: dict[str, object]) -> bytes:
             raise _state_error(f"{key} must not contain duplicate node IDs")
         overlap = all_members.intersection(values)
         if overlap:
-            raise _state_error(f"node ID {sorted(overlap)[0]!r} occurs in multiple membership lists")
+            raise _state_error(
+                f"node ID {sorted(overlap)[0]!r} occurs in multiple membership lists"
+            )
         all_members.update(values)
         data[key] = sorted(values)
 
@@ -142,15 +184,19 @@ def render_state(raw: dict[str, object]) -> bytes:
                 f"controller_view_path must be {V4_CONTROLLER_VIEW_PATH!r}"
             )
         _state_path(data["controller_view_path"], "controller_view_path")
-        if not isinstance(data["controller_view_sha256"], str) or SHA256_RE.fullmatch(
-            data["controller_view_sha256"]
-        ) is None:
-            raise _state_error("controller_view_sha256 must be a lowercase SHA-256 digest")
+        if (
+            not isinstance(data["controller_view_sha256"], str)
+            or SHA256_RE.fullmatch(data["controller_view_sha256"]) is None
+        ):
+            raise _state_error(
+                "controller_view_sha256 must be a lowercase SHA-256 digest"
+            )
     if data.get("extensions") == {}:
         del data["extensions"]
     elif "extensions" in data:
         data["extensions"] = _state_extensions(data["extensions"], v4=has_view_path)
     return render_toml(data, key_order=STATE_KEY_ORDER)
+
 
 def _e(c: str, p: Path, r: str, m: str) -> ValidationError:
     return ValidationError(c, str(p), r, m)
@@ -229,7 +275,12 @@ def parse_state(path: Path) -> tuple[State | None, list[ValidationError]]:
                 )
         if "controller_view_path" in raw or "controller_view_sha256" in raw:
             try:
-                json.dumps(extensions, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+                json.dumps(
+                    extensions,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=False,
+                )
             except (TypeError, ValueError):
                 errors.append(
                     _e(
@@ -435,9 +486,8 @@ def validate_references(
                 )
             )
         digest = state.raw.get("controller_view_sha256")
-        if (
-            digest is not None
-            and (not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None)
+        if digest is not None and (
+            not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None
         ):
             errors.append(
                 _e(

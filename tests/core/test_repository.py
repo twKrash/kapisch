@@ -61,19 +61,19 @@ class RepositoryGitCaptureTests(unittest.TestCase):
 
     def test_capture_head_binds_storage_format_and_commit(self):
         observed = capture_head(self.root)
-        expected_format = self.git(
-            "rev-parse", "--show-object-format=storage"
-        ).stdout.strip().decode("ascii")
-        expected_commit = self.git(
-            "rev-parse", "--verify", "HEAD"
-        ).stdout.strip().decode("ascii")
+        expected_format = (
+            self.git("rev-parse", "--show-object-format=storage")
+            .stdout.strip()
+            .decode("ascii")
+        )
+        expected_commit = (
+            self.git("rev-parse", "--verify", "HEAD").stdout.strip().decode("ascii")
+        )
         self.assertEqual(observed.object_format, expected_format)
         self.assertEqual(observed.commit, expected_commit)
 
     def test_replacement_ref_cannot_mask_noncommit_head(self):
-        blob = self.git(
-            "hash-object", "tracked"
-        ).stdout.strip().decode("ascii")
+        blob = self.git("hash-object", "tracked").stdout.strip().decode("ascii")
         commit = self.git("rev-parse", "HEAD").stdout.strip().decode("ascii")
         self.git("update-ref", f"refs/replace/{blob}", commit)
         self.git("update-ref", "HEAD", blob)
@@ -84,9 +84,7 @@ class RepositoryGitCaptureTests(unittest.TestCase):
     def test_lazy_fetch_and_transport_are_disabled(self):
         for caller_value in (None, "0"):
             with self.subTest(caller_value=caller_value):
-                root = Path(self.tmp.name) / (
-                    f"missing-{caller_value or 'unset'}"
-                )
+                root = Path(self.tmp.name) / (f"missing-{caller_value or 'unset'}")
                 root.mkdir()
                 self.git_at(root, "init", "-q")
                 self.git_at(root, "config", "user.email", "a@b")
@@ -96,9 +94,7 @@ class RepositoryGitCaptureTests(unittest.TestCase):
                 self.git_at(root, "commit", "-qm", "initial")
                 marker = root / "transport-marker"
                 script = root / "ssh-marker.sh"
-                script.write_text(
-                    '#!/bin/sh\nprintf x >> "$KAPISCH_SSH_MARKER"\n'
-                )
+                script.write_text('#!/bin/sh\nprintf x >> "$KAPISCH_SSH_MARKER"\n')
                 script.chmod(0o755)
                 self.git_at(
                     root,
@@ -146,9 +142,7 @@ class RepositoryGitCaptureTests(unittest.TestCase):
         (self.root / "a").write_bytes(b"a")
         self.git("add", "z", "a")
         entries = capture_index(self.root)
-        self.assertEqual(
-            [entry.path for entry in entries], [b"a", b"tracked", b"z"]
-        )
+        self.assertEqual([entry.path for entry in entries], [b"a", b"tracked", b"z"])
         self.assertEqual([entry.stage for entry in entries], [0, 0, 0])
 
     def test_capture_index_preserves_raw_path_bytes(self):
@@ -196,9 +190,7 @@ class RepositoryGitCaptureTests(unittest.TestCase):
         self.git("reset", "-q", "--", "intent")
 
         head = self.git("rev-parse", "HEAD").stdout.strip().decode("ascii")
-        self.git(
-            "update-index", "--add", "--cacheinfo", f"160000,{head},submodule"
-        )
+        self.git("update-index", "--add", "--cacheinfo", f"160000,{head},submodule")
         with self.assertRaises(RepositoryCaptureError):
             capture_index(self.root)
 
@@ -297,9 +289,7 @@ class RepositoryGitCaptureTests(unittest.TestCase):
         self.git("add", "-A")
         self.git("commit", "-qm", "symlink")
         (self.root / "new").write_bytes(b"new")
-        state = capture_worktree(
-            self.root, capture_index(self.root), (b"new",)
-        )
+        state = capture_worktree(self.root, capture_index(self.root), (b"new",))
         entries = {entry.path: entry for entry in state.worktree}
         self.assertEqual(entries[b"tracked"].kind, "file")
         self.assertEqual(
@@ -590,9 +580,7 @@ class RepositoryGitCaptureTests(unittest.TestCase):
             self._mutating_stat_before_final_path_stat(b"included", b"two"),
             self.assertRaises(RepositoryCaptureError),
         ):
-            capture_worktree(
-                self.root, capture_index(self.root), (b"included",)
-            )
+            capture_worktree(self.root, capture_index(self.root), (b"included",))
 
     def test_worktree_treats_symlink_parent_as_tracked_deletion(self):
         nested = self.root / "dir"
@@ -675,9 +663,7 @@ class RepositoryGitCaptureTests(unittest.TestCase):
     def test_included_untracked_paths_require_regular_files(self):
         os.symlink("tracked", self.root / "link")
         with self.assertRaises(RepositoryCaptureError):
-            capture_worktree(
-                self.root, capture_index(self.root), (b"link",)
-            )
+            capture_worktree(self.root, capture_index(self.root), (b"link",))
 
     def test_untracked_embedded_repository_directory_marker_is_normalized(self):
         nested = self.root / "nested"
@@ -703,9 +689,7 @@ class RepositoryGitCaptureTests(unittest.TestCase):
         (self.root / "ignored").write_bytes(b"ignored")
         self.git("add", ".gitignore")
         self.git("commit", "-qm", "ignore")
-        state = capture_worktree(
-            self.root, capture_index(self.root), (raw_path,)
-        )
+        state = capture_worktree(self.root, capture_index(self.root), (raw_path,))
         paths = {entry.path: entry for entry in state.untracked}
         self.assertTrue(paths[raw_path].included)
         self.assertNotIn(b"ignored", paths)
@@ -808,9 +792,7 @@ class RepositoryGitCaptureTests(unittest.TestCase):
                             (parent / "b" / "file").write_bytes(b"current")
                     return original_stat(name_arg, *args, **kwargs)
 
-                with patch.object(
-                    _repository_worktree.os, "stat", side_effect=mutate
-                ):
+                with patch.object(_repository_worktree.os, "stat", side_effect=mutate):
                     return original_verify(parentfd, name)
 
             with (
@@ -854,7 +836,9 @@ class RepositoryGitCaptureTests(unittest.TestCase):
 
         with (
             patch.object(
-                _repository_worktree.os, "open", side_effect=replace_before_final_missing
+                _repository_worktree.os,
+                "open",
+                side_effect=replace_before_final_missing,
             ),
             self.assertRaises(RepositoryCaptureError),
         ):
@@ -989,13 +973,9 @@ class RepositoryGitCaptureTests(unittest.TestCase):
     def test_capture_index_disables_local_and_global_fsmonitor_hooks(self):
         marker = Path(self.tmp.name) / "fsmonitor-marker"
         script = Path(self.tmp.name) / "fsmonitor.sh"
-        script.write_text(
-            '#!/bin/sh\nprintf x >> "$KAPISCH_FSMONITOR_MARKER"\n'
-        )
+        script.write_text('#!/bin/sh\nprintf x >> "$KAPISCH_FSMONITOR_MARKER"\n')
         script.chmod(0o755)
-        with patch.dict(
-            os.environ, {"KAPISCH_FSMONITOR_MARKER": str(marker)}
-        ):
+        with patch.dict(os.environ, {"KAPISCH_FSMONITOR_MARKER": str(marker)}):
             self.git("config", "core.fsmonitor", str(script))
             self.git("update-index", "--fsmonitor")
             marker.unlink(missing_ok=True)
@@ -1004,9 +984,7 @@ class RepositoryGitCaptureTests(unittest.TestCase):
 
             home = Path(self.tmp.name) / "home"
             home.mkdir()
-            (home / ".gitconfig").write_text(
-                f"[core]\n\tfsmonitor = {script}\n"
-            )
+            (home / ".gitconfig").write_text(f"[core]\n\tfsmonitor = {script}\n")
             global_root = Path(self.tmp.name) / "global-repo"
             global_root.mkdir()
             self.git_at(global_root, "init", "-q")

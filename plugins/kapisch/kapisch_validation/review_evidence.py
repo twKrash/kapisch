@@ -12,10 +12,10 @@ from .artifact_io import (
     load_toml_artifact,
     read_utf8_artifact,
 )
+from .canonical_toml import render_toml
 from .errors import ValidationError
 from .helpers import non_empty_string, nonfinite_float_references
 from .models import Manifest, Node, State
-from .canonical_toml import render_toml
 from .path_atoms import validate_relative_posix_path
 
 # Keep this order aligned with the lifecycle contract in handoffs.md.  The
@@ -132,9 +132,10 @@ def render_reviewer_invocation(raw: dict[str, object]) -> bytes:
         raise ValueError("review invocation extensions must be a table")
     if isinstance(extensions, dict):
         for namespace in extensions:
-            if not isinstance(namespace, str) or re.fullmatch(
-                r"[a-z0-9-]+(?:\.[a-z0-9-]+)+", namespace
-            ) is None:
+            if (
+                not isinstance(namespace, str)
+                or re.fullmatch(r"[a-z0-9-]+(?:\.[a-z0-9-]+)+", namespace) is None
+            ):
                 raise ValueError(
                     f"review invocation extension {namespace!r} is not a reverse-DNS namespace"
                 )
@@ -143,11 +144,15 @@ def render_reviewer_invocation(raw: dict[str, object]) -> bytes:
     for field in string_fields:
         if not isinstance(data[field], str) or not data[field]:
             raise ValueError(f"review invocation {field} must be a non-empty string")
-    unavailable = sorted(field for field in NON_SENTINEL_FIELDS if data[field] == "unavailable")
+    unavailable = sorted(
+        field for field in NON_SENTINEL_FIELDS if data[field] == "unavailable"
+    )
     if unavailable:
         raise ValueError(f"review invocation {unavailable[0]} may not be unavailable")
     if not isinstance(data["reviewer_selection_attested"], bool):
-        raise ValueError("review invocation reviewer_selection_attested must be a boolean")
+        raise ValueError(
+            "review invocation reviewer_selection_attested must be a boolean"
+        )
 
     # A newly-created envelope must use the current reviewer profile. Legacy
     # profile paths remain accepted by the reader for completed evidence only.
@@ -176,24 +181,35 @@ def render_reviewer_invocation(raw: dict[str, object]) -> bytes:
     if data["requested_role"] != "reviewer" or data["result_encoding"] != "utf-8":
         raise ValueError("review invocation reviewer request or encoding is invalid")
     if data["dispatching_controller"] == "unavailable":
-        raise ValueError("review invocation dispatching_controller may not be unavailable")
+        raise ValueError(
+            "review invocation dispatching_controller may not be unavailable"
+        )
 
     if STATE_RE.fullmatch(data["working_tree_state"]) is None:
         raise ValueError("working_tree_state is not a canonical Git-state payload")
-    if STATE_RE.fullmatch(data["working_tree_state"]).group("head") != data["reviewed_revision"]:
+    if (
+        STATE_RE.fullmatch(data["working_tree_state"]).group("head")
+        != data["reviewed_revision"]
+    ):
         raise ValueError("working_tree_state does not bind reviewed_revision")
     if SHA256_RE.fullmatch(data["pre_dispatch_state_digest"]) is None or data[
         "pre_dispatch_state_digest"
     ] != _digest(data["working_tree_state"]):
         raise ValueError("pre_dispatch_state_digest does not hash working_tree_state")
 
-    dispatch_errors = _validate_dispatch(data, Path("."), data["invocation_id"], lifecycle)
+    dispatch_errors = _validate_dispatch(
+        data, Path("."), data["invocation_id"], lifecycle
+    )
     if dispatch_errors:
-        raise ValueError(f"review invocation dispatch contract is invalid: {dispatch_errors[0].message}")
+        raise ValueError(
+            f"review invocation dispatch contract is invalid: {dispatch_errors[0].message}"
+        )
 
     if lifecycle == "completed":
         if any(data[field] == "unavailable" for field in RESULT_FIELDS):
-            raise ValueError("completed review invocation has unavailable result fields")
+            raise ValueError(
+                "completed review invocation has unavailable result fields"
+            )
         if data["produced_result_path"] != data["expected_result_path"]:
             raise ValueError(
                 "completed review invocation produced_result_path must match expected_result_path"
@@ -211,25 +227,29 @@ def render_reviewer_invocation(raw: dict[str, object]) -> bytes:
             or data["returned_revision"] != data["reviewed_revision"]
             or data["returned_working_tree_state"] != data["working_tree_state"]
         ):
-            raise ValueError("completed review invocation returned bindings are invalid")
+            raise ValueError(
+                "completed review invocation returned bindings are invalid"
+            )
         if STATE_RE.fullmatch(data["post_review_working_tree_state"]) is None:
-            raise ValueError("post_review_working_tree_state is not a canonical Git-state payload")
+            raise ValueError(
+                "post_review_working_tree_state is not a canonical Git-state payload"
+            )
         if (
             STATE_RE.fullmatch(data["post_review_working_tree_state"]).group("head")
             != data["reviewed_revision"]
             or data["post_review_working_tree_state"] != data["working_tree_state"]
         ):
             raise ValueError("post-review Git state is stale or revision-mismatched")
-        if (
-            SHA256_RE.fullmatch(data["post_review_state_digest"]) is None
-            or data["post_review_state_digest"]
-            != _digest(data["post_review_working_tree_state"])
-        ):
+        if SHA256_RE.fullmatch(data["post_review_state_digest"]) is None or data[
+            "post_review_state_digest"
+        ] != _digest(data["post_review_working_tree_state"]):
             raise ValueError("post_review_state_digest does not hash post-review state")
         if SHA256_RE.fullmatch(data["result_sha256"]) is None:
             raise ValueError("result_sha256 must be a lowercase SHA-256 digest")
     elif any(data[field] != "unavailable" for field in RESULT_FIELDS):
-        raise ValueError("non-completed review invocation result fields must be unavailable")
+        raise ValueError(
+            "non-completed review invocation result fields must be unavailable"
+        )
 
     if data.get("extensions") == {}:
         del data["extensions"]
@@ -1004,7 +1024,9 @@ def validate_review_evidence(
                 )
             )
         invocation_ref = node.paths[3] if len(node.paths) > 3 else ""
-        invocation_path = _contained(task_dir, invocation_ref) if invocation_ref else None
+        invocation_path = (
+            _contained(task_dir, invocation_ref) if invocation_ref else None
+        )
         if invocation_path is None:
             errors.append(
                 _e(
