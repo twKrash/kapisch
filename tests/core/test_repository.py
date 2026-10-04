@@ -1110,7 +1110,7 @@ class RepositoryFingerprintTests(unittest.TestCase):
             nonlocal calls
             result = original(*args, **kwargs)
             calls += 1
-            if calls == 4:
+            if calls == 5:
                 self.git("commit", "--allow-empty", "-qm", "late")
             return result
 
@@ -1123,7 +1123,7 @@ class RepositoryFingerprintTests(unittest.TestCase):
             self.assertRaises(RepositoryCaptureError),
         ):
             capture_repository_state(self.root)
-        self.assertEqual(calls, 5)
+        self.assertEqual(calls, 6)
 
     def test_capture_rejects_index_change_before_second_worktree(self):
         original = _repository_fingerprint.capture_worktree
@@ -1239,6 +1239,44 @@ class RepositoryFingerprintTests(unittest.TestCase):
         ):
             capture_repository_state(self.root)
         self.assertEqual(calls, 5)
+
+    def _assert_final_worktree_scan_rejects(self, mutate):
+        original = _repository_fingerprint.capture_worktree
+        calls = 0
+
+        def mutate_after_final_scan(*args, **kwargs):
+            nonlocal calls
+            result = original(*args, **kwargs)
+            calls += 1
+            if calls == 6:
+                mutate()
+            return result
+
+        with (
+            patch.object(
+                _repository_fingerprint,
+                "capture_worktree",
+                side_effect=mutate_after_final_scan,
+            ),
+            self.assertRaises(RepositoryCaptureError),
+        ):
+            capture_repository_state(self.root)
+        self.assertEqual(calls, 6)
+
+    def test_capture_rejects_head_change_during_final_worktree_scan(self):
+        self._assert_final_worktree_scan_rejects(
+            lambda: self.git("commit", "--allow-empty", "-qm", "late")
+        )
+
+    def test_capture_rejects_index_change_during_final_worktree_scan(self):
+        self._assert_final_worktree_scan_rejects(
+            lambda: self.git("update-index", "--chmod=+x", "--", "tracked")
+        )
+
+    def test_capture_rejects_skip_worktree_during_final_worktree_scan(self):
+        self._assert_final_worktree_scan_rejects(
+            lambda: self.git("update-index", "--skip-worktree", "--", "tracked")
+        )
 
     def test_unincluded_untracked_paths_are_inventory_only(self):
         (self.root / "build.log").write_bytes(b"changing")

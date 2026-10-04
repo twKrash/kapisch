@@ -27,7 +27,13 @@ def _capture_once(repo, included, identity):
     ):
         raise RepositoryCaptureError("repository changed during inspection")
     final_wt = capture_worktree(Path(repo), index, included, identity)
-    if final_wt != verified_wt:
+    last_index = capture_index(repo, identity)
+    last_head = capture_head(repo, identity)
+    if (
+        final_wt != verified_wt
+        or last_index != verified_index
+        or last_head != verified_head
+    ):
         raise RepositoryCaptureError("repository changed during inspection")
     return RepositoryStateFingerprint(
         head.object_format,
