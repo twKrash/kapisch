@@ -77,45 +77,72 @@ def _verify_non_directory(parentfd, name):
         raise RepositoryCaptureError("parent replaced")
 
 
-def _verify_path_prefix(rootfd, parts, seen, index):
-    prefix = b"/".join(parts[: index + 1])
+def _open_chain_once(rootfd, parts, seen):
+    chain = []
     try:
-        current = os.stat(prefix, dir_fd=rootfd, follow_symlinks=False)
+        parentfd = rootfd
+        for index, part in enumerate(parts):
+            current = os.open(
+                part,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                dir_fd=parentfd,
+            )
+            try:
+                if not _same(os.fstat(current), seen[index]):
+                    raise RepositoryCaptureError("parent replaced")
+            except BaseException:
+                os.close(current)
+                raise
+            chain.append(current)
+            parentfd = current
+        for index in range(len(parts) - 1, -1, -1):
+            part = parts[index]
+            parentfd = rootfd if index == 0 else chain[index - 1]
+            try:
+                attached = os.stat(
+                    part, dir_fd=parentfd, follow_symlinks=False
+                )
+            except OSError as e:
+                raise RepositoryCaptureError("parent replaced") from e
+            if not _same(attached, seen[index]):
+                raise RepositoryCaptureError("parent replaced")
+        for index in range(len(chain) - 1, -1, -1):
+            current = chain[index]
+            try:
+                observed = os.fstat(current)
+            except OSError as e:
+                raise RepositoryCaptureError("parent replaced") from e
+            if not _same_file_state(observed, seen[index]):
+                raise RepositoryCaptureError("parent replaced")
+        if not chain:
+            return os.dup(rootfd)
+        terminal = chain[-1]
+        for fd in chain[:-1]:
+            os.close(fd)
+        return terminal
     except OSError as e:
+        for fd in chain:
+            with suppress(OSError):
+                os.close(fd)
         raise RepositoryCaptureError("parent replaced") from e
-    if not _same(current, seen[index]):
-        raise RepositoryCaptureError("parent replaced")
+    except BaseException:
+        for fd in chain:
+            with suppress(OSError):
+                os.close(fd)
+        raise
 
 
 def _open_verified_chain(rootfd, parts, seen):
     if len(parts) != len(seen):
         raise RepositoryCaptureError("parent replaced")
-    fd = os.dup(rootfd)
+    retained = _open_chain_once(rootfd, parts, seen)
     try:
-        for index, part in enumerate(parts):
-            current = os.open(
-                part,
-                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
-                dir_fd=fd,
-            )
-            try:
-                if not _same(os.fstat(current), seen[index]):
-                    raise RepositoryCaptureError("parent replaced")
-                _verify_path_prefix(rootfd, parts, seen, index)
-                os.close(fd)
-            except BaseException:
-                os.close(current)
-                raise
-            fd = current
-        return fd
-    except OSError as e:
-        with suppress(OSError):
-            os.close(fd)
-        raise RepositoryCaptureError("parent replaced") from e
+        verified = _open_chain_once(rootfd, parts, seen)
     except BaseException:
-        with suppress(OSError):
-            os.close(fd)
+        os.close(retained)
         raise
+    os.close(verified)
+    return retained
 
 
 def _revalidate_chain(rootfd, parts, seen):
@@ -349,7 +376,7 @@ def capture_worktree(
             raise RepositoryCaptureError("worktree replaced")
         if _identity(root) != ident:
             raise RepositoryCaptureError("worktree replaced")
-        inventory = capture_untracked(root, ident)
+        inventory = capture_untracked(root, ident, rootfd)
         inc = set(included_untracked)
         if not inc.issubset(set(inventory)):
             raise RepositoryCaptureError("included path is not untracked")

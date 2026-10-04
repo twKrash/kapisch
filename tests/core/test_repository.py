@@ -1,6 +1,7 @@
 import hashlib
 import importlib
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -223,6 +224,38 @@ class RepositoryGitCaptureTests(unittest.TestCase):
         ):
             capture_worktree(self.root, capture_index(self.root))
 
+    def test_untracked_scan_uses_the_opened_worktree(self):
+        (self.root / "extra").write_bytes(b"extra")
+        self.git("config", "core.worktree", str(self.root))
+        original_run = _repository_git.subprocess.run
+        original_root = self.root.with_name(self.root.name + "-original")
+        swapped = False
+
+        def swap_worktree_for_scan(command, *args, **kwargs):
+            nonlocal swapped
+            if "ls-files" not in command or "--others" not in command:
+                return original_run(command, *args, **kwargs)
+            swapped = True
+            self.root.rename(original_root)
+            self.root.mkdir()
+            try:
+                original_run(
+                    ("git", "-C", str(self.root), "init", "-q"),
+                    check=True,
+                    capture_output=True,
+                )
+                return original_run(command, *args, **kwargs)
+            finally:
+                shutil.rmtree(self.root)
+                original_root.rename(self.root)
+
+        with patch.object(
+            _repository_git.subprocess, "run", side_effect=swap_worktree_for_scan
+        ):
+            state = capture_worktree(self.root, capture_index(self.root))
+        self.assertTrue(swapped)
+        self.assertEqual([entry.path for entry in state.untracked], [b"extra"])
+
     def test_leaf_observation_returns_explicit_kinds(self):
         (self.root / "directory").mkdir()
         os.mkfifo(self.root / "special")
@@ -280,10 +313,11 @@ class RepositoryGitCaptureTests(unittest.TestCase):
             hashlib.sha256(b"new").hexdigest(),
         )
 
-    def test_worktree_chain_validation_is_linear_in_path_depth(self):
+    def test_worktree_chain_validation_does_not_rewalk_prefixes(self):
         current = self.root
         parts = []
-        for index in range(8):
+        depth = 24
+        for index in range(depth):
             current /= f"d{index}"
             current.mkdir()
             parts.append(f"d{index}".encode())
@@ -291,19 +325,26 @@ class RepositoryGitCaptureTests(unittest.TestCase):
         self.git("add", "d0")
         self.git("commit", "-qm", "deep")
         index = capture_index(self.root)
-        original_open = _repository_worktree.os.open
-        calls = 0
+        original_stat = _repository_worktree.os.stat
+        prefix_stats = 0
 
-        def count_opens(*args, **kwargs):
-            nonlocal calls
-            calls += 1
-            return original_open(*args, **kwargs)
+        def count_prefix_stats(name, *args, **kwargs):
+            nonlocal prefix_stats
+            if (
+                kwargs.get("dir_fd") is not None
+                and isinstance(name, bytes)
+                and b"/" in name
+            ):
+                prefix_stats += 1
+            return original_stat(name, *args, **kwargs)
 
-        with patch.object(_repository_worktree.os, "open", side_effect=count_opens):
+        with patch.object(
+            _repository_worktree.os, "stat", side_effect=count_prefix_stats
+        ):
             state = capture_worktree(self.root, index)
         path = b"/".join(parts + [b"file"])
         self.assertEqual(state.worktree[0].path, path)
-        self.assertLess(calls, 200)
+        self.assertLess(prefix_stats, depth)
 
     def test_worktree_rejects_ancestor_replacement_during_chain_validation(self):
         parent = self.root / "a"
@@ -332,6 +373,142 @@ class RepositoryGitCaptureTests(unittest.TestCase):
                 _repository_worktree.os,
                 "open",
                 side_effect=replace_before_later_component,
+            ),
+            self.assertRaises(RepositoryCaptureError),
+        ):
+            capture_worktree(self.root, index)
+
+    def test_worktree_rejects_ancestor_replacement_on_final_chain_validation(
+        self,
+    ):
+        parent = self.root / "a"
+        leaf = parent / "b" / "c" / "file"
+        leaf.parent.mkdir(parents=True)
+        leaf.write_bytes(b"old")
+        self.git("add", "a")
+        self.git("commit", "-qm", "chain")
+        index = capture_index(self.root)
+        original_open = _repository_worktree.os.open
+        calls = 0
+
+        def replace_during_final_chain(name, flags, *args, **kwargs):
+            nonlocal calls
+            if name == b"b":
+                calls += 1
+                if calls == 5:
+                    parent.rename(self.root / "old-a")
+                    parent.mkdir()
+                    (parent / "b" / "c").mkdir(parents=True)
+                    (parent / "b" / "c" / "file").write_bytes(b"current")
+            return original_open(name, flags, *args, **kwargs)
+
+        with (
+            patch.object(
+                _repository_worktree.os,
+                "open",
+                side_effect=replace_during_final_chain,
+            ),
+            self.assertRaises(RepositoryCaptureError),
+        ):
+            capture_worktree(self.root, index)
+
+    def test_worktree_rejects_ancestor_replacement_during_final_attachment(
+        self,
+    ):
+        parent = self.root / "a"
+        leaf = parent / "b" / "c" / "file"
+        leaf.parent.mkdir(parents=True)
+        leaf.write_bytes(b"old")
+        self.git("add", "a")
+        self.git("commit", "-qm", "chain")
+        index = capture_index(self.root)
+        original_stat = _repository_worktree.os.stat
+        calls = 0
+
+        def replace_during_attachment(name, *args, **kwargs):
+            nonlocal calls
+            if name == b"b" and kwargs.get("dir_fd") is not None:
+                calls += 1
+                if calls == 4:
+                    parent.rename(self.root / "old-a")
+                    parent.mkdir()
+                    (parent / "b" / "c").mkdir(parents=True)
+                    (parent / "b" / "c" / "file").write_bytes(b"current")
+            return original_stat(name, *args, **kwargs)
+
+        with (
+            patch.object(
+                _repository_worktree.os,
+                "stat",
+                side_effect=replace_during_attachment,
+            ),
+            self.assertRaises(RepositoryCaptureError),
+        ):
+            capture_worktree(self.root, index)
+
+    def test_worktree_rejects_descendant_replacement_during_final_attachment(
+        self,
+    ):
+        parent = self.root / "a"
+        blocker = parent / "b"
+        leaf = blocker / "c" / "file"
+        leaf.parent.mkdir(parents=True)
+        leaf.write_bytes(b"old")
+        self.git("add", "a")
+        self.git("commit", "-qm", "chain")
+        index = capture_index(self.root)
+        original_stat = _repository_worktree.os.stat
+        calls = 0
+
+        def replace_before_final_root_stat(name, *args, **kwargs):
+            nonlocal calls
+            if name == b"a" and kwargs.get("dir_fd") is not None:
+                calls += 1
+                if calls == 4:
+                    blocker.rename(parent / "old-b")
+                    blocker.mkdir()
+                    (blocker / "c").mkdir(parents=True)
+                    (blocker / "c" / "file").write_bytes(b"current")
+            return original_stat(name, *args, **kwargs)
+
+        with (
+            patch.object(
+                _repository_worktree.os,
+                "stat",
+                side_effect=replace_before_final_root_stat,
+            ),
+            self.assertRaises(RepositoryCaptureError),
+        ):
+            capture_worktree(self.root, index)
+
+    def test_worktree_rejects_ancestor_replacement_during_final_metadata(
+        self,
+    ):
+        parent = self.root / "a"
+        leaf = parent / "b" / "c" / "file"
+        leaf.parent.mkdir(parents=True)
+        leaf.write_bytes(b"old")
+        self.git("add", "a")
+        self.git("commit", "-qm", "chain")
+        index = capture_index(self.root)
+        original_fstat = _repository_worktree.os.fstat
+        calls = 0
+
+        def replace_during_metadata(fd):
+            nonlocal calls
+            calls += 1
+            if calls == 35:
+                parent.rename(self.root / "old-a")
+                parent.mkdir()
+                (parent / "b" / "c").mkdir(parents=True)
+                (parent / "b" / "c" / "file").write_bytes(b"current")
+            return original_fstat(fd)
+
+        with (
+            patch.object(
+                _repository_worktree.os,
+                "fstat",
+                side_effect=replace_during_metadata,
             ),
             self.assertRaises(RepositoryCaptureError),
         ):
