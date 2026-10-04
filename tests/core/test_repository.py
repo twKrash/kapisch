@@ -257,6 +257,38 @@ class RepositoryGitCaptureTests(unittest.TestCase):
             hashlib.sha256(b"new").hexdigest(),
         )
 
+    def test_worktree_rejects_ancestor_replacement_during_chain_validation(self):
+        parent = self.root / "a"
+        leaf = parent / "b" / "file"
+        leaf.parent.mkdir(parents=True)
+        leaf.write_bytes(b"old")
+        self.git("add", "a")
+        self.git("commit", "-qm", "chain")
+        index = capture_index(self.root)
+        original_open = _repository_worktree.os.open
+        calls = 0
+
+        def replace_before_later_component(name, flags, *args, **kwargs):
+            nonlocal calls
+            if name == b"b":
+                calls += 1
+                if calls == 3:
+                    parent.rename(self.root / "old-a")
+                    parent.mkdir()
+                    (parent / "b").mkdir()
+                    (parent / "b" / "file").write_bytes(b"current")
+            return original_open(name, flags, *args, **kwargs)
+
+        with (
+            patch.object(
+                _repository_worktree.os,
+                "open",
+                side_effect=replace_before_later_component,
+            ),
+            self.assertRaises(RepositoryCaptureError),
+        ):
+            capture_worktree(self.root, index)
+
     def test_worktree_binds_symlink_read_to_observed_inode(self):
         link = self.root / "link"
         os.symlink("initial", link)

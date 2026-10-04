@@ -77,6 +77,36 @@ def _verify_non_directory(parentfd, name):
         raise RepositoryCaptureError("parent replaced")
 
 
+def _open_chain_once(rootfd, parts, seen):
+    if len(parts) != len(seen):
+        raise RepositoryCaptureError("parent replaced")
+    fd = os.dup(rootfd)
+    try:
+        for index, part in enumerate(parts):
+            current = os.open(
+                part,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                dir_fd=fd,
+            )
+            try:
+                if not _same(os.fstat(current), seen[index]):
+                    raise RepositoryCaptureError("parent replaced")
+                os.close(fd)
+            except BaseException:
+                os.close(current)
+                raise
+            fd = current
+        return fd
+    except OSError as e:
+        with suppress(OSError):
+            os.close(fd)
+        raise RepositoryCaptureError("parent replaced") from e
+    except BaseException:
+        with suppress(OSError):
+            os.close(fd)
+        raise
+
+
 def _open_verified_chain(rootfd, parts, seen):
     if len(parts) != len(seen):
         raise RepositoryCaptureError("parent replaced")
@@ -91,6 +121,17 @@ def _open_verified_chain(rootfd, parts, seen):
             try:
                 if not _same(os.fstat(current), seen[index]):
                     raise RepositoryCaptureError("parent replaced")
+                if index:
+                    linked_parent = _open_chain_once(
+                        rootfd, parts[:index], seen[:index]
+                    )
+                    try:
+                        if not _same(
+                            os.fstat(linked_parent), os.fstat(fd)
+                        ):
+                            raise RepositoryCaptureError("parent replaced")
+                    finally:
+                        os.close(linked_parent)
                 os.close(fd)
             except BaseException:
                 os.close(current)
