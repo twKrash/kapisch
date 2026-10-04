@@ -101,7 +101,13 @@ def _root(repo, identity=None):
     return root, ident
 
 
-def _git(repo, *args, identity=None, no_replace=False):
+def _git(
+    repo,
+    *args,
+    identity=None,
+    no_replace=False,
+    reject_stderr=False,
+):
     root, ident = _root(repo, identity)
     try:
         r = subprocess.run(
@@ -112,6 +118,8 @@ def _git(repo, *args, identity=None, no_replace=False):
         )
     except (OSError, subprocess.CalledProcessError) as e:
         raise RepositoryCaptureError("git observation failed") from e
+    if reject_stderr and r.stderr:
+        raise RepositoryCaptureError("git observation emitted stderr")
     if _identity(root) != ident:
         raise RepositoryCaptureError("worktree replaced")
     return r.stdout
@@ -318,6 +326,7 @@ def capture_untracked(repo, identity=None):
             "--exclude-standard",
             "-z",
             identity=identity,
+            reject_stderr=True,
         )
     ):
         if path.endswith(b"/"):

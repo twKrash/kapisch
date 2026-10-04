@@ -11,6 +11,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).parents[2] / "core"))
 
 _repository = importlib.import_module("kapisch_core.repository")
+_repository_git = importlib.import_module("kapisch_core._repository_git")
 _repository_worktree = importlib.import_module("kapisch_core._repository_worktree")
 RepositoryCaptureError = _repository.RepositoryCaptureError
 capture_head = _repository.capture_head
@@ -199,6 +200,28 @@ class RepositoryGitCaptureTests(unittest.TestCase):
         )
         with self.assertRaises(RepositoryCaptureError):
             capture_index(self.root)
+
+    def test_untracked_scan_rejects_stderr_warnings(self):
+        (self.root / "extra").write_bytes(b"extra")
+        original_run = _repository_git.subprocess.run
+
+        def warn_on_untracked(command, *args, **kwargs):
+            result = original_run(command, *args, **kwargs)
+            if "ls-files" in command and "--others" in command:
+                return subprocess.CompletedProcess(
+                    result.args, result.returncode, result.stdout, b"warning"
+                )
+            return result
+
+        with (
+            patch.object(
+                _repository_git.subprocess,
+                "run",
+                side_effect=warn_on_untracked,
+            ),
+            self.assertRaises(RepositoryCaptureError),
+        ):
+            capture_worktree(self.root, capture_index(self.root))
 
     def test_leaf_observation_returns_explicit_kinds(self):
         (self.root / "directory").mkdir()
