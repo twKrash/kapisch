@@ -28,7 +28,7 @@ _REQUIRED_SUPPORT = (
 
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _AUTHORITY_NAMESPACES = frozenset(
-    {"scopes", "human-actions", "gate-approvals", "human-artifacts"}
+    {"scopes", "human-actions", "gate-approvals", "human-artifacts", "acceptances"}
 )
 _HUMAN_ARTIFACT_ROOT = ".kapisch/v3/authority/human-artifacts"
 
@@ -287,15 +287,26 @@ def load_authority_records(repo: Path, namespace: str) -> list[tuple[str, bytes]
         raise OSError(
             "safe descriptor-relative authority listing is unsupported on this platform"
         )
-    directory, opened = _open_tree(Path(repo), "authority", namespace, create=False)
+    parent, opened = _open_tree(Path(repo), "authority", create=False)
     try:
+        try:
+            directory = _open_dir(parent, namespace)
+        except FileNotFoundError:
+            return []
+        opened.append(directory)
         records = []
         for name in sorted(os.listdir(directory)):
             if not name.endswith(".json"):
                 continue
             identity = name[:-5]
             _id(identity, "identity")
-            records.append((identity, _read_file(directory, name)))
+            try:
+                data = _read_file(directory, name)
+            except FileNotFoundError as error:
+                raise ValueError(
+                    "authority record disappeared during census"
+                ) from error
+            records.append((identity, data))
         return records
     finally:
         _close(opened)
