@@ -127,19 +127,29 @@ implementation must obtain approval before adding or changing wire fields.
   reference and must not substitute the installed/current bundle.
 - `request` is an `ImmutableArtifactLocator` for exact review request bytes.
   The controller/request producer owns request content and its digest; the
-  invocation publisher owns the reference. Request bytes bind `attempt`,
-  `operation`, `scope`, `base`, `head`, `purpose`, and fingerprint requirements,
-  but never contain an invocation locator or result locator.
+  invocation publisher owns the reference. Request bytes bind the existing
+  `attempt` and exact adapter/lookup/request inputs, plus `scope`, `base`,
+  `head`, `purpose`, and fingerprint requirements. They are published before
+  operation reservation and must not claim or contain the final, durably owned
+  `operation_id`. The controller may carry its proposed `operation_id` value
+  in the pre-reservation packet required by Stage 4 §4.0.2, but that candidate
+  is not an operation identity or authority until reservation owns it; this is
+  not a second field or a new frozen identity. Request bytes never contain an
+  invocation locator or result locator.
 - `attempt` is the qualified Stage 4 attempt identity `{run_id, stage_id}`.
   Run creation is the sole producer of `run_id`; attempt creation references
   that `run_id` and is the sole producer of `stage_id`. `stage_id` retains its
   Stage 4 meaning: one stable stage-attempt identity; private `attempt_id` is
   not a wire field.
-- `operation` is the qualified Stage 4 operation identity `{run_id,
-  operation_id}`. Operation reservation is the sole producer of
-  `operation_id`; it references the existing `run_id` and `stage_id`. The
-  adapter may return a provider ID as factual provenance but never produces or
-  replaces `operation_id`.
+- `operation` is the final qualified Stage 4 operation locator/identity
+  `{run_id, operation_id}` carried by the retained operation reservation.
+  Operation reservation is the sole producer of `operation_id`; it atomically
+  binds that ID to the already-published request digest, existing `run_id` and
+  `stage_id`, and selected adapter binding. The adapter may return a provider
+  ID as factual provenance but never produces or replaces `operation_id`.
+  `ReviewInvocation` is published only after this reservation and therefore
+  contains both the request locator and the final operation locator; it never
+  publishes a proposed token as operation authority.
 - `scope` is an `ImmutableArtifactLocator` for one exact closed scope
   representation. The scope producer owns those immutable bytes and digest;
   the invocation publisher owns the outward reference. Scope bytes contain no
@@ -165,10 +175,12 @@ implementation must obtain approval before adding or changing wire fields.
 ### 2.3 ReviewerReturn and HostProvenanceAttestation fields
 
 - `ReviewerReturn` is the immutable reviewer-return artifact. The reviewer is
-  the sole producer of every field in it: the exact causal `invocation`,
-  qualified `operation`, `request`, `target`, and reviewer-returned
-  `fingerprint` bindings; exact `report` bytes and `report_digest`; and the
-  reviewer-owned `decision`. No controller or host/adapter may author, rewrite,
+  the sole producer of every assertion field in it: the exact causal
+  `invocation`, final qualified `operation`, `request`, `target`, and
+  reviewer-returned `fingerprint` bindings; exact `report` bytes and
+  `report_digest`; and the reviewer-owned `decision`. The operation binding
+  references the already reserved operation; it does not produce
+  `operation_id`. No controller or host/adapter may author, rewrite,
   summarize, upgrade, or substitute any of these fields.
 - `report` is an external immutable locator for the exact reviewer report
   bytes. `report_digest` is the reviewer-returned SHA-256 digest of those exact
@@ -198,9 +210,10 @@ implementation must obtain approval before adding or changing wire fields.
   ```
 
   The invocation publisher owns the requested target; the result producer owns
-  only factual returned binding. Every member must equal the corresponding
-  invocation binding. There are no separate `ReviewResult.base` or
-  `ReviewResult.head` fields.
+  only factual returned binding. Its `operation_id` is the final operation ID
+  from the retained reservation, never the controller's pre-reservation
+  candidate. Every member must equal the corresponding invocation binding.
+  There are no separate `ReviewResult.base` or `ReviewResult.head` fields.
 - `scope` is the same external immutable scope locator bound by the invocation.
   The result publisher owns the outward reference and must prove byte/digest
   equality; it cannot narrow, widen, or reinterpret scope.
@@ -244,21 +257,30 @@ The required digest relationships are:
 1. `ReviewInvocation.retained_bundle.sha256` equals the exact retained bundle
    bytes loaded for the invocation; an installed or newer bundle cannot satisfy
    it.
-2. `ReviewInvocation.request.sha256` equals the exact request bytes and the
-   request's embedded operation/attempt/scope bindings; request bytes contain
-   no back-reference to the invocation or result.
-3. `ReviewInvocation.scope` and `pre_dispatch_fingerprint` resolve to exact
+2. `ReviewInvocation.request.sha256` equals the exact request bytes. Those
+   bytes bind the existing attempt and exact adapter/lookup/request inputs,
+   but contain no final, durably owned `operation_id`; the controller's
+   proposed `operation_id` value is non-authoritative until reservation and is
+   not compared as an operation identity. Request bytes contain no
+   back-reference to the invocation or result.
+3. The reserved operation's immutable binding is the sole producer of the
+   final `operation_id` and must bind the exact `ReviewInvocation.request`
+   digest, `run_id`, `stage_id`, and adapter binding. The invocation's
+   `operation` must resolve to that exact final reservation/operation locator;
+   a request-only or proposed-token reference cannot satisfy it.
+4. `ReviewInvocation.scope` and `pre_dispatch_fingerprint` resolve to exact
    external immutable bytes and neither artifact refers back to the invocation.
-4. `ReviewResult.invocation` resolves to the exact invocation bytes and digest;
+5. `ReviewResult.invocation` resolves to the exact invocation bytes and digest;
    the invocation is found by its qualified Stage 4 identity, not a self-link.
-5. `ReviewResult.request` equals `ReviewInvocation.request` byte-for-byte and
-   digest-for-digest.
-6. `ReviewResult.scope` and `target` equal the invocation's bindings; they are
+6. `ReviewResult.request` equals `ReviewInvocation.request` byte-for-byte and
+   digest-for-digest, while its later `ReviewerReturn` and `ReviewResult`
+   bindings must also resolve to the final reserved operation identity.
+7. `ReviewResult.scope` and `target` equal the invocation's bindings; they are
    not independently caller-selected result metadata.
-7. `ReviewResult.reviewer_return`, `post_result`, `provenance`, and
+8. `ReviewResult.reviewer_return`, `post_result`, `provenance`, and
    `fingerprint` each resolve to exact retained bytes, and each producer's
    digest is recomputed before use. None refers back to the owning result.
-8. The authoritative equality rule is one four-way equality, over canonical
+9. The authoritative equality rule is one four-way equality, over canonical
    fingerprint bytes (and their recomputed digests):
    `pre_dispatch_fingerprint == ReviewResult.fingerprint ==
    post_result == independently_captured_current_fingerprint`. All four
@@ -272,8 +294,8 @@ The required digest relationships are:
    one result. The repository observer/fingerprint producer is sole producer
    of all four factual fingerprint artifacts; invocation/result publishers
    only bind external locators.
-9. The reviewer-return artifact must bind one exact `invocation`, qualified
-   `operation`, `request`, `target`, and reviewer-returned `fingerprint` to
+10. The reviewer-return artifact must bind one exact `invocation`, final
+   qualified `operation`, `request`, `target`, and reviewer-returned `fingerprint` to
    exactly one `decision`, `report`, and `report_digest`. The result's
    `reviewer_return.sha256` and the attestation's `reviewer_return_digest` must
    both equal the SHA-256 of those exact reviewer-return bytes; the reviewer
@@ -313,13 +335,18 @@ validator.
 The required future publication sequence is:
 
 1. Retain the exact bundle, scope, request, and other cited immutable input
-   artifacts.
+   artifacts. Request/evidence publication binds the existing attempt and
+   exact adapter/lookup/request inputs, and contains no final `operation_id`.
 2. Capture and retain the pre-dispatch fingerprint.
-3. Reserve the exact Stage 4 operation with its request/attempt binding.
+3. Atomically reserve the exact Stage 4 operation. Operation reservation is
+   the sole producer of `operation_id` and binds it to the already-published
+   request digest, `run_id`/`stage_id`, and adapter binding.
 4. Publish the immutable Stage 4 `dispatch-uncertain` fact and durably publish
    the state pointer/ack that cites the reservation and uncertainty. This
    precedes review invocation publication and any adapter call.
-5. Publish the immutable `ReviewInvocation` (which has no self-locator).
+5. Publish the immutable `ReviewInvocation` (which has no self-locator),
+   containing the already-published request locator and final operation
+   locator/identity.
 6. Dispatch only after all prior publications and authority checks succeed.
 7. Durably retain the exact report bytes and the observer-produced fingerprint
    artifact cited by the reviewer return, including their exact digests.
@@ -337,8 +364,10 @@ The required future publication sequence is:
     four-way fingerprint equality rule.
 
 A crash before or after the adapter call has the same recovery treatment:
-reconcile the original `operation_id` read-only, using the original request
-and lookup context; never redispatch it. Missing, ambiguous, or mismatched
+reconcile the original final `operation_id` read-only, using the original
+request and lookup context; never redispatch it. A controller-proposed pre-reservation `operation_id` value is not an
+operation identity until reservation owns it and cannot be reconciled or
+redispatched as one. Missing, ambiguous, or mismatched
 reconciliation leaves the operation blocked. A crash between any publication
 steps likewise leaves the operation blocked until the already-retained
 producer artifacts and already-published dependency chain are reconstructed;
@@ -360,11 +389,15 @@ These conceptual fixtures freeze producer ownership and dependency direction;
 they are not runtime tests or schema files.
 
 **Positive:** run creation produces `run_id=R1`; attempt creation references
-`R1` and produces `stage_id=S1`; operation reservation references `(R1,S1)` and
-produces `operation_id=O1`; the uncertain fact/state pointer references
-`(R1,S1,O1)`; external request/scope/pre-fingerprint bytes are published
-without back-references; then `ReviewInvocation` binds their locators and
-`(R1,S1,O1)`. The exact report bytes and the observer-produced fingerprint artifact cited
+`R1` and produces `stage_id=S1`; external request/scope/pre-fingerprint bytes
+are published first, with the request binding `(R1,S1)` and exact
+adapter/lookup/request inputs but no final, durably owned operation ID (the
+controller's proposed `operation_id` value is non-authoritative); operation
+reservation then sole-produces
+`operation_id=O1` and atomically binds it to the request digest, `(R1,S1)`, and
+adapter binding; the uncertain fact/state pointer references `(R1,S1,O1)`;
+then `ReviewInvocation` binds both the request locator and final operation
+locator/identity `(R1,S1,O1)`. The exact report bytes and the observer-produced fingerprint artifact cited
 by the reviewer return are durably retained first. The reviewer then publishes
 a `ReviewerReturn` whose `invocation` points to that earlier exact
 `ReviewInvocation` locator and which binds the exact operation, request, target,
@@ -376,8 +409,13 @@ published invocation, reviewer return, host attestation, and same request, and
 binds the target and outward post/fingerprint locators. This dependency graph
 is acyclic and producer-before-consumer.
 
-**Negative:** permit the required `ReviewerReturn.invocation` link to the
-earlier exact `ReviewInvocation` locator. Reject only a self-link from a
+**Negative:** reject request bytes that claim or contain final `operation_id`
+before reservation, a controller-proposed `operation_id` value treated as
+final authority, or an operation reservation that is not the sole producer of
+the final ID. Reject an invocation published before the reservation or one whose
+request/operation bindings do not resolve to the same retained request digest
+and final operation reservation. Permit the required `ReviewerReturn.invocation`
+link to the earlier exact `ReviewInvocation` locator. Reject only a self-link from a
 `ReviewerReturn` to itself, any link from a `ReviewerReturn` to the later
 `ReviewResult`, or any dependency cycle. Also reject request, scope,
 fingerprint, report, post-result, or host-attestation bytes that contain a
@@ -416,8 +454,8 @@ mutable pointer as the sole artifact, controller memory, or a redispatch after
 an unresolved dispatch uncertainty.
 
 **Decision/provenance positive:** accept a structurally eligible return when
-an immutable reviewer return binds the exact invocation, operation, request,
-target, and reviewer-returned fingerprint to `decision=clear` (or exactly
+an immutable reviewer return binds the exact invocation, final operation,
+request, target, and reviewer-returned fingerprint to `decision=clear` (or exactly
 `findings`/`inconclusive`) and a `report_digest` equal to the retained report
 bytes, and an immutable host attestation references that exact reviewer-return
 digest with factual execution identity/context/dispatch facts. The controller
@@ -447,6 +485,10 @@ Cold or live validation refuses:
   `report_digest` that does not equal the exact retained report bytes;
 - tampered or replaced immutable bytes, including same-path/different-digest
   bytes;
+- request bytes that claim or contain the final `operation_id`, a controller-proposed `operation_id` value treated as final authority before
+  reservation, an invocation published before operation reservation, or a
+  final operation reservation whose request digest, run/stage binding, adapter
+  binding, or operation locator does not match;
 - an uncertain, absent, or mismatched operation observation;
 - a retained legacy bundle that does not explicitly support the Stage 6.5
   review/final contract; protocol version alone is not capability evidence;
