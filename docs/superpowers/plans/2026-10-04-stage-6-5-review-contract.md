@@ -64,6 +64,34 @@ judgment and cannot make a gate eligible.
 }
 ```
 
+`ReviewerReturn` is the proposed immutable reviewer-owned return artifact:
+
+```text
+{
+  invocation,
+  operation,
+  request,
+  target,
+  fingerprint,
+  report,
+  report_digest,
+  decision
+}
+```
+
+`HostProvenanceAttestation` is the proposed immutable host/adapter-owned
+attestation envelope:
+
+```text
+{
+  reviewer_return,
+  reviewer_return_digest,
+  execution_identity,
+  execution_context,
+  dispatch_facts
+}
+```
+
 `ReviewResult` is the proposed closed record:
 
 ```text
@@ -73,11 +101,15 @@ judgment and cannot make a gate eligible.
   target,
   scope,
   fingerprint,
-  report,
+  reviewer_return,
   post_result,
   provenance
 }
 ```
+
+`reviewer_return` and `provenance` are distinct closed locators: the former
+locates the reviewer-owned judgment artifact and the latter locates the
+host-owned attestation envelope. Neither is an alias for the other.
 
 `ReviewInvocation` has no self-locator. Its identity is the existing qualified
 Stage 4 tuple `{run_id, stage_id, operation_id}` from `attempt` and
@@ -130,7 +162,27 @@ implementation must obtain approval before adding or changing wire fields.
   contain no invocation/result locator, and a caller-supplied digest is not
   accepted.
 
-### 2.3 ReviewResult fields
+### 2.3 ReviewerReturn and HostProvenanceAttestation fields
+
+- `ReviewerReturn` is the immutable reviewer-return artifact. The reviewer is
+  the sole producer of every field in it: the exact causal `invocation`,
+  qualified `operation`, `request`, `target`, and reviewer-returned
+  `fingerprint` bindings; exact `report` bytes and `report_digest`; and the
+  reviewer-owned `decision`. No controller or host/adapter may author, rewrite,
+  summarize, upgrade, or substitute any of these fields.
+- `report` is an external immutable locator for the exact reviewer report
+  bytes. `report_digest` is the reviewer-returned SHA-256 digest of those exact
+  bytes and must equal `report.sha256`.
+- `decision` is exactly one reviewer-owned literal: `clear`, `findings`, or
+  `inconclusive`. These are review outcomes, not approval or readiness.
+- `HostProvenanceAttestation` is a separate immutable host/adapter-owned
+  envelope. The host/adapter is the sole producer of factual
+  `execution_identity`, `execution_context`, and `dispatch_facts`. It must
+  reference the exact `reviewer_return` locator and its
+  `reviewer_return_digest`; it does not author, rewrite, interpret, or
+  duplicate the reviewer return or judgment.
+
+### 2.4 ReviewResult fields
 
 - `invocation` is an external `ImmutableArtifactLocator` for the one retained
   `ReviewInvocation`; the result publisher owns this outward reference. The
@@ -157,18 +209,19 @@ implementation must obtain approval before adding or changing wire fields.
   producer owns its factual fields and digest; the result publisher owns the
   outward reference. It is compared with `pre_dispatch_fingerprint` under the
   exact rules in §3.
-- `report` is an external immutable locator for exact reviewer report bytes.
-  The reviewer is the sole producer of judgment/report content. The controller
-  may retain exact returned bytes and bind them, but may not author, rewrite,
-  summarize, or upgrade the judgment. Report bytes do not refer to this result.
+- `reviewer_return` is an external immutable locator for the exact
+  reviewer-owned `ReviewerReturn` artifact. Its digest is checked against the
+  exact artifact bytes. The result publisher may retain and bind the returned
+  locator, but does not produce or duplicate any reviewer-return field.
 - `post_result` is an external immutable locator for the factual post-result
   observation. The repository observer owns its bytes and digest; the result
   publisher owns the outward reference. It is not a current-state claim.
-- `provenance` is an external immutable locator for factual reviewer/invocation
-  provenance. The host/adapter is the sole producer of those factual bytes;
-  the controller may transport and retain them, but may not invent reviewer
-  identity, context, execution, or independence. Provenance bytes do not refer
-  to this result.
+- `provenance` is an external immutable locator for the exact
+  `HostProvenanceAttestation` envelope. Its envelope must reference the exact
+  `reviewer_return` locator and digest; it contains only factual host/adapter
+  execution identity, context, and dispatch facts. It does not author, rewrite,
+  interpret, or duplicate the reviewer judgment. This is a proposed evidence
+  relationship, not a runtime host API or schema.
 
 ## 3. Repository fingerprint and containment relationships
 
@@ -202,19 +255,37 @@ The required digest relationships are:
    digest-for-digest.
 6. `ReviewResult.scope` and `target` equal the invocation's bindings; they are
    not independently caller-selected result metadata.
-7. `ReviewResult.report`, `post_result`, `provenance`, and `fingerprint` each
-   resolve to exact retained bytes, and each producer's digest is recomputed
-   before use. None refers back to the owning result.
-8. The canonical equality rules are: pre-dispatch and result fingerprints
-   must be equal for an unchanged review target; post-result must equal the
-   result fingerprint when the result observation is the same checkpoint;
-   current is a newly captured fingerprint and must equal the accepted
-   post-result fingerprint for authority eligibility. Any unequal canonical
-   bytes/digests block. A permitted, explicitly scoped iteration delta must
-   instead create a new invocation; it never relaxes equality on one result.
-   The repository observer/fingerprint producer is sole producer of all four
-   factual fingerprint artifacts; invocation/result publishers only bind
-   external locators.
+7. `ReviewResult.reviewer_return`, `post_result`, `provenance`, and
+   `fingerprint` each resolve to exact retained bytes, and each producer's
+   digest is recomputed before use. None refers back to the owning result.
+8. The authoritative equality rule is one four-way equality, over canonical
+   fingerprint bytes (and their recomputed digests):
+   `pre_dispatch_fingerprint == ReviewResult.fingerprint ==
+   post_result == independently_captured_current_fingerprint`. All four
+   checkpoints must be present, unambiguous, independently resolved, and
+   canonically equal. Any mismatch, missing checkpoint, unreadable artifact,
+   or ambiguity blocks authority. In particular, `post_result` cannot silently
+   become the accepted baseline after reviewer mutation: the independent
+   current capture is still required and must equal the pre-dispatch and
+   reviewer-returned fingerprints. A permitted, explicitly scoped iteration
+   delta must instead create a new invocation; it never relaxes equality on
+   one result. The repository observer/fingerprint producer is sole producer
+   of all four factual fingerprint artifacts; invocation/result publishers
+   only bind external locators.
+9. The reviewer-return artifact must bind one exact `invocation`, qualified
+   `operation`, `request`, `target`, and reviewer-returned `fingerprint` to
+   exactly one `decision`, `report`, and `report_digest`. The result's
+   `reviewer_return.sha256` and the attestation's `reviewer_return_digest` must
+   both equal the SHA-256 of those exact reviewer-return bytes; the reviewer
+   return's fingerprint must equal `ReviewResult.fingerprint`. Each binding is
+   checked against the retained immutable artifacts and the result's canonical
+   bytes. The host/adapter attestation must reference the exact
+   `reviewer_return` digest and must contain only its factual execution
+   identity, context, and dispatch facts. The controller cannot author,
+   replace, upgrade, or duplicate either artifact, or derive a different
+   decision from the report. A mismatch, unknown decision, missing reviewer
+   return, missing host attestation, conflicting producer claim, or missing
+   reviewer-return digest binding blocks authority.
 
 A missing, outside-root, unreadable, malformed, digest-mismatched, or
 ambiguous locator is a refusal. No locator is repaired by selecting a nearby
@@ -226,12 +297,12 @@ A final review is not a flag on an iteration review. It requires a new Stage 4
 `stage_id`, a new Stage 4 `operation_id`, a new `ReviewInvocation`, and a new
 `ReviewResult`. Its `purpose` is the closed final purpose, its target is the
 whole required branch scope, and its `pre_dispatch_fingerprint`, post-result
-fingerprint, current validation fingerprint, report, and provenance are fresh
-bindings.
+fingerprint, current validation fingerprint, reviewer return, and host
+attestation are fresh bindings.
 
-Final review also requires distinct reviewer context/provenance. Reusing a
-reviewer thread, context, report, operation, or result from an iteration review
-cannot satisfy the final record, even if the bytes are unchanged. Later
+Final review also requires distinct reviewer context and host attestation.
+Reusing a reviewer thread, context, reviewer return, operation, or result
+from an iteration review cannot satisfy the final record, even if the bytes are unchanged. Later
 implementation or repository change invalidates prior final evidence; it does
 not mutate or relabel the old record. A final result is evidence for a later
 eligibility decision, not itself a readiness judgment produced by the
@@ -250,22 +321,35 @@ The required future publication sequence is:
    precedes review invocation publication and any adapter call.
 5. Publish the immutable `ReviewInvocation` (which has no self-locator).
 6. Dispatch only after all prior publications and authority checks succeed.
-7. Retain the reviewer report, factual provenance, post-result observation,
-   and result fingerprint as immutable external artifacts.
-8. Publish the immutable `ReviewResult` binding the qualified invocation and
-   exact request.
-9. Independently capture the current fingerprint and evaluate structural
-   validity and authority eligibility.
+7. Durably retain the exact report bytes and the observer-produced fingerprint
+   artifact cited by the reviewer return, including their exact digests.
+8. Publish the immutable `ReviewerReturn` whose `invocation` points to the
+   already retained exact `ReviewInvocation` and whose report/fingerprint
+   locators resolve to those already retained artifacts.
+9. Publish the immutable `HostProvenanceAttestation` referencing the exact
+   published `ReviewerReturn` locator and digest.
+10. Durably retain the post-result observation and independently captured
+    current fingerprint artifacts, including their exact digests.
+11. Publish the immutable `ReviewResult` referencing only already-published
+    invocation, reviewer-return, host-attestation, post-result, fingerprint,
+    and request dependencies.
+12. Evaluate structural validity and authority eligibility, preserving the
+    four-way fingerprint equality rule.
 
 A crash before or after the adapter call has the same recovery treatment:
 reconcile the original `operation_id` read-only, using the original request
 and lookup context; never redispatch it. Missing, ambiguous, or mismatched
-reconciliation leaves the operation blocked. A result cannot waive the
-uncertainty ordering or create a replacement operation.
+reconciliation leaves the operation blocked. A crash between any publication
+steps likewise leaves the operation blocked until the already-retained
+producer artifacts and already-published dependency chain are reconstructed;
+missing report/fingerprint retention, a host attestation before its reviewer
+return, or a result before all cited dependencies is a refusal. A result cannot
+waive the uncertainty ordering or create a replacement operation.
 
 No artifact is overwritten. Atomic state/backlink updates may point at already
 published immutable artifacts, but mutable state is never the sole copy of
-invocation, report, result, provenance, or fingerprint authority. An orphan
+invocation, reviewer return, host attestation, result, or fingerprint authority.
+An orphan
 artifact is safety-veto evidence: it may be reconciled only when all producer
 and digest relationships are reconstructible; it never supplies missing state,
 approval, or a result by itself.
@@ -280,17 +364,71 @@ they are not runtime tests or schema files.
 produces `operation_id=O1`; the uncertain fact/state pointer references
 `(R1,S1,O1)`; external request/scope/pre-fingerprint bytes are published
 without back-references; then `ReviewInvocation` binds their locators and
-`(R1,S1,O1)`. A result externally locates that invocation and the same request,
-then binds an exact target and outward report/provenance/post/fingerprint
-locators. This dependency graph is acyclic.
+`(R1,S1,O1)`. The exact report bytes and the observer-produced fingerprint artifact cited
+by the reviewer return are durably retained first. The reviewer then publishes
+a `ReviewerReturn` whose `invocation` points to that earlier exact
+`ReviewInvocation` locator and which binds the exact operation, request, target,
+fingerprint, decision, report, and report digest. The host/adapter then publishes
+a separate `HostProvenanceAttestation` referencing that exact reviewer-return
+digest. Post-result observation and independently captured current fingerprint
+artifacts are retained next; a result then externally locates the already
+published invocation, reviewer return, host attestation, and same request, and
+binds the target and outward post/fingerprint locators. This dependency graph
+is acyclic and producer-before-consumer.
 
-**Negative:** reject an invocation containing an `invocation` self-locator;
-reject request, scope, fingerprint, report, post-result, or provenance bytes
-that contain a locator back to their owning invocation/result; reject an
-operation that manufactures a new `run_id`; reject an attempt that manufactures
-or changes `run_id`; reject a result with separate `base`/`head` fields;
-reject a result published before the uncertain state pointer; and reject any
-retry/dispatch after an unresolved crash-before/after-call operation.
+**Negative:** permit the required `ReviewerReturn.invocation` link to the
+earlier exact `ReviewInvocation` locator. Reject only a self-link from a
+`ReviewerReturn` to itself, any link from a `ReviewerReturn` to the later
+`ReviewResult`, or any dependency cycle. Also reject request, scope,
+fingerprint, report, post-result, or host-attestation bytes that contain a
+locator back to their owning invocation/result; reject an operation that
+manufactures a new `run_id`; reject an attempt that manufactures or changes
+`run_id`; reject a result with separate `base`/`head` fields; reject a result
+published before the uncertain state pointer or before its cited immutable
+dependencies; and reject any retry/dispatch after an unresolved crash-before/
+after-call operation. Reject missing host attestation, missing reviewer return,
+a host attestation that does not reference the exact reviewer-return digest,
+conflicting producer claims, or any controller-authored reviewer field.
+
+**Fingerprint positive:** accept authority only when the pre-dispatch,
+reviewer-returned/result, post-result, and independently captured current
+canonical fingerprints are all present and equal.
+
+**Fingerprint negative:** after a reviewer mutates the repository, reject a
+result even when its post-result fingerprint is internally consistent; the
+new independent current fingerprint differs from the pre-dispatch and
+reviewer-returned fingerprints, so `post_result` cannot become the baseline.
+Also reject any missing or ambiguous one of the four checkpoints.
+
+**Crash/ordering positive:** after a crash at any publication boundary,
+restart can reconstruct the chain from the retained invocation, exact report
+and reviewer-returned fingerprint artifacts, published reviewer return,
+published host attestation, and retained post-result/current artifacts before
+publishing the result. Each consumer is published only after its cited
+producer is durable.
+
+**Crash/ordering negative:** refuse a chain that publishes `ReviewerReturn`
+before its exact report bytes or reviewer-returned fingerprint artifact is
+retained, publishes host attestation before the reviewer return, or publishes
+`ReviewResult` before the post-result/current artifacts or any other cited
+dependency. Refuse a restart that relies on an unpersisted publication, a
+mutable pointer as the sole artifact, controller memory, or a redispatch after
+an unresolved dispatch uncertainty.
+
+**Decision/provenance positive:** accept a structurally eligible return when
+an immutable reviewer return binds the exact invocation, operation, request,
+target, and reviewer-returned fingerprint to `decision=clear` (or exactly
+`findings`/`inconclusive`) and a `report_digest` equal to the retained report
+bytes, and an immutable host attestation references that exact reviewer-return
+digest with factual execution identity/context/dispatch facts. The controller
+only transports these artifacts.
+
+**Decision/provenance negative:** block authority when the decision is `approve`,
+unknown, or controller-authored; when the report digest differs from
+`report.sha256`; when any reviewer-return binding is absent or mismatched; when
+host attestation is absent or references a different reviewer-return digest; or
+when host and reviewer claims conflict. A controller substitution or host
+attestation that duplicates or rewrites reviewer judgment also blocks.
 
 ## 7. Refusal and compatibility rules
 
@@ -300,6 +438,13 @@ Cold or live validation refuses:
   bytes, path escape, malformed record, or SHA-256 mismatch;
 - a result whose invocation, request, target, scope, base/head, operation,
   attempt, or fingerprint binding differs from its invocation;
+- a result lacking the four-way pre-dispatch/result/post-result/current
+  canonical fingerprint equality, or relying on `post_result` as a replacement
+  baseline after mutation;
+- an unknown or controller-authored reviewer decision, a missing reviewer
+  return, a missing host attestation, conflicting producer claims, a host
+  attestation referencing the wrong reviewer-return digest, or a
+  `report_digest` that does not equal the exact retained report bytes;
 - tampered or replaced immutable bytes, including same-path/different-digest
   bytes;
 - an uncertain, absent, or mismatched operation observation;
@@ -316,9 +461,11 @@ no compatibility path and no new retained schema.
 
 **Structural validity** means that closed fields, types, containment, producer
 order, identity relationships, exact retained bytes, canonical digests, and
-cross-record bindings are present and consistent. Structural validity does not
-prove that a reviewer was independent, that a report is causally adequate, or
-that a branch is ready.
+cross-record bindings are present and consistent. It requires both the
+reviewer-owned return and the host-owned attestation, with the attestation
+referencing the exact reviewer-return digest and neither producer claiming the
+other's fields. Structural validity does not prove that a reviewer was
+independent, that a report is causally adequate, or that a branch is ready.
 
 **Authority eligibility** is a separate later decision. It additionally
 requires the applicable Stage 5 authority chain and supported gate contract,
@@ -338,7 +485,8 @@ After restart, the validator reconstructs the operation from persisted
 validated authority alone: discover the containing immutable artifacts, verify
 all locators and digests, load the retained bundle named by the invocation,
 resolve the Stage 4 `run_id`/`stage_id`/`operation_id` relationships, validate
-producer order and immutable publication sequence, and independently recapture
+both reviewer-return and host-attestation producer order and their exact digest
+relationship, validate immutable publication sequence, and independently recapture
 current repository facts. It does not rely on controller memory, a caller
 assertion, an unpersisted conversation, a mutable view, telemetry, or a prior
 in-memory fingerprint.
