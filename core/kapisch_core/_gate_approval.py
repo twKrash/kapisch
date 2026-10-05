@@ -32,6 +32,7 @@ from .storage import (
     load_authority_record,
     load_bundle,
     load_human_approval_artifact,
+    load_retained_bundles,
     retain_human_approval_artifact,
     store_authority_record,
 )
@@ -122,12 +123,26 @@ def _record_bundle(
     try:
         _, opened = _run_dir(repo, run_id, create=False)
     except FileNotFoundError as error:
-        raise ValueError(
-            "gate approval producer run is missing; cannot load its retained bundle"
-        ) from error
+        if gate_kind != "plan-approval":
+            raise ValueError(
+                "gate approval producer run is missing; cannot load its retained bundle"
+            ) from error
+        try:
+            candidates = [
+                bundle
+                for _, bundle in load_retained_bundles(repo)
+                if bundle.payload.get("authority_contract") == "global-authority/1"
+            ]
+        except FileNotFoundError as missing:
+            raise ValueError(
+                "plan approval has no retained supporting bundle"
+            ) from missing
+        if len(candidates) != 1:
+            raise ValueError("plan approval retained bundle is missing or ambiguous")
+        return _require_global_bundle(candidates[0]), None
     else:
         _close(opened)
-    state = load_state(repo, payload["run_id"])
+    state = load_state(repo, run_id)
     return _require_global_bundle(load_bundle(repo, state["bundle_digest"])), state
 
 
@@ -154,6 +169,8 @@ def _validate_payload(
     state: Mapping[str, Any] | None,
     *,
     require_run_scope: bool = False,
+    require_current_authority: bool = False,
+    lock_held: bool = False,
 ) -> None:
     _validate_schema(
         payload, "approval", bundle, definition_name="gate_approval_payload"
@@ -181,6 +198,15 @@ def _validate_payload(
     elif gate_kind == "plan-approval":
         _validate_authority_basis(subject["authority_basis"])
         expected_identity = subject["plan_ref"]["plan_id"]
+        from ._promotion import validate_plan_payload
+
+        validate_plan_payload(
+            repo,
+            payload,
+            state,
+            require_current_authority=require_current_authority,
+            lock_held=lock_held,
+        )
     else:
         expected_identity = subject["effect_identity"]
     if payload["identity"]["id"] != expected_identity:
@@ -245,12 +271,15 @@ def _record_evidence(
     raise ValueError("gate approval human evidence kind is unsupported")
 
 
-def _commit_record(repo: Path, approval_id: str, data: bytes) -> dict[str, str]:
+def _commit_record(
+    repo: Path, approval_id: str, data: bytes, *, lock_held: bool = False
+) -> dict[str, str]:
     digest = hashlib.sha256(data).hexdigest()
-    with _locked(repo):
+
+    def commit() -> None:
         try:
             store_authority_record(repo, _NAMESPACE, approval_id, data)
-        except OSError as error:
+        except FileExistsError as error:
             try:
                 retained = load_authority_record(repo, _NAMESPACE, approval_id)
             except OSError:
@@ -259,11 +288,15 @@ def _commit_record(repo: Path, approval_id: str, data: bytes) -> dict[str, str]:
                 raise ValueError(
                     "gate approval identity is occupied by different bytes"
                 ) from error
-            store_authority_record(repo, _NAMESPACE, approval_id, data)
-        else:
-            retained = load_authority_record(repo, _NAMESPACE, approval_id)
+        retained = load_authority_record(repo, _NAMESPACE, approval_id)
         if retained != data or hashlib.sha256(retained).hexdigest() != digest:
             raise ValueError("gate approval read-back differs from published bytes")
+
+    if lock_held:
+        commit()
+    else:
+        with _locked(repo):
+            commit()
     return {"approval_id": approval_id, "sha256": digest}
 
 
@@ -280,16 +313,20 @@ def publish_gate_approval(
         payload = json.loads(payload_bytes)
     except (TypeError, ValueError, RecursionError) as error:
         raise ValueError("GateApproval payload is not canonical JSON") from error
-    if payload.get("gate_kind") == "plan-approval":
-        raise ValueError(
-            "unsupported-gate: plan approval publication is deferred to Stage 5.5"
-        )
     run_id = payload.get("run_id")
     if not isinstance(run_id, str) or not run_id:
         raise ValueError("GateApproval payload run_id is required")
     state = load_state(repo, run_id)
     bundle = _require_global_bundle(load_bundle(repo, state["bundle_digest"]))
-    _validate_payload(repo, payload, bundle, state, require_run_scope=True)
+    is_plan_approval = payload.get("gate_kind") == "plan-approval"
+    _validate_payload(
+        repo,
+        payload,
+        bundle,
+        state,
+        require_run_scope=True,
+        require_current_authority=is_plan_approval,
+    )
     if payload["gate_kind"] == "side-effect-permission":
         raise ValueError(
             "unsupported-gate: side-effect request producer is not implemented"
@@ -322,8 +359,20 @@ def publish_gate_approval(
         "human_authority": human_authority,
     }
     _validate_schema(record, "approval", bundle)
-    _record_evidence(repo, human_authority, target)
-    return _commit_record(repo, approval_id, canonical_json(record))
+    with _locked(repo, run_id):
+        state = load_state(repo, run_id)
+        bundle = _require_global_bundle(load_bundle(repo, state["bundle_digest"]))
+        _validate_payload(
+            repo,
+            payload,
+            bundle,
+            state,
+            require_run_scope=True,
+            require_current_authority=is_plan_approval,
+            lock_held=True,
+        )
+        _record_evidence(repo, human_authority, target)
+        return _commit_record(repo, approval_id, canonical_json(record), lock_held=True)
 
 
 def load_gate_approval(repo: Path, reference: dict[str, Any]) -> dict[str, Any]:
@@ -347,10 +396,6 @@ def load_gate_approval(repo: Path, reference: dict[str, Any]) -> dict[str, Any]:
     payload = record["payload"]
     if not isinstance(payload, dict):
         raise ValueError("gate approval payload is invalid")
-    if payload.get("gate_kind") == "plan-approval":
-        raise ValueError(
-            "unsupported-gate: plan approval loading is deferred to Stage 5.5"
-        )
     bundle, state = _record_bundle(repo, payload)
     _validate_schema(record, "approval", bundle)
     if record["approval_id"] != approval_id:

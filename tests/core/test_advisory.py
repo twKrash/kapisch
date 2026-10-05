@@ -100,3 +100,125 @@ class ProposedScopeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PlanApprovalTests(unittest.TestCase):
+    def setUp(self) -> None:
+        from test_gate_approval import GateApprovalTests
+
+        self.fixture = GateApprovalTests(
+            "test_repository_decision_gate_approval_does_not_commit_acceptance"
+        )
+        self.fixture.setUp()
+        self.addCleanup(self.fixture.doCleanups)
+
+    def _accept_governing_decision(self) -> None:
+        import hashlib
+
+        from kapisch_core._accepted_snapshot import publish_acceptance
+        from kapisch_core._gate_approval import publish_gate_approval
+
+        source = b"governing decision v1"
+        (self.fixture.repo / "governing.md").write_bytes(source)
+        payload = self.fixture._repository_payload()
+        payload["subject"]["source_dependencies"] = [
+            {"path": "governing.md", "sha256": hashlib.sha256(source).hexdigest()}
+        ]
+        approval = publish_gate_approval(
+            self.fixture.repo,
+            payload,
+            self.fixture._external_input(
+                self.fixture._artifact(self.fixture._target(payload))
+            ),
+        )
+        publish_acceptance(self.fixture.repo, approval)
+
+    def _accept_additional_decision(self) -> None:
+        from kapisch_core._accepted_snapshot import publish_acceptance
+        from kapisch_core._authority_records import _active_bindings
+        from kapisch_core._gate_approval import publish_gate_approval
+
+        payload = self.fixture._repository_payload()
+        payload["gate_id"] = "decision-gate-2"
+        payload["identity"]["id"] = "decision-2"
+        subject = payload["subject"]
+        subject["snapshot_id"] = "snapshot-2"
+        subject["decision_id"] = "decision-2"
+        subject["decision"] = "approve second repository decision"
+        subject["authority_basis"] = list(
+            _active_bindings(self.fixture.repo, self.fixture.scope_ref)
+        )
+        approval = publish_gate_approval(
+            self.fixture.repo,
+            payload,
+            self.fixture._external_input(
+                self.fixture._artifact(self.fixture._target(payload))
+            ),
+        )
+        publish_acceptance(self.fixture.repo, approval)
+
+    def test_plan_approval_rejects_changed_governing_bytes(self) -> None:
+        import kapisch_core.advisory as advisory
+
+        self.assertTrue(
+            hasattr(advisory, "prepare_plan_approval"),
+            "Stage 5.5 plan approval preparation is not implemented",
+        )
+        self._accept_governing_decision()
+        payload = advisory.prepare_plan_approval(
+            self.fixture.repo,
+            "run-1",
+            "plan-gate",
+            "plan-1",
+            b"exact approved plan bytes",
+        )
+        (self.fixture.repo / "governing.md").write_bytes(b"changed governing bytes")
+        target = self.fixture._target(payload)
+        evidence = self.fixture._external_input(self.fixture._artifact(target))
+        with self.assertRaisesRegex(ValueError, "source dependency changed"):
+            advisory.publish_plan_approval(self.fixture.repo, payload, evidence)
+
+    def test_plan_approval_rejects_changed_authority_bindings(self) -> None:
+        import kapisch_core.advisory as advisory
+
+        self._accept_governing_decision()
+        payload = advisory.prepare_plan_approval(
+            self.fixture.repo,
+            "run-1",
+            "plan-gate",
+            "plan-1",
+            b"exact approved plan bytes",
+        )
+        self._accept_additional_decision()
+        target = self.fixture._target(payload)
+        with self.assertRaisesRegex(ValueError, "authority bindings are stale"):
+            advisory.publish_plan_approval(
+                self.fixture.repo,
+                payload,
+                self.fixture._external_input(self.fixture._artifact(target)),
+            )
+
+    def test_plan_promotion_rejects_stale_governing_bytes(self) -> None:
+        import kapisch_core.advisory as advisory
+
+        self._accept_governing_decision()
+        payload = advisory.prepare_plan_approval(
+            self.fixture.repo,
+            "run-1",
+            "plan-gate",
+            "plan-1",
+            b"exact approved plan bytes",
+        )
+        target = self.fixture._target(payload)
+        advisory.publish_plan_approval(
+            self.fixture.repo,
+            payload,
+            self.fixture._external_input(self.fixture._artifact(target)),
+        )
+        self.assertEqual(
+            advisory.promote_plan(self.fixture.repo, "run-1", "plan-1")["plan_id"],
+            "plan-1",
+        )
+        (self.fixture.repo / "governing.md").write_bytes(b"changed governing bytes")
+        with self.assertRaisesRegex(ValueError, "source dependency changed"):
+            advisory.promote_plan(self.fixture.repo, "run-1", "plan-1")
