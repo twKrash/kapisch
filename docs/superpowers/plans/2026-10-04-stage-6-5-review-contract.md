@@ -130,12 +130,12 @@ implementation must obtain approval before adding or changing wire fields.
   invocation publisher owns the reference. Request bytes bind the existing
   `attempt` and exact adapter/lookup/request inputs, plus `scope`, `base`,
   `head`, `purpose`, and fingerprint requirements. They are published before
-  operation reservation and must not claim or contain the final, durably owned
-  `operation_id`. The controller may carry its proposed `operation_id` value
-  in the pre-reservation packet required by Stage 4 §4.0.2, but that candidate
-  is not an operation identity or authority until reservation owns it; this is
-  not a second field or a new frozen identity. Request bytes never contain an
-  invocation locator or result locator.
+  operation reservation and contain the controller-proposed candidate
+  `operation_id` required by Stage 4 §4.0.2. That candidate is not durable
+  operation authority until reservation, but it is the operation identity
+  candidate that reservation must compare byte-for-byte with the reserved
+  `operation_id`; this is not a second field or a new frozen identity. Request
+  bytes never contain an invocation locator or result locator.
 - `attempt` is the qualified Stage 4 attempt identity `{run_id, stage_id}`.
   Run creation is the sole producer of `run_id`; attempt creation references
   that `run_id` and is the sole producer of `stage_id`. `stage_id` retains its
@@ -143,8 +143,8 @@ implementation must obtain approval before adding or changing wire fields.
   not a wire field.
 - `operation` is the final qualified Stage 4 operation locator/identity
   `{run_id, operation_id}` carried by the retained operation reservation.
-  Operation reservation is the sole producer of `operation_id`; it atomically
-  binds that ID to the already-published request digest, existing `run_id` and
+  Operation reservation is the sole producer of durable `operation_id` ownership;
+  it atomically binds that ID to the already-published request digest, existing `run_id` and
   `stage_id`, and selected adapter binding. The adapter may return a provider
   ID as factual provenance but never produces or replaces `operation_id`.
   `ReviewInvocation` is published only after this reservation and therefore
@@ -259,15 +259,18 @@ The required digest relationships are:
    it.
 2. `ReviewInvocation.request.sha256` equals the exact request bytes. Those
    bytes bind the existing attempt and exact adapter/lookup/request inputs,
-   but contain no final, durably owned `operation_id`; the controller's
-   proposed `operation_id` value is non-authoritative until reservation and is
-   not compared as an operation identity. Request bytes contain no
-   back-reference to the invocation or result.
-3. The reserved operation's immutable binding is the sole producer of the
-   final `operation_id` and must bind the exact `ReviewInvocation.request`
-   digest, `run_id`, `stage_id`, and adapter binding. The invocation's
-   `operation` must resolve to that exact final reservation/operation locator;
-   a request-only or proposed-token reference cannot satisfy it.
+   and contain the controller-proposed candidate `operation_id` required by
+   Stage 4 §4.0.2. The candidate is not durable authority until reservation,
+   but reservation must compare it byte-for-byte with the reserved
+   `operation_id`; absent or substituted candidates are refused. Request bytes
+   contain no back-reference to the invocation or result.
+3. The reserved operation's immutable binding is the sole producer of durable
+   `operation_id` ownership and must bind the exact `ReviewInvocation.request`
+   digest, `run_id`, `stage_id`, adapter binding, and candidate `operation_id`.
+   The candidate and reserved operation ID must be byte-for-byte equal. The
+   invocation's `operation` must resolve to that exact final reservation/
+   operation locator; a request-only or mismatched proposed-token reference
+   cannot satisfy it.
 4. `ReviewInvocation.scope` and `pre_dispatch_fingerprint` resolve to exact
    external immutable bytes and neither artifact refers back to the invocation.
 5. `ReviewResult.invocation` resolves to the exact invocation bytes and digest;
@@ -336,11 +339,14 @@ The required future publication sequence is:
 
 1. Retain the exact bundle, scope, request, and other cited immutable input
    artifacts. Request/evidence publication binds the existing attempt and
-   exact adapter/lookup/request inputs, and contains no final `operation_id`.
+   exact adapter/lookup/request inputs and contains the Stage 4
+   controller-proposed candidate `operation_id`; it is not durable authority.
 2. Capture and retain the pre-dispatch fingerprint.
 3. Atomically reserve the exact Stage 4 operation. Operation reservation is
-   the sole producer of `operation_id` and binds it to the already-published
-   request digest, `run_id`/`stage_id`, and adapter binding.
+   the sole producer of durable `operation_id` ownership and binds it to the
+   already-published request digest, `run_id`/`stage_id`, adapter binding, and
+   candidate `operation_id`; the candidate and reserved ID must match
+   byte-for-byte. An absent or substituted candidate blocks reservation.
 4. Publish the immutable Stage 4 `dispatch-uncertain` fact and durably publish
    the state pointer/ack that cites the reservation and uncertainty. This
    precedes review invocation publication and any adapter call.
@@ -364,10 +370,11 @@ The required future publication sequence is:
     four-way fingerprint equality rule.
 
 A crash before or after the adapter call has the same recovery treatment:
-reconcile the original final `operation_id` read-only, using the original
-request and lookup context; never redispatch it. A controller-proposed pre-reservation `operation_id` value is not an
-operation identity until reservation owns it and cannot be reconciled or
-redispatched as one. Missing, ambiguous, or mismatched
+reconcile the original reserved `operation_id` read-only, using the original
+request and lookup context; never redispatch it. The pre-reservation candidate
+is carried in that original request/packet and must be present and byte-for-byte
+identical to the reserved ID; it is not durable authority until reservation.
+An absent, substituted, missing, ambiguous, or mismatched candidate or
 reconciliation leaves the operation blocked. A crash between any publication
 steps likewise leaves the operation blocked until the already-retained
 producer artifacts and already-published dependency chain are reconstructed;
@@ -391,11 +398,11 @@ they are not runtime tests or schema files.
 **Positive:** run creation produces `run_id=R1`; attempt creation references
 `R1` and produces `stage_id=S1`; external request/scope/pre-fingerprint bytes
 are published first, with the request binding `(R1,S1)` and exact
-adapter/lookup/request inputs but no final, durably owned operation ID (the
-controller's proposed `operation_id` value is non-authoritative); operation
-reservation then sole-produces
-`operation_id=O1` and atomically binds it to the request digest, `(R1,S1)`, and
-adapter binding; the uncertain fact/state pointer references `(R1,S1,O1)`;
+adapter/lookup/request inputs and the Stage 4 controller-proposed candidate
+`operation_id=O1` (not yet durable authority); operation reservation then
+sole-produces durable ownership of `operation_id=O1` and atomically binds it to
+the request digest, `(R1,S1)`, adapter binding, and candidate `O1`, requiring
+byte-for-byte equality; the uncertain fact/state pointer references `(R1,S1,O1)`;
 then `ReviewInvocation` binds both the request locator and final operation
 locator/identity `(R1,S1,O1)`. The exact report bytes and the observer-produced fingerprint artifact cited
 by the reviewer return are durably retained first. The reviewer then publishes
@@ -409,12 +416,14 @@ published invocation, reviewer return, host attestation, and same request, and
 binds the target and outward post/fingerprint locators. This dependency graph
 is acyclic and producer-before-consumer.
 
-**Negative:** reject request bytes that claim or contain final `operation_id`
-before reservation, a controller-proposed `operation_id` value treated as
-final authority, or an operation reservation that is not the sole producer of
-the final ID. Reject an invocation published before the reservation or one whose
-request/operation bindings do not resolve to the same retained request digest
-and final operation reservation. Permit the required `ReviewerReturn.invocation`
+**Negative:** reject request bytes with an absent candidate `operation_id`, a
+candidate substituted from the Stage 4 request/packet, or a candidate treated as
+final durable authority before reservation. Reject an operation reservation
+whose reserved `operation_id` does not equal the candidate byte-for-byte, whose
+request digest, run/stage binding, or adapter binding differs, or that is not
+the sole producer of durable final ID ownership. Reject an invocation published
+before the reservation or one whose request/operation bindings do not resolve
+to the same retained request digest and final operation reservation. Permit the required `ReviewerReturn.invocation`
 link to the earlier exact `ReviewInvocation` locator. Reject only a self-link from a
 `ReviewerReturn` to itself, any link from a `ReviewerReturn` to the later
 `ReviewResult`, or any dependency cycle. Also reject request, scope,
@@ -485,10 +494,12 @@ Cold or live validation refuses:
   `report_digest` that does not equal the exact retained report bytes;
 - tampered or replaced immutable bytes, including same-path/different-digest
   bytes;
-- request bytes that claim or contain the final `operation_id`, a controller-proposed `operation_id` value treated as final authority before
-  reservation, an invocation published before operation reservation, or a
-  final operation reservation whose request digest, run/stage binding, adapter
-  binding, or operation locator does not match;
+- request bytes with an absent or substituted Stage 4 candidate `operation_id`,
+  a candidate treated as durable final authority before reservation, an
+  invocation published before operation reservation, or a final operation
+  reservation whose candidate and reserved `operation_id` differ byte-for-byte,
+  or whose request digest, run/stage binding, adapter binding, or operation
+  locator does not match;
 - an uncertain, absent, or mismatched operation observation;
 - a retained legacy bundle that does not explicitly support the Stage 6.5
   review/final contract; protocol version alone is not capability evidence;
