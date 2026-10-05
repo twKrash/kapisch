@@ -662,6 +662,45 @@ class AuthorityCensusTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "acceptance record is malformed"):
                 _load_acceptances(self.fixture.repo)
 
+    def test_acceptance_recovery_canonical_recursion_is_malformed(self):
+        from unittest.mock import patch
+
+        from kapisch_core import _accepted_snapshot
+        from kapisch_core._accepted_snapshot import load_acceptance
+
+        nested_reference = []
+        for _ in range(200):
+            nested_reference = [nested_reference]
+        record = {
+            "acceptance_contract": "global-authority/1",
+            "origin_run_id": "run-1",
+            "snapshot_id": "nested",
+            "gate_approval_ref": nested_reference,
+        }
+        data = canonical_json(record)
+        identity = hashlib.sha256(
+            canonical_json({"origin_run_id": "run-1", "snapshot_id": "nested"})
+        ).hexdigest()
+        store_authority_record(self.fixture.repo, "acceptances", identity, data)
+        original_canonical_json = _accepted_snapshot.canonical_json
+
+        def raise_for_acceptance_envelope(value):
+            if isinstance(value, dict) and value.get("acceptance_contract"):
+                raise RecursionError("canonical nesting")
+            return original_canonical_json(value)
+
+        reference = {
+            "origin_run_id": "run-1",
+            "snapshot_id": "nested",
+            "sha256": hashlib.sha256(data).hexdigest(),
+        }
+        with patch(
+            "kapisch_core._accepted_snapshot.canonical_json",
+            side_effect=raise_for_acceptance_envelope,
+        ):
+            with self.assertRaisesRegex(ValueError, "acceptance record is malformed"):
+                load_acceptance(self.fixture.repo, reference)
+
     def test_acceptance_canonical_recursion_is_malformed(self):
         from unittest.mock import patch
 

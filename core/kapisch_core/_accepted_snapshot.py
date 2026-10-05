@@ -181,12 +181,13 @@ def _load_record(repo: Path, reference: AcceptanceRef) -> dict[str, Any]:
         raise ValueError("acceptance reference digest mismatch")
     try:
         record = json.loads(data.decode("utf-8"))
+        canonical_record = canonical_json(record)
     except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as error:
         raise ValueError("acceptance record is malformed") from error
     if (
         type(record) is not dict
         or set(record) != _RECORD_FIELDS
-        or canonical_json(record) != data
+        or canonical_record != data
         or record["acceptance_contract"] != "global-authority/1"
         or record["origin_run_id"] != reference.origin_run_id
         or record["snapshot_id"] != reference.snapshot_id
