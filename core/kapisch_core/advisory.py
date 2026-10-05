@@ -186,3 +186,12 @@ def load_proposed_scope(repo: Path, ref: ProposedScopeRef | dict) -> dict:
     if record != expected or hashlib.sha256(data).hexdigest() != reference.sha256:
         raise ValueError("proposed scope reference or descriptor mismatch")
     return record
+
+
+def accept_repository_decision(
+    repo: Path, approval_reference: dict[str, Any]
+) -> dict[str, str]:
+    """Commit repository authority from one exact persisted gate approval."""
+    from ._accepted_snapshot import publish_acceptance
+
+    return publish_acceptance(Path(repo), approval_reference)

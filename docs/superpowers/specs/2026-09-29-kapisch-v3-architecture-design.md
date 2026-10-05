@@ -266,11 +266,11 @@ Python 3.11 remains the only shipped 3.0 validator runtime for authority-bearing
 6. **Bundle retention:** run creation stores exact bundle bytes at `.kapisch/v3/bundles/<sha256>.json`; resume verifies and loads that bundle rather than the upgraded distribution copy.
 7. **Repository state:** canonical `RepositoryStateFingerprint` uses stable Git/content facts for pre/post/current checks, not raw index serialization or rendered diffs.
 
-**Remaining architecture questions:** none introduced by these amendments. Implementation details such as exact Git extraction commands and host capability proofs are acceptance work for the implementation plan, not authority to weaken these decisions. This status records the accepted 2026-09-29 design only; see proposed amendment §30, which is not implementation authority until independently reviewed and explicitly approved.
+**Remaining architecture questions:** none introduced by these amendments. Implementation details such as exact Git extraction commands and host capability proofs are acceptance work for the implementation plan, not authority to weaken these decisions. This status records the accepted 2026-09-29 design only; the Stage 5 global-authority amendment in §30 was subsequently approved as recorded in §30.6 and governs the Stage 5 semantics that supersede the listed conflicting text.
 
-## 30. Proposed Stage 5 global authority amendment — DRAFT
+## 30. Stage 5 global authority amendment — APPROVED
 
-**Status:** Draft for independent review and explicit user approval. It does not authorize implementation. Upon approval, this section supersedes conflicting accepted text in §§9–10, 16–17, 27.5, 27.7 and 29, and the corresponding Stage 5 plan text. No production behavior, schema, bundle, or adapter change may precede approval of this amendment and its schema ownership map.
+**Status:** Approved. Existing approval provenance remains §30.6, which records the user's 2026-10-03 confirmation that this amendment and its ownership map were reviewed, approved, and merged into `main`. Section 30 supersedes conflicting accepted text in §§9–10, 16–17, 27.5, 27.7 and 29, and the corresponding Stage 5 plan text. This status reconciliation aligns the heading and status with that existing record and occurs before Stage 5.4. This edit is not a new approval or retroactive evidence and does not change the amendment's semantics.
 
 ### 30.1 Authority domain and applicability
 
