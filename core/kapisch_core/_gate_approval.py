@@ -200,7 +200,7 @@ def _validate_payload(
             repo,
             payload,
             state,
-            require_current_authority=require_current_authority,
+            require_current_authority=require_current_authority or require_run_scope,
             lock_held=lock_held,
         )
     else:
@@ -208,7 +208,7 @@ def _validate_payload(
     if payload["identity"]["id"] != expected_identity:
         raise ValueError("GateApproval identity differs from its subject")
 
-    if gate_kind != "repository-decision":
+    if gate_kind not in {"repository-decision", "plan-approval"}:
         retained_scope = load_proposed_scope_by_digest(repo, payload["scope_digest"])
         if require_run_scope:
             if state is None:

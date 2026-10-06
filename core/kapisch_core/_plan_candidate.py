@@ -269,14 +269,10 @@ def validate_plan_approval_candidate(
         raise ValueError("candidate plan bytes digest mismatch")
     if not isinstance(plan_ref["plan_id"], str) or not plan_ref["plan_id"]:
         raise ValueError("candidate plan identity is invalid")
-    from .advisory import load_proposed_scope_by_digest
+    from .advisory import load_proposed_scope
 
-    scope = load_proposed_scope_by_digest(repo, candidate["scope_ref"]["sha256"])
-    if any(
-        scope[key] != candidate["scope_ref"][key]
-        for key in ("origin_run_id", "scope_id")
-    ):
-        raise ValueError("candidate scope reference differs from retained descriptor")
+    load_proposed_scope(repo, candidate["scope_ref"])
+
     _validate_authority_history(repo, candidate["authority_basis"])
     execution = candidate["execution_binding"]
     if execution["mode"] == "milestone":

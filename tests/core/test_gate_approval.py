@@ -460,22 +460,60 @@ class GateApprovalTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(candidate).hexdigest(), reference["sha256"])
         self.assertEqual(load_authority_records(self.repo, "gate-approvals"), [])
 
-    def test_plan_approval_history_uses_candidate_bundle_after_run_loss(self) -> None:
+    def test_plan_approval_history_uses_exact_candidate_chain_after_run_loss(self) -> None:
         from kapisch_core._gate_approval import load_gate_approval
-        from kapisch_core.advisory import publish_plan_approval
+        from kapisch_core.advisory import propose_scope, publish_plan_approval
         from kapisch_core.storage import store_bundle
 
         payload = self._prepare_plan_approval()
         reference = publish_plan_approval(
-            self.repo, payload, self._external_input(self._artifact(self._target(payload)))
+            self.repo,
+            payload,
+            self._external_input(self._artifact(self._target(payload))),
         )["gate_approval_ref"]
         pinned_path = self.repo / ".kapisch/v3/bundles" / f"{self.bundle_digest}.json"
         alternate = json.loads(pinned_path.read_bytes())
         alternate["schemas"]["approval"]["description"] = "another compatible retained bundle"
         store_bundle(self.repo, self.canonical_json(alternate))
 
+        unrelated_ref = propose_scope(
+            self.repo, "unrelated-run", "unrelated-scope", "requirements", {"mode": "all"}
+        )
+        unrelated_identity = {
+            "origin_run_id": unrelated_ref.origin_run_id,
+            "scope_id": unrelated_ref.scope_id,
+        }
+        scope_dir = self.repo / ".kapisch/v3/authority/scopes"
+        unrelated_key = hashlib.sha256(
+            self.canonical_json(unrelated_identity)
+        ).hexdigest()
+        unrelated_path = scope_dir / f"{unrelated_key}.json"
+        unrelated_path.unlink()
+        unrelated_path.mkdir()
+
         shutil.rmtree(self.repo / ".kapisch/v3/runs/run-1")
-        self.assertEqual(load_gate_approval(self.repo, reference)["approval_id"], reference["approval_id"])
+        self.assertEqual(
+            load_gate_approval(self.repo, reference)["approval_id"],
+            reference["approval_id"],
+        )
+
+        unrelated_path.rmdir()
+        propose_scope(
+            self.repo, "unrelated-run", "unrelated-scope", "requirements", {"mode": "all"}
+        )
+        candidate_identity = {
+            "origin_run_id": self.scope_ref["origin_run_id"],
+            "scope_id": self.scope_ref["scope_id"],
+        }
+        candidate_key = hashlib.sha256(
+            self.canonical_json(candidate_identity)
+        ).hexdigest()
+        candidate_path = scope_dir / f"{candidate_key}.json"
+        candidate_path.unlink()
+        with self.assertRaisesRegex(ValueError, "proposed scope record is missing"):
+            load_gate_approval(self.repo, reference)
+        propose_scope(self.repo, "run-1", "scope-1", "requirements", {"mode": "all"})
+
         pinned_path.unlink()
         with self.assertRaisesRegex(ValueError, "exact retained bundle is missing"):
             load_gate_approval(self.repo, reference)
@@ -1122,12 +1160,10 @@ class GateApprovalTests(unittest.TestCase):
 
         payload = self._prepare_plan_approval()
         next((self.repo / ".kapisch/v3/authority/scopes").glob("*.json")).unlink()
-        with self.assertRaisesRegex(ValueError, "proposed scope digest"):
-            publish_gate_approval(
-                self.repo,
-                payload,
-                self._external_input(self._artifact(self._target(payload))),
-            )
+        with self.assertRaisesRegex(ValueError, "proposed scope record is missing"):
+            publish_gate_approval(self.repo,
+            payload,
+            self._external_input(self._artifact(self._target(payload))),)
         self.assertFalse((self.repo / ".kapisch/v3/authority/gate-approvals").exists())
         self.assertFalse((self.repo / ".kapisch/v3/authority/human-artifacts").exists())
 
