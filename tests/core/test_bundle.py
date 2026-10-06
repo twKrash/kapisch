@@ -578,6 +578,59 @@ class BundleTests(unittest.TestCase):
             )
             self.assertEqual(after_schema, compile_bundle(source))
 
+    def test_plan_approval_candidate_schema_is_closed_and_exactly_referenced(self) -> None:
+        from kapisch_core.bundle import compile_bundle
+
+        bundle = json.loads(compile_bundle(ROOT / "core"))
+        approval = bundle["schemas"]["approval"]
+        run = bundle["schemas"]["run"]
+        candidate = approval["$defs"]["plan_approval_candidate"]
+        self.assertEqual(
+            set(candidate["required"]),
+            {
+                "protocol_version", "candidate_contract", "run_id", "gate_id",
+                "plan_ref", "plan_sha256", "scope_ref", "bundle_digest",
+                "authority_basis", "execution_binding",
+            },
+        )
+        self.assertFalse(candidate["additionalProperties"])
+        self.assertEqual(
+            run["properties"]["plan_candidate_ref"]["$ref"],
+            "kapisch://schemas/v3/approval#/$defs/plan_candidate_ref",
+        )
+        candidate_ref = approval["$defs"]["plan_candidate_ref"]
+        self.assertEqual(set(candidate_ref["required"]), {"path", "sha256"})
+        plan_subject = next(
+            subject for subject in approval["$defs"]["subject"]["oneOf"]
+            if subject.get("required") == ["plan_candidate_ref"]
+        )
+        self.assertFalse(plan_subject["additionalProperties"])
+        milestone = next(
+            variant for variant in candidate["properties"]["execution_binding"]["oneOf"]
+            if variant.get("properties", {}).get("mode", {}).get("const") == "milestone"
+        )
+        self.assertEqual(
+            set(milestone["required"]),
+            {"mode", "graph_ref", "retained_graph_ref", "node_scope_refs"},
+        )
+        node_scope = milestone["properties"]["node_scope_refs"]["items"]
+        self.assertEqual(
+            set(node_scope["required"]), {"node_id", "scope_ref", "retained_ref"}
+        )
+        self.assertIn("depends_on", run["$defs"]["graph_node"]["required"])
+
+    def test_authority_policy_documents_exact_plan_candidate_recovery(self) -> None:
+        policy = (ROOT / "core/contracts/policy/authority.md").read_text()
+        for phrase in (
+            "PlanApprovalCandidate",
+            "plan_candidate_ref",
+            "never selects by `(run_id, plan_id)`",
+            "Historical plan-approval loading",
+            "Promotion independently reloads current scope",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, policy)
+
     def test_state_schema_references_immutable_snapshot_and_plan_artifacts(
         self,
     ) -> None:

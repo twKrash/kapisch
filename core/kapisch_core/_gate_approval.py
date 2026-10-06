@@ -18,7 +18,7 @@ from ._human_evidence import (
     validate_external_human_approval_artifact,
 )
 from ._locking import _locked
-from ._state import load_state
+from ._state import _resync_state_locked, load_state
 from ._validation_schema import _validate_identity_contract, _validate_schema
 from .advisory import (
     _validate_applicability,
@@ -32,7 +32,6 @@ from .storage import (
     load_authority_record,
     load_bundle,
     load_human_approval_artifact,
-    load_retained_bundles,
     retain_human_approval_artifact,
     store_authority_record,
 )
@@ -116,6 +115,19 @@ def _record_bundle(
         ):
             raise ValueError("gate approval payload is missing bundle routing data")
         return _require_global_bundle(load_bundle(repo, subject["bundle_digest"])), None
+    if gate_kind == "plan-approval":
+        subject = payload.get("subject")
+        if not isinstance(subject, Mapping):
+            raise ValueError("plan approval payload subject is invalid")
+        candidate_ref = subject.get("plan_candidate_ref")
+        if not isinstance(candidate_ref, Mapping):
+            raise ValueError("plan approval candidate reference is invalid")
+        from ._plan_candidate import load_plan_approval_candidate
+
+        candidate, bundle = load_plan_approval_candidate(repo, candidate_ref)
+        if candidate.get("run_id") != payload.get("run_id"):
+            raise ValueError("plan approval candidate run identity mismatch")
+        return _require_global_bundle(bundle), None
 
     run_id = payload.get("run_id")
     if not isinstance(run_id, str) or not run_id:
@@ -123,28 +135,13 @@ def _record_bundle(
     try:
         _, opened = _run_dir(repo, run_id, create=False)
     except FileNotFoundError as error:
-        if gate_kind != "plan-approval":
-            raise ValueError(
-                "gate approval producer run is missing; cannot load its retained bundle"
-            ) from error
-        try:
-            candidates = [
-                bundle
-                for _, bundle in load_retained_bundles(repo)
-                if bundle.payload.get("authority_contract") == "global-authority/1"
-            ]
-        except FileNotFoundError as missing:
-            raise ValueError(
-                "plan approval has no retained supporting bundle"
-            ) from missing
-        if len(candidates) != 1:
-            raise ValueError("plan approval retained bundle is missing or ambiguous")
-        return _require_global_bundle(candidates[0]), None
+        raise ValueError(
+            "gate approval producer run is missing; cannot load its retained bundle"
+        ) from error
     else:
         _close(opened)
     state = load_state(repo, run_id)
     return _require_global_bundle(load_bundle(repo, state["bundle_digest"])), state
-
 
 def _require_sorted_unique(values: list[Any], label: str) -> None:
     encoded = [canonical_json(value) for value in values]
@@ -196,8 +193,7 @@ def _validate_payload(
                 "scope descriptor"
             )
     elif gate_kind == "plan-approval":
-        _validate_authority_basis(subject["authority_basis"])
-        expected_identity = subject["plan_ref"]["plan_id"]
+        expected_identity = payload["identity"]["id"]
         from ._promotion import validate_plan_payload
 
         validate_plan_payload(
@@ -316,17 +312,31 @@ def publish_gate_approval(
     run_id = payload.get("run_id")
     if not isinstance(run_id, str) or not run_id:
         raise ValueError("GateApproval payload run_id is required")
-    state = load_state(repo, run_id)
-    bundle = _require_global_bundle(load_bundle(repo, state["bundle_digest"]))
     is_plan_approval = payload.get("gate_kind") == "plan-approval"
-    _validate_payload(
-        repo,
-        payload,
-        bundle,
-        state,
-        require_run_scope=True,
-        require_current_authority=is_plan_approval,
-    )
+    if is_plan_approval:
+        with _locked(repo, run_id):
+            state = load_state(repo, run_id)
+            bundle = _require_global_bundle(load_bundle(repo, state["bundle_digest"]))
+            _validate_payload(
+                repo,
+                payload,
+                bundle,
+                state,
+                require_run_scope=True,
+                require_current_authority=True,
+                lock_held=True,
+            )
+            _resync_state_locked(repo, run_id, state)
+    else:
+        state = load_state(repo, run_id)
+        bundle = _require_global_bundle(load_bundle(repo, state["bundle_digest"]))
+        _validate_payload(
+            repo,
+            payload,
+            bundle,
+            state,
+            require_run_scope=True,
+        )
     if payload["gate_kind"] == "side-effect-permission":
         raise ValueError(
             "unsupported-gate: side-effect request producer is not implemented"

@@ -35,6 +35,8 @@ _AUTHORITY_NAMESPACES = frozenset(
         "human-artifacts",
         "acceptances",
         "plans",
+        "plan-approval-candidates",
+        "plan-approval-artifacts",
     }
 )
 _HUMAN_ARTIFACT_ROOT = ".kapisch/v3/authority/human-artifacts"

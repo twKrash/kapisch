@@ -136,7 +136,7 @@ class GlobalAuthoritySchemaTests(unittest.TestCase):
         )
         self.assertEqual(
             set(variants[1]["properties"]),
-            {"plan_ref", "plan_sha256", "authority_basis"},
+            {"plan_candidate_ref"},
         )
         self.assertEqual(
             set(variants[2]["properties"]),
@@ -190,7 +190,9 @@ class GlobalAuthoritySchemaTests(unittest.TestCase):
                     then["properties"]["identity"]["properties"]["kind"]["const"],
                     identity_kind,
                 )
-                subject_key = ("acceptance_contract", "plan_ref", "effect_identity")[
+                subject_key = (
+                    "acceptance_contract", "plan_candidate_ref", "effect_identity"
+                )[
                     subject_index
                 ]
                 self.assertEqual(

@@ -223,7 +223,12 @@ def _parse_state(data: bytes, *, bundle: Any) -> RunState:
         "graph",
     }
     if global_authority:
-        allowed |= {"acceptance_ref", "scope_ref", "work_scope_refs"}
+        allowed |= {
+            "acceptance_ref",
+            "scope_ref",
+            "work_scope_refs",
+            "plan_candidate_ref",
+        }
     if required - value.keys() or value.keys() - allowed:
         raise ValueError("run state has missing or unknown fields")
     work_scope_refs = value.get("work_scope_refs")
@@ -284,6 +289,8 @@ def _parse_state(data: bytes, *, bundle: Any) -> RunState:
                 raise ValueError(f"invalid {field} relationship list")
     if "graph" in value:
         _validate_ref(value["graph"], {"path", "sha256"})
+    if "plan_candidate_ref" in value:
+        _validate_ref(value["plan_candidate_ref"], {"path", "sha256"})
     if value["workflow"] != "milestone" and "graph" in value:
         raise ValueError("graph is only valid for milestone runs")
     _validate_history(value["history"], value["workflow"])
@@ -335,6 +342,22 @@ def load_state(repo: Path, run_id: str) -> RunState:
         state, bundle = _load_run_context(Path(repo), run_id)
         _validate_state_snapshot(Path(repo), run_id, state, bundle)
         return state
+    finally:
+        _close(fds)
+
+
+def _resync_state_locked(
+    repo: Path, run_id: str, state: Mapping[str, Any]
+) -> None:
+    """Durably republish validated state bytes without changing its revision."""
+    repo = Path(repo)
+    run_id = _id(run_id, "run_id")
+    run, fds = _run_dir(repo, run_id, create=False)
+    try:
+        current_bytes = _read_file(run, "state.json")
+        if current_bytes != canonical_json(dict(state)):
+            raise ConcurrentModificationError("run revision changed")
+        _atomic_write_at(run, "state.json", current_bytes, replace=True)
     finally:
         _close(fds)
 
@@ -395,7 +418,7 @@ def _publish_state_locked(
             )
             if (has_node_attempt or has_operation_binding) and any(
                 proposed.get(field) != previous.get(field)
-                for field in ("graph", "approved_plan")
+                for field in ("graph", "approved_plan", "plan_candidate_ref")
             ):
                 reason = (
                     "after operation binding"

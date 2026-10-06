@@ -408,6 +408,538 @@ class GateApprovalTests(unittest.TestCase):
             b"exact retained plan bytes",
         )
 
+    def test_plan_candidate_is_persisted_and_anchored_before_gate_payload(self) -> None:
+        from kapisch_core.protocol import load_state
+        from kapisch_core.storage import load_authority_record
+
+        payload = self._prepare_plan_approval()
+        reference = payload["subject"]["plan_candidate_ref"]
+        state = load_state(self.repo, "run-1")
+        self.assertEqual(state["plan_candidate_ref"], reference)
+        self.assertEqual(
+            reference["path"],
+            f".kapisch/v3/authority/plan-approval-candidates/{reference['sha256']}.json",
+        )
+        candidate_bytes = load_authority_record(
+            self.repo, "plan-approval-candidates", reference["sha256"]
+        )
+        self.assertEqual(hashlib.sha256(candidate_bytes).hexdigest(), reference["sha256"])
+        candidate = json.loads(candidate_bytes)
+        self.assertEqual(candidate["candidate_contract"], "plan-approval-candidate/1")
+        self.assertEqual(candidate["run_id"], "run-1")
+        self.assertEqual(candidate["gate_id"], "plan-gate")
+        self.assertEqual(candidate["plan_ref"]["plan_id"], "plan-1")
+        self.assertEqual(
+            candidate["plan_sha256"],
+            hashlib.sha256(b"exact retained plan bytes").hexdigest(),
+        )
+        self.assertEqual(candidate["scope_ref"], self.scope_ref)
+        self.assertEqual(candidate["bundle_digest"], self.bundle_digest)
+        self.assertEqual(candidate["execution_binding"], {"mode": "graph-free"})
+        self.assertEqual(payload["subject"], {"plan_candidate_ref": reference})
+
+    def test_candidate_reference_is_durable_before_payload_construction(self) -> None:
+        from unittest.mock import patch
+
+        from kapisch_core.advisory import prepare_plan_approval
+        from kapisch_core.protocol import load_state
+        from kapisch_core.storage import load_authority_record, load_authority_records
+
+        with patch(
+            "kapisch_core._promotion._payload_for_candidate",
+            side_effect=RuntimeError("injected payload construction failure"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "payload construction failure"):
+                prepare_plan_approval(
+                    self.repo, "run-1", "plan-gate", "plan-1", b"exact retained plan bytes"
+                )
+        reference = load_state(self.repo, "run-1")["plan_candidate_ref"]
+        candidate = load_authority_record(
+            self.repo, "plan-approval-candidates", reference["sha256"]
+        )
+        self.assertEqual(hashlib.sha256(candidate).hexdigest(), reference["sha256"])
+        self.assertEqual(load_authority_records(self.repo, "gate-approvals"), [])
+
+    def test_plan_approval_history_uses_candidate_bundle_after_run_loss(self) -> None:
+        from kapisch_core._gate_approval import load_gate_approval
+        from kapisch_core.advisory import publish_plan_approval
+        from kapisch_core.storage import store_bundle
+
+        payload = self._prepare_plan_approval()
+        reference = publish_plan_approval(
+            self.repo, payload, self._external_input(self._artifact(self._target(payload)))
+        )["gate_approval_ref"]
+        pinned_path = self.repo / ".kapisch/v3/bundles" / f"{self.bundle_digest}.json"
+        alternate = json.loads(pinned_path.read_bytes())
+        alternate["schemas"]["approval"]["description"] = "another compatible retained bundle"
+        store_bundle(self.repo, self.canonical_json(alternate))
+
+        shutil.rmtree(self.repo / ".kapisch/v3/runs/run-1")
+        self.assertEqual(load_gate_approval(self.repo, reference)["approval_id"], reference["approval_id"])
+        pinned_path.unlink()
+        with self.assertRaisesRegex(ValueError, "exact retained bundle is missing"):
+            load_gate_approval(self.repo, reference)
+
+    def test_delayed_old_candidate_retry_cannot_replace_current_plan_ref(self) -> None:
+        from kapisch_core.advisory import (
+            prepare_plan_approval,
+            publish_plan_approval,
+        )
+        from kapisch_core.protocol import load_state
+
+        first = self._prepare_plan_approval()
+        first_evidence = self._external_input(self._artifact(self._target(first)))
+        publish_plan_approval(self.repo, first, first_evidence)
+        second = prepare_plan_approval(
+            self.repo, "run-1", "plan-gate", "plan-1", b"replacement plan bytes"
+        )
+        second_evidence = self._external_input(self._artifact(self._target(second)))
+        second_ref = publish_plan_approval(self.repo, second, second_evidence)
+
+        with self.assertRaisesRegex(ValueError, "candidate is not current run anchor"):
+            publish_plan_approval(self.repo, first, first_evidence)
+
+        state = load_state(self.repo, "run-1")
+        self.assertEqual(
+            state["plan_candidate_ref"], second["subject"]["plan_candidate_ref"]
+        )
+        self.assertEqual(state["approved_plan"], second_ref)
+
+    def test_retry_uses_detached_payload_when_caller_mutates_candidate_reference(
+        self,
+    ) -> None:
+        from contextlib import contextmanager
+        from unittest.mock import patch
+
+        import kapisch_core._locking as locking
+        from kapisch_core.advisory import (
+            prepare_plan_approval,
+            promote_plan,
+            publish_plan_approval,
+        )
+        from kapisch_core.protocol import load_state
+        from kapisch_core.storage import load_authority_records
+
+        first = self._prepare_plan_approval()
+        first_reference = first["subject"]["plan_candidate_ref"]
+        first_evidence = self._external_input(self._artifact(self._target(first)))
+        publish_plan_approval(self.repo, first, first_evidence)
+
+        second = prepare_plan_approval(
+            self.repo, "run-1", "plan-gate", "plan-1", b"replacement plan bytes"
+        )
+        second_reference = copy.deepcopy(second["subject"]["plan_candidate_ref"])
+        second_plan_ref = publish_plan_approval(
+            self.repo,
+            second,
+            self._external_input(self._artifact(self._target(second))),
+        )
+        approvals_before = load_authority_records(self.repo, "gate-approvals")
+        original_locked = locking._locked
+        mutated = False
+
+        @contextmanager
+        def mutate_before_lock(repo: Path, run_id: str | None = None):
+            nonlocal mutated
+            if run_id == "run-1" and not mutated:
+                mutated = True
+                first_reference.clear()
+                first_reference.update(second_reference)
+            with original_locked(repo, run_id):
+                yield
+
+        with patch("kapisch_core._locking._locked", side_effect=mutate_before_lock):
+            with self.assertRaisesRegex(ValueError, "candidate is not current run anchor"):
+                publish_plan_approval(self.repo, first, first_evidence)
+
+        self.assertTrue(mutated)
+        state = load_state(self.repo, "run-1")
+        self.assertEqual(state["plan_candidate_ref"], second_reference)
+        self.assertEqual(state["approved_plan"], second_plan_ref)
+        self.assertEqual(
+            load_authority_records(self.repo, "gate-approvals"), approvals_before
+        )
+        self.assertEqual(promote_plan(self.repo, "run-1", "plan-1"), second_plan_ref)
+
+    def test_candidate_replacement_before_backlink_repair_preserves_new_plan_ref(
+        self,
+    ) -> None:
+        from unittest.mock import patch
+
+        from kapisch_core._gate_approval import _approval_id, load_gate_approval
+        from kapisch_core.advisory import (
+            prepare_plan_approval,
+            publish_plan_approval,
+        )
+        from kapisch_core.protocol import load_state
+
+        first = self._prepare_plan_approval()
+        first_evidence = self._external_input(self._artifact(self._target(first)))
+        first_id = _approval_id(
+            first, hashlib.sha256(self.canonical_json(first)).hexdigest()
+        )
+        original_load = load_gate_approval
+        replacement_ref = None
+        replaced = False
+
+        def load_and_replace(repo: Path, reference: dict[str, str]):
+            nonlocal replacement_ref, replaced
+            record = original_load(repo, reference)
+            if reference["approval_id"] == first_id and not replaced:
+                replaced = True
+                replacement = prepare_plan_approval(
+                    repo,
+                    "run-1",
+                    "plan-gate",
+                    "plan-1",
+                    b"interleaved replacement plan bytes",
+                )
+                replacement_evidence = self._external_input(
+                    self._artifact(self._target(replacement))
+                )
+                replacement_ref = publish_plan_approval(
+                    repo, replacement, replacement_evidence
+                )
+            return record
+
+        with patch(
+            "kapisch_core._gate_approval.load_gate_approval",
+            side_effect=load_and_replace,
+        ):
+            with self.assertRaisesRegex(
+                ValueError, "candidate is not current run anchor"
+            ):
+                publish_plan_approval(self.repo, first, first_evidence)
+
+        self.assertTrue(replaced)
+        state = load_state(self.repo, "run-1")
+        self.assertEqual(state["approved_plan"], replacement_ref)
+        self.assertNotEqual(
+            state["plan_candidate_ref"], first["subject"]["plan_candidate_ref"]
+        )
+
+    def test_plan_recovery_never_selects_same_run_and_plan_with_other_candidate(self) -> None:
+        from kapisch_core._gate_approval import publish_gate_approval
+        from kapisch_core.advisory import prepare_plan_approval, recover_plan_approval
+        from kapisch_core.protocol import load_state
+        from kapisch_core.storage import load_authority_record
+
+        first = self._prepare_plan_approval()
+        first_ref = first["subject"]["plan_candidate_ref"]
+        publish_gate_approval(
+            self.repo, first, self._external_input(self._artifact(self._target(first)))
+        )
+        second = prepare_plan_approval(
+            self.repo, "run-1", "plan-gate", "plan-1", b"replacement plan bytes"
+        )
+        second_ref = second["subject"]["plan_candidate_ref"]
+        self.assertNotEqual(first_ref, second_ref)
+        self.assertEqual(load_state(self.repo, "run-1")["plan_candidate_ref"], second_ref)
+        with self.assertRaisesRegex(ValueError, "no GateApproval exists for exact plan candidate"):
+            recover_plan_approval(self.repo, "run-1", "plan-1")
+        first_record_bytes = load_authority_record(
+            self.repo,
+            "gate-approvals",
+            __import__("kapisch_core._gate_approval", fromlist=["_approval_id"])._approval_id(
+                first, hashlib.sha256(self.canonical_json(first)).hexdigest()
+            ),
+        )
+        self.assertTrue(first_record_bytes)
+
+    def test_historical_candidate_load_ignores_unrelated_later_acceptance(self) -> None:
+        from kapisch_core._gate_approval import (
+            load_gate_approval,
+            publish_gate_approval,
+        )
+        from kapisch_core._plan_candidate import (
+            load_plan_approval_candidate,
+            validate_plan_approval_candidate,
+        )
+        from kapisch_core.advisory import (
+            accept_repository_decision,
+            promote_plan,
+            publish_plan_approval,
+        )
+
+        plan_payload = self._prepare_plan_approval()
+        plan_reference = publish_plan_approval(
+            self.repo,
+            plan_payload,
+            self._external_input(self._artifact(self._target(plan_payload))),
+        )["gate_approval_ref"]
+        plan_record = load_gate_approval(self.repo, plan_reference)
+        candidate_ref = plan_record["payload"]["subject"]["plan_candidate_ref"]
+        candidate, _ = load_plan_approval_candidate(self.repo, candidate_ref)
+        self.assertEqual(candidate["authority_basis"], [])
+
+        decision_payload = self._repository_payload()
+        decision_ref = publish_gate_approval(
+            self.repo,
+            decision_payload,
+            self._external_input(self._artifact(self._target(decision_payload))),
+        )
+        accept_repository_decision(self.repo, decision_ref)
+        decision_record = load_gate_approval(self.repo, decision_ref)
+        (self.repo / decision_record["human_authority"]["path"]).unlink()
+
+        reloaded, _ = validate_plan_approval_candidate(self.repo, candidate_ref)
+        self.assertEqual(reloaded, candidate)
+        with self.assertRaisesRegex(
+            ValueError, "referenced external human approval artifact is missing"
+        ):
+            promote_plan(self.repo, "run-1", "plan-1")
+
+    def test_historical_candidate_load_requires_referenced_acceptance(self) -> None:
+        from kapisch_core._gate_approval import (
+            load_gate_approval,
+            publish_gate_approval,
+        )
+        from kapisch_core._plan_candidate import validate_plan_approval_candidate
+        from kapisch_core.advisory import (
+            accept_repository_decision,
+            prepare_plan_approval,
+        )
+
+        decision_payload = self._repository_payload()
+        decision_ref = publish_gate_approval(
+            self.repo,
+            decision_payload,
+            self._external_input(self._artifact(self._target(decision_payload))),
+        )
+        accept_repository_decision(self.repo, decision_ref)
+        approval = load_gate_approval(self.repo, decision_ref)
+        artifact_path = self.repo / approval["human_authority"]["path"]
+
+        candidate_payload = prepare_plan_approval(
+            self.repo,
+            "run-1",
+            "plan-gate",
+            "plan-1",
+            b"plan bound to historical authority",
+        )
+        candidate_ref = candidate_payload["subject"]["plan_candidate_ref"]
+        candidate, _ = validate_plan_approval_candidate(self.repo, candidate_ref)
+        self.assertEqual(len(candidate["authority_basis"]), 1)
+
+        artifact_path.unlink()
+        with self.assertRaisesRegex(ValueError, "human approval artifact is missing"):
+            validate_plan_approval_candidate(self.repo, candidate_ref)
+
+    def test_historical_candidate_load_requires_transitive_acceptance_history(self) -> None:
+        from kapisch_core._gate_approval import (
+            load_gate_approval,
+            publish_gate_approval,
+        )
+        from kapisch_core._plan_candidate import validate_plan_approval_candidate
+        from kapisch_core.advisory import (
+            accept_repository_decision,
+            prepare_plan_approval,
+        )
+
+        first_payload = self._repository_payload()
+        first_gate_ref = publish_gate_approval(
+            self.repo,
+            first_payload,
+            self._external_input(self._artifact(self._target(first_payload))),
+        )
+        first_acceptance_ref = accept_repository_decision(self.repo, first_gate_ref)
+        first_approval = load_gate_approval(self.repo, first_gate_ref)
+        first_subject = first_payload["subject"]
+        first_binding = {
+            "origin_run_id": first_acceptance_ref["origin_run_id"],
+            "snapshot_id": first_acceptance_ref["snapshot_id"],
+            "decision_id": first_subject["decision_id"],
+            "acceptance_record_sha256": first_acceptance_ref["sha256"],
+            "scope_ref": first_subject["scope_ref"],
+            "applicability": first_subject["applicability"],
+            "source_dependencies": first_subject["source_dependencies"],
+        }
+
+        second_payload = self._repository_payload()
+        second_payload["gate_id"] = "decision-gate-2"
+        second_payload["identity"]["id"] = "decision-2"
+        second_subject = second_payload["subject"]
+        second_subject.update(
+            {
+                "snapshot_id": "snapshot-2",
+                "decision_id": "decision-2",
+                "authority_basis": [first_binding],
+                "supersedes": [
+                    {
+                        "origin_run_id": first_acceptance_ref["origin_run_id"],
+                        "snapshot_id": first_acceptance_ref["snapshot_id"],
+                        "decision_id": first_subject["decision_id"],
+                        "sha256": first_acceptance_ref["sha256"],
+                    }
+                ],
+            }
+        )
+        second_gate_ref = publish_gate_approval(
+            self.repo,
+            second_payload,
+            self._external_input(self._artifact(self._target(second_payload))),
+        )
+        accept_repository_decision(self.repo, second_gate_ref)
+
+        candidate_payload = prepare_plan_approval(
+            self.repo,
+            "run-1",
+            "plan-gate",
+            "plan-1",
+            b"plan bound to transitive authority history",
+        )
+        candidate_ref = candidate_payload["subject"]["plan_candidate_ref"]
+        candidate, _ = validate_plan_approval_candidate(self.repo, candidate_ref)
+        self.assertEqual(
+            [binding["snapshot_id"] for binding in candidate["authority_basis"]],
+            ["snapshot-2"],
+        )
+
+        artifact_path = self.repo / first_approval["human_authority"]["path"]
+        artifact_path.unlink()
+        with self.assertRaisesRegex(ValueError, "human approval artifact is missing"):
+            validate_plan_approval_candidate(self.repo, candidate_ref)
+
+    def test_historical_plan_approval_ignores_mutated_current_scope(self) -> None:
+        from kapisch_core._gate_approval import load_gate_approval
+        from kapisch_core.advisory import (
+            promote_plan,
+            propose_scope,
+            publish_plan_approval,
+        )
+        from kapisch_core.protocol import load_state, publish_state
+
+        payload = self._prepare_plan_approval()
+        plan_ref = publish_plan_approval(
+            self.repo, payload, self._external_input(self._artifact(self._target(payload)))
+        )
+        approval_ref = plan_ref["gate_approval_ref"]
+        proposed = propose_scope(
+            self.repo, "run-1", "scope-2", "changed current scope", {"mode": "all"}
+        )
+        state = load_state(self.repo, "run-1")
+        changed = dict(state)
+        changed["revision"] += 1
+        changed["scope_ref"] = {
+            "origin_run_id": proposed.origin_run_id,
+            "scope_id": proposed.scope_id,
+            "sha256": proposed.sha256,
+        }
+        publish_state(self.repo, "run-1", changed, expected_revision=state["revision"])
+
+        self.assertEqual(load_gate_approval(self.repo, approval_ref)["approval_id"], approval_ref["approval_id"])
+        with self.assertRaisesRegex(ValueError, "scope differs from current run scope"):
+            promote_plan(self.repo, "run-1", "plan-1")
+
+    def test_milestone_candidate_retains_graph_scopes_and_dependency_binding(self) -> None:
+        from kapisch_core._gate_approval import load_gate_approval
+        from kapisch_core._plan_candidate import (
+            load_plan_approval_artifact,
+            load_plan_approval_candidate,
+        )
+        from kapisch_core.advisory import (
+            prepare_plan_approval,
+            promote_plan,
+            propose_scope,
+            publish_plan_approval,
+        )
+        from kapisch_core.protocol import publish_state
+
+        run_id = "run-milestone"
+        run_root = self.repo / ".kapisch/v3/runs" / run_id
+        (run_root / "scopes").mkdir(parents=True)
+        (run_root / "graphs").mkdir()
+        scope_ref = propose_scope(
+            self.repo, run_id, "scope-1", "milestone scope", {"mode": "all"}
+        )
+        nodes = []
+        scope_bytes_by_node = {}
+        for index in (1, 2):
+            node_id = f"n-{index:032x}"
+            scope = {
+                "protocol_version": 3,
+                "run_id": run_id,
+                "node_id": node_id,
+                "requirements": f"Requirement {index}.",
+            }
+            scope_bytes = self.canonical_json(scope)
+            path = f"scopes/{node_id}.json"
+            (run_root / path).write_bytes(scope_bytes)
+            scope_ref_for_node = {
+                "path": path,
+                "sha256": hashlib.sha256(scope_bytes).hexdigest(),
+            }
+            nodes.append({
+                "node_id": node_id,
+                "scope": scope_ref_for_node,
+                "depends_on": [] if index == 1 else ["n-" + f"{1:032x}"],
+            })
+            scope_bytes_by_node[node_id] = scope_bytes
+        graph = {"protocol_version": 3, "run_id": run_id, "plan_id": "plan-1", "nodes": nodes}
+        graph_bytes = self.canonical_json(graph)
+        graph_ref = {
+            "path": "graphs/plan-1.json",
+            "sha256": hashlib.sha256(graph_bytes).hexdigest(),
+        }
+        (run_root / graph_ref["path"]).write_bytes(graph_bytes)
+        state = {
+            "protocol_version": 3,
+            "run_id": run_id,
+            "bundle_digest": self.bundle_digest,
+            "workflow": "milestone",
+            "revision": 0,
+            "history": [],
+            "identity_contract": "stage-attempt/1",
+            "scope_ref": {
+                "origin_run_id": scope_ref.origin_run_id,
+                "scope_id": scope_ref.scope_id,
+                "sha256": scope_ref.sha256,
+            },
+            "graph": graph_ref,
+        }
+        publish_state(self.repo, run_id, state, expected_revision=-1)
+        plan_bytes = self.canonical_json({"plan_id": "plan-1", "graph": graph_ref})
+        payload = prepare_plan_approval(
+            self.repo, run_id, "plan-gate", "plan-1", plan_bytes
+        )
+        candidate_ref = payload["subject"]["plan_candidate_ref"]
+        candidate, _ = load_plan_approval_candidate(self.repo, candidate_ref)
+        execution = candidate["execution_binding"]
+        self.assertEqual(execution["mode"], "milestone")
+        self.assertEqual(execution["graph_ref"], graph_ref)
+        self.assertEqual(
+            load_plan_approval_artifact(self.repo, execution["retained_graph_ref"]),
+            graph_bytes,
+        )
+        self.assertEqual(len(execution["node_scope_refs"]), 2)
+        self.assertNotIn("dependencies", execution)
+        for item in execution["node_scope_refs"]:
+            self.assertEqual(item["scope_ref"], next(
+                node["scope"] for node in nodes if node["node_id"] == item["node_id"]
+            ))
+            self.assertEqual(
+                load_plan_approval_artifact(self.repo, item["retained_ref"]),
+                scope_bytes_by_node[item["node_id"]],
+            )
+
+        plan_ref = publish_plan_approval(
+            self.repo, payload, self._external_input(self._artifact(self._target(payload)))
+        )
+        approval_ref = plan_ref["gate_approval_ref"]
+        changed_graph = {**graph, "nodes": [{**nodes[0]}, {**nodes[1], "depends_on": []}]}
+        (run_root / graph_ref["path"]).write_bytes(self.canonical_json(changed_graph))
+        with self.assertRaises(ValueError):
+            promote_plan(self.repo, run_id, "plan-1")
+        self.assertEqual(
+            load_gate_approval(self.repo, approval_ref)["approval_id"],
+            approval_ref["approval_id"],
+        )
+        shutil.rmtree(run_root)
+        self.assertEqual(
+            load_gate_approval(self.repo, approval_ref)["approval_id"],
+            approval_ref["approval_id"],
+        )
+
     def test_plan_approval_loader_recovers_exact_retained_plan_bytes(self) -> None:
         import kapisch_core.advisory as advisory
 
@@ -423,12 +955,15 @@ class GateApprovalTests(unittest.TestCase):
             self._external_input(self._artifact(self._target(payload))),
         )["gate_approval_ref"]
         record = load_gate_approval(self.repo, reference)
-        plan_ref = record["payload"]["subject"]["plan_ref"]
+        candidate_ref = record["payload"]["subject"]["plan_candidate_ref"]
+        from kapisch_core._plan_candidate import load_plan_approval_candidate
+
+        candidate, _ = load_plan_approval_candidate(self.repo, candidate_ref)
         plan_bytes = load_authority_record(
-            self.repo, "plans", record["payload"]["subject"]["plan_sha256"]
+            self.repo, "plans", candidate["plan_sha256"]
         )
         self.assertEqual(plan_bytes, b"exact retained plan bytes")
-        self.assertEqual(plan_ref["plan_id"], "plan-1")
+        self.assertEqual(candidate["plan_ref"]["plan_id"], "plan-1")
         self.assertEqual(record["payload"]["gate_kind"], "plan-approval")
 
     def test_cold_recovery_needs_retained_bundle_not_producer_run(self) -> None:
@@ -474,7 +1009,7 @@ class GateApprovalTests(unittest.TestCase):
             payload, hashlib.sha256(canonical_json(payload)).hexdigest()
         )
         with patch(
-            "kapisch_core._promotion.publish_state",
+            "kapisch_core._promotion._publish_state_locked",
             side_effect=OSError("injected PlanRef publication failure"),
         ):
             with self.assertRaisesRegex(OSError, "PlanRef publication failure"):
@@ -509,7 +1044,7 @@ class GateApprovalTests(unittest.TestCase):
         state_path = self.repo / ".kapisch/v3/runs/run-1/state.json"
         state_before = state_path.read_bytes()
         with patch(
-            "kapisch_core._promotion.publish_state",
+            "kapisch_core._promotion._publish_state_locked",
             side_effect=OSError("injected PlanRef publication failure"),
         ):
             with self.assertRaisesRegex(OSError, "PlanRef publication failure"):
@@ -528,7 +1063,12 @@ class GateApprovalTests(unittest.TestCase):
             payload,
             self._external_input(self._artifact(self._target(payload))),
         )["gate_approval_ref"]
-        digest = payload["subject"]["plan_sha256"]
+        from kapisch_core._plan_candidate import load_plan_approval_candidate
+
+        candidate, _ = load_plan_approval_candidate(
+            self.repo, payload["subject"]["plan_candidate_ref"]
+        )
+        digest = candidate["plan_sha256"]
         plan_path = self.repo / ".kapisch/v3/authority/plans" / f"{digest}.json"
         plan_path.write_bytes(b"different plan bytes")
         with self.assertRaisesRegex(ValueError, "retained plan digest mismatch"):
@@ -562,7 +1102,12 @@ class GateApprovalTests(unittest.TestCase):
         from kapisch_core._gate_approval import publish_gate_approval
 
         payload = self._prepare_plan_approval()
-        digest = payload["subject"]["plan_sha256"]
+        from kapisch_core._plan_candidate import load_plan_approval_candidate
+
+        candidate, _ = load_plan_approval_candidate(
+            self.repo, payload["subject"]["plan_candidate_ref"]
+        )
+        digest = candidate["plan_sha256"]
         (self.repo / ".kapisch/v3/authority/plans" / f"{digest}.json").unlink()
         with self.assertRaisesRegex(ValueError, "exact plan bytes are not retained"):
             publish_gate_approval(
@@ -619,7 +1164,12 @@ class GateApprovalTests(unittest.TestCase):
             payload,
             self._external_input(self._artifact(self._target(payload))),
         )["gate_approval_ref"]
-        digest = payload["subject"]["plan_sha256"]
+        from kapisch_core._plan_candidate import load_plan_approval_candidate
+
+        candidate, _ = load_plan_approval_candidate(
+            self.repo, payload["subject"]["plan_candidate_ref"]
+        )
+        digest = candidate["plan_sha256"]
         (self.repo / ".kapisch/v3/authority/plans" / f"{digest}.json").unlink()
         with self.assertRaisesRegex(ValueError, "exact plan bytes are not retained"):
             load_gate_approval(self.repo, reference)
@@ -644,15 +1194,15 @@ class GateApprovalTests(unittest.TestCase):
         self.assertEqual(state_path.read_bytes(), state_before)
         self.assertEqual(
             self.target.target,
-            "8797c974066aa4119a330c1e894d3f77c22c2cc1b234e30d02cb7d948f9ebd17",
+            "66a924de383a9e934cc67e5a09c0189c9b57af0945f988c13482b72b9c65e7fa",
         )
         self.assertEqual(
             ref["approval_id"],
-            "ga-6927cc4ea48a7ccfb939433e6b5dad934578220afa08c45eecebe77431511486",
+            "ga-7e82bd6c4550bed939e38bda40a76f9f795d0a6831a892c331084e1a64965352",
         )
         self.assertEqual(
             ref["sha256"],
-            "7af13c6b2d212e3d0e37375a3ab6b69732c1146e5ac9b87d6fd87b1239864410",
+            "09d2b1d2d858eae712fb0d48cec4b65f02ff63bd1947967f5eade3e5008373f0",
         )
         record = load_gate_approval(self.repo, ref)
         artifact_ref = record["human_authority"]
@@ -786,6 +1336,166 @@ class GateApprovalTests(unittest.TestCase):
             publish_gate_approval(self.repo, self.payload, self.artifact_bytes)
         self.assertFalse((self.repo / ".kapisch/v3/authority/human-artifacts").exists())
 
+    def test_plan_approval_facade_rejects_malformed_payload_shape(self) -> None:
+        from kapisch_core.advisory import publish_plan_approval
+        from kapisch_core.protocol import load_state
+        from kapisch_core.storage import load_authority_records
+
+        evidence = self._external_input(b"invalid")
+        cases = (
+            (None, TypeError, "payload must be an object"),
+            ({}, ValueError, "subject must be an object"),
+            ({"subject": None}, ValueError, "subject must be an object"),
+            ({"subject": {}}, ValueError, "subject must contain candidate reference"),
+            (
+                {"subject": {"plan_candidate_ref": None}},
+                ValueError,
+                "candidate reference must be an object",
+            ),
+            (
+                {"subject": {"plan_candidate_ref": {"path": "invalid"}}},
+                ValueError,
+                "candidate reference",
+            ),
+        )
+        for payload, error_type, message in cases:
+            with self.subTest(payload=payload):
+                with self.assertRaisesRegex(error_type, message):
+                    publish_plan_approval(self.repo, payload, evidence)
+
+        state = load_state(self.repo, "run-1")
+        self.assertNotIn("plan_candidate_ref", state)
+        self.assertNotIn("approved_plan", state)
+        self.assertEqual(load_authority_records(self.repo, "human-artifacts"), [])
+        self.assertEqual(load_authority_records(self.repo, "gate-approvals"), [])
+
+    def _run_state_directory_sync_fault(self, failures: int | None):
+        from unittest.mock import patch
+
+        run_directory = self.repo / ".kapisch/v3/runs/run-1"
+        expected = run_directory.stat()
+        original_fsync = os.fsync
+        calls = 0
+
+        def fsync(descriptor: int) -> None:
+            nonlocal calls
+            actual = os.fstat(descriptor)
+            if (actual.st_dev, actual.st_ino) == (expected.st_dev, expected.st_ino):
+                calls += 1
+                if failures is None or calls <= failures:
+                    raise OSError("run state directory sync failed")
+            original_fsync(descriptor)
+
+        return patch("kapisch_core.storage.os.fsync", side_effect=fsync), lambda: calls
+
+    def test_plan_candidate_retry_retries_visible_anchor_directory_sync(self) -> None:
+        from kapisch_core.advisory import prepare_plan_approval
+        from kapisch_core.protocol import load_state
+        from kapisch_core.storage import load_authority_records
+
+        fault, syncs = self._run_state_directory_sync_fault(failures=None)
+        with fault:
+            with self.assertRaisesRegex(OSError, "run state directory sync failed"):
+                prepare_plan_approval(
+                    self.repo, "run-1", "plan-gate", "plan-1", b"exact retained plan bytes"
+                )
+            reference = load_state(self.repo, "run-1")["plan_candidate_ref"]
+            first_syncs = syncs()
+            with self.assertRaisesRegex(OSError, "run state directory sync failed"):
+                prepare_plan_approval(
+                    self.repo, "run-1", "plan-gate", "plan-1", b"exact retained plan bytes"
+                )
+            self.assertGreater(syncs(), first_syncs)
+
+        self.assertEqual(load_state(self.repo, "run-1")["plan_candidate_ref"], reference)
+        self.assertEqual(load_authority_records(self.repo, "gate-approvals"), [])
+
+    def test_plan_approval_syncs_anchor_before_retaining_gate_evidence(self) -> None:
+        from kapisch_core.advisory import publish_plan_approval
+        from kapisch_core.storage import load_authority_records
+
+        payload = self._prepare_plan_approval()
+        evidence = self._external_input(self._artifact(self._target(payload)))
+        fault, syncs = self._run_state_directory_sync_fault(failures=1)
+        with fault:
+            with self.assertRaisesRegex(OSError, "run state directory sync failed"):
+                publish_plan_approval(self.repo, payload, evidence)
+            self.assertEqual(load_authority_records(self.repo, "gate-approvals"), [])
+            self.assertEqual(load_authority_records(self.repo, "human-artifacts"), [])
+            first_syncs = syncs()
+            plan_ref = publish_plan_approval(self.repo, payload, evidence)
+
+        self.assertGreater(syncs(), first_syncs)
+        self.assertEqual(len(load_authority_records(self.repo, "gate-approvals")), 1)
+        self.assertEqual(plan_ref["plan_id"], "plan-1")
+
+    def _gate_approval_sync_fault(self, failures: int | None):
+        from unittest.mock import patch
+
+        import kapisch_core.storage as storage
+
+        original_sync = storage._sync_hierarchy
+        approval_directory = self.repo / ".kapisch/v3/authority/gate-approvals"
+        calls = 0
+
+        def sync(descriptors: list[int]) -> None:
+            nonlocal calls
+            try:
+                expected = approval_directory.stat()
+            except FileNotFoundError:
+                return original_sync(descriptors)
+            actual = os.fstat(descriptors[-1])
+            if (actual.st_dev, actual.st_ino) == (expected.st_dev, expected.st_ino):
+                calls += 1
+                if failures is None or calls <= failures:
+                    raise OSError("gate approval directory sync failed")
+            original_sync(descriptors)
+
+        return patch("kapisch_core.storage._sync_hierarchy", side_effect=sync), lambda: calls
+
+    def test_plan_approval_retry_resyncs_visible_gate_approval(self) -> None:
+        from kapisch_core.advisory import publish_plan_approval
+        from kapisch_core.protocol import load_state
+
+        payload = self._prepare_plan_approval()
+        evidence = self._external_input(self._artifact(self._target(payload)))
+        fault, syncs = self._gate_approval_sync_fault(failures=None)
+        with fault:
+            with self.assertRaisesRegex(OSError, "gate approval directory sync failed"):
+                publish_plan_approval(self.repo, payload, evidence)
+            with self.assertRaisesRegex(OSError, "gate approval directory sync failed"):
+                publish_plan_approval(self.repo, payload, evidence)
+        self.assertEqual(syncs(), 2)
+        self.assertNotIn("approved_plan", load_state(self.repo, "run-1"))
+
+    def test_plan_approval_successful_retry_syncs_before_plan_ref(self) -> None:
+        from kapisch_core.advisory import publish_plan_approval
+        from kapisch_core.protocol import load_state
+
+        payload = self._prepare_plan_approval()
+        evidence = self._external_input(self._artifact(self._target(payload)))
+        fault, syncs = self._gate_approval_sync_fault(failures=1)
+        with fault:
+            with self.assertRaisesRegex(OSError, "gate approval directory sync failed"):
+                publish_plan_approval(self.repo, payload, evidence)
+            plan_ref = publish_plan_approval(self.repo, payload, evidence)
+        self.assertEqual(syncs(), 2)
+        self.assertEqual(load_state(self.repo, "run-1")["approved_plan"], plan_ref)
+
+    def test_plan_approval_recovery_resyncs_visible_gate_approval(self) -> None:
+        from kapisch_core.advisory import publish_plan_approval, recover_plan_approval
+        from kapisch_core.protocol import load_state
+
+        payload = self._prepare_plan_approval()
+        evidence = self._external_input(self._artifact(self._target(payload)))
+        fault, syncs = self._gate_approval_sync_fault(failures=1)
+        with fault:
+            with self.assertRaisesRegex(OSError, "gate approval directory sync failed"):
+                publish_plan_approval(self.repo, payload, evidence)
+            plan_ref = recover_plan_approval(self.repo, "run-1", "plan-1")
+        self.assertEqual(syncs(), 2)
+        self.assertEqual(load_state(self.repo, "run-1")["approved_plan"], plan_ref)
+
     def test_gate_approval_sync_failure_is_not_reported_as_success(self) -> None:
         from unittest.mock import patch
 
@@ -813,6 +1523,19 @@ class GateApprovalTests(unittest.TestCase):
             publish_gate_approval(self.repo, {}, self._external_input(b"invalid"))
         self.assertFalse((self.repo / ".kapisch/v3/authority/human-artifacts").exists())
         self.assertFalse((self.repo / ".kapisch/v3/authority/gate-approvals").exists())
+
+    def test_malformed_plan_candidate_reference_returns_validation_error(self) -> None:
+        from kapisch_core._gate_approval import _record_bundle
+
+        with self.assertRaisesRegex(ValueError, "candidate reference"):
+            _record_bundle(
+                self.repo,
+                {
+                    "gate_kind": "plan-approval",
+                    "run_id": "run-1",
+                    "subject": {"plan_candidate_ref": None},
+                },
+            )
 
     def test_loader_rejects_malformed_payload_routing_with_validation_error(
         self,

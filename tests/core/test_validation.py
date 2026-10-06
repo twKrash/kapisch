@@ -169,6 +169,100 @@ class ValidationTests(unittest.TestCase):
             publish_state(self.repo, run_id, state, expected_revision=-1)
             self.assertEqual(validate_run(self.repo, run_id), [])
 
+    def test_exact_stage54_and_stage55_bundles_select_schema_variants(self) -> None:
+        from kapisch_core._validation_schema import (
+            _require_supported_identity_schemas,
+            _validate_identity_contract,
+            _validate_run_identity_schema,
+        )
+        from kapisch_core.bundle import verify_bundle
+
+        stage54_bytes = subprocess.check_output(
+            [
+                "git",
+                "show",
+                "e9374fb6463e5c8eafdfe28fe1023ffc51fa4774:core/dist/core-bundle.json",
+            ],
+            cwd=ROOT,
+        )
+        stage54 = verify_bundle(stage54_bytes, hashlib.sha256(stage54_bytes).hexdigest())
+        stage55_bytes = (ROOT / "core/dist/core-bundle.json").read_bytes()
+        stage55 = verify_bundle(stage55_bytes, hashlib.sha256(stage55_bytes).hexdigest())
+
+        self.assertNotIn(
+            "plan_candidate_ref", stage54.payload["schemas"]["run"]["properties"]
+        )
+        self.assertIn(
+            "plan_candidate_ref", stage55.payload["schemas"]["run"]["properties"]
+        )
+        self.assertEqual(
+            _require_supported_identity_schemas(
+                stage54.payload["schemas"], "global-authority/1"
+            ),
+            "global-authority/1-stage-5.4",
+        )
+        self.assertEqual(
+            _require_supported_identity_schemas(
+                stage55.payload["schemas"], "global-authority/1"
+            ),
+            "global-authority/1-stage-5.5",
+        )
+        _validate_identity_contract(stage54)
+        _validate_identity_contract(stage55)
+        with self.assertRaisesRegex(ValueError, "run schema"):
+            _validate_run_identity_schema(
+                stage54.payload["schemas"]["run"],
+                "global-authority/1-stage-5.5",
+            )
+        hybrid = json.loads(stage55_bytes)
+        hybrid["schemas"]["run"]["$defs"]["candidate_only"] = {}
+        with self.assertRaisesRegex(ValueError, "run definitions"):
+            _validate_run_identity_schema(
+                hybrid["schemas"]["run"], "global-authority/1-stage-5.5"
+            )
+
+    def test_stage54_run_without_candidate_ref_validates_under_retained_bundle(
+        self,
+    ) -> None:
+        from kapisch_core.protocol import publish_state
+        from kapisch_core.storage import store_bundle
+        from kapisch_core.validation import validate_run
+
+        stage54_bytes = subprocess.check_output(
+            [
+                "git",
+                "show",
+                "e9374fb6463e5c8eafdfe28fe1023ffc51fa4774:core/dist/core-bundle.json",
+            ],
+            cwd=ROOT,
+        )
+        bundle_digest = store_bundle(self.repo, stage54_bytes)
+        run_id = "run-stage54-retained-contract"
+        state = {**self.state, "run_id": run_id, "bundle_digest": bundle_digest}
+        publish_state(self.repo, run_id, state, expected_revision=-1)
+
+        self.assertEqual(validate_run(self.repo, run_id), [])
+
+    def test_stage55_schema_without_candidate_property_is_rejected(self) -> None:
+        from kapisch_core._validation_schema import _validate_identity_contract
+        from kapisch_core.bundle import CoreBundle
+
+        payload = json.loads(self.bundle)
+        payload["schemas"]["run"]["properties"].pop("plan_candidate_ref")
+        with self.assertRaisesRegex(ValueError, "retained bundle"):
+            _validate_identity_contract(CoreBundle(3, payload))
+
+    def test_hybrid_global_authority_schema_variant_is_rejected(self) -> None:
+        from kapisch_core._validation_schema import _validate_identity_contract
+        from kapisch_core.bundle import CoreBundle
+
+        payload = json.loads(self.bundle)
+        payload["schemas"]["run"]["properties"]["stage54_only"] = {
+            "type": "string"
+        }
+        with self.assertRaisesRegex(ValueError, "retained bundle"):
+            _validate_identity_contract(CoreBundle(3, payload))
+
     def test_rejects_weakened_retained_identity_schemas(self) -> None:
         from kapisch_core.protocol import publish_state
         from kapisch_core.storage import store_bundle
