@@ -208,24 +208,29 @@ judgment or host provenance, and the host cannot rewrite reviewer evidence.
 Storage is not a semantic producer merely because it retains bytes.
 
 Mutable run state may contain only this repairable, non-authoritative exact
-optional top-level field when a complete result chain exists:
+optional top-level field when one or more complete result chains exist:
 
 ```json
 {
   "review_result_ref": {
-    "path": ".kapisch/v3/runs/<run_id>/invocations/<operation_id>/review-result.json",
-    "sha256": "<digest of exact review-result bytes>"
+    "op-<32 lowercase hexadecimal operation ID>": {
+      "path": ".kapisch/v3/runs/<run_id>/invocations/<operation_id>/review-result.json",
+      "sha256": "<digest of exact review-result bytes>"
+    }
   }
 }
 ```
 
-`review_result_ref` is the sole accepted field name and has exactly the
-`{path, sha256}` shape shown above. It is omitted rather than null when no
-complete result chain exists. Its path must contain the same run and reserved
-operation identity as the validated chain; aliases, another operation, a
-caller-selected path, or a null value are invalid. The guarded backlink
-publisher is its sole producer. It is not an approval, readiness, capability,
-or lifecycle status.
+`review_result_ref` is the sole accepted field name. Its value is a nonempty
+object keyed by exact reserved `operation_id`; each value has exactly the
+`{path, sha256}` shape shown above. The key, path operation ID, path run ID,
+and validated chain operation must all agree. Entries are retained for every
+completed review operation, including distinct iteration and final operations;
+one entry cannot replace another operation's entry. The field is omitted rather
+than null when no complete result chain exists. Aliases, array values, a null
+value, caller-selected paths, and duplicate/conflicting operation entries are
+invalid. The guarded backlink publisher is the sole producer. It is not an
+approval, readiness, capability, or lifecycle status.
 
 ## 6. Cross-record binding and publication order
 
@@ -324,21 +329,24 @@ complete immutable chain and prove exact equality for:
 
 The append preserves the validated state/history prefix, increments the
 expected revision exactly once, changes no authority fields or lifecycle
-status, and is idempotent for the same exact backlink. It cannot publish a
-backlink to a different operation or chain.
+status, and is idempotent for the same exact operation-keyed backlink. It may
+add a missing entry for a distinct, exact operation, but it cannot replace an
+occupied entry, point an entry to a different operation or chain, or drop an
+entry for a previously completed review.
 
 Cold restart behavior is closed:
 
 | Persisted condition | Disposition |
 | --- | --- |
-| Exact valid backlink and exact complete chain | Load normally. |
-| Missing backlink and one exact operation-bound complete chain | Repair the backlink only under serialization and expected revision. |
+| Exact valid operation-keyed backlinks and exact complete chains | Load normally, retaining every completed operation. |
+| Missing backlink entry and one exact operation-bound complete chain | Repair that operation's entry only under serialization and expected revision. |
+| Missing entries for multiple distinct exact complete chains | Repair each missing operation-keyed entry only; never choose between chains for the same operation. |
 | Partial chain | Block. |
 | Missing or digest-mismatched referenced artifact | Block. |
 | Conflicting occupied identity | Block. |
-| Backlink points to another chain | Block. |
+| Backlink entry points to another chain | Block. |
 | Unresolved `dispatch-uncertain` | Remain unresolved and block chain completion and backlink repair; never redispatch, obtain adapter capability, or reconcile. Stage 7 may later define separate read-only reconciliation for the exact retained operation. |
-| Multiple or ambiguous candidate chains | Block; never select newest/closest records. |
+| Multiple or ambiguous candidate chains for one operation | Block; never select newest/closest records. |
 | Controller memory is the only source for a missing fact | Block. |
 
 Backlink repair never reruns a reviewer, creates an operation, creates
