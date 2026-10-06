@@ -114,10 +114,12 @@ scope bytes or an arbitrary serialized coverage object.
 
 The core/controller review-scope publisher is the sole producer. It runs only
 after the existing Stage 4 planned attempt has durably produced and owned the
-`stage_id`; it derives the payload from that validated run/stage context, the
-exact retained `PlanApprovalCandidate`, and the typed comparison-base
-selection. It owns the scope reference and publishes the immutable bytes before
-the review request or invocation. It must verify:
+`stage_id`; it derives the payload from that validated run/stage context and
+the exact retained `PlanApprovalCandidate`. It may copy `comparison_base` only
+from the separately approved immutable comparison-base producer described in
+§7; it must not accept a caller-selected base. It owns the scope reference and
+publishes the immutable bytes before the review request or invocation. It must
+verify:
 
 - the candidate belongs to the same run and is the current validated plan
   candidate for the stage;
@@ -127,7 +129,9 @@ the review request or invocation. It must verify:
 - a milestone `final` scope contains every approved graph node exactly once;
 - an `iteration` scope contains only the bounded node/work owned by that review
   stage and does not expand coverage from caller input;
-- `comparison_base` resolves to a commit in the observed object format;
+- `comparison_base` is the exact binding loaded from the separately approved
+  comparison-base producer, resolves to a commit in the observed object
+  format, and is not caller-selected;
 - the resulting digest and canonical path are retained without replacement.
 
 The scope digest is the SHA-256 digest of the exact canonical scope bytes. Its
@@ -150,21 +154,29 @@ review_contract = "review-evidence/1"
 review_schema_variant = "review-invocation/1"
 ```
 
-The exact supported variant covers the M0 `ReviewInvocation` vocabulary and
-the `review-scope/1` dependency above. Protocol version, role, field presence,
-installed/current bundle contents, or a coincidental schema definition never
-imply support.
+The exact supported variant covers the M0 `ReviewInvocation` vocabulary, the
+`review-scope/1` dependency above, and a retained run-schema definition that
+contains the optional top-level `review_result_ref` field with the exact closed
+shape in §5. Protocol version, role, field presence, installed/current bundle
+contents, or a coincidental schema definition never imply support.
+
+A separate, independently reviewed and repository-owner-approved
+**schema/bundle capability amendment** is a hard prerequisite to M1.2
+persistence implementation. That prerequisite must add the exact
+`review_contract` and `review_schema_variant` capability values to a new
+retained bundle variant and add the matching closed run-schema definition for
+`review_result_ref`; it is a separate commit/PR and is not part of this
+contract-freeze commit. The M1.2 implementation must depend on that exact
+approved capability amendment and must refuse to publish `review_result_ref`
+under any older retained bundle whose run schema does not define it.
 
 The current bundle and all older retained bundles remain byte-immutable. A
 bundle without both exact capability values remains valid for the operations it
-already supported but must fail closed for authoritative Stage 6.5 review
-persistence. Adding these capability values to a retained bundle is a separate,
-explicitly reviewed schema/bundle change; this docs-only revision does not add
-them.
-
-During historical recovery, `ReviewInvocation.retained_bundle` is the sole
-bundle-routing source. The loader must not substitute the installed bundle or
-infer support from a newer bundle.
+already supported but must fail closed for Stage 6.5 review persistence. No
+schema or bundle bytes are changed by this proposal. During historical recovery,
+`ReviewInvocation.retained_bundle` is the sole bundle-routing source. The
+loader must not substitute the installed bundle or infer support from a newer
+bundle.
 
 ## 5. Exact immutable paths and producer ownership
 
@@ -259,7 +271,7 @@ Publication order is strict and durable:
 No later step repairs an earlier missing producer, creates a second operation,
 reuses a substituted candidate, or grants dispatch/authority permission.
 
-## 7. Base/head contract
+## 7. Base/head contract and comparison-base prerequisite
 
 `comparison_base` and `ReviewInvocation.base` are the same exact anchor. The
 base must resolve to a commit in the observed object format and must be an
@@ -267,12 +279,27 @@ ancestor of or equal to the exact `head` anchor at invocation publication.
 `ReviewInvocation.head` is the exact HEAD commit in the pre-dispatch
 fingerprint; it is not resolved again after publication.
 
-The reviewer, result, post-result, and current-state validators preserve the
-already-required four-way fingerprint equality and exact base/head bindings.
-They do not rebase to a later HEAD. A new base or head after publication
-requires a new scope and new invocation. Base/head are commit anchors only;
-the complete staged, tracked-worktree, and included-untracked review state is
-the `RepositoryStateFingerprint`.
+The comparison base is not a controller choice. It must be copied from an
+existing immutable, durable producer that owns the branch/work-target base and
+binds that base to the validated Stage 5 plan candidate and review target.
+The current `PlanApprovalCandidate`, `ProposedScopeRef`, and Stage 4 attempt
+records do not contain such a base binding. Therefore the **comparison-base
+producer contract is an explicit prerequisite**: until a separate reviewed
+contract identifies its immutable artifact, fields, producer, plan/target
+binding, whole-branch-final rule, and cold-restart loader, M1.2 persistence
+implementation must stop. The review-scope publisher must not invent that
+producer, accept an arbitrary caller base, or treat syntax/ancestry alone as
+proof of a whole-branch target.
+
+That separate producer must reject `base == head` for a final whole-branch
+review whenever the approved target requires an earlier comparison root; the
+scope publisher may only validate and copy its exact decision. `head` remains
+the exact pre-dispatch fingerprint HEAD. The reviewer, result, post-result,
+and current-state validators preserve the already-required four-way fingerprint
+equality and exact base/head bindings. They do not rebase to a later HEAD. A
+new base or head after publication requires a new scope and new invocation.
+Base/head are commit anchors only; the complete staged, tracked-worktree, and
+included-untracked review state is the `RepositoryStateFingerprint`.
 
 ## 8. Guarded backlink and cold restart
 
@@ -303,7 +330,7 @@ Cold restart behavior is closed:
 | Missing or digest-mismatched referenced artifact | Block. |
 | Conflicting occupied identity | Block. |
 | Backlink points to another chain | Block. |
-| Unresolved `dispatch-uncertain` | Reconcile the original operation read-only; never redispatch. |
+| Unresolved `dispatch-uncertain` | Remain unresolved and block chain completion and backlink repair; never redispatch, obtain adapter capability, or reconcile. Stage 7 may later define separate read-only reconciliation for the exact retained operation. |
 | Multiple or ambiguous candidate chains | Block; never select newest/closest records. |
 | Controller memory is the only source for a missing fact | Block. |
 
@@ -315,18 +342,23 @@ Historical-chain validation is separate from current eligibility. Any current
 authoritative use must independently establish and verify the live
 writer-quiescence boundary and current repository state. A persisted prior
 quiescence record cannot prove that the boundary remains active after restart.
+M1.2 does not reconcile an unresolved operation or obtain adapter capability;
+Stage 7 may later add read-only reconciliation under its own separately frozen
+contract.
 
 ## 9. Refusal and compatibility matrix
 
 M1.2 refuses structural closed-record or persistence loading for duplicate/
 unknown/missing fields, noncanonical bytes, path traversal or aliases,
 cross-run paths, wrong bundle capability, unsupported retained schema variant,
-missing scope producer, changed plan candidate, incomplete milestone coverage,
-invalid base or head anchors, non-ancestor base, fingerprint-head mismatch,
-candidate/reserved operation mismatch, request/reservation digest mismatch,
-wrong stage/role/adapter/assignment-scope/review-scope/purpose binding, missing
-producer order, partial chain, conflicting identity, ambiguous chain, stale
-expected revision, invalid `review_result_ref`, or any attempt to infer
+missing `review_result_ref` schema capability, missing scope producer, missing
+comparison-base producer, changed plan candidate, incomplete milestone
+coverage, invalid base or head anchors, non-ancestor base,
+fingerprint-head mismatch, candidate/reserved operation mismatch,
+request/reservation digest mismatch, wrong stage/role/adapter/assignment-scope/
+review-scope/purpose binding, missing producer order, partial chain,
+conflicting identity, ambiguous chain, stale expected revision, invalid
+`review_result_ref`, unresolved `dispatch-uncertain`, or any attempt to infer
 authority from persisted evidence.
 
 Historical factual-chain loading and the permitted exact-backlink-only repair do
@@ -350,14 +382,18 @@ must identify:
 - the bounded M1.2 scope in §1;
 - that approval is not Stage 6.5 closure, writer-quiescence approval, or
   authority activation;
-- that any semantic edit requires a new review and approval.
+- that any semantic edit requires a new review and approval;
+- that the separately approved schema/bundle capability amendment and
+  separately approved comparison-base producer contract are prerequisites to
+  M1.2 implementation.
 
-Only after that approval may implementation begin. The implementation PR must
-remain docs/schema/bundle-boundary compliant and must include fresh-process
-regressions for scope closure, bundle compatibility, exact identities,
-publication crashes, conflicting chains, backlink repair, unresolved
-uncertainty, and cold restart. No implementation is authorized by this
-proposal's existence or by a runtime `GateApprovalRecord`.
+Only after this proposal approval **and** both prerequisite approvals may
+implementation begin. The implementation PR must remain docs/schema/bundle-
+boundary compliant and must include fresh-process regressions for scope
+closure, bundle compatibility, exact identities, publication crashes,
+conflicting chains, backlink repair, unresolved uncertainty, and cold restart.
+No implementation is authorized by this proposal's existence or by a runtime
+`GateApprovalRecord`.
 
 ## 11. Explicit non-claims
 
