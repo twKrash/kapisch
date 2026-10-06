@@ -1,5 +1,6 @@
 import unittest
 from collections.abc import Mapping
+from dataclasses import replace
 
 from kapisch_core.review import (
     EvidenceLocator,
@@ -78,26 +79,37 @@ class ReviewFormatTests(unittest.TestCase):
             reordered = dict(reversed(list(projected.items())))
             self.assertEqual(type(record).from_dict(reordered).canonical_bytes(), record.canonical_bytes())
 
-    def test_composite_serialization_uses_validated_locator_fields(self):
-        class MaliciousLocator(ImmutableArtifactLocator):
-            def to_dict(self):
-                return {"path": "injected", "sha256": "b" * 64}
+    def test_locator_boundary_rejects_stateful_subclasses_and_accepts_evidence(self):
+        class StatefulLocator(ImmutableArtifactLocator):
+            def __getattribute__(self, name):
+                if name in {"path", "sha256"}:
+                    try:
+                        reads = object.__getattribute__(self, "_reads")
+                    except AttributeError:
+                        return super().__getattribute__(name)
+                    reads[name] = reads.get(name, 0) + 1
+                    if reads[name] > 1:
+                        return "injected" if name == "path" else "b" * 64
+                return super().__getattribute__(name)
 
-        locator = MaliciousLocator("safe", "a" * 64)
-        evidence = type("MaliciousEvidence", (EvidenceLocator,), {
-            "to_dict": lambda self: {"path": "injected", "sha256": "b" * 64},
-        })("safe", "a" * 64)
-        self.assertEqual(locator.canonical_bytes(), self._locator("safe").canonical_bytes())
-        self.assertEqual(evidence.canonical_bytes(), self._locator("safe").canonical_bytes())
+        locator = StatefulLocator("safe", "a" * 64)
+        object.__setattr__(locator, "_reads", {})
         invocation, _, _, _ = self._records()
-        invocation = ReviewInvocation(
-            locator, invocation.request, invocation.attempt, invocation.operation,
-            invocation.scope, invocation.base, invocation.head, invocation.purpose,
-            invocation.included_untracked, invocation.pre_dispatch_fingerprint,
-        )
-        self.assertEqual(invocation.to_dict()["retained_bundle"], {
-            "path": "safe", "sha256": "a" * 64,
-        })
+        with self.assertRaises(ValueError):
+            locator.canonical_bytes()
+        with self.assertRaises(ValueError):
+            locator.to_dict()
+        with self.assertRaises(ValueError):
+            ReviewInvocation(
+                locator, invocation.request, invocation.attempt,
+                invocation.operation, invocation.scope, invocation.base,
+                invocation.head, invocation.purpose,
+                invocation.included_untracked, invocation.pre_dispatch_fingerprint,
+            )
+
+        evidence = EvidenceLocator("safe", "a" * 64)
+        self.assertEqual(evidence.canonical_bytes(), self._locator("safe").canonical_bytes())
+        self.assertEqual(evidence.to_dict(), {"path": "safe", "sha256": "a" * 64})
 
     def test_mapping_inputs_are_snapshotted_once_from_authoritative_items(self):
         attempt = AuthoritativeItemsMapping(
@@ -283,20 +295,120 @@ class ReviewFormatTests(unittest.TestCase):
 
     def test_decision_and_purpose_are_closed_literals(self):
         invocation, reviewer_return, _, _ = self._records()
-        with self.assertRaises(ValueError):
-            ReviewerReturn(
-                reviewer_return.invocation, reviewer_return.operation,
-                reviewer_return.request, reviewer_return.target,
-                reviewer_return.fingerprint, reviewer_return.report,
-                reviewer_return.report_digest, [],
-            )
-        with self.assertRaises(ValueError):
-            ReviewInvocation(
-                invocation.retained_bundle, invocation.request,
-                invocation.attempt, invocation.operation, invocation.scope,
-                invocation.base, invocation.head, [], invocation.included_untracked,
-                invocation.pre_dispatch_fingerprint,
-            )
+        for purpose in ("approve", "ready", "unknown"):
+            with self.subTest(purpose=purpose):
+                arguments = {
+                    name: getattr(invocation, name)
+                    for name in invocation.__dataclass_fields__
+                }
+                arguments["purpose"] = purpose
+                with self.assertRaises(ValueError):
+                    ReviewInvocation(**arguments)
+                raw = invocation.to_dict()
+                raw["purpose"] = purpose
+                with self.assertRaises(ValueError):
+                    ReviewInvocation.from_dict(raw)
+        for decision in ("approve", "ready", "unknown"):
+            with self.subTest(decision=decision):
+                arguments = {
+                    name: getattr(reviewer_return, name)
+                    for name in reviewer_return.__dataclass_fields__
+                }
+                arguments["decision"] = decision
+                with self.assertRaises(ValueError):
+                    ReviewerReturn(**arguments)
+                raw = reviewer_return.to_dict()
+                raw["decision"] = decision
+                with self.assertRaises(ValueError):
+                    ReviewerReturn.from_dict(raw)
+
+    def test_supported_purposes_and_decisions_round_trip(self):
+        invocation, reviewer_return, _, _ = self._records()
+        for purpose in ("iteration", "final"):
+            with self.subTest(purpose=purpose):
+                candidate = replace(invocation, purpose=purpose)
+                restored = ReviewInvocation.from_dict(candidate.to_dict())
+                self.assertEqual(restored.purpose, purpose)
+        for decision in ("clear", "findings", "inconclusive"):
+            with self.subTest(decision=decision):
+                candidate = replace(reviewer_return, decision=decision)
+                restored = ReviewerReturn.from_dict(candidate.to_dict())
+                self.assertEqual(restored.decision, decision)
+
+    def test_sha256_validation_covers_all_locator_and_digest_fields(self):
+        class DigestAlias(str):
+            pass
+
+        malformed = (
+            "A" * 64,
+            "a" * 63,
+            "g" * 64,
+            "a" * 64 + "\n",
+            1,
+            DigestAlias("a" * 64),
+        )
+        for value in malformed:
+            with self.subTest(value=repr(value)):
+                with self.assertRaises(ValueError):
+                    ImmutableArtifactLocator("artifact.json", value)
+                with self.assertRaises(ValueError):
+                    ImmutableArtifactLocator.from_dict({
+                        "path": "artifact.json", "sha256": value,
+                    })
+                with self.assertRaises(ValueError):
+                    EvidenceLocator("artifact.json", value)
+                with self.assertRaises(ValueError):
+                    EvidenceLocator.from_dict({
+                        "path": "artifact.json", "sha256": value,
+                    })
+
+        invocation, reviewer_return, attestation, _ = self._records()
+        for value in malformed:
+            with self.subTest(field="report_digest", value=repr(value)):
+                arguments = {
+                    name: getattr(reviewer_return, name)
+                    for name in reviewer_return.__dataclass_fields__
+                }
+                arguments["report_digest"] = value
+                with self.assertRaises(ValueError):
+                    ReviewerReturn(**arguments)
+                raw = reviewer_return.to_dict()
+                raw["report_digest"] = value
+                with self.assertRaises(ValueError):
+                    ReviewerReturn.from_dict(raw)
+            with self.subTest(field="reviewer_return_digest", value=repr(value)):
+                arguments = {
+                    name: getattr(attestation, name)
+                    for name in attestation.__dataclass_fields__
+                }
+                arguments["reviewer_return_digest"] = value
+                with self.assertRaises(ValueError):
+                    HostProvenanceAttestation(**arguments)
+                raw = attestation.to_dict()
+                raw["reviewer_return_digest"] = value
+                with self.assertRaises(ValueError):
+                    HostProvenanceAttestation.from_dict(raw)
+
+        locator_fields = {
+            "ReviewInvocation": (
+                "retained_bundle", "request", "scope", "pre_dispatch_fingerprint",
+            ),
+            "ReviewerReturn": ("invocation", "request", "fingerprint", "report"),
+            "HostProvenanceAttestation": ("reviewer_return",),
+            "ReviewResult": (
+                "invocation", "request", "scope", "fingerprint",
+                "reviewer_return", "post_result", "provenance",
+            ),
+        }
+        for record in self._records():
+            for field in locator_fields[type(record).__name__]:
+                raw = record.to_dict()
+                for value in malformed:
+                    with self.subTest(field=f"{type(record).__name__}.{field}", value=repr(value)):
+                        raw[field]["sha256"] = value
+                        with self.assertRaises(ValueError):
+                            type(record).from_dict(raw)
+                        raw[field]["sha256"] = "a" * 64
 
     def test_scalar_subclasses_and_unhashable_literals_are_rejected(self):
         class EvilString(str):

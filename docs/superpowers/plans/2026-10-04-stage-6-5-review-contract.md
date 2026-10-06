@@ -1,27 +1,29 @@
 # Stage 6.5 M0 — Review/final format freeze
 
-**Status: M1.1 FORMAT/MODEL UNIT APPROVED; M1.2+ PENDING**
+**Status: M1.1 FORMAT/MODEL UNIT REPORTED / APPROVAL SOURCE PENDING VERIFICATION; M1.2+ PENDING**
 
-This document preserves the documentation-only M0 format-freeze history. The
-operator has explicitly approved implementation of the exact M1.1 format/model
-unit only: the closed records and their validation/canonical serialization.
-This approval supplies no persistence, dispatch, writer-enforcement,
-authority-eligibility, schema, bundle, or host-API authority. M1.2 and later
-remain pending independent approval.
+This document preserves the documentation-only M0 format-freeze history. No
+retained, verifiable approval source currently identifies an approver and binds
+the exact M1.1 scope and revision. This PR is therefore a bounded,
+non-authoritative M1.1 format/model increment only: the closed records and
+their validation/canonical serialization. It supplies no persistence, dispatch,
+writer-enforcement, authority-eligibility, schema, bundle, or host-API
+authority. M1.2 and later remain pending independent approval.
 
 ### Approval disposition (bounded M1.1)
 
-Approved disposition: implement only the exact Stage 6.5 M1.1 format/model
-unit represented here. Do not infer approval for M1.2 persistence or any later
-authority behavior; those remain pending and gated below.
+Reported disposition: implement only the exact Stage 6.5 M1.1 format/model
+unit represented here, pending verification of an approval source. Do not infer
+approval for M1.2 persistence or any later authority behavior; those remain
+pending and gated below.
 
 ## 1. Scope and explicit non-goals
 
 M0 defines the closed conceptual records and their producer/binding rules for
-review and final evidence. The historical M0 artifact was documentation-only;
-the bounded approval above permits only the corresponding M1.1 format/model
-implementation. This does not authorize writer enforcement, persistence,
-dispatch, authority eligibility, schemas, bundles, adapters, or host APIs. It
+review and final evidence. The historical M0 artifact was documentation-only; this PR is a bounded,
+non-authoritative M1.1 format/model implementation pending approval-source
+verification. This does not authorize writer enforcement, persistence, dispatch,
+authority eligibility, schemas, bundles, adapters, or host APIs. It
 does not amend retained schemas or retained bundle bytes. M1.2/M2/M3 are not
 included.
 
@@ -585,9 +587,10 @@ of Stage 6.4 and not a capability of M0.
 
 ## 11. Stop / gate before M1.2+
 
-M1.1 format/model implementation is the exact bounded unit approved above. Do
-not begin M1.2 persistence or any authority behavior until all of the
-following remain independently approved and recorded:
+M1.1 format/model implementation is the exact bounded unit reported above,
+not a stage closure or verified approval. Do not begin M1.2 persistence or any
+authority behavior until all of the following remain independently approved
+and recorded:
 
 1. The exact closed `ReviewInvocation` and `ReviewResult` field vocabulary and
    every sole producer/ownership mapping in this document.

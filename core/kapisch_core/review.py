@@ -84,8 +84,14 @@ def _freeze(value: Any, active: set[int] | None = None) -> Any:
     raise ValueError("value is not canonical JSON")
 
 
+def _locator(value: Any, name: str = "locator") -> None:
+    if type(value) not in (ImmutableArtifactLocator, EvidenceLocator):
+        raise ValueError(f"{name} must be an exact supported artifact locator")
+
+
 def _thaw(value: Any) -> Any:
     if isinstance(value, ImmutableArtifactLocator):
+        _locator(value)
         return {"path": value.path, "sha256": value.sha256}
     if isinstance(value, Mapping):
         return {key: _thaw(item) for key, item in value.items()}
@@ -167,9 +173,11 @@ class ImmutableArtifactLocator:
         return cls(fields["path"], fields["sha256"])
 
     def to_dict(self) -> dict[str, Any]:
+        _locator(self)
         return {"path": self.path, "sha256": self.sha256}
 
     def canonical_bytes(self) -> bytes:
+        _locator(self)
         return canonical_json({"path": self.path, "sha256": self.sha256})
 
 
@@ -220,8 +228,7 @@ class ReviewInvocation(_Record):
 
     def __post_init__(self) -> None:
         for name in ("retained_bundle", "request", "scope", "pre_dispatch_fingerprint"):
-            if not isinstance(getattr(self, name), ImmutableArtifactLocator):
-                raise ValueError(f"{name} must be an artifact locator")
+            _locator(getattr(self, name), name)
         for name in ("base", "head"):
             _text(getattr(self, name), name)
         _closed(self.purpose, {"iteration", "final"}, "purpose")
@@ -260,8 +267,7 @@ class ReviewerReturn(_Record):
 
     def __post_init__(self) -> None:
         for name in ("invocation", "request", "fingerprint", "report"):
-            if not isinstance(getattr(self, name), ImmutableArtifactLocator):
-                raise ValueError(f"{name} must be an artifact locator")
+            _locator(getattr(self, name), name)
         _digest(self.report_digest, "report_digest")
         _closed(self.decision, {"clear", "findings", "inconclusive"}, "decision")
         object.__setattr__(self, "operation", _mapping(self.operation, {"run_id", "operation_id"}, "operation"))
@@ -291,8 +297,7 @@ class HostProvenanceAttestation(_Record):
     dispatch_facts: Any
 
     def __post_init__(self) -> None:
-        if not isinstance(self.reviewer_return, ImmutableArtifactLocator):
-            raise ValueError("reviewer_return must be an artifact locator")
+        _locator(self.reviewer_return, "reviewer_return")
         _digest(self.reviewer_return_digest, "reviewer_return_digest")
         if self.reviewer_return_digest != self.reviewer_return.sha256:
             raise ValueError("reviewer_return_digest must match reviewer_return.sha256")
@@ -319,8 +324,7 @@ class ReviewResult(_Record):
 
     def __post_init__(self) -> None:
         for name in ("invocation", "request", "scope", "fingerprint", "reviewer_return", "post_result", "provenance"):
-            if not isinstance(getattr(self, name), ImmutableArtifactLocator):
-                raise ValueError(f"{name} must be an artifact locator")
+            _locator(getattr(self, name), name)
         object.__setattr__(self, "target", _mapping(self.target, {"run_id", "stage_id", "operation_id", "base", "head"}, "target"))
         for key in self.target:
             _text(self.target[key], f"target.{key}")
