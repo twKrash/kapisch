@@ -195,3 +195,35 @@ def accept_repository_decision(
     from ._accepted_snapshot import publish_acceptance
 
     return publish_acceptance(Path(repo), approval_reference)
+
+
+def prepare_plan_approval(
+    repo: Path,
+    run_id: str,
+    gate_id: str,
+    plan_id: str,
+    plan_bytes: bytes,
+) -> dict[str, Any]:
+    from ._promotion import prepare_plan_approval as prepare
+
+    return prepare(Path(repo), run_id, gate_id, plan_id, plan_bytes)
+
+
+def publish_plan_approval(
+    repo: Path, payload: dict[str, Any], evidence: Any
+) -> dict[str, Any]:
+    from ._promotion import publish_plan_approval as publish
+
+    return publish(Path(repo), payload, evidence)
+
+
+def recover_plan_approval(repo: Path, run_id: str, plan_id: str) -> dict[str, Any]:
+    from ._promotion import recover_plan_approval as recover
+
+    return recover(Path(repo), run_id, plan_id)
+
+
+def promote_plan(repo: Path, run_id: str, plan_id: str) -> dict[str, Any]:
+    from ._promotion import promote_plan as promote
+
+    return promote(Path(repo), run_id, plan_id)

@@ -735,6 +735,72 @@ class AuthorityCensusTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "acceptance record is malformed"):
             active_authority(self.fixture.repo, scope)
 
+    def test_stage54_authority_chain_recovers_after_producer_run_loss(self) -> None:
+        import subprocess
+        from pathlib import Path
+
+        from kapisch_core.advisory import accept_repository_decision
+        from kapisch_core.protocol import publish_state
+        from kapisch_core.storage import store_bundle
+
+        fixture = self.fixture
+        raw_bundle = subprocess.check_output(
+            [
+                "git",
+                "show",
+                "e9374fb6463e5c8eafdfe28fe1023ffc51fa4774:core/dist/core-bundle.json",
+            ],
+            cwd=Path(__file__).resolve().parents[2],
+        )
+        bundle_digest = store_bundle(fixture.repo, raw_bundle)
+        run_id = "run-stage54-authority"
+        scope = propose_scope(
+            fixture.repo, run_id, "scope-stage54", "requirements", {"mode":"all"}
+        )
+        scope_ref = {
+            "origin_run_id": scope.origin_run_id,
+            "scope_id": scope.scope_id,
+            "sha256": scope.sha256,
+        }
+        state = {
+            "protocol_version": 3,
+            "run_id": run_id,
+            "bundle_digest": bundle_digest,
+            "workflow": "task",
+            "revision": 0,
+            "history": [],
+            "identity_contract": "stage-attempt/1",
+            "scope_ref": scope_ref,
+        }
+        publish_state(fixture.repo, run_id, state, expected_revision=-1)
+
+        payload = fixture._repository_payload()
+        payload["run_id"] = run_id
+        payload["gate_id"] = "gate-stage54"
+        payload["identity"]["id"] = "decision-stage54"
+        payload["scope_digest"] = scope.sha256
+        payload["subject"].update(
+            {
+                "origin_run_id": run_id,
+                "snapshot_id": "snapshot-stage54",
+                "decision_id": "decision-stage54",
+                "scope_ref": scope_ref,
+                "bundle_digest": bundle_digest,
+            }
+        )
+        approval_ref = publish_gate_approval(
+            fixture.repo,
+            payload,
+            fixture._external_input(
+                fixture._artifact(fixture._target(payload))
+            ),
+        )
+        shutil.rmtree(fixture.repo / ".kapisch/v3/runs" / run_id)
+
+        acceptance_ref = accept_repository_decision(fixture.repo, approval_ref)
+        self.assertEqual(len(active_authority(fixture.repo, scope)), 1)
+        self.assertIsNotNone(acceptance_ref["sha256"])
+
     def test_acceptance_publication_and_recovery_are_distinct(self) -> None:
         from kapisch_core._accepted_snapshot import load_acceptance
         from kapisch_core.advisory import accept_repository_decision

@@ -241,17 +241,79 @@ _IDENTITY_SCHEMA_KEYWORDS = frozenset(
 
 _IDENTITY_SCHEMA_ARRAY_KEYWORDS = frozenset({"allOf", "anyOf", "oneOf", "prefixItems"})
 
-_SUPPORTED_IDENTITY_SCHEMA_DIGESTS = {
-    None: "38ddaff3875010673d485689142ea500b3b6af85569942838ebbc91e1e22e108",
-    "global-authority/1": "48410162b2d3caa9518d26409e59eb929ee486a5837dbdfda324699f1b87a474",
+_STAGE_ATTEMPT_SCHEMA_VARIANT = "stage-attempt/1"
+_GLOBAL_AUTHORITY_STAGE_54_SCHEMA_VARIANT = "global-authority/1-stage-5.4"
+_GLOBAL_AUTHORITY_STAGE_55_SCHEMA_VARIANT = "global-authority/1-stage-5.5"
+
+_SUPPORTED_IDENTITY_SCHEMA_VARIANTS = {
+    None: {
+        "38ddaff3875010673d485689142ea500b3b6af85569942838ebbc91e1e22e108":
+            _STAGE_ATTEMPT_SCHEMA_VARIANT,
+    },
+    "global-authority/1": {
+        "48410162b2d3caa9518d26409e59eb929ee486a5837dbdfda324699f1b87a474":
+            _GLOBAL_AUTHORITY_STAGE_54_SCHEMA_VARIANT,
+        "e28299b3eb7f6a6084f480d870169c24d3da73a947591536b1f3bee39dba540b":
+            _GLOBAL_AUTHORITY_STAGE_55_SCHEMA_VARIANT,
+    },
 }
 
-# Freeze gate-schema semantics to the authority-contract version;
-# never replace a digest in-place.
+# Preserve both gate-schema generations and pair each with its exact identity
+# schema variant; cross-generation hybrids are not supported.
 _SUPPORTED_GLOBAL_GATE_SCHEMA_DIGESTS = {
     "global-authority/1": frozenset(
-        {"cf5cde51be87a37c5585c00dcc8ab64c66c4f83cff20a77d7bc2d6b0840332e0"}
+        {
+            "cf5cde51be87a37c5585c00dcc8ab64c66c4f83cff20a77d7bc2d6b0840332e0",
+            "121b3d731ea2fd6b8e93f8c129ce3665c22763cacbbc43e075fef28f973dd980",
+        }
     ),
+}
+_GLOBAL_GATE_SCHEMA_DIGEST_BY_IDENTITY_VARIANT = {
+    _GLOBAL_AUTHORITY_STAGE_54_SCHEMA_VARIANT:
+        "cf5cde51be87a37c5585c00dcc8ab64c66c4f83cff20a77d7bc2d6b0840332e0",
+    _GLOBAL_AUTHORITY_STAGE_55_SCHEMA_VARIANT:
+        "121b3d731ea2fd6b8e93f8c129ce3665c22763cacbbc43e075fef28f973dd980",
+}
+
+_RUN_COMMON_PROPERTIES = frozenset(
+    {
+        "protocol_version", "run_id", "bundle_digest", "workflow", "revision",
+        "history", "identity_contract", "approved_plan", "graph", "amends",
+        "supersedes",
+    }
+)
+_RUN_DEFINITIONS = {
+    _STAGE_ATTEMPT_SCHEMA_VARIANT: frozenset(
+        {
+            "graph_document", "graph_node", "graph_ref", "plan_ref",
+            "scope_document", "scope_ref", "snapshot_ref",
+        }
+    ),
+    _GLOBAL_AUTHORITY_STAGE_54_SCHEMA_VARIANT: frozenset(
+        {
+            "acceptance_ref", "graph_document", "graph_node", "graph_ref",
+            "plan_ref", "scope_descriptor_ref", "scope_document", "scope_ref",
+            "snapshot_ref",
+        }
+    ),
+    _GLOBAL_AUTHORITY_STAGE_55_SCHEMA_VARIANT: frozenset(
+        {
+            "acceptance_ref", "graph_document", "graph_node", "graph_ref",
+            "plan_ref", "scope_descriptor_ref", "scope_document", "scope_ref",
+            "snapshot_ref",
+        }
+    ),
+}
+_RUN_PROPERTIES = {
+    _STAGE_ATTEMPT_SCHEMA_VARIANT: _RUN_COMMON_PROPERTIES
+    | frozenset({"accepted_snapshot"}),
+    _GLOBAL_AUTHORITY_STAGE_54_SCHEMA_VARIANT: _RUN_COMMON_PROPERTIES
+    | frozenset({"accepted_snapshot", "acceptance_ref", "scope_ref", "work_scope_refs"}),
+    _GLOBAL_AUTHORITY_STAGE_55_SCHEMA_VARIANT: _RUN_COMMON_PROPERTIES
+    | frozenset({
+        "accepted_snapshot", "acceptance_ref", "scope_ref", "work_scope_refs",
+        "plan_candidate_ref",
+    }),
 }
 
 
@@ -290,34 +352,46 @@ def _identity_schema_shape(value: Any, *, schema_node: bool = True) -> Any:
 
 def _require_supported_identity_schemas(
     schemas: Mapping[str, Any], authority_contract: Any
-) -> None:
-    expected_digest = _SUPPORTED_IDENTITY_SCHEMA_DIGESTS.get(authority_contract)
+) -> str:
+    variants = _SUPPORTED_IDENTITY_SCHEMA_VARIANTS.get(authority_contract)
     shape = {
         name: _identity_schema_shape(schemas.get(name))
         for name in ("bundle", "invocation", "run", "stage")
     }
-    if (
-        expected_digest is None
-        or any(not isinstance(schema, Mapping) for schema in shape.values())
-        or hashlib.sha256(canonical_json(shape)).hexdigest() != expected_digest
+    if variants is None or any(
+        not isinstance(schema, Mapping) for schema in shape.values()
     ):
         raise ValueError(
             "retained bundle alters supported stage-attempt/1 schema rules"
         )
+    digest = hashlib.sha256(canonical_json(shape)).hexdigest()
+    variant = variants.get(digest)
+    if variant is None:
+        raise ValueError(
+            "retained bundle alters supported stage-attempt/1 schema rules"
+        )
+    return variant
 
 
 def _require_supported_global_gate_schemas(
-    schemas: Mapping[str, Any], authority_contract: str | None
+    schemas: Mapping[str, Any],
+    authority_contract: str | None,
+    identity_schema_variant: str,
 ) -> None:
     if authority_contract is None:
         return
     expected_digests = _SUPPORTED_GLOBAL_GATE_SCHEMA_DIGESTS.get(authority_contract)
     names = ("approval", "human-action", "scope")
     shape = {name: _identity_schema_shape(schemas.get(name)) for name in names}
+    digest = hashlib.sha256(canonical_json(shape)).hexdigest()
+    expected_variant_digest = _GLOBAL_GATE_SCHEMA_DIGEST_BY_IDENTITY_VARIANT.get(
+        identity_schema_variant
+    )
     if (
         expected_digests is None
         or any(not isinstance(schemas.get(name), Mapping) for name in names)
-        or hashlib.sha256(canonical_json(shape)).hexdigest() not in expected_digests
+        or digest not in expected_digests
+        or digest != expected_variant_digest
     ):
         raise ValueError(
             "retained bundle alters supported global-authority/1 gate schemas"
@@ -331,17 +405,19 @@ def _validate_identity_contract(bundle: CoreBundle) -> None:
         not isinstance(contract, str) or contract != "global-authority/1"
     ):
         raise ValueError("unsupported authority contract")
-    _require_supported_identity_schemas(schemas, contract)
-    _require_supported_global_gate_schemas(schemas, contract)
+    identity_schema_variant = _require_supported_identity_schemas(schemas, contract)
+    _require_supported_global_gate_schemas(
+        schemas, contract, identity_schema_variant
+    )
     run = schemas.get("run")
-    _validate_run_identity_schema(run, contract)
+    _validate_run_identity_schema(run, identity_schema_variant)
     definitions = run.get("$defs", {}) if isinstance(run, Mapping) else None
     _validate_graph_identity_schemas(definitions)
     _validate_stage_identity_schema(schemas.get("stage"))
     _validate_invocation_identity_schema(schemas.get("invocation"))
 
 
-def _validate_run_identity_schema(run: Any, authority_contract: str | None) -> None:
+def _validate_run_identity_schema(run: Any, identity_schema_variant: str) -> None:
     if not isinstance(run, Mapping) or run.get("$id") != "kapisch://schemas/v3/run":
         raise ValueError("retained bundle lacks supported stage-attempt/1 run schema")
     _require_schema_shape(
@@ -368,41 +444,14 @@ def _validate_run_identity_schema(run: Any, authority_contract: str | None) -> N
             "approved_plan": {"$ref": "#/$defs/plan_ref"},
             "graph": {"$ref": "#/$defs/graph_ref"},
         },
-        (
-            {
-                "protocol_version",
-                "run_id",
-                "bundle_digest",
-                "workflow",
-                "revision",
-                "history",
-                "accepted_snapshot",
-                "approved_plan",
-                "amends",
-                "supersedes",
-                "identity_contract",
-                "graph",
-                "acceptance_ref",
-                "scope_ref",
-                "work_scope_refs",
-            }
-            if authority_contract == "global-authority/1"
-            else {
-                "protocol_version",
-                "run_id",
-                "bundle_digest",
-                "workflow",
-                "revision",
-                "history",
-                "accepted_snapshot",
-                "approved_plan",
-                "amends",
-                "supersedes",
-                "identity_contract",
-                "graph",
-            }
-        ),
+        set(_RUN_PROPERTIES.get(identity_schema_variant, ())),
     )
+    definitions = run.get("$defs")
+    if (
+        not isinstance(definitions, Mapping)
+        or set(definitions) != set(_RUN_DEFINITIONS.get(identity_schema_variant, ()))
+    ):
+        raise ValueError("retained bundle alters supported stage-attempt/1 run definitions")
 
 
 def _validate_graph_identity_schemas(definitions: Any) -> None:

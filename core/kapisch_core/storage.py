@@ -28,7 +28,16 @@ _REQUIRED_SUPPORT = (
 
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _AUTHORITY_NAMESPACES = frozenset(
-    {"scopes", "human-actions", "gate-approvals", "human-artifacts", "acceptances"}
+    {
+        "scopes",
+        "human-actions",
+        "gate-approvals",
+        "human-artifacts",
+        "acceptances",
+        "plans",
+        "plan-approval-candidates",
+        "plan-approval-artifacts",
+    }
 )
 _HUMAN_ARTIFACT_ROOT = ".kapisch/v3/authority/human-artifacts"
 
@@ -390,6 +399,52 @@ def retain_human_approval_artifact(repo: Path, data: bytes) -> dict[str, str]:
     if retained != data or hashlib.sha256(retained).hexdigest() != digest:
         raise ValueError("retained human approval artifact read-back mismatch")
     return {"path": f"{_HUMAN_ARTIFACT_ROOT}/{digest}.json", "sha256": digest}
+
+
+def retain_plan(repo: Path, data: bytes) -> dict[str, str]:
+    """Retain exact plan bytes by digest for a plan-approval payload."""
+    if not isinstance(data, bytes):
+        raise TypeError("plan must be bytes")
+    digest = hashlib.sha256(data).hexdigest()
+    store_authority_record(Path(repo), "plans", digest, data)
+    retained = load_authority_record(Path(repo), "plans", digest)
+    if retained != data or hashlib.sha256(retained).hexdigest() != digest:
+        raise ValueError("retained plan bytes differ from expected bytes")
+    return {
+        "path": f".kapisch/v3/authority/plans/{digest}.json",
+        "sha256": digest,
+    }
+
+
+def load_plan(repo: Path, path: str, digest: str) -> bytes:
+    if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise ValueError("plan digest must be lowercase SHA-256")
+    expected_path = f".kapisch/v3/authority/plans/{digest}.json"
+    if path != expected_path:
+        raise ValueError("plan path is not canonical")
+    data = load_authority_record(Path(repo), "plans", digest)
+    if hashlib.sha256(data).hexdigest() != digest:
+        raise ValueError("retained plan digest mismatch")
+    return data
+
+
+def load_retained_bundles(repo: Path) -> list[tuple[str, CoreBundle]]:
+    """Load every retained bundle; never consult the distribution copy."""
+    if os.listdir not in os.supports_fd:
+        raise OSError("safe retained bundle listing is unsupported on this platform")
+    directory, opened = _open_bundles(Path(repo), create=False)
+    try:
+        result = []
+        for name in sorted(os.listdir(directory)):
+            if not name.endswith(".json"):
+                continue
+            digest = name[:-5]
+            _validate_digest(digest)
+            bundle = verify_bundle(_read_bundle(directory, name), digest)
+            result.append((digest, bundle))
+        return result
+    finally:
+        _close_all(opened)
 
 
 def load_human_approval_artifact(repo: Path, path: str, digest: str) -> bytes:
