@@ -1,4 +1,5 @@
 import unittest
+from collections.abc import Mapping
 
 from kapisch_core.review import (
     EvidenceLocator,
@@ -8,6 +9,31 @@ from kapisch_core.review import (
     ReviewInvocation,
     ReviewResult,
 )
+
+
+class AuthoritativeItemsMapping(Mapping):
+    """Expose only items(); every other mapping view is adversarial."""
+
+    def __init__(self, pairs):
+        self._pairs = tuple(pairs)
+        self.calls = 0
+
+    def items(self):
+        self.calls += 1
+        if self.calls > 1:
+            raise AssertionError("mapping was consumed more than once")
+        pairs = self._pairs
+        self._pairs = (("wrong", "view"),)
+        return pairs
+
+    def __getitem__(self, key):
+        raise AssertionError("mapping indexing is not authoritative")
+
+    def __iter__(self):
+        raise AssertionError("mapping iteration is not authoritative")
+
+    def __len__(self):
+        raise AssertionError("mapping length is not authoritative")
 
 
 class ReviewFormatTests(unittest.TestCase):
@@ -20,7 +46,7 @@ class ReviewFormatTests(unittest.TestCase):
             locator("bundle"), locator("request"),
             {"run_id": "run", "stage_id": "stage"},
             {"run_id": "run", "operation_id": "operation"},
-            locator("scope"), "base", "head", "final", ["src/a"],
+            locator("scope"), "base", "head", "final", ["7372632f61"],
             locator("fingerprint"),
         )
         reviewer_return = ReviewerReturn(
@@ -51,6 +77,190 @@ class ReviewFormatTests(unittest.TestCase):
             self.assertEqual(restored.canonical_bytes(), record.canonical_bytes())
             reordered = dict(reversed(list(projected.items())))
             self.assertEqual(type(record).from_dict(reordered).canonical_bytes(), record.canonical_bytes())
+
+    def test_composite_serialization_uses_validated_locator_fields(self):
+        class MaliciousLocator(ImmutableArtifactLocator):
+            def to_dict(self):
+                return {"path": "injected", "sha256": "b" * 64}
+
+        locator = MaliciousLocator("safe", "a" * 64)
+        evidence = type("MaliciousEvidence", (EvidenceLocator,), {
+            "to_dict": lambda self: {"path": "injected", "sha256": "b" * 64},
+        })("safe", "a" * 64)
+        self.assertEqual(locator.canonical_bytes(), self._locator("safe").canonical_bytes())
+        self.assertEqual(evidence.canonical_bytes(), self._locator("safe").canonical_bytes())
+        invocation, _, _, _ = self._records()
+        invocation = ReviewInvocation(
+            locator, invocation.request, invocation.attempt, invocation.operation,
+            invocation.scope, invocation.base, invocation.head, invocation.purpose,
+            invocation.included_untracked, invocation.pre_dispatch_fingerprint,
+        )
+        self.assertEqual(invocation.to_dict()["retained_bundle"], {
+            "path": "safe", "sha256": "a" * 64,
+        })
+
+    def test_mapping_inputs_are_snapshotted_once_from_authoritative_items(self):
+        attempt = AuthoritativeItemsMapping(
+            (("run_id", "run"), ("stage_id", "stage"))
+        )
+        invocation, _, _, _ = self._records()
+        record = ReviewInvocation(
+            invocation.retained_bundle, invocation.request, attempt,
+            invocation.operation, invocation.scope, invocation.base,
+            invocation.head, invocation.purpose, invocation.included_untracked,
+            invocation.pre_dispatch_fingerprint,
+        )
+        self.assertEqual(attempt.calls, 1)
+        self.assertEqual(record.attempt["stage_id"], "stage")
+
+    def test_record_load_and_locator_loaders_use_authoritative_items(self):
+        invocation, _, _, _ = self._records()
+        raw = AuthoritativeItemsMapping(tuple(invocation.to_dict().items()))
+        restored = ReviewInvocation.from_dict(raw)
+        self.assertEqual(restored.canonical_bytes(), invocation.canonical_bytes())
+        locator = AuthoritativeItemsMapping(
+            (("path", "safe"), ("sha256", "a" * 64))
+        )
+        self.assertEqual(ImmutableArtifactLocator.from_dict(locator).path, "safe")
+        self.assertEqual(raw.calls, 1)
+        self.assertEqual(locator.calls, 1)
+
+    def test_closed_identity_mappings_and_nested_host_facts_use_snapshot(self):
+        invocation, reviewer_return, _, _ = self._records()
+        attempt = AuthoritativeItemsMapping(
+            (("run_id", "run"), ("stage_id", "stage"))
+        )
+        operation = AuthoritativeItemsMapping(
+            (("run_id", "run"), ("operation_id", "operation"))
+        )
+        record = ReviewInvocation(
+            invocation.retained_bundle, invocation.request, attempt,
+            operation, invocation.scope, invocation.base, invocation.head,
+            invocation.purpose, invocation.included_untracked,
+            invocation.pre_dispatch_fingerprint,
+        )
+        self.assertEqual(record.operation["operation_id"], "operation")
+        identity = AuthoritativeItemsMapping((("host", "one"),))
+        HostProvenanceAttestation(self._locator(), "a" * 64, identity, {}, {})
+        self.assertEqual(identity.calls, 1)
+        target = AuthoritativeItemsMapping(
+            (("run_id", "run"), ("stage_id", "stage"),
+             ("operation_id", "operation"), ("base", "base"), ("head", "head"))
+        )
+        returned = ReviewerReturn(
+            reviewer_return.invocation,
+            AuthoritativeItemsMapping(
+                (("run_id", "run"), ("operation_id", "operation"))
+            ),
+            reviewer_return.request, target, reviewer_return.fingerprint,
+            reviewer_return.report, reviewer_return.report_digest,
+            reviewer_return.decision,
+        )
+        self.assertEqual(returned.target["head"], "head")
+        self.assertEqual(target.calls, 1)
+
+    def test_adversarial_snapshot_keys_are_rejected_by_constructors_and_loaders(self):
+        class StringAlias(str):
+            pass
+
+        class MappingAlias:
+            def __hash__(self):
+                return hash("path")
+
+            def __eq__(self, other):
+                return other == "path"
+
+        invocation, _, _, _ = self._records()
+        valid_locator = (("path", "safe"), ("sha256", "a" * 64))
+        locator_cases = (
+            valid_locator + (("path", "other"),),
+            ((StringAlias("path"), "safe"), ("sha256", "a" * 64)),
+            ((MappingAlias(), "safe"), ("sha256", "a" * 64)),
+            (("path", "safe"), ("sha256", "a" * 64), (chr(0xD800), "x")),
+        )
+        for pairs in locator_cases:
+            with self.assertRaises(ValueError):
+                ImmutableArtifactLocator.from_dict(AuthoritativeItemsMapping(pairs))
+
+        raw = invocation.to_dict()
+        for key in (StringAlias("base"), MappingAlias(), chr(0xD800)):
+            candidate = AuthoritativeItemsMapping(
+                tuple(raw.items()) + ((key, raw["base"]),)
+            )
+            with self.assertRaises(ValueError):
+                ReviewInvocation.from_dict(candidate)
+
+        locator = self._locator()
+        for pairs in (
+            (("fact", True), ("fact", False)),
+            ((StringAlias("fact"), True),),
+            ((MappingAlias(), True),),
+            ((chr(0xD800), True),),
+        ):
+            nested = AuthoritativeItemsMapping(pairs)
+            with self.assertRaises(ValueError):
+                HostProvenanceAttestation(locator, "a" * 64, nested, {}, {})
+            loaded = HostProvenanceAttestation(locator, "a" * 64, {}, {}, {}).to_dict()
+            loaded["execution_identity"] = AuthoritativeItemsMapping(pairs)
+            with self.assertRaises(ValueError):
+                HostProvenanceAttestation.from_dict(loaded)
+
+    def test_duplicate_identity_keys_are_rejected_by_mapping_constructors_and_loaders(self):
+        invocation, reviewer_return, _, result = self._records()
+        cases = (
+            (
+                lambda pairs: ReviewInvocation(
+                    invocation.retained_bundle, invocation.request, pairs,
+                    invocation.operation, invocation.scope, invocation.base,
+                    invocation.head, invocation.purpose,
+                    invocation.included_untracked,
+                    invocation.pre_dispatch_fingerprint,
+                ),
+                lambda pairs: ReviewInvocation.from_dict({
+                    **invocation.to_dict(), "attempt": pairs,
+                }),
+                (('run_id', 'run'), ('run_id', 'other'), ('stage_id', 'stage')),
+            ),
+            (
+                lambda pairs: ReviewerReturn(
+                    reviewer_return.invocation, pairs, reviewer_return.request,
+                    reviewer_return.target, reviewer_return.fingerprint,
+                    reviewer_return.report, reviewer_return.report_digest,
+                    reviewer_return.decision,
+                ),
+                lambda pairs: ReviewerReturn.from_dict({
+                    **reviewer_return.to_dict(), "operation": pairs,
+                }),
+                (('run_id', 'run'), ('run_id', 'other'),
+                 ('operation_id', 'operation')),
+            ),
+            (
+                lambda pairs: ReviewResult(
+                    result.invocation, result.request, pairs, result.scope,
+                    result.fingerprint, result.reviewer_return, result.post_result,
+                    result.provenance,
+                ),
+                lambda pairs: ReviewResult.from_dict({
+                    **result.to_dict(), "target": pairs,
+                }),
+                (('run_id', 'run'), ('run_id', 'other'),
+                 ('stage_id', 'stage'), ('operation_id', 'operation'),
+                 ('base', 'base'), ('head', 'head')),
+            ),
+        )
+        for construct, load, pairs in cases:
+            with self.assertRaises(ValueError):
+                construct(AuthoritativeItemsMapping(pairs))
+            with self.assertRaises(ValueError):
+                load(AuthoritativeItemsMapping(pairs))
+
+    def test_duplicate_outer_record_fields_are_rejected_by_record_loader(self):
+        invocation, _, _, _ = self._records()
+        raw = tuple(invocation.to_dict().items()) + (
+            ('base', invocation.base),
+        )
+        with self.assertRaises(ValueError):
+            ReviewInvocation.from_dict(AuthoritativeItemsMapping(raw))
 
     def test_records_are_canonical_and_immutable(self):
         locator = ImmutableArtifactLocator("bundle.json", "a" * 64)
@@ -242,7 +452,11 @@ class ReviewFormatTests(unittest.TestCase):
                 ImmutableArtifactLocator.from_dict({"path": path, "sha256": "a" * 64})
 
         invocation, _, _, _ = self._records()
-        for included in ("src/a", ["src/a", "src/a"], ["../a"], [1]):
+        invalid_encoded_paths = [["00"], ["2f61"], ["2e"], ["2e2e2f61"], ["612f2f62"]]
+        for included in (
+            "src/a", ["7372632f61", "7372632f61"], ["../a"], [1],
+            *invalid_encoded_paths,
+        ):
             args = [
                 locator("bundle"), locator("request"),
                 {"run_id": "run", "stage_id": "stage"},
@@ -254,6 +468,23 @@ class ReviewFormatTests(unittest.TestCase):
                 ReviewInvocation(*args)
             raw = invocation.to_dict()
             raw["included_untracked"] = included
+            with self.assertRaises(ValueError):
+                ReviewInvocation.from_dict(raw)
+
+        valid = list(self._records()[0].to_dict()["included_untracked"])
+        valid.append("7261772dff0a")
+        args[8] = valid
+        self.assertEqual(ReviewInvocation(*args).included_untracked[-1], "7261772dff0a")
+        raw = invocation.to_dict()
+        raw["included_untracked"] = valid
+        self.assertEqual(
+            ReviewInvocation.from_dict(raw).included_untracked[-1], "7261772dff0a"
+        )
+        for malformed in ("", "0", "GG", "7372632F61", "7372632f6"):
+            args[8] = [malformed]
+            with self.assertRaises(ValueError):
+                ReviewInvocation(*args)
+            raw["included_untracked"] = [malformed]
             with self.assertRaises(ValueError):
                 ReviewInvocation.from_dict(raw)
 

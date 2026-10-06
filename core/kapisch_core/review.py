@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Mapping
 
+from ._repository_encoding import encode_git_path
 from .bundle import canonical_json
 
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
@@ -20,13 +21,20 @@ _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 def _mapping(value: Any, fields: set[str], name: str) -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
         raise ValueError(f"{name} has missing or unknown fields")
-    if any(type(key) is not str for key in value):
+    try:
+        snapshot = tuple(value.items())
+    except (AttributeError, TypeError, ValueError, RuntimeError) as error:
+        raise ValueError(f"{name} has missing or unknown fields") from error
+    keys = tuple(key for key, _ in snapshot)
+    if any(type(key) is not str for key in keys):
         raise ValueError(f"{name} keys must be strings")
-    for key in value:
+    if len(keys) != len(set(keys)):
+        raise ValueError(f"{name} has duplicate keys")
+    for key in keys:
         _encode(key, f"{name} key")
-    if set(value) != fields:
+    if set(keys) != fields:
         raise ValueError(f"{name} has missing or unknown fields")
-    return MappingProxyType({key: _freeze(item) for key, item in value.items()})
+    return MappingProxyType({key: _freeze(item) for key, item in snapshot})
 
 
 def _encode(value: str, name: str) -> None:
@@ -44,11 +52,18 @@ def _freeze(value: Any, active: set[int] | None = None) -> Any:
             raise ValueError("cyclic value")
         active.add(identity)
         try:
-            if any(type(key) is not str for key in value):
+            try:
+                snapshot = tuple(value.items())
+            except (AttributeError, TypeError, ValueError, RuntimeError) as error:
+                raise ValueError("mapping is not canonical JSON") from error
+            keys = tuple(key for key, _ in snapshot)
+            if any(type(key) is not str for key in keys):
                 raise ValueError("mapping keys must be strings")
-            for key in value:
+            if len(keys) != len(set(keys)):
+                raise ValueError("mapping keys must be unique")
+            for key in keys:
                 _encode(key, "mapping key")
-            return MappingProxyType({key: _freeze(item, active) for key, item in value.items()})
+            return MappingProxyType({key: _freeze(item, active) for key, item in snapshot})
         finally:
             active.remove(identity)
     if isinstance(value, (list, tuple)):
@@ -71,7 +86,7 @@ def _freeze(value: Any, active: set[int] | None = None) -> Any:
 
 def _thaw(value: Any) -> Any:
     if isinstance(value, ImmutableArtifactLocator):
-        return value.to_dict()
+        return {"path": value.path, "sha256": value.sha256}
     if isinstance(value, Mapping):
         return {key: _thaw(item) for key, item in value.items()}
     if isinstance(value, tuple):
@@ -85,6 +100,19 @@ def _path(value: Any, name: str = "path") -> str:
             or any(part in {"", ".", ".."} for part in value.split("/"))
             or re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", value)):
         raise ValueError(f"{name} must be a repository-relative path")
+    return value
+
+
+def _git_path_encoding(value: Any) -> str:
+    if type(value) is not str or not re.fullmatch(r"[0-9a-f]+", value):
+        raise ValueError("included_untracked path must be canonical Git path encoding")
+    try:
+        decoded = bytes.fromhex(value)
+        canonical = encode_git_path(decoded)
+    except ValueError as error:
+        raise ValueError("included_untracked path must be canonical Git path encoding") from error
+    if canonical != value:
+        raise ValueError("included_untracked path must be canonical Git path encoding")
     return value
 
 
@@ -122,20 +150,27 @@ class ImmutableArtifactLocator:
     def from_dict(cls, value: Mapping[str, Any]) -> "ImmutableArtifactLocator":
         if not isinstance(value, Mapping):
             raise ValueError("ImmutableArtifactLocator has missing or unknown fields")
-        fields = {"path", "sha256"}
-        for key in value:
-            if type(key) is not str:
-                raise ValueError("ImmutableArtifactLocator keys must be strings")
+        try:
+            snapshot = tuple(value.items())
+        except (AttributeError, TypeError, ValueError, RuntimeError) as error:
+            raise ValueError("ImmutableArtifactLocator has missing or unknown fields") from error
+        keys = tuple(key for key, _ in snapshot)
+        if any(type(key) is not str for key in keys):
+            raise ValueError("ImmutableArtifactLocator keys must be strings")
+        if len(keys) != len(set(keys)):
+            raise ValueError("ImmutableArtifactLocator has duplicate keys")
+        for key in keys:
             _encode(key, "ImmutableArtifactLocator key")
-        if set(value) != fields:
+        if set(keys) != {"path", "sha256"}:
             raise ValueError("ImmutableArtifactLocator has missing or unknown fields")
-        return cls(value["path"], value["sha256"])
+        fields = dict(snapshot)
+        return cls(fields["path"], fields["sha256"])
 
     def to_dict(self) -> dict[str, Any]:
         return {"path": self.path, "sha256": self.sha256}
 
     def canonical_bytes(self) -> bytes:
-        return canonical_json(self.to_dict())
+        return canonical_json({"path": self.path, "sha256": self.sha256})
 
 
 @dataclass(frozen=True)
@@ -154,13 +189,20 @@ class _Record:
     def _load(cls, value: Mapping[str, Any], fields: set[str]) -> dict[str, Any]:
         if not isinstance(value, Mapping):
             raise ValueError(f"{cls.__name__} has missing or unknown fields")
-        for key in value:
-            if type(key) is not str:
-                raise ValueError(f"{cls.__name__} keys must be strings")
+        try:
+            snapshot = tuple(value.items())
+        except (AttributeError, TypeError, ValueError, RuntimeError) as error:
+            raise ValueError(f"{cls.__name__} has missing or unknown fields") from error
+        keys = tuple(key for key, _ in snapshot)
+        if any(type(key) is not str for key in keys):
+            raise ValueError(f"{cls.__name__} keys must be strings")
+        if len(keys) != len(set(keys)):
+            raise ValueError(f"{cls.__name__} has duplicate keys")
+        for key in keys:
             _encode(key, f"{cls.__name__} key")
-        if set(value) != fields:
+        if set(keys) != fields:
             raise ValueError(f"{cls.__name__} has missing or unknown fields")
-        return dict(value)
+        return dict(snapshot)
 
 
 @dataclass(frozen=True)
@@ -192,7 +234,7 @@ class ReviewInvocation(_Record):
             raise ValueError("operation and attempt run_id must match")
         if type(self.included_untracked) not in (list, tuple):
             raise ValueError("included_untracked must be a sequence")
-        paths = tuple(_path(path, "included_untracked path") for path in self.included_untracked)
+        paths = tuple(_git_path_encoding(path) for path in self.included_untracked)
         if len(paths) != len(set(paths)):
             raise ValueError("included_untracked must not contain duplicates")
         object.__setattr__(self, "included_untracked", paths)
