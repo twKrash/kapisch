@@ -112,11 +112,12 @@ The `plan_candidate_ref` shape and path are the existing Stage 5
 the exact candidate and its retained bundle; it does not accept caller-supplied
 scope bytes or an arbitrary serialized coverage object.
 
-The core/controller review-scope publisher is the sole producer. It derives the
-payload from validated run/stage context, the exact retained
-`PlanApprovalCandidate`, and the typed comparison-base selection. It owns the
-scope reference and publishes the immutable bytes before the review request or
-invocation. It must verify:
+The core/controller review-scope publisher is the sole producer. It runs only
+after the existing Stage 4 planned attempt has durably produced and owned the
+`stage_id`; it derives the payload from that validated run/stage context, the
+exact retained `PlanApprovalCandidate`, and the typed comparison-base
+selection. It owns the scope reference and publishes the immutable bytes before
+the review request or invocation. It must verify:
 
 - the candidate belongs to the same run and is the current validated plan
   candidate for the stage;
@@ -188,42 +189,71 @@ judgment or host provenance, and the host cannot rewrite reviewer evidence.
 Storage is not a semantic producer merely because it retains bytes.
 
 Mutable run state may contain only this repairable, non-authoritative exact
-backlink when a complete result chain exists:
+optional top-level field when a complete result chain exists:
 
 ```json
 {
-  "path": ".kapisch/v3/runs/<run_id>/invocations/<operation_id>/review-result.json",
-  "sha256": "<digest of exact review-result bytes>"
+  "review_result_ref": {
+    "path": ".kapisch/v3/runs/<run_id>/invocations/<operation_id>/review-result.json",
+    "sha256": "<digest of exact review-result bytes>"
+  }
 }
 ```
 
-The backlink is absent rather than null when no complete result chain exists.
-It is not an approval, readiness, capability, or lifecycle status.
+`review_result_ref` is the sole accepted field name and has exactly the
+`{path, sha256}` shape shown above. It is omitted rather than null when no
+complete result chain exists. Its path must contain the same run and reserved
+operation identity as the validated chain; aliases, another operation, a
+caller-selected path, or a null value are invalid. The guarded backlink
+publisher is its sole producer. It is not an approval, readiness, capability,
+or lifecycle status.
 
 ## 6. Cross-record binding and publication order
 
 The exact candidate `operation_id` in the canonical request must equal the
 reserved operation ID byte-for-byte. The request, attempt, reservation,
 scope, invocation, and result chain must agree on run identity, stage identity,
-role, purpose, bundle capability, adapter binding, scope digest, and all
-applicable plan/fingerprint declarations.
+role, purpose, bundle capability, adapter binding, the existing Stage 4
+assignment scope digest, the distinct review-scope digest, and all applicable
+plan/fingerprint declarations.
 
-The request must bind the exact scope locator and digest. The invocation must
-bind the exact retained bundle, request, attempt, operation, scope, base, head,
-included-untracked declaration, and pre-dispatch fingerprint. The result must
-bind the exact invocation and operation and retain the M0 reviewer-return,
-post-result, and host-provenance relationships without rewriting them.
+The existing Stage 4 attempt `scope_digest` retains its existing meaning: it
+binds the approved run/node assignment and remains equal to the Stage 4 request
+packet's `scope_digest`. The `review-scope/1` digest is a distinct
+`review_scope` locator in the review request profile and in
+`ReviewInvocation.scope`; it must never replace or be compared as the Stage 4
+assignment scope digest. For a node-scoped iteration, the review coverage must
+be contained by the owned node scope while the two digests remain distinct.
+For graph-free and milestone-final attempts, the existing Stage 4 assignment
+rules remain authoritative and the review-scope coverage rules above apply in
+addition.
+
+The review request profile therefore has one exact additional review binding:
+`review_scope`, an `ImmutableArtifactLocator` whose path is the retained
+`review-scope/1` path and whose digest is its exact byte digest. It has no
+second scope byte field. Existing Stage 4 `scope_digest` is preserved
+unchanged. The invocation must bind `request.review_scope` exactly through its
+`scope` locator.
+
+The invocation must bind the exact retained bundle, request, attempt,
+operation, review scope, base, head, included-untracked declaration, and
+pre-dispatch fingerprint. The result must bind the exact invocation and
+operation and retain the M0 reviewer-return, post-result, and host-provenance
+relationships without rewriting them.
 
 Publication order is strict and durable:
 
-1. retain and validate the compatible bundle and closed `review-scope/1`;
-2. persist the planned reviewer attempt bound to the scope digest;
-3. publish request inputs and the canonical request through Stage 4;
-4. capture and retain the factual pre-dispatch fingerprint;
-5. reserve the exact candidate operation through Stage 4;
-6. publish the existing dispatch-uncertain fact and its state observation;
-7. publish `review-invocation.json` with all dependency digests validated;
-8. after the complete immutable result chain exists, publish the guarded state
+1. retain and validate the compatible bundle;
+2. persist the planned reviewer attempt through existing Stage 4, producing and
+   owning `stage_id` and preserving its existing assignment `scope_digest`;
+3. publish the closed `review-scope/1` derived from that persisted attempt;
+4. publish request inputs and the canonical review request, including the exact
+   `review_scope` locator, through Stage 4;
+5. capture and retain the factual pre-dispatch fingerprint;
+6. reserve the exact candidate operation through Stage 4;
+7. publish the existing dispatch-uncertain fact and its state observation;
+8. publish `review-invocation.json` with all dependency digests validated;
+9. after the complete immutable result chain exists, publish the guarded state
    backlink under the rules below.
 
 No later step repairs an earlier missing producer, creates a second operation,
@@ -288,15 +318,24 @@ quiescence record cannot prove that the boundary remains active after restart.
 
 ## 9. Refusal and compatibility matrix
 
-M1.2 refuses closed-record or persistence loading for duplicate/unknown/
-missing fields, noncanonical bytes, path traversal or aliases, cross-run paths,
-wrong bundle capability, unsupported retained schema variant, missing scope
-producer, changed plan candidate, incomplete milestone coverage, invalid base or
-head anchors, non-ancestor base, fingerprint-head mismatch, candidate/reserved
-operation mismatch, request/reservation digest mismatch, wrong stage/role/
-adapter/scope/purpose binding, missing producer order, partial chain, conflicting
-identity, ambiguous chain, stale expected revision, unresolved writer
-quiescence, or any attempt to infer authority from persisted evidence.
+M1.2 refuses structural closed-record or persistence loading for duplicate/
+unknown/missing fields, noncanonical bytes, path traversal or aliases,
+cross-run paths, wrong bundle capability, unsupported retained schema variant,
+missing scope producer, changed plan candidate, incomplete milestone coverage,
+invalid base or head anchors, non-ancestor base, fingerprint-head mismatch,
+candidate/reserved operation mismatch, request/reservation digest mismatch,
+wrong stage/role/adapter/assignment-scope/review-scope/purpose binding, missing
+producer order, partial chain, conflicting identity, ambiguous chain, stale
+expected revision, invalid `review_result_ref`, or any attempt to infer
+authority from persisted evidence.
+
+Historical factual-chain loading and the permitted exact-backlink-only repair do
+not require a live writer-quiescence boundary. Current authoritative use,
+current eligibility, readiness, and approval claims must refuse when the live
+writer-quiescence producer/contract is missing, unverifiable, lost, or
+mismatched, or when current repository capture fails. This distinction is
+mandatory: absence of live quiescence cannot make a valid historical factual
+chain disappear, and historical loading cannot turn that chain into authority.
 
 Existing Stage 4 unsupported-gate refusals and lifecycle validation remain
 unchanged. M1.2 does not add a workflow status or reinterpret an existing one.
