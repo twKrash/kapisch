@@ -1,19 +1,31 @@
 # Stage 6.5 M0 — Review/final format freeze
 
-**Status: PROPOSED / PENDING INDEPENDENT APPROVAL**
+**Status: M1.1 FORMAT/MODEL UNIT REPORTED / APPROVAL SOURCE PENDING VERIFICATION; M1.2+ PENDING**
 
-This document freezes the proposed Stage 6.5 evidence vocabulary only. It is
-not an implementation plan authorization and supplies no runtime behavior. It
-is based on `origin/main` at `9cd506c` and the reviewed Stage 6.5 planner/reviewer
-gate. This M0 artifact is documentation-only.
+This document preserves the documentation-only M0 format-freeze history. No
+retained, verifiable approval source currently identifies an approver and binds
+the exact M1.1 scope and revision. This PR is therefore a bounded,
+non-authoritative M1.1 format/model increment only: the closed records and
+their validation/canonical serialization. It supplies no persistence, dispatch,
+writer-enforcement, authority-eligibility, schema, bundle, or host-API
+authority. M1.2 and later remain pending independent approval.
+
+### Approval disposition (bounded M1.1)
+
+Reported disposition: implement only the exact Stage 6.5 M1.1 format/model
+unit represented here, pending verification of an approval source. Do not infer
+approval for M1.2 persistence or any later authority behavior; those remain
+pending and gated below.
 
 ## 1. Scope and explicit non-goals
 
 M0 defines the closed conceptual records and their producer/binding rules for
-review and final evidence. It does not create `review.py`, `validation.py`,
-writer enforcement, persistence code, schemas, bundles, adapters, host APIs,
-or validation behavior. It does not amend retained schemas or retained bundle
-bytes. M1/M2/M3 are not included.
+review and final evidence. The historical M0 artifact was documentation-only; this PR is a bounded,
+non-authoritative M1.1 format/model implementation pending approval-source
+verification. This does not authorize writer enforcement, persistence, dispatch,
+authority eligibility, schemas, bundles, adapters, or host APIs. It
+does not amend retained schemas or retained bundle bytes. M1.2/M2/M3 are not
+included.
 
 No host writer-enforcement API, capability name, receipt shape, or storage
 schema is invented here. The writer-quiescence requirement below is a future
@@ -160,11 +172,13 @@ implementation must obtain approval before adding or changing wire fields.
   owns only factual revision observations. A result must match both.
 - `purpose` is exactly one literal: `iteration` or `final`. The controller is
   its sole producer; a result cannot relabel one as the other.
-- `included_untracked` is the exact ordered set of repository-relative paths
-  whose bytes are intentionally included in review evidence. The invocation
-  producer owns the declaration. The repository observer owns factual
-  path/content observations and rejects non-regular included entries under
-  Stage 6. Unincluded relevant untracked paths remain an authority blocker.
+- `included_untracked` is the exact ordered set of canonical lowercase-hex
+  encodings of raw Git path bytes, using the existing Stage 6
+  `_repository_encoding.encode_git_path` contract, whose bytes are intentionally
+  included in review evidence. The invocation producer owns the declaration.
+  The repository observer owns factual path/content observations and rejects
+  non-regular included entries under Stage 6. Unincluded relevant untracked
+  paths remain an authority blocker.
 - `pre_dispatch_fingerprint` is an `ImmutableArtifactLocator` for the exact
   canonical `RepositoryStateFingerprint` observed before dispatch. The
   repository-inspection/fingerprint producer owns factual fields and digest;
@@ -571,10 +585,12 @@ boundary evidence blocks authority.
 This boundary is therefore an explicit future authority blocker, not a feature
 of Stage 6.4 and not a capability of M0.
 
-## 11. Stop / gate before M1
+## 11. Stop / gate before M1.2+
 
-Do not begin M1 persistence implementation until all of the following are
-independently approved and recorded:
+M1.1 format/model implementation is the exact bounded unit reported above,
+not a stage closure or verified approval. Do not begin M1.2 persistence or any
+authority behavior until all of the following remain independently approved
+and recorded:
 
 1. The exact closed `ReviewInvocation` and `ReviewResult` field vocabulary and
    every sole producer/ownership mapping in this document.
@@ -586,9 +602,13 @@ independently approved and recorded:
 5. The publication ordering, immutable-artifact, and cold-restart rules.
 6. The structural-validity versus authority-eligibility split and the explicit
    refusal of unsupported Stage 5 gates.
-7. A separately reviewed owner and contract for writer-quiescence enforcement,
-   including host coverage and restart behavior. M1 may not invent this owner
-   while implementing persistence.
+7. The required Stage-5 prerequisites and gates, including any retained
+   lifecycle prerequisites that must precede Stage 6.5.
+8. A separately reviewed owner and contract for writer-quiescence enforcement,
+   including host coverage and restart behavior. No M1.2 implementation may
+   invent this owner or an enforcement API.
+9. Persistence, dispatch, and authority-eligibility contracts, each with their
+   own reviewed producer ownership and cold-restart behavior.
 
-Until this gate is satisfied, this document remains **PROPOSED / PENDING
-INDEPENDENT APPROVAL**, and no Stage 6.5 authority behavior is authorized.
+Until this gate is satisfied, M1.2+ remains **PENDING INDEPENDENT APPROVAL**;
+no Stage 6.5 persistence or authority behavior is authorized.
