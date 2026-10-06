@@ -42,10 +42,17 @@ M1.2 does not introduce or authorize:
 - changes to retained schemas, existing bundle bytes, or the Stage 7.0
   transition matrix.
 
-The existing Stage 6.5 stop gate remains in force: until the independently
-reviewed writer-quiescence producer and contract receive their separate
-approval, persisted evidence is factual history only and cannot establish
-current authority, approval, readiness, or eligibility.
+The prior M0 §11 implementation gate remains unchanged until this exact
+proposal is approved. This document proposes one narrow, explicit amendment to
+that gate: after repository-owner approval of this exact reviewed commit, the
+factual-only M1.2 persistence unit may be implemented without waiting for the
+separate writer-quiescence approval. That amendment does not authorize current
+authority. The existing Stage 6.5 stop gate remains in force for current use:
+until the independently reviewed writer-quiescence producer and contract
+receive their separate approval, persisted evidence is factual history only
+and cannot establish current authority, approval, readiness, or eligibility.
+If this exact amendment is not approved, the prior M0 §11 implementation gate
+continues to prohibit M1.2 persistence.
 
 ## 2. Canonical representation and identities
 
@@ -382,13 +389,17 @@ must identify:
 - the bounded M1.2 scope in §1;
 - that approval is not Stage 6.5 closure, writer-quiescence approval, or
   authority activation;
+- that this exact commit explicitly approves the narrow factual-only amendment
+  to the prior M0 §11 implementation gate described in §1;
 - that any semantic edit requires a new review and approval;
 - that the separately approved schema/bundle capability amendment and
   separately approved comparison-base producer contract are prerequisites to
-  M1.2 implementation.
+  M1.2 implementation;
+- that the separate writer-quiescence approval remains required for any current
+  authority, readiness, approval, or eligibility claim.
 
-Only after this proposal approval **and** both prerequisite approvals may
-implementation begin. The implementation PR must remain docs/schema/bundle-
+Only after this proposal/amendment approval **and** both prerequisite approvals
+may factual-only implementation begin. The implementation PR must remain docs/schema/bundle-
 boundary compliant and must include fresh-process regressions for scope
 closure, bundle compatibility, exact identities, publication crashes,
 conflicting chains, backlink repair, unresolved uncertainty, and cold restart.
