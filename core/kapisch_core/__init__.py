@@ -20,6 +20,14 @@ from .domain import (
     Workflow,
 )
 from .policy import evaluate_action_policy
+from .review import (
+    EvidenceLocator,
+    HostProvenanceAttestation,
+    ImmutableArtifactLocator,
+    ReviewerReturn,
+    ReviewInvocation,
+    ReviewResult,
+)
 
 __all__ = [
     "AttemptRecord",
@@ -44,4 +52,10 @@ __all__ = [
     "TransitionKind",
     "Workflow",
     "evaluate_action_policy",
+    "EvidenceLocator",
+    "HostProvenanceAttestation",
+    "ImmutableArtifactLocator",
+    "ReviewInvocation",
+    "ReviewResult",
+    "ReviewerReturn",
 ]
