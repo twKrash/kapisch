@@ -21,21 +21,33 @@ M1.2 may persist and cold-load the immutable review-evidence chain under an
 existing Stage 4 operation identity, preserving fail-closed behavior and
 without dispatching an adapter.
 
-M1.2 includes only:
+M1.2 includes only the graph-free factual persistence path:
 
-- the closed `review-scope/1` artifact and its core/controller publisher;
-- exact review request, pre-dispatch fingerprint, reservation, uncertainty,
-  invocation, and result-chain binding rules;
+- the closed `review-scope/1` artifact and its core/controller publisher for a
+  graph-free task;
+- exact graph-free review request, pre-dispatch fingerprint, reservation,
+  uncertainty, invocation, and result-chain binding rules;
 - immutable operation-scoped evidence paths and checked loading;
 - a narrowly guarded, idempotent run-state backlink repair;
 - regression coverage for publication ordering, ownership, digest equality,
   refusal, and cold restart.
 
+The milestone/approved-plan-backed form remains frozen vocabulary in
+`review-scope/1`, but its persistence is explicitly deferred. A separately
+reviewed and repository-owner-approved checked-plan consumer contract is a
+hard prerequisite before any milestone review scope, approved-plan request,
+complete approved graph coverage, or milestone final persistence can be
+implemented. That prerequisite must define the consumer's retained-bundle
+capability, plan/graph producer ownership, current authority checks, and
+cold-restart behavior. M1.2 must preserve the existing unsupported-gate
+refusals until that separate contract is approved.
+
 M1.2 does not introduce or authorize:
 
 - reviewer dispatch, reviewer-return production, host execution, or result
   production;
-- Stage 5 consumer support or authority eligibility;
+- Stage 5 consumer support or authority eligibility (including any
+  milestone/approved-plan-backed persistence);
 - writer-quiescence enforcement or a writer-quiescence producer;
 - Stage 7 lifecycle transitions, new statuses, retry policy, reconciliation
   dispatch, or adapter APIs;
@@ -134,8 +146,13 @@ verify:
 - milestone coverage is derived from the approved plan's complete retained
   graph and node scopes;
 - a milestone `final` scope contains every approved graph node exactly once;
+  this validation is reserved for the separately approved checked-plan
+  consumer and is not an M1.2 implementation path;
 - an `iteration` scope contains only the bounded node/work owned by that review
   stage and does not expand coverage from caller input;
+- the M1.2 implementation accepts only `graph-free-task` coverage and refuses
+  milestone/approved-plan-backed coverage until the checked-plan consumer
+  prerequisite is approved;
 - `comparison_base` is the exact binding loaded from the separately approved
   comparison-base producer, resolves to a commit in the observed object
   format, and is not caller-selected;
@@ -248,9 +265,10 @@ packet's `scope_digest`. The `review-scope/1` digest is a distinct
 `ReviewInvocation.scope`; it must never replace or be compared as the Stage 4
 assignment scope digest. For a node-scoped iteration, the review coverage must
 be contained by the owned node scope while the two digests remain distinct.
-For graph-free and milestone-final attempts, the existing Stage 4 assignment
-rules remain authoritative and the review-scope coverage rules above apply in
-addition.
+For graph-free attempts, the existing Stage 4 assignment rules remain
+authoritative and the review-scope coverage rules above apply in addition.
+Milestone-final and approved-plan-backed attempts remain refused by M1.2
+until the separately approved checked-plan consumer contract exists.
 
 The review request profile therefore has one exact additional review binding:
 `review_scope`, an `ImmutableArtifactLocator` whose path is the retained
@@ -367,8 +385,9 @@ M1.2 refuses structural closed-record or persistence loading for duplicate/
 unknown/missing fields, noncanonical bytes, path traversal or aliases,
 cross-run paths, wrong bundle capability, unsupported retained schema variant,
 missing `review_result_ref` schema capability, missing scope producer, missing
-comparison-base producer, changed plan candidate, incomplete milestone
-coverage, invalid base or head anchors, non-ancestor base,
+comparison-base producer, missing checked-plan consumer for
+milestone/approved-plan-backed coverage, changed plan candidate, incomplete
+milestone coverage, invalid base or head anchors, non-ancestor base,
 fingerprint-head mismatch, candidate/reserved operation mismatch,
 request/reservation digest mismatch, wrong stage/role/adapter/assignment-scope/
 review-scope/purpose binding, missing producer order, partial chain,
@@ -400,14 +419,16 @@ must identify:
 - that this exact commit explicitly approves the narrow factual-only amendment
   to the prior M0 §11 implementation gate described in §1;
 - that any semantic edit requires a new review and approval;
-- that the separately approved schema/bundle capability amendment and
-  separately approved comparison-base producer contract are prerequisites to
-  M1.2 implementation;
+- that the separately approved schema/bundle capability amendment, separately
+  approved comparison-base producer contract, and separately approved
+  checked-plan consumer contract are prerequisites to the corresponding M1.2
+  implementation paths; the bounded M1.2 path in this proposal is graph-free
+  only;
 - that the separate writer-quiescence approval remains required for any current
   authority, readiness, approval, or eligibility claim.
 
-Only after this proposal/amendment approval **and** both prerequisite approvals
-may factual-only implementation begin. The implementation PR must remain docs/schema/bundle-
+Only after this proposal/amendment approval **and** all applicable prerequisite
+approvals may the corresponding factual-only implementation begin. The implementation PR must remain docs/schema/bundle-
 boundary compliant and must include fresh-process regressions for scope
 closure, bundle compatibility, exact identities, publication crashes,
 conflicting chains, backlink repair, unresolved uncertainty, and cold restart.
