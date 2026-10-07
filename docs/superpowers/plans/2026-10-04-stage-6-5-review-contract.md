@@ -1,35 +1,43 @@
 # Stage 6.5 M0 — Review/final format freeze
 
-**Status: M1.1 FORMAT/MODEL UNIT REPORTED / APPROVAL SOURCE PENDING VERIFICATION; M1.2+ PENDING**
+**Status: M1.1 FORMAT/MODEL UNIT REPORTED; CAPABILITY AMENDMENT PENDING OWNER APPROVAL; M1.2+ PENDING**
 
 This document preserves the documentation-only M0 format-freeze history. No
-retained, verifiable approval source currently identifies an approver and binds
-the exact M1.1 scope and revision. This PR is therefore a bounded,
-non-authoritative M1.1 format/model increment only: the closed records and
-their validation/canonical serialization. It supplies no persistence, dispatch,
-writer-enforcement, authority-eligibility, schema, bundle, or host-API
-authority. M1.2 and later remain pending independent approval.
+retained, verifiable owner approval source currently binds the exact capability
+amendment head. This PR therefore contains two separately bounded,
+non-authoritative units: the M1.1 format/model increment and the schema/bundle
+capability amendment defined in §10.1. Neither supplies persistence, dispatch,
+writer-enforcement, authority-eligibility, or host-API authority. M1.2 and later
+remain pending independent approval.
 
-### Approval disposition (bounded M1.1)
+### Approval disposition (bounded M1.1 and capability amendment)
 
-Reported disposition: implement only the exact Stage 6.5 M1.1 format/model
-unit represented here, pending verification of an approval source. Do not infer
+The exact Stage 6.5 M1.1 format/model unit and the separately gated capability
+amendment in §10.1 are reviewable increments, not a stage closure. Independent
+read-only review of the complete capability delta found no P0–P2 findings;
+owner approval must still bind the exact final commit before merge. Do not infer
 approval for M1.2 persistence or any later authority behavior; those remain
 pending and gated below.
 
 ## 1. Scope and explicit non-goals
 
 M0 defines the closed conceptual records and their producer/binding rules for
-review and final evidence. The historical M0 artifact was documentation-only; this PR is a bounded,
-non-authoritative M1.1 format/model implementation pending approval-source
-verification. This does not authorize writer enforcement, persistence, dispatch,
-authority eligibility, schemas, bundles, adapters, or host APIs. It
-does not amend retained schemas or retained bundle bytes. M1.2/M2/M3 are not
+review and final evidence. The historical M0 artifact was documentation-only; this PR contains a bounded,
+non-authoritative M1.1 format/model implementation and the separately gated
+§10.1 capability amendment, both pending their stated approval gates. This does
+not authorize writer enforcement, persistence, dispatch, authority eligibility,
+adapters, or host APIs. The capability amendment in
+§10.1 may add one new retained bundle variant while preserving all historical
+bundle bytes; it does not broaden runtime authority. M1.2/M2/M3 are not
 included.
 
-No host writer-enforcement API, capability name, receipt shape, or storage
-schema is invented here. The writer-quiescence requirement below is a future
+No host writer-enforcement API, receipt shape, or storage schema is invented
+here. The writer-quiescence requirement below is a future
 authority prerequisite, not something supplied by Stage 6.4 or this document.
+
+The separately gated schema/bundle capability amendment in §10.1 is limited to
+retained format recognition and validation. It introduces no runtime producer or
+authority transition.
 
 ## 2. Frozen vocabulary and ownership
 
@@ -585,6 +593,35 @@ boundary evidence blocks authority.
 This boundary is therefore an explicit future authority blocker, not a feature
 of Stage 6.4 and not a capability of M0.
 
+## 10.1 Schema/bundle capability amendment — separately gated prerequisite
+
+This bounded amendment is included in the implementation PR as a prerequisite
+for, but not as, M1.2 persistence. It authorizes only the following exact
+retained-format changes:
+
+1. Add the exact CoreBundle capability values
+   `review_contract = "review-evidence/1"` and
+   `review_schema_variant = "review-invocation/1"`.
+2. Add the optional top-level `review_result_ref` run-schema field with the
+   closed operation-keyed `{path, sha256}` shape, exact operation/path binding,
+   lowercase SHA-256 validation, and no aliases.
+3. Preserve historical Stage 5.4/5.5 identity variants and reject partial,
+   weakened, malformed, or unsupported capability declarations.
+4. Refresh only the canonical generated bundle copies and conformance fixtures;
+   older retained bundle bytes remain valid and unchanged.
+5. Keep capability recognition fail-closed and introduce no persistence,
+   dispatch, reconciliation, writer-enforcement, readiness, eligibility, or
+   authority producer.
+
+Acceptance requires canonical-byte and digest verification, historical-bundle
+compatibility tests, negative tests for partial/weakened schemas and malformed
+patterns, frozen-schema validator coverage (including boolean schemas, boolean
+`$ref` targets, `anyOf`, overlapping `patternProperties`, and tuple-valued
+type arrays), generated-copy equality, and an independent read-only review.
+The independent review is complete with no remaining P0–P2 findings. Owner
+approval remains pending and must identify this exact amendment commit SHA;
+semantic changes require a fresh review and fresh owner approval.
+
 ## 11. Stop / gate before M1.2+
 
 M1.1 format/model implementation is the exact bounded unit reported above,
@@ -609,6 +646,8 @@ and recorded:
    invent this owner or an enforcement API.
 9. Persistence, dispatch, and authority-eligibility contracts, each with their
    own reviewed producer ownership and cold-restart behavior.
+10. The exact §10.1 schema/bundle capability amendment is independently
+    reviewed and owner-approved with approval bound to its exact commit SHA.
 
 Until this gate is satisfied, M1.2+ remains **PENDING INDEPENDENT APPROVAL**;
 no Stage 6.5 persistence or authority behavior is authorized.
