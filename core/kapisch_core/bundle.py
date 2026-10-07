@@ -77,10 +77,12 @@ _SCHEMA_KEYWORDS = frozenset(
         "minimum",
         "minLength",
         "minItems",
+        "minProperties",
         "not",
         "oneOf",
         "pattern",
         "properties",
+        "patternProperties",
         "required",
         "then",
         "title",
@@ -319,9 +321,15 @@ def _validate_schema_set(schemas: Mapping[str, Any]) -> None:
             or node["minItems"] < 0
         ):
             raise ValueError(f"invalid JSON Schema minItems: {label}")
+        if "minProperties" in node and (
+            isinstance(node["minProperties"], bool)
+            or not isinstance(node["minProperties"], int)
+            or node["minProperties"] < 0
+        ):
+            raise ValueError(f"invalid JSON Schema minProperties: {label}")
         if "uniqueItems" in node and not isinstance(node["uniqueItems"], bool):
             raise ValueError(f"invalid JSON Schema uniqueItems: {label}")
-        for key in ("properties", "$defs"):
+        for key in ("properties", "patternProperties", "$defs"):
             if key in node:
                 if not isinstance(node[key], dict):
                     raise ValueError(f"invalid JSON Schema {key}: {label}")
@@ -390,6 +398,8 @@ def compile_bundle(source_root: Path) -> bytes:
     payload = {
         "protocol_version": 3,
         "authority_contract": "global-authority/1",
+        "review_contract": "review-evidence/1",
+        "review_schema_variant": "review-invocation/1",
         "vocabulary": {
             "roles": _enum_values(Role),
             "workflows": _enum_values(Workflow),
@@ -438,13 +448,28 @@ def verify_bundle(data: bytes, digest: str) -> CoreBundle:
         _LEGACY_SCHEMA_IDS
     )
     new = isinstance(schemas_value, dict) and set(schemas_value) == set(_SCHEMA_IDS)
+    new_required = required | {"authority_contract"}
+    review_capabilities = {"review_contract", "review_schema_variant"}
+    new_fields = set(payload)
     if (
-        (legacy and set(payload) != required)
+        (legacy and new_fields != required)
         or (
             new
             and (
-                set(payload) != required | {"authority_contract"}
+                new_fields not in {
+                    frozenset(new_required),
+                    frozenset(new_required | review_capabilities),
+                }
                 or payload.get("authority_contract") != "global-authority/1"
+                or (
+                    bool(review_capabilities & new_fields)
+                    and (
+                        new_fields != new_required | review_capabilities
+                        or payload.get("review_contract") != "review-evidence/1"
+                        or payload.get("review_schema_variant")
+                        != "review-invocation/1"
+                    )
+                )
             )
         )
         or not (legacy or new)
@@ -528,7 +553,57 @@ def verify_bundle(data: bytes, digest: str) -> CoreBundle:
         if hashlib.sha256(text.encode("utf-8")).hexdigest() != workflow["sha256"]:
             raise ValueError(f"workflow digest mismatch: {name}")
     _validate_schema_set(payload["schemas"])
-    return CoreBundle(protocol_version=3, payload=_freeze(payload))
+    bundle = CoreBundle(protocol_version=3, payload=_freeze(payload))
+    if payload.get("review_contract") == "review-evidence/1" and not supports_review_evidence(bundle):
+        raise ValueError("CoreBundle review capability schema is not exact")
+    return bundle
 
 
-__all__ = ["CoreBundle", "canonical_json", "compile_bundle", "verify_bundle"]
+def supports_review_evidence(bundle: CoreBundle) -> bool:
+    """Return whether this retained bundle declares the exact review capability."""
+    if (
+        bundle.payload.get("review_contract") != "review-evidence/1"
+        or bundle.payload.get("review_schema_variant") != "review-invocation/1"
+    ):
+        return False
+    run = bundle.payload.get("schemas", {}).get("run")
+    review_ref = (
+        run.get("properties", {}).get("review_result_ref")
+        if isinstance(run, Mapping)
+        else None
+    )
+    pattern = r"^op-[0-9a-f]{32}$"
+    entry = (
+        review_ref.get("patternProperties", {}).get(pattern)
+        if isinstance(review_ref, Mapping)
+        else None
+    )
+    path_schema = entry.get("properties", {}).get("path") if isinstance(entry, Mapping) else None
+    return (
+        isinstance(review_ref, Mapping)
+        and review_ref.get("type") == "object"
+        and review_ref.get("additionalProperties") is False
+        and review_ref.get("minProperties") == 1
+        and set(review_ref.get("patternProperties", {})) == {pattern}
+        and isinstance(entry, Mapping)
+        and entry.get("type") == "object"
+        and entry.get("additionalProperties") is False
+        and set(entry.get("required", ())) == {"path", "sha256"}
+        and set(entry.get("properties", ())) == {"path", "sha256"}
+        and path_schema == {
+            "pattern": r"^\.kapisch/v3/runs/[^/]+/invocations/op-[0-9a-f]{32}/review-result\.json$",
+            "type": "string",
+        }
+        and entry["properties"]["sha256"] == {
+            "$ref": "kapisch://schemas/v3/bundle#/$defs/digest"
+        }
+    )
+
+
+__all__ = [
+    "CoreBundle",
+    "canonical_json",
+    "compile_bundle",
+    "supports_review_evidence",
+    "verify_bundle",
+]

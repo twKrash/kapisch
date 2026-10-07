@@ -267,6 +267,64 @@ class BundleTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 verify_bundle(malformed, hashlib.sha256(malformed).hexdigest())
 
+    def test_review_capability_is_explicit_and_exact(self) -> None:
+        from kapisch_core.bundle import (
+            canonical_json,
+            compile_bundle,
+            supports_review_evidence,
+            verify_bundle,
+        )
+
+        legacy = (ROOT / "tests/conformance/fixtures/v3/legacy-bundle.json").read_bytes()
+        old = verify_bundle(legacy, hashlib.sha256(legacy).hexdigest())
+        self.assertFalse(supports_review_evidence(old))
+        current_bytes = compile_bundle(ROOT / "core")
+        current = verify_bundle(
+            current_bytes, hashlib.sha256(current_bytes).hexdigest()
+        )
+        old_new_payload = json.loads(current_bytes)
+        old_new_payload.pop("review_contract")
+        old_new_payload.pop("review_schema_variant")
+        old_new_bytes = canonical_json(old_new_payload)
+        old_new = verify_bundle(
+            old_new_bytes, hashlib.sha256(old_new_bytes).hexdigest()
+        )
+        self.assertFalse(supports_review_evidence(old_new))
+        partial_payload = json.loads(current_bytes)
+        partial_payload.pop("review_schema_variant")
+        partial_bytes = canonical_json(partial_payload)
+        with self.assertRaises(ValueError):
+            verify_bundle(partial_bytes, hashlib.sha256(partial_bytes).hexdigest())
+        self.assertTrue(supports_review_evidence(current))
+        self.assertEqual(current.payload["review_contract"], "review-evidence/1")
+        self.assertEqual(current.payload["review_schema_variant"], "review-invocation/1")
+
+    def test_review_result_ref_is_closed_and_operation_bound(self) -> None:
+        from kapisch_core._validation_schema import _validate_schema
+        from kapisch_core.bundle import compile_bundle, verify_bundle
+
+        data = compile_bundle(ROOT / "core")
+        bundle = verify_bundle(data, hashlib.sha256(data).hexdigest())
+        operation_id = "op-" + "a" * 32
+        run = _run_document("task", [])
+        run["run_id"] = "run-review"
+        run["review_result_ref"] = {
+            operation_id: {
+                "path": f".kapisch/v3/runs/run-review/invocations/{operation_id}/review-result.json",
+                "sha256": "b" * 64,
+            }
+        }
+        _validate_schema(run, "run", bundle)
+        for mutation in (
+            {"review_result_ref": None},
+            {"review_result_ref": {operation_id: {"path": "wrong", "sha256": "b" * 64}}},
+            {"review_result_ref": {"op-x": {"path": "wrong", "sha256": "b" * 64}}},
+            {"review_result_ref": {operation_id: {"path": run["review_result_ref"][operation_id]["path"], "sha256": "B" * 64}}},
+        ):
+            invalid = {**run, **mutation}
+            with self.assertRaises(ValueError):
+                _validate_schema(invalid, "run", bundle)
+
     def test_bundle_is_canonical_and_verified_by_whole_byte_digest(self) -> None:
         from kapisch_core.bundle import compile_bundle, verify_bundle
 
