@@ -186,8 +186,17 @@ class ValidationTests(unittest.TestCase):
             cwd=ROOT,
         )
         stage54 = verify_bundle(stage54_bytes, hashlib.sha256(stage54_bytes).hexdigest())
-        stage55_bytes = (ROOT / "core/dist/core-bundle.json").read_bytes()
+        stage55_bytes = subprocess.check_output(
+            [
+                "git",
+                "show",
+                "e8d066e7b9b6ab9f25ea0ad3bf1c3007e23f7771:core/dist/core-bundle.json",
+            ],
+            cwd=ROOT,
+        )
         stage55 = verify_bundle(stage55_bytes, hashlib.sha256(stage55_bytes).hexdigest())
+        review_bytes = (ROOT / "core/dist/core-bundle.json").read_bytes()
+        review = verify_bundle(review_bytes, hashlib.sha256(review_bytes).hexdigest())
 
         self.assertNotIn(
             "plan_candidate_ref", stage54.payload["schemas"]["run"]["properties"]
@@ -207,8 +216,15 @@ class ValidationTests(unittest.TestCase):
             ),
             "global-authority/1-stage-5.5",
         )
+        self.assertEqual(
+            _require_supported_identity_schemas(
+                review.payload["schemas"], "global-authority/1"
+            ),
+            "review-invocation/1",
+        )
         _validate_identity_contract(stage54)
         _validate_identity_contract(stage55)
+        _validate_identity_contract(review)
         with self.assertRaisesRegex(ValueError, "run schema"):
             _validate_run_identity_schema(
                 stage54.payload["schemas"]["run"],

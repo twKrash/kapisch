@@ -9,7 +9,7 @@ from .bundle import CoreBundle, canonical_json
 
 def _resolve_ref(
     bundle: CoreBundle, ref: str, local_root: Mapping[str, Any]
-) -> tuple[Mapping[str, Any], str]:
+) -> tuple[Mapping[str, Any] | bool, str]:
     schema_id, _, fragment = ref.partition("#")
     if ref.startswith("#"):
         schema_id = str(local_root.get("$id", ""))
@@ -27,19 +27,24 @@ def _resolve_ref(
         if not isinstance(target, Mapping) or token not in target:
             raise ValueError(f"unresolved schema reference: {ref}")
         target = target[token]
-    if not isinstance(target, Mapping):
+    if type(target) is not bool and not isinstance(target, Mapping):
         raise ValueError(f"invalid schema reference: {ref}")
     return target, schema_id
 
 
 def _matches(
     value: Any,
-    schema: Mapping[str, Any],
+    schema: Mapping[str, Any] | bool,
     root: Mapping[str, Any],
     bundle: CoreBundle,
     errors: list[str],
     path: str,
 ) -> None:
+    if type(schema) is bool:
+        if schema:
+            return
+        errors.append(f"{path}: schema rejects value")
+        return
     if "$ref" in schema:
         target, target_id = _resolve_ref(bundle, schema["$ref"], root)
         target_name = target_id.rsplit("/", 1)[-1]
@@ -50,7 +55,13 @@ def _matches(
         )
         _matches(value, target, target_root, bundle, errors, path)
     expected = schema.get("type")
-    types = expected if isinstance(expected, list) else [expected] if expected else []
+    types = (
+        expected
+        if isinstance(expected, (list, tuple))
+        else [expected]
+        if expected
+        else []
+    )
     type_ok = not types or any(
         (kind == "object" and isinstance(value, dict))
         or (kind == "array" and isinstance(value, list))
@@ -77,6 +88,8 @@ def _matches(
     if isinstance(value, str):
         if len(value) < schema.get("minLength", 0):
             errors.append(f"{path}: string is too short")
+        if "maxLength" in schema and len(value) > schema["maxLength"]:
+            errors.append(f"{path}: string is too long")
         if "pattern" in schema and re.search(schema["pattern"], value) is None:
             errors.append(f"{path}: string does not match required pattern")
     if isinstance(value, (int, float)) and not isinstance(value, bool):
@@ -91,13 +104,23 @@ def _matches(
             if key not in value:
                 errors.append(f"{path}: missing {key}")
         props = schema.get("properties", {})
+        patterns = schema.get("patternProperties", {})
         additional_properties = schema.get("additionalProperties", True)
-        if isinstance(additional_properties, bool) and not additional_properties:
-            for key in value.keys() - props.keys():
+        for key, item in value.items():
+            matched = key in props
+            if matched:
+                _matches(item, props[key], root, bundle, errors, f"{path}.{key}")
+            for pattern, child in patterns.items():
+                if re.search(pattern, key):
+                    matched = True
+                    _matches(item, child, root, bundle, errors, f"{path}.{key}")
+            if not matched and isinstance(additional_properties, bool) and not additional_properties:
                 errors.append(f"{path}: unknown field {key}")
-        for key, child in props.items():
-            if key in value:
-                _matches(value[key], child, root, bundle, errors, f"{path}.{key}")
+            elif not matched and isinstance(additional_properties, Mapping):
+                _matches(item, additional_properties, root, bundle, errors, f"{path}.{key}")
+        minimum_properties = schema.get("minProperties")
+        if minimum_properties is not None and len(value) < minimum_properties:
+            errors.append(f"{path}: object has too few properties")
     if isinstance(value, list):
         minimum_items = schema.get("minItems")
         if minimum_items is not None and len(value) < minimum_items:
@@ -158,6 +181,22 @@ def _validate_schema(
         schema = definitions[definition_name]
     errors: list[str] = []
     _matches(value, schema, root, bundle, errors, "$")
+    if schema_name == "run" and isinstance(value, Mapping):
+        review_refs = value.get("review_result_ref")
+        if review_refs is not None and isinstance(review_refs, Mapping):
+            run_id = value.get("run_id")
+            for operation_id, reference in review_refs.items():
+                expected_path = (
+                    f".kapisch/v3/runs/{run_id}/invocations/{operation_id}"
+                    "/review-result.json"
+                )
+                if (
+                    isinstance(reference, Mapping)
+                    and reference.get("path") != expected_path
+                ):
+                    errors.append(
+                        f"$.review_result_ref.{operation_id}.path: operation binding mismatch"
+                    )
     if errors:
         raise ValueError("; ".join(errors))
 
@@ -242,6 +281,7 @@ _IDENTITY_SCHEMA_KEYWORDS = frozenset(
 _IDENTITY_SCHEMA_ARRAY_KEYWORDS = frozenset({"allOf", "anyOf", "oneOf", "prefixItems"})
 
 _STAGE_ATTEMPT_SCHEMA_VARIANT = "stage-attempt/1"
+_REVIEW_SCHEMA_VARIANT = "review-invocation/1"
 _GLOBAL_AUTHORITY_STAGE_54_SCHEMA_VARIANT = "global-authority/1-stage-5.4"
 _GLOBAL_AUTHORITY_STAGE_55_SCHEMA_VARIANT = "global-authority/1-stage-5.5"
 
@@ -255,6 +295,8 @@ _SUPPORTED_IDENTITY_SCHEMA_VARIANTS = {
             _GLOBAL_AUTHORITY_STAGE_54_SCHEMA_VARIANT,
         "e28299b3eb7f6a6084f480d870169c24d3da73a947591536b1f3bee39dba540b":
             _GLOBAL_AUTHORITY_STAGE_55_SCHEMA_VARIANT,
+        "dcdec18671c9321eb6cf50383c8a7705223f024ec4150f6fed123201e82e7a22":
+            _REVIEW_SCHEMA_VARIANT,
     },
 }
 
@@ -273,6 +315,8 @@ _GLOBAL_GATE_SCHEMA_DIGEST_BY_IDENTITY_VARIANT = {
         "cf5cde51be87a37c5585c00dcc8ab64c66c4f83cff20a77d7bc2d6b0840332e0",
     _GLOBAL_AUTHORITY_STAGE_55_SCHEMA_VARIANT:
         "121b3d731ea2fd6b8e93f8c129ce3665c22763cacbbc43e075fef28f973dd980",
+    _REVIEW_SCHEMA_VARIANT:
+        "121b3d731ea2fd6b8e93f8c129ce3665c22763cacbbc43e075fef28f973dd980",
 }
 
 _RUN_COMMON_PROPERTIES = frozenset(
@@ -287,6 +331,13 @@ _RUN_DEFINITIONS = {
         {
             "graph_document", "graph_node", "graph_ref", "plan_ref",
             "scope_document", "scope_ref", "snapshot_ref",
+        }
+    ),
+    _REVIEW_SCHEMA_VARIANT: frozenset(
+        {
+            "acceptance_ref", "graph_document", "graph_node", "graph_ref",
+            "plan_ref", "scope_descriptor_ref", "scope_document", "scope_ref",
+            "snapshot_ref",
         }
     ),
     _GLOBAL_AUTHORITY_STAGE_54_SCHEMA_VARIANT: frozenset(
@@ -307,6 +358,11 @@ _RUN_DEFINITIONS = {
 _RUN_PROPERTIES = {
     _STAGE_ATTEMPT_SCHEMA_VARIANT: _RUN_COMMON_PROPERTIES
     | frozenset({"accepted_snapshot"}),
+    _REVIEW_SCHEMA_VARIANT: _RUN_COMMON_PROPERTIES
+    | frozenset({
+        "accepted_snapshot", "acceptance_ref", "scope_ref", "work_scope_refs",
+        "plan_candidate_ref", "review_result_ref",
+    }),
     _GLOBAL_AUTHORITY_STAGE_54_SCHEMA_VARIANT: _RUN_COMMON_PROPERTIES
     | frozenset({"accepted_snapshot", "acceptance_ref", "scope_ref", "work_scope_refs"}),
     _GLOBAL_AUTHORITY_STAGE_55_SCHEMA_VARIANT: _RUN_COMMON_PROPERTIES

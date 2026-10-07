@@ -74,13 +74,16 @@ _SCHEMA_KEYWORDS = frozenset(
         "if",
         "items",
         "maximum",
+        "maxLength",
         "minimum",
         "minLength",
         "minItems",
+        "minProperties",
         "not",
         "oneOf",
         "pattern",
         "properties",
+        "patternProperties",
         "required",
         "then",
         "title",
@@ -307,27 +310,43 @@ def _validate_schema_set(schemas: Mapping[str, Any]) -> None:
                 isinstance(node[key], bool) or not isinstance(node[key], (int, float))
             ):
                 raise ValueError(f"invalid JSON Schema {key}: {label}")
-        if "minLength" in node and (
-            isinstance(node["minLength"], bool)
-            or not isinstance(node["minLength"], int)
-            or node["minLength"] < 0
-        ):
-            raise ValueError(f"invalid JSON Schema minLength: {label}")
+        for key in ("minLength", "maxLength"):
+            if key in node and (
+                isinstance(node[key], bool)
+                or not isinstance(node[key], int)
+                or node[key] < 0
+            ):
+                raise ValueError(f"invalid JSON Schema {key}: {label}")
+        if "minLength" in node and "maxLength" in node and node["minLength"] > node["maxLength"]:
+            raise ValueError(f"invalid JSON Schema length range: {label}")
         if "minItems" in node and (
             isinstance(node["minItems"], bool)
             or not isinstance(node["minItems"], int)
             or node["minItems"] < 0
         ):
             raise ValueError(f"invalid JSON Schema minItems: {label}")
+        if "minProperties" in node and (
+            isinstance(node["minProperties"], bool)
+            or not isinstance(node["minProperties"], int)
+            or node["minProperties"] < 0
+        ):
+            raise ValueError(f"invalid JSON Schema minProperties: {label}")
         if "uniqueItems" in node and not isinstance(node["uniqueItems"], bool):
             raise ValueError(f"invalid JSON Schema uniqueItems: {label}")
-        for key in ("properties", "$defs"):
+        for key in ("properties", "patternProperties", "$defs"):
             if key in node:
                 if not isinstance(node[key], dict):
                     raise ValueError(f"invalid JSON Schema {key}: {label}")
                 for name, child in node[key].items():
                     if not isinstance(name, str):
                         raise ValueError(f"invalid JSON Schema {key} entry: {label}")
+                    if key == "patternProperties":
+                        try:
+                            re.compile(name)
+                        except re.error as error:
+                            raise ValueError(
+                                f"invalid JSON Schema patternProperties key: {label}"
+                            ) from error
                     check_schema(child, root, f"{label}/{key}/{name}")
         for key in ("items", "additionalProperties", "if", "then", "not"):
             if key in node:
@@ -390,6 +409,8 @@ def compile_bundle(source_root: Path) -> bytes:
     payload = {
         "protocol_version": 3,
         "authority_contract": "global-authority/1",
+        "review_contract": "review-evidence/1",
+        "review_schema_variant": "review-invocation/1",
         "vocabulary": {
             "roles": _enum_values(Role),
             "workflows": _enum_values(Workflow),
@@ -438,13 +459,28 @@ def verify_bundle(data: bytes, digest: str) -> CoreBundle:
         _LEGACY_SCHEMA_IDS
     )
     new = isinstance(schemas_value, dict) and set(schemas_value) == set(_SCHEMA_IDS)
+    new_required = required | {"authority_contract"}
+    review_capabilities = {"review_contract", "review_schema_variant"}
+    new_fields = set(payload)
     if (
-        (legacy and set(payload) != required)
+        (legacy and new_fields != required)
         or (
             new
             and (
-                set(payload) != required | {"authority_contract"}
+                new_fields not in {
+                    frozenset(new_required),
+                    frozenset(new_required | review_capabilities),
+                }
                 or payload.get("authority_contract") != "global-authority/1"
+                or (
+                    bool(review_capabilities & new_fields)
+                    and (
+                        new_fields != new_required | review_capabilities
+                        or payload.get("review_contract") != "review-evidence/1"
+                        or payload.get("review_schema_variant")
+                        != "review-invocation/1"
+                    )
+                )
             )
         )
         or not (legacy or new)
@@ -531,4 +567,62 @@ def verify_bundle(data: bytes, digest: str) -> CoreBundle:
     return CoreBundle(protocol_version=3, payload=_freeze(payload))
 
 
-__all__ = ["CoreBundle", "canonical_json", "compile_bundle", "verify_bundle"]
+def supports_review_evidence(bundle: CoreBundle) -> bool:
+    """Return whether this retained bundle declares the exact review capability."""
+    if (
+        bundle.payload.get("review_contract") != "review-evidence/1"
+        or bundle.payload.get("review_schema_variant") != "review-invocation/1"
+    ):
+        return False
+    try:
+        from ._validation_schema import _validate_identity_contract
+
+        _validate_identity_contract(bundle)
+    except ValueError:
+        return False
+    run = bundle.payload.get("schemas", {}).get("run")
+    review_ref = (
+        run.get("properties", {}).get("review_result_ref")
+        if isinstance(run, Mapping)
+        else None
+    )
+    pattern = r"^op-[0-9a-f]{32}$"
+    entry = (
+        review_ref.get("patternProperties", {}).get(pattern)
+        if isinstance(review_ref, Mapping)
+        else None
+    )
+    path_schema = entry.get("properties", {}).get("path") if isinstance(entry, Mapping) else None
+    return (
+        isinstance(review_ref, Mapping)
+        and review_ref.get("type") == "object"
+        and type(review_ref.get("additionalProperties")) is bool
+        and not review_ref.get("additionalProperties")
+        and review_ref.get("minProperties") == 1
+        and set(review_ref.get("patternProperties", {})) == {pattern}
+        and isinstance(entry, Mapping)
+        and entry.get("type") == "object"
+        and type(entry.get("additionalProperties")) is bool
+        and not entry.get("additionalProperties")
+        and set(entry.get("required", ())) == {"path", "sha256"}
+        and set(entry.get("properties", ())) == {"path", "sha256"}
+        and path_schema == {
+            "pattern": r"^\.kapisch/v3/runs/[^/]+/invocations/op-[0-9a-f]{32}/review-result\.json$",
+            "type": "string",
+        }
+        and entry["properties"]["sha256"] == {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string",
+        }
+    )
+
+
+__all__ = [
+    "CoreBundle",
+    "canonical_json",
+    "compile_bundle",
+    "supports_review_evidence",
+    "verify_bundle",
+]
