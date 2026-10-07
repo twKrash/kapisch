@@ -74,6 +74,7 @@ _SCHEMA_KEYWORDS = frozenset(
         "if",
         "items",
         "maximum",
+        "maxLength",
         "minimum",
         "minLength",
         "minItems",
@@ -309,12 +310,15 @@ def _validate_schema_set(schemas: Mapping[str, Any]) -> None:
                 isinstance(node[key], bool) or not isinstance(node[key], (int, float))
             ):
                 raise ValueError(f"invalid JSON Schema {key}: {label}")
-        if "minLength" in node and (
-            isinstance(node["minLength"], bool)
-            or not isinstance(node["minLength"], int)
-            or node["minLength"] < 0
-        ):
-            raise ValueError(f"invalid JSON Schema minLength: {label}")
+        for key in ("minLength", "maxLength"):
+            if key in node and (
+                isinstance(node[key], bool)
+                or not isinstance(node[key], int)
+                or node[key] < 0
+            ):
+                raise ValueError(f"invalid JSON Schema {key}: {label}")
+        if "minLength" in node and "maxLength" in node and node["minLength"] > node["maxLength"]:
+            raise ValueError(f"invalid JSON Schema length range: {label}")
         if "minItems" in node and (
             isinstance(node["minItems"], bool)
             or not isinstance(node["minItems"], int)
@@ -336,6 +340,13 @@ def _validate_schema_set(schemas: Mapping[str, Any]) -> None:
                 for name, child in node[key].items():
                     if not isinstance(name, str):
                         raise ValueError(f"invalid JSON Schema {key} entry: {label}")
+                    if key == "patternProperties":
+                        try:
+                            re.compile(name)
+                        except re.error as error:
+                            raise ValueError(
+                                f"invalid JSON Schema patternProperties key: {label}"
+                            ) from error
                     check_schema(child, root, f"{label}/{key}/{name}")
         for key in ("items", "additionalProperties", "if", "then", "not"):
             if key in node:
@@ -553,10 +564,7 @@ def verify_bundle(data: bytes, digest: str) -> CoreBundle:
         if hashlib.sha256(text.encode("utf-8")).hexdigest() != workflow["sha256"]:
             raise ValueError(f"workflow digest mismatch: {name}")
     _validate_schema_set(payload["schemas"])
-    bundle = CoreBundle(protocol_version=3, payload=_freeze(payload))
-    if payload.get("review_contract") == "review-evidence/1" and not supports_review_evidence(bundle):
-        raise ValueError("CoreBundle review capability schema is not exact")
-    return bundle
+    return CoreBundle(protocol_version=3, payload=_freeze(payload))
 
 
 def supports_review_evidence(bundle: CoreBundle) -> bool:
@@ -565,6 +573,12 @@ def supports_review_evidence(bundle: CoreBundle) -> bool:
         bundle.payload.get("review_contract") != "review-evidence/1"
         or bundle.payload.get("review_schema_variant") != "review-invocation/1"
     ):
+        return False
+    try:
+        from ._validation_schema import _validate_identity_contract
+
+        _validate_identity_contract(bundle)
+    except ValueError:
         return False
     run = bundle.payload.get("schemas", {}).get("run")
     review_ref = (
@@ -582,12 +596,14 @@ def supports_review_evidence(bundle: CoreBundle) -> bool:
     return (
         isinstance(review_ref, Mapping)
         and review_ref.get("type") == "object"
-        and review_ref.get("additionalProperties") is False
+        and type(review_ref.get("additionalProperties")) is bool
+        and not review_ref.get("additionalProperties")
         and review_ref.get("minProperties") == 1
         and set(review_ref.get("patternProperties", {})) == {pattern}
         and isinstance(entry, Mapping)
         and entry.get("type") == "object"
-        and entry.get("additionalProperties") is False
+        and type(entry.get("additionalProperties")) is bool
+        and not entry.get("additionalProperties")
         and set(entry.get("required", ())) == {"path", "sha256"}
         and set(entry.get("properties", ())) == {"path", "sha256"}
         and path_schema == {
@@ -595,7 +611,10 @@ def supports_review_evidence(bundle: CoreBundle) -> bool:
             "type": "string",
         }
         and entry["properties"]["sha256"] == {
-            "$ref": "kapisch://schemas/v3/bundle#/$defs/digest"
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string",
         }
     )
 

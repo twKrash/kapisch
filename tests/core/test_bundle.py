@@ -268,6 +268,10 @@ class BundleTests(unittest.TestCase):
                 verify_bundle(malformed, hashlib.sha256(malformed).hexdigest())
 
     def test_review_capability_is_explicit_and_exact(self) -> None:
+        from kapisch_core._validation_schema import (
+            _validate_identity_contract,
+            _validate_schema,
+        )
         from kapisch_core.bundle import (
             canonical_json,
             compile_bundle,
@@ -290,11 +294,21 @@ class BundleTests(unittest.TestCase):
             old_new_bytes, hashlib.sha256(old_new_bytes).hexdigest()
         )
         self.assertFalse(supports_review_evidence(old_new))
+        _validate_identity_contract(current)
         partial_payload = json.loads(current_bytes)
         partial_payload.pop("review_schema_variant")
         partial_bytes = canonical_json(partial_payload)
         with self.assertRaises(ValueError):
             verify_bundle(partial_bytes, hashlib.sha256(partial_bytes).hexdigest())
+        with self.assertRaises(ValueError):
+            _validate_schema(partial_payload, "bundle", current)
+        weak_payload = json.loads(current_bytes)
+        weak_payload["schemas"]["run"]["properties"]["review_result_ref"][
+            "patternProperties"
+        ]["^op-[0-9a-f]{32}$"]["properties"]["path"]["pattern"] = ".*"
+        weak_bytes = canonical_json(weak_payload)
+        weak = verify_bundle(weak_bytes, hashlib.sha256(weak_bytes).hexdigest())
+        self.assertFalse(supports_review_evidence(weak))
         self.assertTrue(supports_review_evidence(current))
         self.assertEqual(current.payload["review_contract"], "review-evidence/1")
         self.assertEqual(current.payload["review_schema_variant"], "review-invocation/1")
@@ -320,10 +334,86 @@ class BundleTests(unittest.TestCase):
             {"review_result_ref": {operation_id: {"path": "wrong", "sha256": "b" * 64}}},
             {"review_result_ref": {"op-x": {"path": "wrong", "sha256": "b" * 64}}},
             {"review_result_ref": {operation_id: {"path": run["review_result_ref"][operation_id]["path"], "sha256": "B" * 64}}},
+            {"review_result_ref": {operation_id: {"path": run["review_result_ref"][operation_id]["path"], "sha256": "b" * 64 + "\n"}}},
         ):
             invalid = {**run, **mutation}
             with self.assertRaises(ValueError):
                 _validate_schema(invalid, "run", bundle)
+
+    def test_schema_pattern_properties_are_closed_and_validated(self) -> None:
+        from kapisch_core._validation_schema import _matches, _validate_schema
+        from kapisch_core.bundle import canonical_json, compile_bundle, verify_bundle
+
+        data = compile_bundle(ROOT / "core")
+        bundle = verify_bundle(data, hashlib.sha256(data).hexdigest())
+        schema = {
+            "type": "object",
+            "properties": {"x": {"type": "string"}},
+            "patternProperties": {"^x$": {"type": "integer"}},
+            "additionalProperties": False,
+        }
+        errors: list[str] = []
+        _matches({"x": "wrong"}, schema, schema, bundle, errors, "$")
+        self.assertTrue(errors)
+        for pattern_schema, expected_errors in ((True, False), (False, True)):
+            schema["patternProperties"] = {"^x$": pattern_schema}
+            errors = []
+            _matches({"x": "valid"}, schema, schema, bundle, errors, "$")
+            self.assertEqual(bool(errors), expected_errors)
+        retained = json.loads(data)
+        retained["schemas"]["snapshot"]["$defs"] = {
+            "allow": True,
+            "deny": False,
+        }
+        retained["schemas"]["snapshot"]["patternProperties"] = {
+            "^acceptance_contract$": {
+                "anyOf": [
+                    {"$ref": "#/$defs/deny"},
+                    {"$ref": "#/$defs/allow"},
+                ]
+            }
+        }
+        retained_bytes = canonical_json(retained)
+        retained_bundle = verify_bundle(
+            retained_bytes, hashlib.sha256(retained_bytes).hexdigest()
+        )
+        record = {
+            "acceptance_contract": "global-authority/1",
+            "origin_run_id": "run-1",
+            "snapshot_id": "snapshot-1",
+            "gate_approval_ref": {"approval_id": "ga-1", "sha256": "a" * 64},
+        }
+        _validate_schema(record, "snapshot", retained_bundle)
+        retained["schemas"]["snapshot"]["patternProperties"] = {
+            "^acceptance_contract$": {"$ref": "#/$defs/deny"}
+        }
+        denied_bytes = canonical_json(retained)
+        denied_bundle = verify_bundle(
+            denied_bytes, hashlib.sha256(denied_bytes).hexdigest()
+        )
+        with self.assertRaises(ValueError):
+            _validate_schema(record, "snapshot", denied_bundle)
+        typed = json.loads(data)
+        typed["schemas"]["snapshot"]["patternProperties"] = {
+            "^origin_run_id$": {"type": ["string", "null"]}
+        }
+        typed_bytes = canonical_json(typed)
+        typed_bundle = verify_bundle(
+            typed_bytes, hashlib.sha256(typed_bytes).hexdigest()
+        )
+        _validate_schema(record, "snapshot", typed_bundle)
+        invalid_record = {**record, "origin_run_id": None}
+        with self.assertRaises(ValueError):
+            _validate_schema(invalid_record, "snapshot", typed_bundle)
+        malformed = json.loads(data)
+        malformed["schemas"]["run"]["properties"]["review_result_ref"][
+            "patternProperties"
+        ] = {"[": {"type": "object"}}
+        malformed_bytes = canonical_json(malformed)
+        with self.assertRaises(ValueError):
+            verify_bundle(
+                malformed_bytes, hashlib.sha256(malformed_bytes).hexdigest()
+            )
 
     def test_bundle_is_canonical_and_verified_by_whole_byte_digest(self) -> None:
         from kapisch_core.bundle import compile_bundle, verify_bundle

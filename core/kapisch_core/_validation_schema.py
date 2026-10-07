@@ -9,7 +9,7 @@ from .bundle import CoreBundle, canonical_json
 
 def _resolve_ref(
     bundle: CoreBundle, ref: str, local_root: Mapping[str, Any]
-) -> tuple[Mapping[str, Any], str]:
+) -> tuple[Mapping[str, Any] | bool, str]:
     schema_id, _, fragment = ref.partition("#")
     if ref.startswith("#"):
         schema_id = str(local_root.get("$id", ""))
@@ -27,19 +27,24 @@ def _resolve_ref(
         if not isinstance(target, Mapping) or token not in target:
             raise ValueError(f"unresolved schema reference: {ref}")
         target = target[token]
-    if not isinstance(target, Mapping):
+    if type(target) is not bool and not isinstance(target, Mapping):
         raise ValueError(f"invalid schema reference: {ref}")
     return target, schema_id
 
 
 def _matches(
     value: Any,
-    schema: Mapping[str, Any],
+    schema: Mapping[str, Any] | bool,
     root: Mapping[str, Any],
     bundle: CoreBundle,
     errors: list[str],
     path: str,
 ) -> None:
+    if type(schema) is bool:
+        if schema:
+            return
+        errors.append(f"{path}: schema rejects value")
+        return
     if "$ref" in schema:
         target, target_id = _resolve_ref(bundle, schema["$ref"], root)
         target_name = target_id.rsplit("/", 1)[-1]
@@ -50,7 +55,13 @@ def _matches(
         )
         _matches(value, target, target_root, bundle, errors, path)
     expected = schema.get("type")
-    types = expected if isinstance(expected, list) else [expected] if expected else []
+    types = (
+        expected
+        if isinstance(expected, (list, tuple))
+        else [expected]
+        if expected
+        else []
+    )
     type_ok = not types or any(
         (kind == "object" and isinstance(value, dict))
         or (kind == "array" and isinstance(value, list))
@@ -77,6 +88,8 @@ def _matches(
     if isinstance(value, str):
         if len(value) < schema.get("minLength", 0):
             errors.append(f"{path}: string is too short")
+        if "maxLength" in schema and len(value) > schema["maxLength"]:
+            errors.append(f"{path}: string is too long")
         if "pattern" in schema and re.search(schema["pattern"], value) is None:
             errors.append(f"{path}: string does not match required pattern")
     if isinstance(value, (int, float)) and not isinstance(value, bool):
@@ -94,21 +107,17 @@ def _matches(
         patterns = schema.get("patternProperties", {})
         additional_properties = schema.get("additionalProperties", True)
         for key, item in value.items():
-            if key in props:
-                continue
-            matching = [
-                child for pattern, child in patterns.items() if re.search(pattern, key)
-            ]
-            if matching:
-                for child in matching:
+            matched = key in props
+            if matched:
+                _matches(item, props[key], root, bundle, errors, f"{path}.{key}")
+            for pattern, child in patterns.items():
+                if re.search(pattern, key):
+                    matched = True
                     _matches(item, child, root, bundle, errors, f"{path}.{key}")
-            elif isinstance(additional_properties, bool) and not additional_properties:
+            if not matched and isinstance(additional_properties, bool) and not additional_properties:
                 errors.append(f"{path}: unknown field {key}")
-            elif isinstance(additional_properties, Mapping):
+            elif not matched and isinstance(additional_properties, Mapping):
                 _matches(item, additional_properties, root, bundle, errors, f"{path}.{key}")
-        for key, child in props.items():
-            if key in value:
-                _matches(value[key], child, root, bundle, errors, f"{path}.{key}")
         minimum_properties = schema.get("minProperties")
         if minimum_properties is not None and len(value) < minimum_properties:
             errors.append(f"{path}: object has too few properties")
@@ -286,7 +295,7 @@ _SUPPORTED_IDENTITY_SCHEMA_VARIANTS = {
             _GLOBAL_AUTHORITY_STAGE_54_SCHEMA_VARIANT,
         "e28299b3eb7f6a6084f480d870169c24d3da73a947591536b1f3bee39dba540b":
             _GLOBAL_AUTHORITY_STAGE_55_SCHEMA_VARIANT,
-        "ba00e368b0f9770a9d35539926c0b0da24e5b8d8045fa242406957fa3b064a07":
+        "dcdec18671c9321eb6cf50383c8a7705223f024ec4150f6fed123201e82e7a22":
             _REVIEW_SCHEMA_VARIANT,
     },
 }
