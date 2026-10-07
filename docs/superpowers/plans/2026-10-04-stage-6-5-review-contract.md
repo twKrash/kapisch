@@ -1,35 +1,32 @@
 # Stage 6.5 M0 — Review/final format freeze
 
-**Status: M1.1 FORMAT/MODEL UNIT REPORTED; CAPABILITY AMENDMENT PENDING OWNER APPROVAL; M1.2+ PENDING**
+**Status: M1.1 FORMAT/MODEL BASELINE PRE-EXISTS THIS PR; CAPABILITY AMENDMENT PENDING OWNER APPROVAL; M1.2+ PENDING**
 
 This document preserves the documentation-only M0 format-freeze history. No
 retained, verifiable owner approval source currently binds the exact capability
-amendment head. This PR therefore contains two separately bounded,
-non-authoritative units: the M1.1 format/model increment and the schema/bundle
-capability amendment defined in §10.1. Neither supplies persistence, dispatch,
-writer-enforcement, authority-eligibility, or host-API authority. M1.2 and later
-remain pending independent approval.
+amendment head. The M1.1 format/model unit predates this PR and is not modified
+by its diff. This PR contains only the separately bounded, non-authoritative
+schema/bundle capability amendment defined in §10.1. It supplies no
+persistence, dispatch, writer-enforcement, authority-eligibility, or host-API
+authority. M1.2 and later remain pending independent approval.
 
-### Approval disposition (bounded M1.1 and capability amendment)
+### Approval disposition (capability amendment)
 
-The exact Stage 6.5 M1.1 format/model unit and the separately gated capability
-amendment in §10.1 are reviewable increments, not a stage closure. Independent
-read-only review of the complete capability delta found no P0–P2 findings;
-owner approval must still bind the exact final commit before merge. Do not infer
-approval for M1.2 persistence or any later authority behavior; those remain
-pending and gated below.
+The §10.1 capability amendment is a bounded prerequisite, not a stage closure.
+A successful independent read-only review and owner approval must bind the exact
+final commit before merge. Do not infer approval for M1.2 persistence or any
+later authority behavior; those remain pending and gated below.
 
 ## 1. Scope and explicit non-goals
 
 M0 defines the closed conceptual records and their producer/binding rules for
-review and final evidence. The historical M0 artifact was documentation-only; this PR contains a bounded,
-non-authoritative M1.1 format/model implementation and the separately gated
-§10.1 capability amendment, both pending their stated approval gates. This does
-not authorize writer enforcement, persistence, dispatch, authority eligibility,
-adapters, or host APIs. The capability amendment in
-§10.1 may add one new retained bundle variant while preserving all historical
-bundle bytes; it does not broaden runtime authority. M1.2/M2/M3 are not
-included.
+review and final evidence. The historical M0 artifact was documentation-only;
+the M1.1 format/model implementation predates this PR and is not modified here.
+This PR contains only the bounded, non-authoritative §10.1 capability
+amendment. It does not authorize writer enforcement, persistence, dispatch,
+authority eligibility, adapters, or host APIs. The capability amendment may add
+one new retained bundle variant while preserving all historical bundle bytes;
+it does not broaden runtime authority. M1.2/M2/M3 are not included.
 
 No host writer-enforcement API, receipt shape, or storage schema is invented
 here. The writer-quiescence requirement below is a future
@@ -618,9 +615,9 @@ compatibility tests, negative tests for partial/weakened schemas and malformed
 patterns, frozen-schema validator coverage (including boolean schemas, boolean
 `$ref` targets, `anyOf`, overlapping `patternProperties`, and tuple-valued
 type arrays), generated-copy equality, and an independent read-only review.
-The independent review is complete with no remaining P0–P2 findings. Owner
-approval remains pending and must identify this exact amendment commit SHA;
-semantic changes require a fresh review and fresh owner approval.
+A successful independent read-only review is required before owner approval.
+Owner approval remains pending and must identify this exact amendment commit
+SHA; semantic changes require a fresh review and fresh owner approval.
 
 ## 11. Stop / gate before M1.2+
 
