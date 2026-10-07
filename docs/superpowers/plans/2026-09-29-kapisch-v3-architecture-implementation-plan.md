@@ -396,8 +396,6 @@ This is an implementation-structure/platform clarification only. Preserve Stage 
 
 **Invariants:** §27.5, .7, .9, §30. **Acceptance:** exact host receipt or externally supplied byte-bound artifact for each authoritative human gate; descriptor, `HumanActionClaim`, generic `GateApprovalRecord`, bundle, and acceptance have explicit producers and digests; global records survive producer-run loss; new publication checks current authority while historical recovery remains idempotent and does not rerun gates; old/new schema sets remain byte-immutable and capability-separated. **Non-goals:** cryptographic identity, proving arbitrary filesystem authorship, automatic English authority discovery, adapter activation or Stage 6+ behavior. **Cutover/rollback:** inactive v3 evidence only; no rewriting prior accepted snapshots/bundles. **Depends on:** Stages 3–4.
 
-**Completed:** merged as PR #68 (`5a43191`).
-
 **Stage 5 completed:** 5.1–5.5 complete; final merge: PR #68 (`5a43191`).
 
 ### Stage 6 — Semantic Git fingerprint and independent review/final evidence
