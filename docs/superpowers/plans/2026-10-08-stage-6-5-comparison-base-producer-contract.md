@@ -54,27 +54,29 @@ content-addressed **review-target reservation** at:
 .kapisch/v3/authority/review-target-bindings/<binding_digest>.json
 ```
 
-The separately gated Stage 4 attempt-binding producer must create the planned
-attempt with the exact reservation locator in an attempt-owned closed
-`review_target_binding_ref` creation field:
+Stage 4 attempt creation remains the sole producer of `stage_id`: the first
+immutable `planned` observation creates the attempt and its creation fields.
+After that observation is durable, the separately gated Stage 4
+attempt-binding producer publishes the exact reservation locator as one new
+cumulative evidence entry in a later observation of the same attempt:
 
 ```json
 {
+  "kind": "review-target-binding/1",
   "path": ".kapisch/v3/authority/review-target-bindings/<binding_digest>.json",
   "sha256": "<binding_digest>"
 }
 ```
 
-The current Stage 4 attempt variant does not contain this field. Adding this
-field is a separately reviewed Stage 4 attempt-binding contract; until it
-exists, this producer refuses and M1.2 remains blocked. The field must be
-present in the first immutable planned-attempt observation; it may not be
-added by rewriting that row or by appending a conflicting replacement. Later
-attempt observations may add only the existing cumulative evidence permitted by
-Stage 4. The approved Stage 5 `PlanApprovalCandidate` remains unchanged and
-retains its exact governance-bound digest. The reservation is published before
-that immutable attempt observation, so the binding is durable without changing
-Stage 4 history or creating a publication cycle.
+This evidence entry is the attempt-owned binding; it is not a new top-level
+Stage field and does not rewrite or replace the planned row. The current Stage
+4 schema already retains cumulative `{kind,path,sha256}` evidence, but the
+`review-target-binding/1` meaning is a separately reviewed Stage 4
+attempt-binding contract. Until that contract exists, this producer refuses
+and M1.2 remains blocked. The entry may be appended only after the immutable
+reservation bytes are durable; later observations retain it byte-for-byte. The
+approved Stage 5 `PlanApprovalCandidate` remains unchanged and retains its
+exact governance-bound digest.
 
 The reservation's closed payload is:
 
@@ -114,7 +116,8 @@ The reservation's closed payload is:
 ```
 
 The review-target producer publishes the reservation only after the validated
-Stage 5 plan identity and reserved stage identity exist. It owns `target`,
+Stage 5 plan identity and the durable planned Stage 4 attempt/stage identity
+exist. It owns `target`,
 `purpose`, `comparison_root`, base choice, and observed head; it refuses an
 absent or ambiguous producer-owned target binding. It constructs the exact
 target and base payloads, computes both content digests, and persists both
@@ -135,10 +138,10 @@ artifacts, and new review scope/invocation identities. The producer never
 recomputes a root from a later HEAD, merge-base, or current branch.
 
 After the reservation exists, the separately gated attempt-binding producer
-creates the immutable planned attempt with the exact `review_target_binding_ref`
-in its creation fields. The target producer then validates that attempt and
-publishes the immutable, content-addressed target artifact at the reservation's
-`review_target_ref`. Its exact closed payload is:
+appends the immutable observation whose cumulative evidence contains the exact
+`review-target-binding/1` locator. The target producer then validates that
+attempt evidence and publishes the immutable, content-addressed target artifact
+at the reservation's `review_target_ref`. Its exact closed payload is:
 
 ```json
 {
@@ -258,9 +261,10 @@ producer must derive every field from validated persisted inputs:
 1. `run_id` and `stage_id` come from the existing durable Stage 4 planned
    attempt. The producer refuses an unowned, missing, or already-conflicting
    stage identity.
-2. It loads the attempt-owned exact `review_target_binding_ref`, verifies the
-   reservation's content-addressed path and SHA-256, and validates the
-   reservation's canonical bytes and closed shape.
+2. It loads the attempt's cumulative `review-target-binding/1` evidence
+   entry, verifies the reservation's content-addressed path and SHA-256, and
+   validates the reservation's canonical bytes and closed shape. The evidence
+   entry must remain byte-identical in every later observation of that attempt.
 3. `plan_candidate_ref` and `plan_id` are the exact identities in the
    reservation. The producer loads and validates that approved candidate and
    retained bundle, verifies candidate/run/stage and exact plan identity/bytes,
@@ -290,31 +294,31 @@ The comparison-base producer runs only after the planned Stage 4 attempt and
 its `stage_id` are durably owned. The prerequisite producers' publication order
 is strict:
 
-1. The approved Stage 5 plan candidate and a fresh, durably reserved Stage 4
-   `stage_id` own their exact immutable identities. No planned-attempt row has
-   been published yet.
-2. The Stage 5 review-target producer validates the candidate and reserved
-   stage identity, owns the whole-branch target, purpose, and comparison root,
-   constructs the exact target and base payloads, computes all digests, and
-   publishes the content-addressed review-target reservation containing the
-   approved `plan_candidate_ref`.
-3. The separately gated Stage 4 attempt-binding producer creates the planned
-   attempt once, with the reservation's exact locator in the immutable
-   attempt creation fields. It never rewrites that row or appends a conflicting
-   binding later.
-4. The target producer validates the bound planned attempt and publishes the
+1. The approved Stage 5 plan candidate and the first immutable Stage 4
+   `planned` observation own their exact identities; Stage 4 attempt creation
+   is the sole producer of `stage_id`.
+2. The Stage 5 review-target producer validates that planned attempt, owns the
+   whole-branch target, purpose, and comparison root, constructs the exact
+   target and base payloads, computes all digests, and publishes the
+   content-addressed review-target reservation containing the approved
+   `plan_candidate_ref`.
+3. The separately gated Stage 4 attempt-binding producer appends one later
+   immutable observation of the same attempt whose cumulative evidence adds
+   the reservation's exact `review-target-binding/1` locator. It never rewrites
+   the planned row, removes prior evidence, or appends a conflicting binding.
+4. The target producer validates the bound attempt evidence and publishes the
    exact content-addressed review-target bytes reserved by the reservation,
    including the expected `comparison_base_ref`.
 5. The comparison-base producer loads and validates the reservation and target,
    then publishes the exact digest-addressed base bytes reserved by the target.
    No caller can choose a different path or digest.
-6. Only after the reservation, bound planned attempt, target, and base artifacts
-   are durable may the M1.2 review-scope publisher load the base fact.
+6. Only after the reservation, bound attempt evidence, target, and base
+   artifacts are durable may the M1.2 review-scope publisher load the base fact.
 
 The later graph-free review-scope publisher must:
 
-- load the validated planned attempt and its exact attempt-owned
-  `review_target_binding_ref`;
+- load the validated planned attempt and its cumulative
+  `review-target-binding/1` evidence entry;
 - verify the reservation's content-addressed path and SHA-256;
 - load the target artifact from the reservation's `review_target_ref`;
 - verify the target artifact's content-addressed path and SHA-256;
@@ -328,8 +332,8 @@ The later graph-free review-scope publisher must:
   attempt;
 - require the reservation's `plan_candidate_ref` to equal the exact approved
   candidate and its `plan_id` to equal the candidate's exact plan identity;
-- require the attempt-owned `review_target_binding_ref` to equal the
-  reservation;
+- require the cumulative `review-target-binding/1` evidence locator to equal
+  the reservation;
 - require `base == comparison_root.anchor` and apply the persisted strictness
   rule;
 - copy the target producer's exact `purpose` into `review-scope/1` rather than
@@ -358,24 +362,31 @@ binding, new comparison-base artifact, new scope, and new invocation identity.
 
 ## 6. Cold restart and refusal rules
 
-A cold loader reconstructs the producer fact from the validated planned
-attempt's `review_target_binding_ref`, the reservation's
+A cold loader reconstructs the producer fact from the validated Stage 4
+attempt's cumulative `review-target-binding/1` evidence, the reservation's
 `plan_candidate_ref`/`review_target_ref`, the target's persisted
 `comparison_base_ref`, the digest-addressed base path, and validated persisted
 candidate/attempt records alone. It never relies on controller memory, ambient
-branch state, the installed bundle, or caller honesty. The attempt-owned
-reservation locator is verified first; its candidate/target locators and the
-target artifact's expected digest-addressed base reference are authoritative
-for locating the bytes.
+branch state, the installed bundle, or caller honesty. The cumulative evidence
+locator is verified first; its candidate/target locators and the target
+artifact's expected digest-addressed base reference are authoritative for
+locating the bytes. A reservation published before its binding observation is
+non-authoritative until exactly one matching evidence entry is durably
+appended. After a crash in that interval, the binding producer may scan the
+content-addressed reservation namespace for the exact `{run_id, stage_id,
+plan_candidate_ref}` binding and append only that unique exact locator as the
+next cumulative observation. Zero, multiple, or conflicting matches fail
+closed; no target/base bytes may be published and no history row may be
+rewritten.
 
 The loader blocks on:
 
 - missing, noncanonical, duplicate-key, unknown-field, or non-replaceable
   target or base bytes;
-- a missing or conflicting attempt-owned `review_target_binding_ref` or
-  review-target reservation;
+- a missing or conflicting cumulative `review-target-binding/1` evidence entry
+  or review-target reservation;
 - a reservation whose content-addressed path or SHA-256 does not match the
-  attempt-owned locator;
+  cumulative evidence locator;
 - a target locator whose content-addressed path or SHA-256 does not match the
   reservation's `review_target_ref`;
 - a target artifact whose run or stage identity does not match the reservation,
@@ -430,9 +441,9 @@ approval must identify this document's exact commit SHA and confirm that:
    producer input; the review-target producer is the sole semantic owner of the
    durable target, purpose, comparison root, base choice, and expected base
    digest;
-2. the attempt-owned reservation locator binds the exact content-addressed
-   target artifact bytes to the approved Stage 5 candidate and stage, and the
-   target binds the exact base digest;
+2. the cumulative attempt evidence binds the exact content-addressed target
+   reservation to the approved Stage 5 candidate and stage, and the target
+   binds the exact base digest;
 3. the comparison-base producer is the sole byte producer of the exact
    digest-addressed base artifact and cannot alter the earlier binding;
 4. the attempt binding plus reservation, target, and base artifacts bind the
@@ -457,8 +468,8 @@ Implementation verification must include fresh-process tests for canonical
 shape, duplicate/unknown fields, reservation-to-target digest binding, exact
 target/base path derivation, no-replace conflicts, reservation publication
 before target publication and target publication before base publication,
-retained-candidate and bundle binding, attempt-owned reservation binding,
-expected base digest mismatch, comparison-root equality and strictness,
+retained-candidate and bundle binding, cumulative attempt-evidence reservation
+binding, expected base digest mismatch, comparison-root equality and strictness,
 object-format anchors, ancestry, equal base/head final refusal, target-head
 drift, fresh reservations for new stage IDs, named-target-ref revalidation,
 pre-dispatch head validation at invocation time, missing producer bytes, cold
