@@ -54,9 +54,9 @@ content-addressed **review-target reservation** at:
 .kapisch/v3/authority/review-target-bindings/<binding_digest>.json
 ```
 
-The planned Stage 4 attempt used by this contract must retain the exact
-reservation locator in an attempt-owned closed `review_target_binding_ref`
-field:
+The separately gated Stage 4 attempt-binding producer must create the planned
+attempt with the exact reservation locator in an attempt-owned closed
+`review_target_binding_ref` creation field:
 
 ```json
 {
@@ -66,13 +66,15 @@ field:
 ```
 
 The current Stage 4 attempt variant does not contain this field. Adding this
-attempt-owned reference is a separately reviewed Stage 4 attempt-binding
-contract; until it exists, this producer refuses and M1.2 remains blocked. The
-approved Stage 5 `PlanApprovalCandidate` remains unchanged and retains its exact
-governance-bound digest. The attempt-owned reference breaks the publication
-cycle: the reservation binds the approved candidate, plan identity, target,
-root, and expected artifact digests, while the attempt binds the exact
-reservation bytes.
+field is a separately reviewed Stage 4 attempt-binding contract; until it
+exists, this producer refuses and M1.2 remains blocked. The field must be
+present in the first immutable planned-attempt observation; it may not be
+added by rewriting that row or by appending a conflicting replacement. Later
+attempt observations may add only the existing cumulative evidence permitted by
+Stage 4. The approved Stage 5 `PlanApprovalCandidate` remains unchanged and
+retains its exact governance-bound digest. The reservation is published before
+that immutable attempt observation, so the binding is durable without changing
+Stage 4 history or creating a publication cycle.
 
 The reservation's closed payload is:
 
@@ -132,10 +134,11 @@ also requires a new eligible `stage_id`, new reservation, new target/base
 artifacts, and new review scope/invocation identities. The producer never
 recomputes a root from a later HEAD, merge-base, or current branch.
 
-After the approved candidate and planned attempt exist, the attempt-binding
-producer retains the exact `review_target_binding_ref`; the target producer
-then publishes the immutable, content-addressed target artifact at the
-reservation's `review_target_ref`. Its exact closed payload is:
+After the reservation exists, the separately gated attempt-binding producer
+creates the immutable planned attempt with the exact `review_target_binding_ref`
+in its creation fields. The target producer then validates that attempt and
+publishes the immutable, content-addressed target artifact at the reservation's
+`review_target_ref`. Its exact closed payload is:
 
 ```json
 {
@@ -283,26 +286,30 @@ target artifact, or bundle after publication.
 
 ## 5. Publication order and consumer binding
 
-The producer runs only after the planned Stage 4 attempt and its `stage_id`
-are durably owned. Publication is strict:
+The comparison-base producer runs only after the planned Stage 4 attempt and
+its `stage_id` are durably owned. The prerequisite producers' publication order
+is strict:
 
-1. The approved Stage 5 plan candidate and planned Stage 4 attempt own their
-   exact immutable identities; the attempt owns `stage_id`.
-2. The Stage 5 review-target producer validates that candidate and attempt,
-   owns the whole-branch target, purpose, and comparison root, constructs the
-   exact target and base payloads, computes all digests, and publishes the
-   content-addressed review-target reservation containing the approved
-   `plan_candidate_ref`.
-3. The attempt-binding producer retains the reservation's exact locator in the
-   attempt-owned `review_target_binding_ref` field.
-4. The target producer publishes the exact content-addressed review-target
-   bytes reserved by the reservation, including the expected
-   `comparison_base_ref`.
+1. The approved Stage 5 plan candidate and a fresh, durably reserved Stage 4
+   `stage_id` own their exact immutable identities. No planned-attempt row has
+   been published yet.
+2. The Stage 5 review-target producer validates the candidate and reserved
+   stage identity, owns the whole-branch target, purpose, and comparison root,
+   constructs the exact target and base payloads, computes all digests, and
+   publishes the content-addressed review-target reservation containing the
+   approved `plan_candidate_ref`.
+3. The separately gated Stage 4 attempt-binding producer creates the planned
+   attempt once, with the reservation's exact locator in the immutable
+   attempt creation fields. It never rewrites that row or appends a conflicting
+   binding later.
+4. The target producer validates the bound planned attempt and publishes the
+   exact content-addressed review-target bytes reserved by the reservation,
+   including the expected `comparison_base_ref`.
 5. The comparison-base producer loads and validates the reservation and target,
    then publishes the exact digest-addressed base bytes reserved by the target.
    No caller can choose a different path or digest.
-6. Only after the reservation, attempt binding, target, and base artifacts are
-   durable may the M1.2 review-scope publisher load the base fact.
+6. Only after the reservation, bound planned attempt, target, and base artifacts
+   are durable may the M1.2 review-scope publisher load the base fact.
 
 The later graph-free review-scope publisher must:
 
