@@ -47,36 +47,49 @@ document does not invent a caller API or treat the current candidate/attempt
 schemas as if they already contained that input. If that producer or contract
 is absent, M1.2 remains blocked.
 
-The Stage 5 review-target producer first publishes one immutable,
-content-addressed **review-target reservation** at:
-
-```text
-.kapisch/v3/authority/review-target-bindings/<binding_digest>.json
-```
-
 Stage 4 attempt creation remains the sole producer of `stage_id`: the first
 immutable `planned` observation creates the attempt and its creation fields.
-After that observation is durable, the separately gated Stage 4
-attempt-binding producer publishes the exact reservation locator as one new
-cumulative evidence entry in a later observation of the same attempt:
+Only after that observation is durable may the Stage 5 review-target producer
+publish one immutable, content-addressed **review-target reservation** at:
+
+```text
+.kapisch/v3/runs/<run_id>/review-inputs/review-target-bindings/<binding_digest>.json
+```
+
+The separately gated Stage 4 attempt-binding producer then publishes the exact
+reservation locator as one new cumulative evidence entry in a later observation
+of the same attempt:
 
 ```json
 {
   "kind": "review-target-binding/1",
-  "path": ".kapisch/v3/authority/review-target-bindings/<binding_digest>.json",
+  "path": "review-inputs/review-target-bindings/<binding_digest>.json",
   "sha256": "<binding_digest>"
 }
 ```
 
-This evidence entry is the attempt-owned binding; it is not a new top-level
-Stage field and does not rewrite or replace the planned row. The current Stage
-4 schema already retains cumulative `{kind,path,sha256}` evidence, but the
-`review-target-binding/1` meaning is a separately reviewed Stage 4
-attempt-binding contract. Until that contract exists, this producer refuses
-and M1.2 remains blocked. The entry may be appended only after the immutable
-reservation bytes are durable; later observations retain it byte-for-byte. The
-approved Stage 5 `PlanApprovalCandidate` remains unchanged and retains its
-exact governance-bound digest.
+The evidence `path` is deliberately run-relative because existing Stage 4
+history validation resolves every evidence path beneath
+`.kapisch/v3/runs/<run_id>/`; it denotes the repository-relative reservation
+path shown above. The evidence entry is the attempt-owned binding; it is not a
+new top-level Stage field and does not rewrite or replace the planned row.
+
+The current Stage 4 validator rejects a second `planned` observation. Before
+this producer can be implemented, a separately reviewed and repository-owner-
+approved `stage-evidence/1` Stage 4 amendment must authorize exactly one
+pre-dispatch, evidence-only `planned` observation with identical creation
+fields and strictly cumulative evidence. It may add only the
+`review-target-binding/1` evidence entry, must not publish a request,
+operation, or `dispatch-uncertain` fact, and must preserve the frozen M1.2
+order of scope, request, operation reservation, and uncertainty. It must also
+make a unique reservation published before a crash recoverable by appending
+that one legal cumulative observation; zero, multiple, or conflicting
+reservations fail closed. This amendment changes no status vocabulary or
+attempt identity and is a separate prerequisite, not an implementation or
+authorization supplied by this document. Until it is approved and implemented,
+this producer and M1.2 remain blocked. Later observations retain the binding
+entry byte-for-byte. The approved Stage 5 `PlanApprovalCandidate` remains
+unchanged and retains its exact governance-bound digest.
 
 The reservation's closed payload is:
 
@@ -109,7 +122,7 @@ The reservation's closed payload is:
   "base": "sha1:<40 lowercase hexadecimal commit>" | "sha256:<64 lowercase hexadecimal commit>",
   "head": "sha1:<40 lowercase hexadecimal commit>" | "sha256:<64 lowercase hexadecimal commit>",
   "review_target_ref": {
-    "path": ".kapisch/v3/authority/review-targets/<target_digest>.json",
+    "path": ".kapisch/v3/runs/<run_id>/review-inputs/review-targets/<target_digest>.json",
     "sha256": "<target_digest>"
   }
 }
@@ -292,7 +305,10 @@ target artifact, or bundle after publication.
 
 The comparison-base producer runs only after the planned Stage 4 attempt and
 its `stage_id` are durably owned. The prerequisite producers' publication order
-is strict:
+is strict. Step 3 is impossible under the current Stage 4 validator and is
+blocked until the separately approved and implemented `stage-evidence/1`
+amendment in §2 exists; this contract does not pretend that amendment already
+exists.
 
 1. The approved Stage 5 plan candidate and the first immutable Stage 4
    `planned` observation own their exact identities; Stage 4 attempt creation
@@ -427,9 +443,12 @@ This contract does not implement or authorize:
 - reviewer dispatch, host execution, result production, or reconciliation;
 - milestone or approved-plan-backed review coverage;
 - writer-quiescence enforcement or current-authority claims;
-- new workflow statuses, lifecycle transitions, adapter APIs, or gate records;
+- implementation of the separately gated `stage-evidence/1` Stage 4
+  evidence-only amendment; this contract requires that prerequisite but does
+  not change current lifecycle behavior;
+- new workflow statuses, adapter APIs, or gate records;
 - changes to retained schemas, bundle bytes, Stage 7 transition rules, or
-  existing Stage 4 meanings.
+  existing Stage 4 meanings outside that separately approved amendment.
 
 ## 8. Acceptance and approval gate
 
@@ -441,9 +460,11 @@ approval must identify this document's exact commit SHA and confirm that:
    producer input; the review-target producer is the sole semantic owner of the
    durable target, purpose, comparison root, base choice, and expected base
    digest;
-2. the cumulative attempt evidence binds the exact content-addressed target
-   reservation to the approved Stage 5 candidate and stage, and the target
-   binds the exact base digest;
+2. the separately approved and implemented `stage-evidence/1` amendment
+   permits exactly one pre-dispatch cumulative binding observation without
+   changing Stage 4 identity or M1.2 ordering; that evidence binds the exact
+   content-addressed target reservation to the approved Stage 5 candidate and
+   stage, and the target binds the exact base digest;
 3. the comparison-base producer is the sole byte producer of the exact
    digest-addressed base artifact and cannot alter the earlier binding;
 4. the attempt binding plus reservation, target, and base artifacts bind the
@@ -451,8 +472,9 @@ approval must identify this document's exact commit SHA and confirm that:
    comparison root, object format, base, and observed head;
 5. no caller-selected, ancestry-inferred, or recomputed base is accepted;
 6. canonical bytes, no-replace publication, expected-digest verification,
-   ancestry, persisted root strictness, immutable-root/new-stage replacement,
-   and cold-restart refusal rules are enforced;
+   run-relative evidence containment, ancestry, persisted root strictness,
+   immutable-root/new-stage replacement, the evidence-only crash-recovery
+   rule, and cold-restart refusal rules are enforced;
 7. every new `stage_id` receives a new reservation, including retries and
    corrective follow-ons, and named-target-ref equality is revalidated before
    invocation;
@@ -461,15 +483,18 @@ approval must identify this document's exact commit SHA and confirm that:
    publication;
 9. the contract is graph-free and does not authorize M1.2 persistence or
    authority behavior by itself; and
-10. writer-quiescence, checked-plan consumer, and any current-authority
-   approvals remain separate prerequisites.
+10. writer-quiescence, checked-plan consumer, current-authority approvals,
+   and the `stage-evidence/1` amendment's own review/owner approval remain
+   separate prerequisites.
 
 Implementation verification must include fresh-process tests for canonical
-shape, duplicate/unknown fields, reservation-to-target digest binding, exact
+shape, duplicate/unknown fields, run-relative evidence containment and
+repository-path derivation, reservation-to-target digest binding, exact
 target/base path derivation, no-replace conflicts, reservation publication
-before target publication and target publication before base publication,
-retained-candidate and bundle binding, cumulative attempt-evidence reservation
-binding, expected base digest mismatch, comparison-root equality and strictness,
+before binding evidence, binding evidence before target publication, target
+publication before base publication, legal `stage-evidence/1` lifecycle and
+crash recovery, retained-candidate and bundle binding, cumulative
+attempt-evidence reservation binding, expected base digest mismatch, comparison-root equality and strictness,
 object-format anchors, ancestry, equal base/head final refusal, target-head
 drift, fresh reservations for new stage IDs, named-target-ref revalidation,
 pre-dispatch head validation at invocation time, missing producer bytes, cold
