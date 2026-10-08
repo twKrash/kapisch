@@ -124,11 +124,13 @@ anchor is absent, ambiguous, or not a commit in `object_format`.
 `final` target, and when true requires a strict ancestor. Equality is allowed
 only when the producer-owned binding explicitly permits an empty iteration
 comparison; ancestry alone never chooses a root. The established root is
-immutable for the stage: retries and remediation reuse only the exact same
-reservation, while any root, target, purpose, or observed-head change requires
-a new eligible `stage_id`, new reservation, new target/base artifacts, and new
-review scope/invocation identities. The producer never recomputes a root from a
-later HEAD, merge-base, or current branch.
+immutable for one stage: retries within that same stage may reuse only the
+exact same reservation, while every failed-attempt retry or corrective
+follow-on with a new `stage_id` must allocate a fresh reservation even when the
+root/target is unchanged. Any root, target, purpose, or observed-head change
+also requires a new eligible `stage_id`, new reservation, new target/base
+artifacts, and new review scope/invocation identities. The producer never
+recomputes a root from a later HEAD, merge-base, or current branch.
 
 After the approved candidate and planned attempt exist, the attempt-binding
 producer retains the exact `review_target_binding_ref`; the target producer
@@ -332,9 +334,13 @@ The later graph-free review-scope publisher must:
 The review-scope publisher must not compare the producer `head` with the
 pre-dispatch fingerprint yet: the frozen M1.2 order captures that fingerprint
 after scope publication. After the fingerprint exists, the invocation publisher must require producer
-`head == fingerprint.head` before publishing the invocation, and the later
-complete-chain validator must recheck producer head, invocation head, and
-fingerprint head equality. The request and invocation purpose must equal the
+`head == fingerprint.head` before publishing the invocation. It must also
+re-read the producer-owned `target.ref` (for example, the exact `refs/heads/...`
+ref) and require that it still resolves to that same captured head; missing,
+moved, or unrelated branch-ref state blocks invocation publication. The later
+complete-chain validator must recheck producer head, invocation head,
+fingerprint head, and named-target-ref equality. The request and invocation
+purpose must equal the
 scope's copied producer purpose byte-for-byte; the complete-chain validator
 must recheck that equality and the final strict-root rule. The review-scope
 publisher must not recompute a new base, ask Git for a newer base, infer a base
@@ -421,19 +427,22 @@ approval must identify this document's exact commit SHA and confirm that:
    target binds the exact base digest;
 3. the comparison-base producer is the sole byte producer of the exact
    digest-addressed base artifact and cannot alter the earlier binding;
-4. the three producer artifacts bind the exact Stage 4 attempt, Stage 5 plan
-   candidate, whole-branch target, purpose, comparison root, object format,
-   base, and observed head;
+4. the attempt binding plus reservation, target, and base artifacts bind the
+   exact Stage 4 attempt, Stage 5 plan candidate, whole-branch target, purpose,
+   comparison root, object format, base, and observed head;
 5. no caller-selected, ancestry-inferred, or recomputed base is accepted;
 6. canonical bytes, no-replace publication, expected-digest verification,
    ancestry, persisted root strictness, immutable-root/new-stage replacement,
    and cold-restart refusal rules are enforced;
-7. pre-dispatch head equality is checked only after the fingerprint exists by
+7. every new `stage_id` receives a new reservation, including retries and
+   corrective follow-ons, and named-target-ref equality is revalidated before
+   invocation;
+8. pre-dispatch head equality is checked only after the fingerprint exists by
    the invocation/complete-chain validators, not prematurely by scope
    publication;
-8. the contract is graph-free and does not authorize M1.2 persistence or
+9. the contract is graph-free and does not authorize M1.2 persistence or
    authority behavior by itself; and
-9. writer-quiescence, checked-plan consumer, and any current-authority
+10. writer-quiescence, checked-plan consumer, and any current-authority
    approvals remain separate prerequisites.
 
 Implementation verification must include fresh-process tests for canonical
@@ -443,6 +452,7 @@ before target publication and target publication before base publication,
 retained-candidate and bundle binding, attempt-owned reservation binding,
 expected base digest mismatch, comparison-root equality and strictness,
 object-format anchors, ancestry, equal base/head final refusal, target-head
-drift, pre-dispatch head validation at invocation time, missing producer bytes,
-cold restart, and caller/base substitution refusal. A successful runtime
+drift, fresh reservations for new stage IDs, named-target-ref revalidation,
+pre-dispatch head validation at invocation time, missing producer bytes, cold
+restart, and caller/base substitution refusal. A successful runtime
 `GateApprovalRecord` is not governance approval for this contract.
