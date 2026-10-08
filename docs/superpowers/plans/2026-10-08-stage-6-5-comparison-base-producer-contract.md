@@ -336,11 +336,12 @@ pre-dispatch fingerprint yet: the frozen M1.2 order captures that fingerprint
 after scope publication. After the fingerprint exists, the invocation publisher must require producer
 `head == fingerprint.head` before publishing the invocation. It must also
 re-read the producer-owned `target.ref` (for example, the exact `refs/heads/...`
-ref) and require that it still resolves to that same captured head; missing,
-moved, or unrelated branch-ref state blocks invocation publication. The later
-complete-chain validator must recheck producer head, invocation head,
-fingerprint head, and named-target-ref equality. The request and invocation
-purpose must equal the
+ref) and require that it still resolves to that same captured head; missing, moved, or unrelated branch-ref state blocks
+invocation publication. The later complete-chain validator rechecks only the
+persisted producer-head, invocation-head, and fingerprint-head equality; it does
+not resolve the mutable named ref during historical loading. Named-ref
+revalidation remains limited to invocation publication and any current-authority
+check. The request and invocation purpose must equal the
 scope's copied producer purpose byte-for-byte; the complete-chain validator
 must recheck that equality and the final strict-root rule. The review-scope
 publisher must not recompute a new base, ask Git for a newer base, infer a base
