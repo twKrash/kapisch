@@ -91,11 +91,13 @@ def _inventory(
         except FileNotFoundError:
             if any(row["status"] == "dispatch-uncertain" for row in history):
                 raise ValueError("uncertain history has no invocation inventory")
+            if "review_result_ref" in state:
+                raise ValueError("review backlinks have no invocation inventory")
             return
         try:
             loaded = _read_invocation_inventory(invocations)
             inventory = _validate_inventory_operations(
-                repo, run_id, loaded, authority, bundle, history_index
+                repo, run_id, loaded, authority, bundle, history_index, state
             )
             _validate_uncertain_history(history, authority, inventory, bundle)
         finally:
@@ -146,14 +148,23 @@ def _validate_inventory_operations(
     authority: Mapping[str, Any],
     bundle: CoreBundle,
     index: _HistoryIndex,
+    state: Mapping[str, Any],
 ) -> Mapping[str, _OperationInventory]:
     """Validate loaded operations against the shared history index."""
     operation_by_attempt: dict[str, str] = {}
     inventory: dict[str, _OperationInventory] = {}
     for operation in operations:
         inventory[operation.operation_id] = _validate_operation(
-            repo, run_id, operation, authority, bundle, index, operation_by_attempt
+            repo,
+            run_id,
+            operation,
+            authority,
+            bundle,
+            index,
+            operation_by_attempt,
+            state,
         )
+    _validate_review_backlinks(run_id, inventory, state)
     return MappingProxyType(inventory)
 
 
@@ -165,6 +176,7 @@ def _validate_operation(
     bundle: CoreBundle,
     index: _HistoryIndex,
     operation_by_attempt: dict[str, str],
+    state: Mapping[str, Any],
 ) -> _OperationInventory:
     operation_id = operation.operation_id
     facts = operation.facts
@@ -174,11 +186,19 @@ def _validate_operation(
     planned, _ = planned_entry
     packet = _validate_reservation(repo, run_id, operation_id, planned)
     _validate_request_producers(planned, packet, index)
+    review_names = {
+        "review-invocation.json",
+        "reviewer-return.json",
+        "host-provenance-attestation.json",
+        "post-result.json",
+        "review-result.json",
+    }
     allowed = {
         "planned.json",
         "dispatch-uncertain.json",
         "observed.json",
         "blocked.json",
+        *review_names,
     }
     if facts.keys() - allowed:
         raise ValueError("invocation inventory contains unsupported fact")
@@ -199,7 +219,7 @@ def _validate_operation(
                 index,
                 operation_by_attempt,
             )
-        else:
+        elif filename not in review_names:
             _validate_observation_fact(
                 fact,
                 filename,
@@ -211,7 +231,31 @@ def _validate_operation(
                 packet,
                 index,
             )
+    if facts.keys() & review_names:
+        from ._review_chain import _load_result_chain
+
+        if _load_result_chain(repo, run_id, operation_id, state) is None:
+            raise ValueError("review result chain is incomplete")
     return _OperationInventory(facts, packet)
+
+
+def _validate_review_backlinks(
+    run_id: str,
+    inventory: Mapping[str, _OperationInventory],
+    state: Mapping[str, Any],
+) -> None:
+    references = state.get("review_result_ref", {})
+    if not isinstance(references, Mapping):
+        raise ValueError("review_result_ref has invalid shape")
+    for operation_id, reference in references.items():
+        if not isinstance(reference, Mapping):
+            raise ValueError("review_result_ref has invalid entry")
+        operation = inventory.get(operation_id)
+        if operation is None or "review-result.json" not in operation.facts:
+            raise ValueError("review backlink has no complete result chain")
+        expected_path = f"invocations/{operation_id}/review-result.json"
+        if reference.get("path") != f".kapisch/v3/runs/{run_id}/{expected_path}" or reference.get("sha256") != operation.facts["review-result.json"][1]:
+            raise ValueError("review backlink conflicts with complete result chain")
 
 
 def _validate_request_producers(

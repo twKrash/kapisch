@@ -27,6 +27,7 @@ from .review import (
     ReviewerReturn,
     ReviewInvocation,
     ReviewResult,
+    ReviewScopeArtifact,
 )
 
 __all__ = [
@@ -57,5 +58,6 @@ __all__ = [
     "ImmutableArtifactLocator",
     "ReviewInvocation",
     "ReviewResult",
+    "ReviewScopeArtifact",
     "ReviewerReturn",
 ]

@@ -18,6 +18,10 @@ _STAGE42_API = {
     "persist_request",
     "reserve_operation",
     "publish_uncertainty",
+    "load_review_scope",
+    "publish_review_invocation",
+    "publish_review_scope",
+    "repair_review_backlinks",
 }
 
 
