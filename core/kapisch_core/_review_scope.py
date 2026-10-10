@@ -299,9 +299,15 @@ def _reject_conflicting_bindings(
     current_name = binding["path"].rsplit("/", 1)[-1]
     run, fds = _run_dir(repo, run_id, create=False)
     try:
-        review_inputs = _open_dir(run, "review-inputs")
         try:
-            bindings_dir = _open_dir(review_inputs, "review-target-bindings")
+            review_inputs = _open_dir(run, "review-inputs")
+        except FileNotFoundError:
+            return
+        try:
+            try:
+                bindings_dir = _open_dir(review_inputs, "review-target-bindings")
+            except FileNotFoundError:
+                return
         finally:
             _close([review_inputs])
         try:
@@ -322,8 +328,6 @@ def _reject_conflicting_bindings(
                     raise ValueError("conflicting review-target reservations exist")
         finally:
             _close([bindings_dir])
-    except FileNotFoundError:
-        return
     finally:
         _close(fds)
 

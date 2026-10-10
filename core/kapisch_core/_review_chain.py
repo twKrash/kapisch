@@ -159,6 +159,7 @@ def _require_chain_citation_order(
     operation_id: str,
     stage_id: str,
     fingerprint: ImmutableArtifactLocator,
+    report: ImmutableArtifactLocator,
     uncertainty_digest: str,
     operation_bytes: Mapping[str, bytes],
 ) -> None:
@@ -170,13 +171,20 @@ def _require_chain_citation_order(
             f"invocations/{operation_id}/dispatch-uncertain.json",
             uncertainty_digest,
         ),
+        (
+            f"invocations/{operation_id}/review-invocation.json",
+            hashlib.sha256(operation_bytes["review-invocation.json"]).hexdigest(),
+        ),
+        (
+            report.path.removeprefix(prefix),
+            report.sha256,
+        ),
         *(
             (
                 f"invocations/{operation_id}/{filename}",
                 hashlib.sha256(operation_bytes[filename]).hexdigest(),
             )
             for filename in (
-                "review-invocation.json",
                 "reviewer-return.json",
                 "host-provenance-attestation.json",
                 "post-result.json",
@@ -301,17 +309,18 @@ def _load_result_chain(
     invocation = ReviewInvocation.from_dict(
         _json(operation_bytes["review-invocation.json"], "review invocation")
     )
+    reviewer_return = ReviewerReturn.from_dict(
+        _json(operation_bytes["reviewer-return.json"], "reviewer return")
+    )
     _require_chain_citation_order(
         state,
         run_id,
         operation_id,
         planned["stage_id"],
         invocation.pre_dispatch_fingerprint,
+        reviewer_return.report,
         hashlib.sha256(uncertainty_data).hexdigest(),
         operation_bytes,
-    )
-    reviewer_return = ReviewerReturn.from_dict(
-        _json(operation_bytes["reviewer-return.json"], "reviewer return")
     )
     attestation = HostProvenanceAttestation.from_dict(
         _json(

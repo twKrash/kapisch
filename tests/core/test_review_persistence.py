@@ -268,6 +268,7 @@ class ReviewScopePersistenceTests(unittest.TestCase):
                 "evidence": [
                     *uncertain["evidence"],
                     {"kind": "protocol", "path": f"invocations/{operation_id}/review-invocation.json", "sha256": hashlib.sha256((operation_dir / "review-invocation.json").read_bytes()).hexdigest()},
+                    {"kind": "protocol", "path": f"reports/{operation_id}.json", "sha256": report_digest},
                     {"kind": "protocol", "path": f"invocations/{operation_id}/reviewer-return.json", "sha256": reviewer_locator.sha256},
                     {"kind": "protocol", "path": f"invocations/{operation_id}/host-provenance-attestation.json", "sha256": provenance_locator.sha256},
                     {"kind": "protocol", "path": f"invocations/{operation_id}/post-result.json", "sha256": fingerprint_digest},
@@ -410,51 +411,8 @@ class ReviewScopePersistenceTests(unittest.TestCase):
             f".kapisch/v3/runs/{run_id}/review-inputs/{operation_id}/pre-dispatch-fingerprint.json",
             "a" * 64,
         )
-        operation_bytes = {
-            filename: filename.encode("utf-8")
-            for filename in (
-                "review-invocation.json",
-                "reviewer-return.json",
-                "host-provenance-attestation.json",
-                "post-result.json",
-                "review-result.json",
-            )
-        }
-        paths = [
-            (fingerprint.path.removeprefix(f".kapisch/v3/runs/{run_id}/"), fingerprint.sha256),
-            (f"invocations/{operation_id}/dispatch-uncertain.json", "u" * 64),
-            *(
-                (
-                    f"invocations/{operation_id}/{filename}",
-                    hashlib.sha256(data).hexdigest(),
-                )
-                for filename, data in operation_bytes.items()
-            ),
-        ]
-        row = {
-            "stage_id": stage_id,
-            "evidence": [{"path": path, "sha256": digest} for path, digest in paths],
-        }
-        with self.assertRaisesRegex(ValueError, "follow durable uncertainty"):
-            _require_chain_citation_order(
-                {"history": [row]},
-                run_id,
-                operation_id,
-                stage_id,
-                fingerprint,
-                "u" * 64,
-                operation_bytes,
-            )
-
-    def test_chain_loader_rejects_out_of_order_first_citations(self) -> None:
-        from kapisch_core._review_chain import _require_chain_citation_order
-
-        run_id = "run-order"
-        operation_id = "op-" + "a" * 32
-        stage_id = "s-" + "b" * 32
-        fingerprint = ImmutableArtifactLocator(
-            f".kapisch/v3/runs/{run_id}/review-inputs/{operation_id}/pre-dispatch-fingerprint.json",
-            "a" * 64,
+        report = ImmutableArtifactLocator(
+            f".kapisch/v3/runs/{run_id}/reports/{operation_id}.json", "e" * 64
         )
         operation_bytes = {
             filename: filename.encode("utf-8")
@@ -469,12 +427,68 @@ class ReviewScopePersistenceTests(unittest.TestCase):
         paths = [
             (fingerprint.path.removeprefix(f".kapisch/v3/runs/{run_id}/"), fingerprint.sha256),
             (f"invocations/{operation_id}/dispatch-uncertain.json", "u" * 64),
+            (f"invocations/{operation_id}/review-invocation.json", hashlib.sha256(operation_bytes["review-invocation.json"]).hexdigest()),
+            (report.path.removeprefix(f".kapisch/v3/runs/{run_id}/"), report.sha256),
             *(
                 (
                     f"invocations/{operation_id}/{filename}",
                     hashlib.sha256(data).hexdigest(),
                 )
                 for filename, data in operation_bytes.items()
+                if filename != "review-invocation.json"
+            ),
+        ]
+        row = {
+            "stage_id": stage_id,
+            "evidence": [{"path": path, "sha256": digest} for path, digest in paths],
+        }
+        with self.assertRaisesRegex(ValueError, "follow durable uncertainty"):
+            _require_chain_citation_order(
+                {"history": [row]},
+                run_id,
+                operation_id,
+                stage_id,
+                fingerprint,
+                report,
+                "u" * 64,
+                operation_bytes,
+            )
+
+    def test_chain_loader_rejects_out_of_order_first_citations(self) -> None:
+        from kapisch_core._review_chain import _require_chain_citation_order
+
+        run_id = "run-order"
+        operation_id = "op-" + "a" * 32
+        stage_id = "s-" + "b" * 32
+        fingerprint = ImmutableArtifactLocator(
+            f".kapisch/v3/runs/{run_id}/review-inputs/{operation_id}/pre-dispatch-fingerprint.json",
+            "a" * 64,
+        )
+        report = ImmutableArtifactLocator(
+            f".kapisch/v3/runs/{run_id}/reports/{operation_id}.json", "e" * 64
+        )
+        operation_bytes = {
+            filename: filename.encode("utf-8")
+            for filename in (
+                "review-invocation.json",
+                "reviewer-return.json",
+                "host-provenance-attestation.json",
+                "post-result.json",
+                "review-result.json",
+            )
+        }
+        paths = [
+            (fingerprint.path.removeprefix(f".kapisch/v3/runs/{run_id}/"), fingerprint.sha256),
+            (f"invocations/{operation_id}/dispatch-uncertain.json", "u" * 64),
+            (f"invocations/{operation_id}/review-invocation.json", hashlib.sha256(operation_bytes["review-invocation.json"]).hexdigest()),
+            (report.path.removeprefix(f".kapisch/v3/runs/{run_id}/"), report.sha256),
+            *(
+                (
+                    f"invocations/{operation_id}/{filename}",
+                    hashlib.sha256(data).hexdigest(),
+                )
+                for filename, data in operation_bytes.items()
+                if filename != "review-invocation.json"
             ),
         ]
         row = {
@@ -491,6 +505,24 @@ class ReviewScopePersistenceTests(unittest.TestCase):
                 operation_id,
                 stage_id,
                 fingerprint,
+                report,
+                "u" * 64,
+                operation_bytes,
+            )
+        late_report = [item for item in paths if item != (report.path.removeprefix(f".kapisch/v3/runs/{run_id}/"), report.sha256)]
+        with self.assertRaisesRegex(ValueError, "dependency order"):
+            _require_chain_citation_order(
+                {
+                    "history": [
+                        {"stage_id": stage_id, "evidence": [{"path": path, "sha256": digest} for path, digest in late_report]},
+                        {"stage_id": stage_id, "evidence":[{"path": report.path.removeprefix(f".kapisch/v3/runs/{run_id}/"), "sha256": report.sha256}]},
+                    ]
+                },
+                run_id,
+                operation_id,
+                stage_id,
+                fingerprint,
+                report,
                 "u" * 64,
                 operation_bytes,
             )
