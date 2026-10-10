@@ -24,7 +24,7 @@ from ._state import (
     _routing_digest,
     load_state,
 )
-from .bundle import canonical_json
+from .bundle import canonical_json, supports_review_evidence
 from .storage import (
     _NAME,
     _atomic_write_at,
@@ -55,6 +55,66 @@ def _valid_adapter_binding(binding: Any) -> bool:
             for field in ("adapter_id", "lookup_context")
         )
     )
+
+
+def _validate_review_scope_request(
+    repo: Path, run_id: str, packet: Mapping[str, Any], bundle: Any
+) -> None:
+    if (
+        packet.get("role") != "reviewer"
+        or type(packet.get("purpose")) is not str
+        or packet.get("purpose") not in {"iteration", "final"}
+    ):
+        raise ValueError("review request purpose or role is invalid")
+    if not supports_review_evidence(bundle):
+        raise ValueError("unsupported-gate: retained bundle lacks review evidence")
+    ref = packet.get("review_scope")
+    if (
+        not isinstance(ref, dict)
+        or set(ref) != {"path", "sha256"}
+        or type(ref.get("path")) is not str
+        or type(ref.get("sha256")) is not str
+    ):
+        raise ValueError("operation request review scope reference is invalid")
+    expected = re.fullmatch(
+        rf"\.kapisch/v3/runs/{re.escape(run_id)}/review-inputs/scopes/([0-9a-f]{{64}})\.json",
+        ref["path"],
+    )
+    if expected is None or expected.group(1) != ref["sha256"]:
+        raise ValueError("operation request review scope reference is invalid")
+    from ._review_scope import _load_bound_base, load_review_scope
+    from .review import ImmutableArtifactLocator
+
+    scope = load_review_scope(repo, ImmutableArtifactLocator.from_dict(ref))
+    state, _ = _load_run_context(repo, run_id)
+    candidate_ref = state.get("plan_candidate_ref")
+    if (
+        not isinstance(candidate_ref, Mapping)
+        or scope.plan_candidate_ref.to_dict() != dict(candidate_ref)
+        or scope.stage_id != packet.get("stage_id")
+        or scope.purpose != packet.get("purpose")
+    ):
+        raise ValueError("operation request review scope binding is invalid")
+    attempt = next(
+        (
+            row
+            for row in reversed(state["history"])
+            if row["stage_id"] == packet.get("stage_id")
+            and row["status"] == "planned"
+            and row["role"] == "reviewer"
+        ),
+        None,
+    )
+    if attempt is None:
+        raise ValueError("review scope has no planned owning attempt")
+    reservation, _, base = _load_bound_base(
+        repo, run_id, state, attempt, verify_git=True, verify_named_ref=False
+    )
+    if (
+        reservation["purpose"] != scope.purpose
+        or base["base"] != scope.comparison_base
+    ):
+        raise ValueError("operation request review scope producer binding is invalid")
 
 
 def _validate_packet_inputs(
@@ -88,10 +148,13 @@ def _validate_packet_inputs(
                 "operation request input must bind immutable published bytes and source path"
             )
         refs.append({"path": item["path"], "sha256": item["sha256"]})
+    if "review_scope" in packet:
+        _validate_review_scope_request(repo, run_id, packet, bundle)
     for field, keys in (
         ("graph", {"path", "sha256"}),
         ("approved_plan", {"plan_id", "path", "sha256"}),
         ("accepted_snapshot", {"snapshot_id", "path", "sha256"}),
+        ("review_scope", {"path", "sha256"}),
     ):
         if field in packet:
             ref = packet[field]
@@ -102,6 +165,8 @@ def _validate_packet_inputs(
                 or (field == "accepted_snapshot" and not ref.get("snapshot_id"))
             ):
                 raise ValueError("operation request authority reference is invalid")
+            if field == "review_scope":
+                continue
             refs.append({"path": ref["path"], "sha256": ref["sha256"]})
     for ref in refs:
         if (
@@ -148,7 +213,11 @@ def _validate_reservation(
     }
     if not isinstance(fact, dict) or set(fact) != fields:
         raise ValueError("operation reservation has missing or unknown fields")
-    if fact["protocol_version"] != 3 or fact["status"] != "planned":
+    if (
+        type(fact["protocol_version"]) is not int
+        or fact["protocol_version"] != 3
+        or fact["status"] != "planned"
+    ):
         raise ValueError("operation reservation protocol or status is invalid")
     if (
         fact["run_id"] != run_id
@@ -157,14 +226,17 @@ def _validate_reservation(
         or not re.fullmatch(r"s-[0-9a-f]{32}", str(fact["stage_id"]))
     ):
         raise ValueError("operation reservation identity mismatch")
-    if fact["role"] not in {
-        "architect",
-        "researcher",
-        "implementer",
-        "implementer-lite",
-        "mechanic",
-        "reviewer",
-    }:
+    if (
+        type(fact["role"]) is not str
+        or fact["role"] not in {
+            "architect",
+            "researcher",
+            "implementer",
+            "implementer-lite",
+            "mechanic",
+            "reviewer",
+        }
+    ):
         raise ValueError("operation reservation role is invalid")
     request = fact["request"]
     binding = fact["adapter_binding"]
@@ -276,6 +348,8 @@ def _persist_request_locked(
         raise ValueError("adapter binding must contain nonempty strings")
     _validate_packet_authority(packet, state, attempt, bundle)
     _validate_state_snapshot(Path(repo), run_id, state, bundle)
+    if "review_scope" in packet:
+        _validate_review_scope_request(Path(repo), run_id, packet, bundle)
     _publish_request_inputs(Path(repo), run_id, operation_id, packet)
     _validate_packet_inputs(Path(repo), run_id, operation_id, packet, bundle)
     body = canonical_json(packet)
@@ -562,6 +636,14 @@ def publish_uncertainty(
             )
         if len(proposed_state["history"]) <= len(current["history"]):
             raise ValueError("uncertain state must append an observation")
+        if (
+            current.get("review_result_ref") != proposed_state.get("review_result_ref")
+            or (
+                "review_result_ref" not in current
+                and "review_result_ref" in proposed_state
+            )
+        ):
+            raise ValueError("review backlinks require guarded repair")
         run, fds = _run_dir(repo, run_id, create=False)
         try:
             invocations = _open_dir(run, "invocations")

@@ -8,7 +8,7 @@ from typing import Any, Mapping
 
 from ._authority import _unique_pairs, _validate_state_snapshot
 from ._locking import _locked
-from .bundle import canonical_json
+from .bundle import canonical_json, supports_review_evidence
 from .storage import (
     _atomic_write_at,
     _close,
@@ -215,6 +215,7 @@ def _parse_state(data: bytes, *, bundle: Any) -> RunState:
     }
     authority_contract = bundle.payload.get("authority_contract")
     global_authority = authority_contract == "global-authority/1"
+    review_capable = supports_review_evidence(bundle)
     allowed = required | {
         "accepted_snapshot",
         "approved_plan",
@@ -222,6 +223,8 @@ def _parse_state(data: bytes, *, bundle: Any) -> RunState:
         "supersedes",
         "graph",
     }
+    if review_capable:
+        allowed.add("review_result_ref")
     if global_authority:
         allowed |= {
             "acceptance_ref",
@@ -289,6 +292,8 @@ def _parse_state(data: bytes, *, bundle: Any) -> RunState:
                 raise ValueError(f"invalid {field} relationship list")
     if "graph" in value:
         _validate_ref(value["graph"], {"path", "sha256"})
+    if "review_result_ref" in value and not review_capable:
+        raise ValueError("review_result_ref requires the retained review capability")
     if "plan_candidate_ref" in value:
         _validate_ref(value["plan_candidate_ref"], {"path", "sha256"})
     if value["workflow"] != "milestone" and "graph" in value:
@@ -369,6 +374,7 @@ def _publish_state_locked(
     expected_revision: int,
     *,
     allow_dispatch_uncertain: bool = False,
+    allow_review_backlink_repair: bool = False,
 ) -> None:
     run, fds = _run_dir(repo, run_id, create=True)
     try:
@@ -402,6 +408,16 @@ def _publish_state_locked(
         if proposed["revision"] != expected_revision + 1:
             raise ValueError("new run revision must increment by one")
         load_bundle(repo, proposed["bundle_digest"])
+        previous_review_ref = previous.get("review_result_ref") if previous else None
+        proposed_review_ref = proposed.get("review_result_ref")
+        if (
+            not allow_review_backlink_repair
+            and (
+                previous_review_ref != proposed_review_ref
+                or (previous is None and "review_result_ref" in proposed)
+            )
+        ):
+            raise ValueError("review backlinks require guarded repair")
         if previous is not None:
             if (
                 proposed["bundle_digest"] != previous["bundle_digest"]

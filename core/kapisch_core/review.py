@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from types import MappingProxyType
 from typing import Any, Mapping
 
@@ -129,6 +130,15 @@ def _digest(value: Any, name: str) -> str:
     return value
 
 
+def _anchor(value: Any, name: str) -> str:
+    _text(value, name)
+    if re.fullmatch(r"sha1:[0-9a-f]{40}", value) is None and re.fullmatch(
+        r"sha256:[0-9a-f]{64}", value
+    ) is None:
+        raise ValueError(f"{name} must be a Git commit anchor")
+    return value
+
+
 def _text(value: Any, name: str) -> str:
     if type(value) is not str or not value:
         raise ValueError(f"{name} must be a nonempty string")
@@ -211,6 +221,54 @@ class _Record:
         if set(keys) != fields:
             raise ValueError(f"{cls.__name__} has missing or unknown fields")
         return dict(snapshot)
+
+
+@dataclass(frozen=True)
+class ReviewScopeArtifact(_Record):
+    run_id: str
+    stage_id: str
+    purpose: str
+    plan_candidate_ref: ImmutableArtifactLocator
+    comparison_base: str
+    coverage: Mapping[str, Any] = dataclass_field(
+        default_factory=lambda: MappingProxyType({"kind": "graph-free-task"})
+    )
+    protocol_version: int = 3
+    scope_contract: str = "review-scope/1"
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.protocol_version) is not int
+            or self.protocol_version != 3
+            or type(self.scope_contract) is not str
+            or self.scope_contract != "review-scope/1"
+        ):
+            raise ValueError("unsupported review-scope protocol or contract")
+        _text(self.run_id, "run_id")
+        _text(self.stage_id, "stage_id")
+        if re.fullmatch(r"s-[0-9a-f]{32}", self.stage_id) is None:
+            raise ValueError("stage_id is invalid")
+        _closed(self.purpose, {"iteration", "final"}, "purpose")
+        _locator(self.plan_candidate_ref, "plan_candidate_ref")
+        if self.plan_candidate_ref.path != (
+            ".kapisch/v3/authority/plan-approval-candidates/"
+            f"{self.plan_candidate_ref.sha256}.json"
+        ):
+            raise ValueError("plan_candidate_ref path is not canonical")
+        _anchor(self.comparison_base, "comparison_base")
+        object.__setattr__(self, "coverage", _mapping(
+            self.coverage, {"kind"}, "coverage"
+        ))
+        if self.coverage["kind"] != "graph-free-task":
+            raise ValueError("M1.2 only supports graph-free-task coverage")
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> "ReviewScopeArtifact":
+        raw = cls._load(value, set(cls.__dataclass_fields__))
+        raw["plan_candidate_ref"] = ImmutableArtifactLocator.from_dict(
+            raw["plan_candidate_ref"]
+        )
+        return cls(**raw)
 
 
 @dataclass(frozen=True)
@@ -341,5 +399,5 @@ class ReviewResult(_Record):
 
 __all__ = [
     "EvidenceLocator", "HostProvenanceAttestation", "ImmutableArtifactLocator",
-    "ReviewInvocation", "ReviewResult", "ReviewerReturn",
+    "ReviewInvocation", "ReviewResult", "ReviewScopeArtifact", "ReviewerReturn",
 ]
