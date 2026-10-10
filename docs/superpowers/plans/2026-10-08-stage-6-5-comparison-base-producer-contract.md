@@ -41,16 +41,68 @@ earlier Stage 5 **review-target producer** is therefore a mandatory input to
 this contract.
 
 The Stage 5 review-target producer is the sole initial owner of the target
-selection and comparison-root decision. Its target-selection input and policy
-must come from a separately reviewed Stage 5 target-selection contract; this
-document does not invent a caller API or treat the current candidate/attempt
-schemas as if they already contained that input. If that producer or contract
-is absent, M1.2 remains blocked.
+selection and comparison-root decision. In this contract, **Stage 5
+review-target producer** and **Stage 5 target-selection producer** are aliases
+for that one producer role: it establishes the shared root first, then
+publishes the stage-specific reservation and target. Its target-selection input
+and policy must come from a separately reviewed Stage 5 target-selection
+contract; this document does not invent a caller API or treat the current
+candidate/attempt schemas as if they already contained that input. If that
+producer or contract is absent, M1.2 remains blocked.
 
 Stage 4 attempt creation remains the sole producer of `stage_id`: the first
 immutable `planned` observation creates the attempt and its creation fields.
-Only after that observation is durable may the Stage 5 review-target producer
-publish one immutable, content-addressed **review-target reservation** at:
+Only after that observation is durable may the separately gated Stage 5
+target-selection producer establish the whole-work comparison root. It must
+publish one immutable candidate-addressed **comparison-root/1** artifact at:
+
+```text
+.kapisch/v3/runs/<run_id>/review-inputs/comparison-roots/<plan_candidate_digest>.json
+```
+
+Its exact closed payload is:
+
+```json
+{
+  "protocol_version": 3,
+  "comparison_root_contract": "comparison-root/1",
+  "run_id": "<run identity>",
+  "plan_candidate_ref": {
+    "path": ".kapisch/v3/authority/plan-approval-candidates/<sha256>.json",
+    "sha256": "<64 lowercase hexadecimal digest>"
+  },
+  "plan_id": "<validated Stage 5 plan identity>",
+  "target": {
+    "kind": "whole-branch",
+    "ref": "refs/heads/<canonical branch ref>"
+  },
+  "object_format": "sha1" | "sha256",
+  "anchor": "sha1:<40 lowercase hexadecimal commit>" | "sha256:<64 lowercase hexadecimal commit>"
+}
+```
+
+The target-selection producer is the sole producer and semantic owner of this
+root artifact. Its path is derived from the exact approved candidate digest;
+publication is canonical UTF-8, atomic, durable, and no-replace. It must
+publish this artifact before the review-target reservation and must load and
+reuse it for every retry, corrective stage, and final stage for the same
+approved candidate and whole-branch target. A missing, changed, conflicting,
+or ambiguous root artifact blocks. For every later stage, the target-selection
+producer must inspect the retained earlier reservations/target artifacts for
+the same approved candidate and whole-branch target and require their exact
+`comparison_root_ref` and anchor to match this artifact; it may establish the
+root only when no earlier binding exists. This contract supports no implicit
+root replacement: a different root is a refusal. A future root-replacement
+contract, if ever needed, must separately define a persisted authorization
+bound to the old root, replacement root, candidate, target, reason, and new
+identity, validated from persisted bytes after cold restart, and approved
+before any replacement can be consumed; a new `stage_id` alone is never
+sufficient. This contract defines no root-replacement operation, so every
+attempted replacement is refused until that separately approved contract
+exists.
+
+The target-selection producer then publishes one immutable, content-addressed
+**review-target reservation** at:
 
 ```text
 .kapisch/v3/runs/<run_id>/review-inputs/review-target-bindings/<binding_digest>.json
@@ -109,6 +161,10 @@ The reservation's closed payload is:
     "ref": "refs/heads/<canonical branch ref>"
   },
   "purpose": "iteration" | "final",
+  "comparison_root_ref": {
+    "path": ".kapisch/v3/runs/<run_id>/review-inputs/comparison-roots/<plan_candidate_digest>.json",
+    "sha256": "<64 lowercase hexadecimal digest of the exact root artifact>"
+  },
   "comparison_root": {
     "source": "stage5-target-binding",
     "anchor": "sha1:<40 lowercase hexadecimal commit>" | "sha256:<64 lowercase hexadecimal commit>",
@@ -129,26 +185,24 @@ The reservation's closed payload is:
 ```
 
 The review-target producer publishes the reservation only after the validated
-Stage 5 plan identity and the durable planned Stage 4 attempt/stage identity
-exist. It owns `target`,
-`purpose`, `comparison_root`, base choice, and observed head; it refuses an
-absent or ambiguous producer-owned target binding. It constructs the exact
-target and base payloads, computes both content digests, and persists both
-expected references before publishing either dependent artifact. The producer
-must set `comparison_root.anchor` to the exact root from its durable Stage 5
-target binding, require `base == comparison_root.anchor`, and refuse when the
-anchor is absent, ambiguous, or not a commit in `object_format`.
-`must_differ_from_head` is persisted rather than inferred, is always true for a
-`final` target, and when true requires a strict ancestor. Equality is allowed
-only when the producer-owned binding explicitly permits an empty iteration
-comparison; ancestry alone never chooses a root. The established root is
-immutable for one stage: retries within that same stage may reuse only the
-exact same reservation, while every failed-attempt retry or corrective
-follow-on with a new `stage_id` must allocate a fresh reservation even when the
-root/target is unchanged. Any root, target, purpose, or observed-head change
-also requires a new eligible `stage_id`, new reservation, new target/base
-artifacts, and new review scope/invocation identities. The producer never
-recomputes a root from a later HEAD, merge-base, or current branch.
+Stage 5 plan identity, the durable planned Stage 4 attempt/stage identity, and
+the exact immutable `comparison-root/1` artifact exist. It owns `target`,
+`purpose`, base choice, and observed head; it refuses an absent, ambiguous, or
+changed producer-owned root/target binding. It constructs the exact target and
+base payloads, computes all content digests, and persists all expected
+references before publishing either dependent artifact. The producer must load
+the root artifact from the candidate-derived `comparison_root_ref`, require
+its candidate, plan, target, and object format to match, copy its exact
+`anchor`, and require `base == comparison_root.anchor`. It must refuse any root
+that differs from the established artifact; a new `stage_id`, later HEAD,
+merge-base, purpose, or local ancestry does not authorize narrowing or root
+replacement. `must_differ_from_head` is persisted rather than inferred, is
+always true for a `final` target, and when true requires a strict ancestor.
+Equality is allowed only when the persisted reservation rule explicitly
+permits an empty iteration comparison. Any target, purpose, or observed-head change
+requires a new eligible `stage_id`, new reservation, new target/base artifacts,
+and new review scope/invocation identities. The producer never recomputes a
+root from a later HEAD, merge-base, or current branch.
 
 After the reservation exists, the separately gated attempt-binding producer
 appends the immutable observation whose cumulative evidence contains the exact
@@ -172,6 +226,10 @@ at the reservation's `review_target_ref`. Its exact closed payload is:
     "ref": "refs/heads/<canonical branch ref>"
   },
   "purpose": "iteration" | "final",
+  "comparison_root_ref": {
+    "path": ".kapisch/v3/runs/<run_id>/review-inputs/comparison-roots/<plan_candidate_digest>.json",
+    "sha256": "<64 lowercase hexadecimal digest of the exact root artifact>"
+  },
   "comparison_root": {
     "source": "stage5-target-binding",
     "anchor": "sha1:<40 lowercase hexadecimal commit>" | "sha256:<64 lowercase hexadecimal commit>",
@@ -190,10 +248,11 @@ at the reservation's `review_target_ref`. Its exact closed payload is:
 The comparison-base producer later publishes the exact base payload at the
 reservation's `comparison_base_ref`.
 
-The reservation and target artifacts are canonical UTF-8 JSON, atomically
-durable, content-addressed where referenced, and no-replace. A second
-reservation for the same candidate/stage, a target at a different digest, or
-any conflicting producer identity is a refusal. Missing, changed,
+The root, reservation, and target artifacts are canonical UTF-8 JSON,
+atomically durable, content-addressed where referenced, and no-replace. A
+second root for the same approved candidate/target, a second reservation for
+the same candidate/stage, a target at a different digest, or any conflicting
+producer identity is a refusal. Missing, changed,
 unsupported, or caller-selected reservation or target bytes block the
 comparison-base producer. The reservation is the explicit earlier durable
 owner required by this contract; no fixed-path lookup, caller argument, or
@@ -233,6 +292,10 @@ The exact closed payload is:
     "ref": "refs/heads/<canonical branch ref>"
   },
   "purpose": "iteration" | "final",
+  "comparison_root_ref": {
+    "path": ".kapisch/v3/runs/<run_id>/review-inputs/comparison-roots/<plan_candidate_digest>.json",
+    "sha256": "<64 lowercase hexadecimal digest of the exact root artifact>"
+  },
   "comparison_root": {
     "source": "stage5-target-binding",
     "anchor": "sha1:<40 lowercase hexadecimal commit>" | "sha256:<64 lowercase hexadecimal commit>",
@@ -288,12 +351,15 @@ producer must derive every field from validated persisted inputs:
 4. `target` and `purpose` are copied from the reservation and target artifact.
    The comparison-base producer cannot accept or change a caller branch, work
    target, or purpose.
-5. `comparison_root`, `object_format`, `base`, and `head` are copied from the
-   exact target capture reserved by the review-target producer. The producer
-   verifies `base == comparison_root.anchor`, applies the persisted
-   `must_differ_from_head` rule, verifies ancestry, and verifies that the
-   canonical base bytes hash to `comparison_base_ref.sha256` before
-   publication.
+5. The producer loads `comparison_root_ref`, verifies its exact digest, and
+   requires the root artifact's candidate, plan, target, and object format to
+   match. `comparison_root`, `object_format`, `base`, and `head` are copied
+   from the exact target capture reserved by the review-target producer. The
+   producer verifies the reservation, target, and base all carry the exact
+   same root reference and anchor, requires `base == comparison_root.anchor`,
+   applies the persisted `must_differ_from_head` rule, verifies ancestry, and
+   verifies that the canonical base bytes hash to `comparison_base_ref.sha256`
+   before publication.
 
 The artifact is valid only when the candidate's retained bundle declares the
 approved `review-evidence/1` and `review-invocation/1` capability. Older
@@ -313,11 +379,13 @@ exists.
 1. The approved Stage 5 plan candidate and the first immutable Stage 4
    `planned` observation own their exact identities; Stage 4 attempt creation
    is the sole producer of `stage_id`.
-2. The Stage 5 review-target producer validates that planned attempt, owns the
-   whole-branch target, purpose, and comparison root, constructs the exact
-   target and base payloads, computes all digests, and publishes the
-   content-addressed review-target reservation containing the approved
-   `plan_candidate_ref`.
+2. The Stage 5 review-target producer validates that planned attempt, loads
+   the candidate-derived immutable `comparison-root/1` artifact, and requires
+   its root to be unchanged from every earlier stage for that approved
+   candidate and whole-branch target. It owns the whole-branch target, purpose,
+   and observed head, constructs the exact target and base payloads, computes
+   all digests, and publishes the content-addressed review-target reservation
+   containing the approved `plan_candidate_ref` and exact `comparison_root_ref`.
 3. The separately gated Stage 4 attempt-binding producer appends one later
    immutable observation of the same attempt whose cumulative evidence adds
    the reservation's exact `review-target-binding/1` locator. It never rewrites
@@ -336,22 +404,28 @@ The later graph-free review-scope publisher must:
 - load the validated planned attempt and its cumulative
   `review-target-binding/1` evidence entry;
 - verify the reservation's content-addressed path and SHA-256;
+- load the root artifact at the reservation's `comparison_root_ref.path` and
+  verify its exact digest, candidate, plan, target, object format, and anchor;
 - load the target artifact from the reservation's `review_target_ref`;
-- verify the target artifact's content-addressed path and SHA-256;
+- verify the target artifact's content-addressed path and SHA-256 and require
+  its `comparison_root_ref` and root anchor to equal the root artifact;
 - load the exact comparison-base artifact at the target artifact's
   `comparison_base_ref.path`;
 - verify the comparison-base bytes hash exactly to
   `comparison_base_ref.sha256`;
 - validate all canonical bytes, closed shapes, plan identity, target, purpose,
-  comparison root, object format, and commit anchors;
-- require all artifacts' `run_id` and `stage_id` to equal the persisted
-  attempt;
+  comparison-root reference and artifact, object format, and commit anchors;
+- require the root artifact's `run_id` to equal the persisted run and require
+  the reservation, target, and base artifacts' `run_id` and `stage_id` to equal
+  the persisted attempt; the shared root intentionally has no `stage_id` and
+  is reused across stages;
 - require the reservation's `plan_candidate_ref` to equal the exact approved
   candidate and its `plan_id` to equal the candidate's exact plan identity;
 - require the cumulative `review-target-binding/1` evidence locator to equal
   the reservation;
-- require `base == comparison_root.anchor` and apply the persisted strictness
-  rule;
+- require the reservation, target, and base to carry the exact same
+  `comparison_root_ref` and anchor, require `base == comparison_root.anchor`,
+  and apply the persisted strictness rule;
 - copy the target producer's exact `purpose` into `review-scope/1` rather than
   accepting a caller/request purpose; and
 - copy only the base artifact's exact `base` anchor into `review-scope/1`,
@@ -380,9 +454,9 @@ binding, new comparison-base artifact, new scope, and new invocation identity.
 
 A cold loader reconstructs the producer fact from the validated Stage 4
 attempt's cumulative `review-target-binding/1` evidence, the reservation's
-`plan_candidate_ref`/`review_target_ref`, the target's persisted
-`comparison_base_ref`, the digest-addressed base path, and validated persisted
-candidate/attempt records alone. It never relies on controller memory, ambient
+`plan_candidate_ref`/`comparison_root_ref`/`review_target_ref`, the target's
+persisted `comparison_base_ref`, the digest-addressed root/base paths, and
+validated persisted candidate/attempt records alone. It never relies on controller memory, ambient
 branch state, the installed bundle, or caller honesty. The cumulative evidence
 locator is verified first; its candidate/target locators and the target
 artifact's expected digest-addressed base reference are authoritative for
@@ -409,13 +483,16 @@ The loader blocks on:
   artifact, or persisted attempt;
 - a missing, changed, or unsupported retained plan candidate or bundle;
 - a target ref that is not the producer-owned validated whole-branch target;
-- a missing, unexpected, or digest-mismatched `comparison_base_ref`;
-- a base artifact loaded from any path other than the exact expected path;
+- a missing, unexpected, or digest-mismatched `comparison_root_ref` or
+  `comparison_base_ref`;
+- a root or base artifact loaded from any path other than the exact expected
+  path;
 - base bytes whose SHA-256 differs from the expected digest, even when their
   ancestry is otherwise valid;
-- a missing or mismatched `comparison_root`, a wrong object format, invalid
-  anchor grammar, missing commit, non-ancestor base, or violated strictness
-  rule;
+- a missing or mismatched root artifact or `comparison_root`, a wrong object
+  format, invalid anchor grammar, missing commit, non-ancestor base, violated
+  strictness rule, or root that narrows an earlier stage's established whole
+  work;
 - `purpose`, run, stage, approved-candidate, target, or root binding
   disagreement between the reservation, target, and base artifacts;
 - a second target artifact for the same candidate/stage, a second base
@@ -457,9 +534,10 @@ independently reviewed and explicitly approved by the repository owner. The
 approval must identify this document's exact commit SHA and confirm that:
 
 1. the separately gated Stage 5 target-selection contract supplies the only
-   producer input; the review-target producer is the sole semantic owner of the
+   producer input and owns the candidate-derived immutable `comparison-root/1`
+   artifact; the review-target producer is the sole semantic owner of the
    durable target, purpose, comparison root, base choice, and expected base
-   digest;
+   digest across all stages for that approved candidate and whole-branch target;
 2. the separately approved and implemented `stage-evidence/1` amendment
    permits exactly one pre-dispatch cumulative binding observation without
    changing Stage 4 identity or M1.2 ordering; that evidence binds the exact
@@ -467,14 +545,16 @@ approval must identify this document's exact commit SHA and confirm that:
    stage, and the target binds the exact base digest;
 3. the comparison-base producer is the sole byte producer of the exact
    digest-addressed base artifact and cannot alter the earlier binding;
-4. the attempt binding plus reservation, target, and base artifacts bind the
-   exact Stage 4 attempt, Stage 5 plan candidate, whole-branch target, purpose,
-   comparison root, object format, base, and observed head;
+4. the attempt binding plus root, reservation, target, and base artifacts
+   bind the exact Stage 4 attempt, Stage 5 plan candidate, whole-branch target,
+   purpose, established cross-stage comparison root, object format, base, and
+   observed head;
 5. no caller-selected, ancestry-inferred, or recomputed base is accepted;
 6. canonical bytes, no-replace publication, expected-digest verification,
    run-relative evidence containment, ancestry, persisted root strictness,
-   immutable-root/new-stage replacement, the evidence-only crash-recovery
-   rule, and cold-restart refusal rules are enforced;
+   cross-stage root preservation, explicit root-replacement refusal, the
+   evidence-only crash-recovery rule, and cold-restart refusal rules are
+   enforced;
 7. every new `stage_id` receives a new reservation, including retries and
    corrective follow-ons, and named-target-ref equality is revalidated before
    invocation;
@@ -494,7 +574,8 @@ target/base path derivation, no-replace conflicts, reservation publication
 before binding evidence, binding evidence before target publication, target
 publication before base publication, legal `stage-evidence/1` lifecycle and
 crash recovery, retained-candidate and bundle binding, cumulative
-attempt-evidence reservation binding, expected base digest mismatch, comparison-root equality and strictness,
+attempt-evidence reservation binding, expected base digest mismatch, root-artifact persistence and cross-stage
+root equality, root-replacement refusal, comparison-root strictness,
 object-format anchors, ancestry, equal base/head final refusal, target-head
 drift, fresh reservations for new stage IDs, named-target-ref revalidation,
 pre-dispatch head validation at invocation time, missing producer bytes, cold
