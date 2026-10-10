@@ -400,6 +400,52 @@ class ReviewScopePersistenceTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 publish_review_invocation(root, invocation)
 
+    def test_chain_loader_rejects_uncertainty_and_invocation_in_one_row(self) -> None:
+        from kapisch_core._review_chain import _require_chain_citation_order
+
+        run_id = "run-order-same-row"
+        operation_id = "op-" + "a" * 32
+        stage_id = "s-" + "b" * 32
+        fingerprint = ImmutableArtifactLocator(
+            f".kapisch/v3/runs/{run_id}/review-inputs/{operation_id}/pre-dispatch-fingerprint.json",
+            "a" * 64,
+        )
+        operation_bytes = {
+            filename: filename.encode("utf-8")
+            for filename in (
+                "review-invocation.json",
+                "reviewer-return.json",
+                "host-provenance-attestation.json",
+                "post-result.json",
+                "review-result.json",
+            )
+        }
+        paths = [
+            (fingerprint.path.removeprefix(f".kapisch/v3/runs/{run_id}/"), fingerprint.sha256),
+            (f"invocations/{operation_id}/dispatch-uncertain.json", "u" * 64),
+            *(
+                (
+                    f"invocations/{operation_id}/{filename}",
+                    hashlib.sha256(data).hexdigest(),
+                )
+                for filename, data in operation_bytes.items()
+            ),
+        ]
+        row = {
+            "stage_id": stage_id,
+            "evidence": [{"path": path, "sha256": digest} for path, digest in paths],
+        }
+        with self.assertRaisesRegex(ValueError, "follow durable uncertainty"):
+            _require_chain_citation_order(
+                {"history": [row]},
+                run_id,
+                operation_id,
+                stage_id,
+                fingerprint,
+                "u" * 64,
+                operation_bytes,
+            )
+
     def test_chain_loader_rejects_out_of_order_first_citations(self) -> None:
         from kapisch_core._review_chain import _require_chain_citation_order
 
@@ -448,6 +494,37 @@ class ReviewScopePersistenceTests(unittest.TestCase):
                 "u" * 64,
                 operation_bytes,
             )
+
+    def test_scope_loader_rejects_binding_in_attempt_creation(self) -> None:
+        from kapisch_core._review_scope import _require_binding_after_creation
+
+        binding = {"path": "review-inputs/review-target-bindings/" + "a" * 64 + ".json", "sha256": "a" * 64}
+        state = {
+            "history": [{
+                "stage_id": "s-" + "a" * 32,
+                "status": "planned",
+                "evidence": [binding],
+            }],
+        }
+        with self.assertRaisesRegex(ValueError, "follow attempt creation"):
+            _require_binding_after_creation(state, {"stage_id": state["history"][0]["stage_id"]}, binding)
+
+    def test_scope_loader_rejects_conflicting_namespace_reservation(self) -> None:
+        from kapisch_core._review_scope import _reject_conflicting_bindings
+        from kapisch_core.bundle import canonical_json
+
+        run_id = "run-conflicting-reservations"
+        candidate = {"path": ".kapisch/v3/authority/plan-approval-candidates/" + "a" * 64 + ".json", "sha256": "a" * 64}
+        reservation = {"run_id": run_id, "stage_id": "s-" + "a" * 32, "plan_candidate_ref": candidate, "purpose": "iteration"}
+        data = canonical_json({**reservation, "purpose": "final"})
+        digest = hashlib.sha256(data).hexdigest()
+        binding = {"path": "review-inputs/review-target-bindings/" + "b" * 64 + ".json", "sha256": "b" * 64}
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary) / ".kapisch/v3/runs" / run_id / "review-inputs/review-target-bindings"
+            directory.mkdir(parents=True)
+            (directory / f"{digest}.json").write_bytes(data)
+            with self.assertRaisesRegex(ValueError, "conflicting"):
+                _reject_conflicting_bindings(Path(temporary), run_id, binding, reservation)
 
     def test_prior_root_loader_rejects_ambiguous_stage_bindings(self) -> None:
         from kapisch_core._review_scope import _validate_prior_roots
@@ -546,8 +623,16 @@ class ReviewScopePersistenceTests(unittest.TestCase):
             binding_digest = hashlib.sha256(binding_data).hexdigest()
             binding_path = f"review-inputs/review-target-bindings/{binding_digest}.json"
             binding_file.rename(binding_file.with_name(f"{binding_digest}.json"))
-            state = {"plan_candidate_ref": candidate_ref, "bundle_digest": "bundle", "history": []}
-            attempt = {"stage_id": stage_id, "evidence": [{"kind": "review-target-binding/1", "path": binding_path, "sha256": binding_digest}]}
+            binding_evidence = {"kind": "review-target-binding/1", "path": binding_path, "sha256": binding_digest}
+            state = {
+                "plan_candidate_ref": candidate_ref,
+                "bundle_digest": "bundle",
+                "history": [
+                    {"stage_id": stage_id, "evidence": []},
+                    {"stage_id": stage_id, "evidence": [binding_evidence]},
+                ],
+            }
+            attempt = {"stage_id": stage_id, "evidence": [binding_evidence]}
             candidate = {
                 "run_id": run_id,
                 "bundle_digest": "bundle",

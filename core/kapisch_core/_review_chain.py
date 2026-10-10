@@ -1,4 +1,10 @@
-"""Graph-free M1.2 review-result chain persistence."""
+"""Graph-free M1.2 review-result chain persistence.
+
+Structural justification: this module keeps the immutable chain loader and its
+single guarded backlink transaction together because they share the same
+artifact ownership, citation-order, and cold-restart invariants. Splitting
+those checks would duplicate the fail-closed protocol boundary.
+"""
 
 from __future__ import annotations
 
@@ -194,11 +200,20 @@ def _require_chain_citation_order(
         positions.append((row_index, evidence_index))
     if positions != sorted(positions):
         raise ValueError("review-chain artifact citations are out of dependency order")
+    uncertainty_row = positions[1][0]
+    invocation_row = positions[2][0]
+    if invocation_row <= uncertainty_row:
+        raise ValueError("review invocation must follow durable uncertainty")
 
 
 def _load_result_chain(
     repo: Path, run_id: str, operation_id: str, state: Mapping[str, Any]
 ) -> ImmutableArtifactLocator | None:
+    """Load one complete chain as one ownership and recovery transaction.
+
+    Keeping the bounded validation sequence together prevents a caller from
+    consuming partially validated artifacts between dependency checks.
+    """
     run, fds = _run_dir(repo, run_id, create=False)
     try:
         invocations = _open_dir(run, "invocations")

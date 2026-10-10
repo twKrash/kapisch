@@ -1,9 +1,16 @@
-"""Graph-free M1.2 review-scope persistence."""
+"""Graph-free M1.2 review-scope persistence.
+
+Structural justification: scope loading, producer binding, and publication
+remain together because they enforce one candidate-addressed root/base
+invariant across cold restart. Splitting those checks would duplicate the
+closed artifact and Git-fact validation boundary.
+"""
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from collections.abc import Mapping
 from pathlib import Path
@@ -257,6 +264,70 @@ def _validate_prior_roots(
             raise ValueError("review-target comparison root conflicts with an earlier binding")
 
 
+def _require_binding_after_creation(
+    state: Mapping[str, Any], attempt: Mapping[str, Any], binding: Mapping[str, Any]
+) -> None:
+    stage_id = attempt["stage_id"]
+    rows = [
+        (index, row)
+        for index, row in enumerate(state["history"])
+        if row["stage_id"] == stage_id
+    ]
+    if not rows:
+        raise ValueError("review-target binding has no owning attempt")
+    binding_path = binding.get("path")
+    binding_digest = binding.get("sha256")
+    owning_rows = [
+        index
+        for index, row in rows
+        if any(
+            evidence.get("path") == binding_path
+            and evidence.get("sha256") == binding_digest
+            for evidence in row["evidence"]
+        )
+    ]
+    if not owning_rows or owning_rows[0] <= rows[0][0]:
+        raise ValueError("review-target binding must follow attempt creation")
+
+
+def _reject_conflicting_bindings(
+    repo: Path,
+    run_id: str,
+    binding: Mapping[str, Any],
+    reservation: Mapping[str, Any],
+) -> None:
+    current_name = binding["path"].rsplit("/", 1)[-1]
+    run, fds = _run_dir(repo, run_id, create=False)
+    try:
+        review_inputs = _open_dir(run, "review-inputs")
+        try:
+            bindings_dir = _open_dir(review_inputs, "review-target-bindings")
+        finally:
+            _close([review_inputs])
+        try:
+            for name in os.listdir(bindings_dir):
+                match = re.fullmatch(r"([0-9a-f]{64})\.json", name)
+                if match is None or name == current_name:
+                    continue
+                data = _read_file(bindings_dir, name)
+                if hashlib.sha256(data).hexdigest() != match.group(1):
+                    raise ValueError("review-target binding digest mismatch")
+                prior = _json(data, "review-target reservation")
+                if (
+                    prior.get("run_id") == reservation["run_id"]
+                    and prior.get("stage_id") == reservation["stage_id"]
+                    and prior.get("plan_candidate_ref")
+                    == reservation["plan_candidate_ref"]
+                ):
+                    raise ValueError("conflicting review-target reservations exist")
+        finally:
+            _close([bindings_dir])
+    except FileNotFoundError:
+        return
+    finally:
+        _close(fds)
+
+
 def _load_bound_base(
     repo: Path,
     run_id: str,
@@ -366,6 +437,8 @@ def _load_bound_base(
     _require_anchor(reservation["head"], reservation["object_format"], "head")
     if reservation["base"] != reservation["comparison_root"]["anchor"]:
         raise ValueError("review-target base differs from comparison root")
+    _require_binding_after_creation(state, attempt, binding)
+    _reject_conflicting_bindings(repo, run_id, binding, reservation)
     root = _load_root(
         repo,
         run_id,
