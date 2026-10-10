@@ -147,6 +147,55 @@ def _require_dispatch_uncertainty(
     return data
 
 
+def _require_chain_citation_order(
+    state: Mapping[str, Any],
+    run_id: str,
+    operation_id: str,
+    stage_id: str,
+    fingerprint: ImmutableArtifactLocator,
+    uncertainty_digest: str,
+    operation_bytes: Mapping[str, bytes],
+) -> None:
+    prefix = f".kapisch/v3/runs/{run_id}/"
+    fingerprint_path = fingerprint.path.removeprefix(prefix)
+    ordered = [
+        (fingerprint_path, fingerprint.sha256),
+        (
+            f"invocations/{operation_id}/dispatch-uncertain.json",
+            uncertainty_digest,
+        ),
+        *(
+            (
+                f"invocations/{operation_id}/{filename}",
+                hashlib.sha256(operation_bytes[filename]).hexdigest(),
+            )
+            for filename in (
+                "review-invocation.json",
+                "reviewer-return.json",
+                "host-provenance-attestation.json",
+                "post-result.json",
+                "review-result.json",
+            )
+        ),
+    ]
+    positions: list[tuple[int, int]] = []
+    for path, digest in ordered:
+        matches = [
+            (row_index, evidence_index, row)
+            for row_index, row in enumerate(state["history"])
+            for evidence_index, evidence in enumerate(row["evidence"])
+            if evidence.get("path") == path and evidence.get("sha256") == digest
+        ]
+        if not matches:
+            raise ValueError("review-chain artifact has no owning citation")
+        row_index, evidence_index, row = matches[0]
+        if row["stage_id"] != stage_id:
+            raise ValueError("review-chain artifact has wrong owning stage")
+        positions.append((row_index, evidence_index))
+    if positions != sorted(positions):
+        raise ValueError("review-chain artifact citations are out of dependency order")
+
+
 def _load_result_chain(
     repo: Path, run_id: str, operation_id: str, state: Mapping[str, Any]
 ) -> ImmutableArtifactLocator | None:
@@ -222,7 +271,7 @@ def _load_result_chain(
     )
     if uncertainty is None:
         raise ValueError("review result chain has no durable dispatch uncertainty")
-    _require_dispatch_uncertainty(
+    uncertainty_data = _require_dispatch_uncertainty(
         repo, run_id, operation_id, planned, uncertainty
     )
     cited = {item["path"]: item["sha256"] for item in attempt["evidence"]}
@@ -236,6 +285,15 @@ def _load_result_chain(
             raise ValueError(f"{filename} has no owning attempt evidence")
     invocation = ReviewInvocation.from_dict(
         _json(operation_bytes["review-invocation.json"], "review invocation")
+    )
+    _require_chain_citation_order(
+        state,
+        run_id,
+        operation_id,
+        planned["stage_id"],
+        invocation.pre_dispatch_fingerprint,
+        hashlib.sha256(uncertainty_data).hexdigest(),
+        operation_bytes,
     )
     reviewer_return = ReviewerReturn.from_dict(
         _json(operation_bytes["reviewer-return.json"], "reviewer return")

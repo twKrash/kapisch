@@ -400,6 +400,55 @@ class ReviewScopePersistenceTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 publish_review_invocation(root, invocation)
 
+    def test_chain_loader_rejects_out_of_order_first_citations(self) -> None:
+        from kapisch_core._review_chain import _require_chain_citation_order
+
+        run_id = "run-order"
+        operation_id = "op-" + "a" * 32
+        stage_id = "s-" + "b" * 32
+        fingerprint = ImmutableArtifactLocator(
+            f".kapisch/v3/runs/{run_id}/review-inputs/{operation_id}/pre-dispatch-fingerprint.json",
+            "a" * 64,
+        )
+        operation_bytes = {
+            filename: filename.encode("utf-8")
+            for filename in (
+                "review-invocation.json",
+                "reviewer-return.json",
+                "host-provenance-attestation.json",
+                "post-result.json",
+                "review-result.json",
+            )
+        }
+        paths = [
+            (fingerprint.path.removeprefix(f".kapisch/v3/runs/{run_id}/"), fingerprint.sha256),
+            (f"invocations/{operation_id}/dispatch-uncertain.json", "u" * 64),
+            *(
+                (
+                    f"invocations/{operation_id}/{filename}",
+                    hashlib.sha256(data).hexdigest(),
+                )
+                for filename, data in operation_bytes.items()
+            ),
+        ]
+        row = {
+            "stage_id": stage_id,
+            "evidence": [
+                {"path": path, "sha256": digest}
+                for path, digest in reversed(paths)
+            ],
+        }
+        with self.assertRaisesRegex(ValueError, "dependency order"):
+            _require_chain_citation_order(
+                {"history": [row]},
+                run_id,
+                operation_id,
+                stage_id,
+                fingerprint,
+                "u" * 64,
+                operation_bytes,
+            )
+
     def test_prior_root_loader_rejects_ambiguous_stage_bindings(self) -> None:
         from kapisch_core._review_scope import _validate_prior_roots
 
