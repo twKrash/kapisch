@@ -558,6 +558,31 @@ class ReviewScopePersistenceTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "conflicting"):
                 _reject_conflicting_bindings(Path(temporary), run_id, binding, reservation)
 
+    def test_scope_loader_rejects_unreadable_reservation_scan_entry(self) -> None:
+        from unittest.mock import patch
+
+        from kapisch_core._review_scope import _reject_conflicting_bindings
+        from kapisch_core.bundle import canonical_json
+
+        run_id = "run-unreadable-reservation"
+        candidate = {"path": ".kapisch/v3/authority/plan-approval-candidates/" + "a" * 64 + ".json", "sha256": "a" * 64}
+        reservation = {"run_id": run_id, "stage_id": "s-" + "a" * 32, "plan_candidate_ref": candidate, "purpose": "final"}
+        data = canonical_json(reservation)
+        conflict_name = hashlib.sha256(data).hexdigest() + ".json"
+        missing_name = "0" * 64 + ".json"
+        binding = {"path": "review-inputs/review-target-bindings/" + "f" * 64 + ".json", "sha256": "f" * 64}
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary) / ".kapisch/v3/runs" / run_id / "review-inputs/review-target-bindings"
+            directory.mkdir(parents=True)
+            (directory / conflict_name).write_bytes(data)
+            def read_file(_directory: int, name: str) -> bytes:
+                if name == missing_name:
+                    raise FileNotFoundError(name)
+                return data
+            with patch("kapisch_core._review_scope.os.listdir", return_value=[missing_name, conflict_name]), patch("kapisch_core._review_scope._read_file", side_effect=read_file):
+                with self.assertRaises(FileNotFoundError):
+                    _reject_conflicting_bindings(Path(temporary), run_id, binding, reservation)
+
     def test_prior_root_loader_rejects_ambiguous_stage_bindings(self) -> None:
         from kapisch_core._review_scope import _validate_prior_roots
 
