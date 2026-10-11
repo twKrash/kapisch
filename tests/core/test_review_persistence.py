@@ -219,7 +219,6 @@ class ReviewScopePersistenceTests(unittest.TestCase):
                 expected_revision=0,
                 operation_id=operation_id,
             )
-            state_after_uncertainty = {**state, "revision": 1, "history": [state["history"][0], uncertain]}
             invocation = ReviewInvocation(
                 ImmutableArtifactLocator(
                     f".kapisch/v3/bundles/{digest}.json", digest
@@ -334,44 +333,127 @@ class ReviewScopePersistenceTests(unittest.TestCase):
             (operation_dir / "post-result.json").write_bytes(fingerprint_data)
             result_data = result.canonical_bytes()
             (operation_dir / "review-result.json").write_bytes(result_data)
-            report_observed = {
-                **uncertain,
-                "sequence": 2,
-                "evidence": [
-                    *uncertain["evidence"],
-                    {"kind": "protocol", "path": f"invocations/{operation_id}/review-invocation.json", "sha256": hashlib.sha256((operation_dir / "review-invocation.json").read_bytes()).hexdigest()},
-                    {"kind": "protocol", "path": f"reports/{operation_id}.json", "sha256": report_digest},
-                ],
-            }
+            review_artifacts = [
+                {
+                    "kind": "protocol",
+                    "path": f"invocations/{operation_id}/review-invocation.json",
+                    "sha256": hashlib.sha256(
+                        (operation_dir / "review-invocation.json").read_bytes()
+                    ).hexdigest(),
+                },
+                {
+                    "kind": "protocol",
+                    "path": f"reports/{operation_id}.json",
+                    "sha256": report_digest,
+                },
+                {
+                    "kind": "protocol",
+                    "path": f"invocations/{operation_id}/reviewer-return.json",
+                    "sha256": reviewer_locator.sha256,
+                },
+                {
+                    "kind": "protocol",
+                    "path": f"invocations/{operation_id}/host-provenance-attestation.json",
+                    "sha256": provenance_locator.sha256,
+                },
+                {
+                    "kind": "protocol",
+                    "path": f"invocations/{operation_id}/post-result.json",
+                    "sha256": fingerprint_digest,
+                },
+            ]
+            # Validation-only fixture: M1.2 defers public chain producers.
+            history = [state["history"][0], uncertain]
+            revision = 1
+            for artifact in review_artifacts:
+                observation = {
+                    **history[-1],
+                    "sequence": len(history),
+                    "evidence": [*history[-1]["evidence"], artifact],
+                }
+                history.append(observation)
+                with _locked(root, run_id):
+                    _publish_state_locked(
+                        root,
+                        run_id,
+                        {**state, "revision": revision + 1, "history": history},
+                        expected_revision=revision,
+                        allow_dispatch_uncertain=True,
+                    )
+                revision += 1
             complete = {
-                **report_observed,
-                "sequence": 3,
+                **history[-1],
+                "sequence": len(history),
                 "status": "complete",
                 "evidence": [
-                    *report_observed["evidence"],
-                    {"kind": "protocol", "path": f"invocations/{operation_id}/reviewer-return.json", "sha256": reviewer_locator.sha256},
-                    {"kind": "protocol", "path": f"invocations/{operation_id}/host-provenance-attestation.json", "sha256": provenance_locator.sha256},
-                    {"kind": "protocol", "path": f"invocations/{operation_id}/post-result.json", "sha256": fingerprint_digest},
-                    {"kind": "protocol", "path": f"invocations/{operation_id}/review-result.json", "sha256": hashlib.sha256(result_data).hexdigest()},
+                    *history[-1]["evidence"],
+                    {
+                        "kind": "protocol",
+                        "path": f"invocations/{operation_id}/review-result.json",
+                        "sha256": hashlib.sha256(result_data).hexdigest(),
+                    },
                 ],
             }
-            with _locked(root, run_id):
-                _publish_state_locked(
-                    root,
-                    run_id,
-                    {**state_after_uncertainty, "revision": 2, "history": [state["history"][0], uncertain, report_observed]},
-                    expected_revision=1,
-                    allow_dispatch_uncertain=True,
-                )
+            history.append(complete)
             publish_state(
                 root,
                 run_id,
-                {**state_after_uncertainty, "revision": 3, "history": [state["history"][0], uncertain, report_observed, complete]},
-                expected_revision=2,
+                {**state, "revision": revision + 1, "history": history},
+                expected_revision=revision,
             )
 
             state_path = root / ".kapisch/v3/runs" / run_id / "state.json"
             valid_complete_state = state_path.read_bytes()
+            for producer_index, consumer_index in (
+                (2, 3),
+                (3, 4),
+                (4, 5),
+                (5, 6),
+                (6, 7),
+            ):
+                invalid_state = json.loads(valid_complete_state)
+                rows = invalid_state["history"]
+                rows[producer_index]["status"] = rows[consumer_index]["status"]
+                rows[producer_index]["evidence"] = rows[consumer_index]["evidence"]
+                del rows[consumer_index]
+                for sequence, row in enumerate(rows):
+                    row["sequence"] = sequence
+                invalid_bytes = canonical_json(invalid_state)
+                state_path.write_bytes(invalid_bytes)
+                try:
+                    with patch(
+                        "kapisch_core._review_chain._load_bound_base",
+                        return_value=producer,
+                    ):
+                        self.assertTrue(validate_run(root, run_id))
+                        with self.assertRaises(ValueError):
+                            repair_review_backlinks(root, run_id)
+                    self.assertEqual(state_path.read_bytes(), invalid_bytes)
+                finally:
+                    state_path.write_bytes(valid_complete_state)
+
+            invalid_state = json.loads(valid_complete_state)
+            invalid_state["history"] = [
+                *invalid_state["history"][:2],
+                {
+                    **invalid_state["history"][-1],
+                    "sequence": 2,
+                },
+            ]
+            same_observation = canonical_json(invalid_state)
+            state_path.write_bytes(same_observation)
+            try:
+                with patch(
+                    "kapisch_core._review_chain._load_bound_base",
+                    return_value=producer,
+                ):
+                    self.assertTrue(validate_run(root, run_id))
+                    with self.assertRaises(ValueError):
+                        repair_review_backlinks(root, run_id)
+                self.assertEqual(state_path.read_bytes(), same_observation)
+            finally:
+                state_path.write_bytes(valid_complete_state)
+
             invalid_state = json.loads(valid_complete_state)
             invalid_order = [
                 request_path,
@@ -413,16 +495,16 @@ class ReviewScopePersistenceTests(unittest.TestCase):
                 loaded["review_result_ref"][operation_id],
                 {"path": repaired[0].path, "sha256": repaired[0].sha256},
             )
-            self.assertEqual(loaded["revision"], 4)
+            self.assertEqual(loaded["revision"], 8)
             with patch("kapisch_core._review_chain._load_bound_base", return_value=producer):
                 self.assertEqual(validate_run(root, run_id), [])
                 self.assertEqual(repair_review_backlinks(root, run_id), repaired)
-            self.assertEqual(load_state(root, run_id)["revision"], 4)
+            self.assertEqual(load_state(root, run_id)["revision"], 8)
             dropped = dict(loaded)
             dropped.pop("review_result_ref")
-            dropped["revision"] = 5
+            dropped["revision"] = 9
             with self.assertRaisesRegex(ValueError, "guarded repair"):
-                publish_state(root, run_id, dropped, expected_revision=4)
+                publish_state(root, run_id, dropped, expected_revision=8)
             replaced = dict(loaded)
             replaced["review_result_ref"] = {
                 operation_id: {
@@ -430,9 +512,9 @@ class ReviewScopePersistenceTests(unittest.TestCase):
                     "sha256": "d" * 64,
                 }
             }
-            replaced["revision"] = 5
+            replaced["revision"] = 9
             with self.assertRaisesRegex(ValueError, "guarded repair"):
-                publish_state(root, run_id, replaced, expected_revision=4)
+                publish_state(root, run_id, replaced, expected_revision=8)
             shutil.rmtree(root / ".kapisch/v3/runs" / run_id / "invocations")
             self.assertTrue(validate_run(root, run_id))
 
@@ -668,7 +750,11 @@ class ReviewScopePersistenceTests(unittest.TestCase):
                         },
                         {
                             "stage_id": stage_id,
-                            "evidence": [{"path": path, "sha256": digest} for path, digest in paths[3:]],
+                            "evidence": [{"path": path, "sha256": digest} for path, digest in paths[3:4]],
+                        },
+                        {
+                            "stage_id": stage_id,
+                            "evidence": [{"path": path, "sha256": digest} for path, digest in paths[4:]],
                         },
                     ]
                 },

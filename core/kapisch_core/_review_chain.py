@@ -245,12 +245,24 @@ def _require_chain_citation_order(
     offset = 1 if "planned.json" in operation_bytes else 0
     uncertainty_row = positions[2 + offset][0]
     invocation_row = positions[3 + offset][0]
-    if invocation_row <= uncertainty_row:
-        raise ValueError("review invocation must follow durable uncertainty")
     report_row = positions[4 + offset][0]
     reviewer_return_row = positions[5 + offset][0]
+    attestation_row = positions[6 + offset][0]
+    post_result_row = positions[7 + offset][0]
+    result_row = positions[8 + offset][0]
+    # Evidence-array order is not durable chronology within one observation.
+    if invocation_row <= uncertainty_row:
+        raise ValueError("review invocation must follow durable uncertainty")
+    if report_row <= invocation_row:
+        raise ValueError("retained report must follow review invocation")
     if reviewer_return_row <= report_row:
         raise ValueError("reviewer return must follow retained report")
+    if attestation_row <= reviewer_return_row:
+        raise ValueError("host attestation must follow reviewer return")
+    if post_result_row <= attestation_row:
+        raise ValueError("post-result must follow host attestation")
+    if result_row <= post_result_row:
+        raise ValueError("review result must follow post-result")
 
 
 def _load_result_chain(
