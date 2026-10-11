@@ -8,11 +8,13 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping, Sequence
 
+from . import _review_chain_validation
 from ._authority import _validate_packet_authority
 from ._invocation import _validate_reservation
 from ._validation_json import _json
 from ._validation_schema import _validate_schema
 from .bundle import CoreBundle
+from .review import ImmutableArtifactLocator
 from .storage import _close, _open_dir, _read_file, _run_dir
 
 
@@ -40,6 +42,7 @@ class _LoadedOperation:
 class _OperationInventory:
     facts: Mapping[str, tuple[Any, str]]
     packet: Mapping[str, Any]
+    result_locator: ImmutableArtifactLocator | None
 
 
 def _index_history(history: Sequence[Mapping[str, Any]]) -> _HistoryIndex:
@@ -65,7 +68,7 @@ def _index_history(history: Sequence[Mapping[str, Any]]) -> _HistoryIndex:
 
 def _inventory(
     repo: Path, run_id: str, state: Mapping[str, Any], bundle: CoreBundle
-) -> None:
+) -> Mapping[str, ImmutableArtifactLocator]:
     """Coordinate independent read, indexing, operation-validation, and chronology phases."""
     history = state["history"]
     authority = MappingProxyType(
@@ -93,13 +96,20 @@ def _inventory(
                 raise ValueError("uncertain history has no invocation inventory")
             if "review_result_ref" in state:
                 raise ValueError("review backlinks have no invocation inventory")
-            return
+            return MappingProxyType({})
         try:
             loaded = _read_invocation_inventory(invocations)
             inventory = _validate_inventory_operations(
                 repo, run_id, loaded, authority, bundle, history_index, state
             )
             _validate_uncertain_history(history, authority, inventory, bundle)
+            return MappingProxyType(
+                {
+                    operation_id: operation.result_locator
+                    for operation_id, operation in inventory.items()
+                    if operation.result_locator is not None
+                }
+            )
         finally:
             os.close(invocations)
     finally:
@@ -231,12 +241,14 @@ def _validate_operation(
                 packet,
                 index,
             )
+    result_locator = None
     if facts.keys() & review_names:
-        from ._review_chain import _load_result_chain
-
-        if _load_result_chain(repo, run_id, operation_id, state) is None:
+        result_locator = _review_chain_validation._load_result_chain(
+            repo, run_id, operation_id, state
+        )
+        if result_locator is None:
             raise ValueError("review result chain is incomplete")
-    return _OperationInventory(facts, packet)
+    return _OperationInventory(facts, packet, result_locator)
 
 
 def _validate_review_backlinks(

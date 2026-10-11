@@ -327,6 +327,15 @@ def _reject_conflicting_bindings(
         _close(fds)
 
 
+def _valid_comparison_root(value: Any) -> bool:
+    return (
+        isinstance(value, Mapping)
+        and set(value) == {"source", "anchor", "must_differ_from_head"}
+        and value["source"] == "stage5-target-binding"
+        and type(value["must_differ_from_head"]) is bool
+    )
+
+
 def _load_bound_base(
     repo: Path,
     run_id: str,
@@ -403,16 +412,7 @@ def _load_bound_base(
         or reservation["purpose"] not in {"iteration", "final"}
     ):
         raise ValueError("review-target reservation identity is invalid")
-    if (
-        not isinstance(reservation["comparison_root"], Mapping)
-        or set(reservation["comparison_root"])
-        != {"source", "anchor", "must_differ_from_head"}
-    ):
-        raise ValueError("review-target comparison root is invalid")
-    if (
-        reservation["comparison_root"]["source"] != "stage5-target-binding"
-        or type(reservation["comparison_root"]["must_differ_from_head"]) is not bool
-    ):
+    if not _valid_comparison_root(reservation["comparison_root"]):
         raise ValueError("review-target comparison root is invalid")
     target = reservation["target"]
     if (
@@ -489,12 +489,7 @@ def _load_bound_base(
         if artifact.get("comparison_root_ref") != reservation["comparison_root_ref"]:
             raise ValueError("producer artifact root reference mismatch")
         artifact_root = artifact.get("comparison_root")
-        if (
-            not isinstance(artifact_root, Mapping)
-            or set(artifact_root) != {"source", "anchor", "must_differ_from_head"}
-            or artifact_root["source"] != "stage5-target-binding"
-            or type(artifact_root["must_differ_from_head"]) is not bool
-        ):
+        if not _valid_comparison_root(artifact_root):
             raise ValueError("producer artifact root is invalid")
         if artifact_root != reservation["comparison_root"]:
             raise ValueError("producer artifact root mismatch")

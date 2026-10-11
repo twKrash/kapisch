@@ -427,7 +427,7 @@ class ReviewScopePersistenceTests(unittest.TestCase):
                 state_path.write_bytes(invalid_bytes)
                 try:
                     with patch(
-                        "kapisch_core._review_chain._load_bound_base",
+                        "kapisch_core._review_chain_validation._load_bound_base",
                         return_value=producer,
                     ):
                         self.assertTrue(validate_run(root, run_id))
@@ -449,7 +449,7 @@ class ReviewScopePersistenceTests(unittest.TestCase):
             state_path.write_bytes(same_observation)
             try:
                 with patch(
-                    "kapisch_core._review_chain._load_bound_base",
+                    "kapisch_core._review_chain_validation._load_bound_base",
                     return_value=producer,
                 ):
                     self.assertTrue(validate_run(root, run_id))
@@ -477,7 +477,7 @@ class ReviewScopePersistenceTests(unittest.TestCase):
             state_path.write_bytes(invalid_complete_state)
             try:
                 with patch(
-                    "kapisch_core._review_chain._load_bound_base",
+                    "kapisch_core._review_chain_validation._load_bound_base",
                     return_value=producer,
                 ):
                     self.assertTrue(validate_run(root, run_id))
@@ -491,8 +491,22 @@ class ReviewScopePersistenceTests(unittest.TestCase):
             finally:
                 state_path.write_bytes(valid_complete_state)
 
-            with patch("kapisch_core._review_chain._load_bound_base", return_value=producer):
+            from kapisch_core import _review_chain_validation
+
+            real_loader = _review_chain_validation._load_result_chain
+            with (
+                patch(
+                    "kapisch_core._review_chain_validation._load_bound_base",
+                    return_value=producer,
+                ),
+                patch.object(
+                    _review_chain_validation,
+                    "_load_result_chain",
+                    wraps=real_loader,
+                ) as load_chain,
+            ):
                 repaired = repair_review_backlinks(root, run_id)
+            self.assertEqual(load_chain.call_count, 1)
 
             self.assertEqual(len(repaired), 1)
             loaded = load_state(root, run_id)
@@ -501,7 +515,7 @@ class ReviewScopePersistenceTests(unittest.TestCase):
                 {"path": repaired[0].path, "sha256": repaired[0].sha256},
             )
             self.assertEqual(loaded["revision"], 8)
-            with patch("kapisch_core._review_chain._load_bound_base", return_value=producer):
+            with patch("kapisch_core._review_chain_validation._load_bound_base", return_value=producer):
                 self.assertEqual(validate_run(root, run_id), [])
                 self.assertEqual(repair_review_backlinks(root, run_id), repaired)
             self.assertEqual(load_state(root, run_id)["revision"], 8)
@@ -611,7 +625,7 @@ class ReviewScopePersistenceTests(unittest.TestCase):
                 publish_review_invocation(root, invocation)
 
     def test_chain_loader_rejects_uncertainty_and_invocation_in_one_row(self) -> None:
-        from kapisch_core._review_chain import _require_chain_citation_order
+        from kapisch_core._review_chain_validation import _require_chain_citation_order
 
         run_id = "run-order-same-row"
         operation_id = "op-" + "a" * 32
@@ -669,7 +683,7 @@ class ReviewScopePersistenceTests(unittest.TestCase):
             )
 
     def test_chain_loader_rejects_out_of_order_first_citations(self) -> None:
-        from kapisch_core._review_chain import _require_chain_citation_order
+        from kapisch_core._review_chain_validation import _require_chain_citation_order
 
         run_id = "run-order"
         operation_id = "op-" + "a" * 32
@@ -809,7 +823,7 @@ class ReviewScopePersistenceTests(unittest.TestCase):
             )
 
     def test_chain_loader_rejects_reservation_before_fingerprint(self) -> None:
-        from kapisch_core._review_chain import _require_chain_citation_order
+        from kapisch_core._review_chain_validation import _require_chain_citation_order
 
         run_id = "run-reservation-order"
         operation_id = "op-" + "a" * 32
@@ -1073,20 +1087,140 @@ class ReviewScopePersistenceTests(unittest.TestCase):
         attempt = {"stage_id": stage_id, "evidence": [binding_evidence]}
         return {"run_id": run_id, "state": state, "attempt": attempt, "binding_path": binding_path, "candidate": candidate, "artifacts": artifacts}
 
+    def test_comparison_root_structural_rule_is_exact(self) -> None:
+        from types import MappingProxyType
+
+        from kapisch_core._review_scope import _valid_comparison_root
+
+        base = {
+            "source": "stage5-target-binding",
+            "anchor": object(),
+            "must_differ_from_head": False,
+        }
+        for flag in (False, True):
+            value = {**base, "must_differ_from_head": flag}
+            self.assertTrue(_valid_comparison_root(value))
+            self.assertTrue(_valid_comparison_root(MappingProxyType(value)))
+        self.assertFalse(_valid_comparison_root(None))
+        self.assertFalse(_valid_comparison_root([]))
+        for change in (
+            {"source": "stage5-target-binding", "anchor": object()},
+            {**base, "extra": True},
+            {**base, "source": "other"},
+        ):
+            self.assertFalse(_valid_comparison_root(change))
+        for flag in (0, 1, "true", None):
+            self.assertFalse(
+                _valid_comparison_root({**base, "must_differ_from_head": flag})
+            )
+
+    def test_bound_loader_rejects_numeric_reservation_strictness(self) -> None:
+        from kapisch_core._review_scope import _load_bound_base
+        from kapisch_core.bundle import canonical_json
+
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary)
+            fixture = self._bound_loader_fixture(repo)
+            binding_file = repo / ".kapisch/v3/runs" / fixture["run_id"] / fixture["binding_path"]
+            reservation = json.loads(binding_file.read_bytes())
+            reservation["comparison_root"]["must_differ_from_head"] = 1
+            data = canonical_json(reservation)
+            binding_file.unlink()
+            binding_file = binding_file.with_name(hashlib.sha256(data).hexdigest() + ".json")
+            binding_file.write_bytes(data)
+            evidence = {"kind": "review-target-binding/1", "path": f"review-inputs/review-target-bindings/{binding_file.name}", "sha256": hashlib.sha256(data).hexdigest()}
+            fixture["attempt"]["evidence"] = [evidence]
+            fixture["state"]["history"][1]["evidence"] = [evidence]
+            with self.assertRaisesRegex(ValueError, "comparison root is invalid"):
+                _load_bound_base(repo, fixture["run_id"], fixture["state"], fixture["attempt"])
+
     def test_bound_loader_rejects_numeric_artifact_strictness(self) -> None:
         from unittest.mock import patch
 
         from kapisch_core._review_scope import _load_bound_base
 
+        for label in ("review-target", "comparison-base"):
+            for strictness in (0, 1):
+                with self.subTest(artifact=label, strictness=strictness), tempfile.TemporaryDirectory() as temporary:
+                    repo = Path(temporary)
+                    fixture = self._bound_loader_fixture(repo)
+                    fixture["artifacts"][label] = dict(fixture["artifacts"][label])
+                    fixture["artifacts"][label]["comparison_root"] = dict(fixture["artifacts"][label]["comparison_root"])
+                    fixture["artifacts"][label]["comparison_root"]["must_differ_from_head"] = strictness
+
+                    def read_artifact(repo_path, run, value, pattern, artifact_label, **kwargs):
+                        return fixture["artifacts"][artifact_label], b""
+
+                    with patch("kapisch_core._review_scope.validate_plan_approval_candidate", return_value=(fixture["candidate"], None)), \
+                            patch("kapisch_core._review_scope._read_locator", side_effect=read_artifact):
+                        with self.assertRaisesRegex(ValueError, "^producer artifact root is invalid$"):
+                            _load_bound_base(repo, fixture["run_id"], fixture["state"], fixture["attempt"])
+
+    def test_bound_loader_artifact_validation_precedence(self) -> None:
+        from unittest.mock import patch
+
+        from kapisch_core._review_scope import _load_bound_base
+        from kapisch_core.bundle import canonical_json
+
+        cases = ("candidate", "root", "reservation")
+        for case in cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as temporary:
+                repo = Path(temporary)
+                fixture = self._bound_loader_fixture(repo)
+                if case == "candidate":
+                    fixture["artifacts"]["review-target"] = dict(fixture["artifacts"]["review-target"])
+                    fixture["artifacts"]["review-target"]["plan_candidate_ref"] = {"path": "different", "sha256": "e" * 64}
+                    expected = "^producer artifact candidate binding mismatch$"
+                elif case == "root":
+                    fixture["artifacts"]["review-target"] = dict(fixture["artifacts"]["review-target"])
+                    fixture["artifacts"]["review-target"]["comparison_root"] = dict(fixture["artifacts"]["review-target"]["comparison_root"])
+                    fixture["artifacts"]["review-target"]["comparison_root"]["anchor"] = "sha1:" + "e" * 40
+                    expected = "^producer artifact root mismatch$"
+                else:
+                    binding_file = repo / ".kapisch/v3/runs" / fixture["run_id"] / fixture["binding_path"]
+                    reservation = json.loads(binding_file.read_bytes())
+                    reservation["comparison_root"]["must_differ_from_head"] = 1
+                    data = canonical_json(reservation)
+                    binding_file.unlink()
+                    binding_file = binding_file.with_name(hashlib.sha256(data).hexdigest() + ".json")
+                    binding_file.write_bytes(data)
+                    evidence = {"kind": "review-target-binding/1", "path": f"review-inputs/review-target-bindings/{binding_file.name}", "sha256": hashlib.sha256(data).hexdigest()}
+                    fixture["attempt"]["evidence"] = [evidence]
+                    fixture["state"]["history"][1]["evidence"] = [evidence]
+                    fixture["artifacts"]["review-target"] = dict(fixture["artifacts"]["review-target"])
+                    fixture["artifacts"]["review-target"]["comparison_root"] = dict(fixture["artifacts"]["review-target"]["comparison_root"])
+                    fixture["artifacts"]["review-target"]["comparison_root"]["must_differ_from_head"] = 1
+                    expected = "^review-target comparison root is invalid$"
+
+                def read_artifact(repo_path, run, value, pattern, label, **kwargs):
+                    return fixture["artifacts"][label], b""
+
+                with patch("kapisch_core._review_scope.validate_plan_approval_candidate", return_value=(fixture["candidate"], None)), \
+                        patch("kapisch_core._review_scope._read_locator", side_effect=read_artifact):
+                    with self.assertRaisesRegex(ValueError, expected):
+                        _load_bound_base(repo, fixture["run_id"], fixture["state"], fixture["attempt"])
+
+    def test_bound_loader_rejects_root_mismatch_in_both_artifacts_using_shared_predicate(self) -> None:
+        from unittest.mock import patch
+
+        from kapisch_core._review_scope import _load_bound_base, _valid_comparison_root
+
         with tempfile.TemporaryDirectory() as temporary:
             repo = Path(temporary)
             fixture = self._bound_loader_fixture(repo)
-            fixture["artifacts"]["review-target"]["comparison_root"]["must_differ_from_head"] = 1
             def read_artifact(repo_path, run, value, pattern, label, **kwargs):
-                return fixture["artifacts"][label], b""
-            with patch("kapisch_core._review_scope.validate_plan_approval_candidate", return_value=(fixture["candidate"], None)), patch("kapisch_core._review_scope._read_locator", side_effect=read_artifact):
-                with self.assertRaisesRegex(ValueError, "artifact root is invalid"):
+                artifact = fixture["artifacts"][label]
+                if label == "review-target":
+                    artifact["comparison_root"]["must_differ_from_head"] = True
+                elif label == "comparison-base":
+                    artifact["comparison_root"]["must_differ_from_head"] = True
+                return artifact, b""
+            with patch("kapisch_core._review_scope.validate_plan_approval_candidate", return_value=(fixture["candidate"], None)), \
+                    patch("kapisch_core._review_scope._read_locator", side_effect=read_artifact), \
+                    patch("kapisch_core._review_scope._valid_comparison_root", wraps=_valid_comparison_root) as predicate:
+                with self.assertRaisesRegex(ValueError, "producer artifact root mismatch"):
                     _load_bound_base(repo, fixture["run_id"], fixture["state"], fixture["attempt"])
+            self.assertEqual(predicate.call_count, 3)
 
     def test_bound_loader_rejects_scan_directory_disappearance_after_binding_read(self) -> None:
         from unittest.mock import patch

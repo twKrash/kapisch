@@ -117,9 +117,9 @@ def _validate_review_scope_request(
         raise ValueError("operation request review scope producer binding is invalid")
 
 
-def _validate_packet_inputs(
-    repo: Path, run_id: str, operation_id: str, packet: Mapping[str, Any], bundle: Any
-) -> None:
+def _packet_input_refs(
+    operation_id: str, packet: Mapping[str, Any], bundle: Any
+) -> list[dict[str, Any]]:
     if bundle.payload.get("authority_contract") == "global-authority/1" and any(
         key in packet
         for key in (
@@ -148,8 +148,13 @@ def _validate_packet_inputs(
                 "operation request input must bind immutable published bytes and source path"
             )
         refs.append({"path": item["path"], "sha256": item["sha256"]})
-    if "review_scope" in packet:
-        _validate_review_scope_request(repo, run_id, packet, bundle)
+    return refs
+
+
+def _validate_packet_input_evidence(
+    repo: Path, run_id: str, packet: Mapping[str, Any], refs: list[dict[str, Any]]
+) -> None:
+    refs = list(refs)
     for field, keys in (
         ("graph", {"path", "sha256"}),
         ("approved_plan", {"plan_id", "path", "sha256"}),
@@ -190,6 +195,15 @@ def _validate_packet_inputs(
             packet["amends"],
             packet["supersedes"],
         )
+
+
+def _validate_packet_inputs(
+    repo: Path, run_id: str, operation_id: str, packet: Mapping[str, Any], bundle: Any
+) -> None:
+    refs = _packet_input_refs(operation_id, packet, bundle)
+    if "review_scope" in packet:
+        _validate_review_scope_request(repo, run_id, packet, bundle)
+    _validate_packet_input_evidence(repo, run_id, packet, refs)
 
 
 def _validate_reservation(
@@ -351,7 +365,8 @@ def _persist_request_locked(
     if "review_scope" in packet:
         _validate_review_scope_request(Path(repo), run_id, packet, bundle)
     _publish_request_inputs(Path(repo), run_id, operation_id, packet)
-    _validate_packet_inputs(Path(repo), run_id, operation_id, packet, bundle)
+    refs = _packet_input_refs(operation_id, packet, bundle)
+    _validate_packet_input_evidence(Path(repo), run_id, packet, refs)
     body = canonical_json(packet)
     digest = hashlib.sha256(body).hexdigest()
     run, fds = _run_dir(repo, run_id, create=True)

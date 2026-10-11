@@ -58,6 +58,33 @@ class ProtocolModuleTests(unittest.TestCase):
                     parameters,
                 )
 
+    def test_review_chain_dependency_direction(self) -> None:
+        import ast
+
+        from kapisch_core import (
+            _review_chain,
+            _review_chain_validation,
+            _validation_inventory,
+        )
+
+        modules = (_review_chain, _review_chain_validation, _validation_inventory)
+        imports = {}
+        for module in modules:
+            tree = ast.parse(Path(module.__file__).read_text())
+            imports[module.__name__.rsplit(".", 1)[-1]] = {
+                alias.name
+                for node in ast.walk(tree)
+                if isinstance(node, ast.ImportFrom)
+                for alias in node.names
+            } | {
+                node.module or ""
+                for node in ast.walk(tree)
+                if isinstance(node, ast.ImportFrom)
+            }
+        self.assertNotIn("_review_chain", imports["_validation_inventory"])
+        self.assertNotIn("_review_chain", imports["_review_chain_validation"])
+        self.assertNotIn("_validation_inventory", imports["_review_chain_validation"])
+
     def test_responsibility_modules_are_internal_and_importable(self) -> None:
         for name in ("_locking", "_state", "_invocation", "_authority"):
             with self.subTest(module=name):
