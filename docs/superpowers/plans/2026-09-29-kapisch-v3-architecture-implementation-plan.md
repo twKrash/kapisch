@@ -313,7 +313,17 @@ No identity choice is left as an implementation default in this proposal. Outsta
 
 #### Stage 4.0 `stage-evidence/1` amendment — approved, not implemented
 
-**Status:** Proposed plan clarification for independent review and explicit approval of this exact revision. The approval above covers the identity/recovery contract only; it does not approve this amendment or authorize its implementation.
+**Status:** APPROVED / NOT IMPLEMENTED.
+
+The normative Stage 4.0 amendment is approved in architecture §32.
+Implementation remains pending and must follow the approved
+contract in a separately scoped PR.
+
+This approval is distinct from the original Stage 4.0 identity
+and recovery contract approval. All Stage 5, Stage 6.5,
+retained-bundle, and M1.2 prerequisites remain independently gated.
+
+Proposed plan clarification for independent review and explicit approval of this exact revision. The approval above covers the identity/recovery contract only; it does not approve this amendment or authorize its implementation.
 
 The normative proposal is architecture design §32, “Stage 4.0 `stage-evidence/1` amendment — proposal, approval pending.” This plan adopts that proposal without duplicating or extending its requirements: one eligible graph-free review/final-review attempt may append one strictly cumulative pre-dispatch `planned` observation binding the exact unique Stage 5 `review-target-binding/1` reservation. The existing creation row, attempt identity, status vocabulary, retry rules, and earlier evidence remain unchanged. Reservation production remains Stage 5-owned; Stage 4 validates and cites it. Eligibility, immutable-prefix and reservation validation, shared serialization, dispatch veto, cold recovery, retained-history compatibility, and acceptance scenarios are exactly those in architecture §32.1–§32.6.
 

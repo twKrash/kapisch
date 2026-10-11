@@ -415,7 +415,18 @@ Every attempt and operation retains its existing Stage 4.0 identity, uniqueness,
 
 ## 32. Stage 4.0 `stage-evidence/1` amendment — approved, not implemented
 
-**Status:** Proposed docs-only amendment for independent review and explicit human approval of this exact revision. This section does not authorize implementation. It creates one narrow exception to the frozen Stage 4.0 history-observation rule and §31.1–31.2 reservation-recovery rule; all other frozen identity, retry, dispatch, status, evidence, and recovery rules remain unchanged.
+**Status:** APPROVED / NOT IMPLEMENTED.
+
+Explicit repository-owner approval is recorded for the normative
+Stage 4.0 stage-evidence/1 amendment in PR #77
+(commit 979d694394a75a22e9b65add198a255987213aff).
+
+Implementation is authorized only within the approved Stage 4.0
+scope and must be delivered separately. This approval does not
+authorize Stage 5 target-selection production, Stage 6.5
+persistence, dispatch, or other independently gated prerequisites.
+
+Proposed docs-only amendment for independent review and explicit human approval of this exact revision. This section does not authorize implementation. It creates one narrow exception to the frozen Stage 4.0 history-observation rule and §31.1–31.2 reservation-recovery rule; all other frozen identity, retry, dispatch, status, evidence, and recovery rules remain unchanged.
 
 ### 32.1 Scope, boundary, and non-goals
 
