@@ -58,6 +58,11 @@ class ReviewScopePersistenceTests(unittest.TestCase):
                 self.assertFalse((root / ".kapisch").exists())
             with self.assertRaises(ValueError):
                 publish_review_scope(root, "../escape", stage_id)
+            for bad_stage_id in (None, 123, b"s-" + b"a" * 32):
+                with self.subTest(stage_id=bad_stage_id):
+                    with self.assertRaisesRegex(ValueError, "^invalid stage_id$"):
+                        publish_review_scope(root, "run", bad_stage_id)
+                    self.assertFalse((root / ".kapisch").exists())
             with self.assertRaises(ValueError):
                 repair_review_backlinks(root, "../escape")
             self.assertFalse((root / ".kapisch").exists())

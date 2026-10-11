@@ -547,6 +547,7 @@ def publish_review_scope(
 ) -> ImmutableArtifactLocator:
     """Publish the producer-bound graph-free review scope."""
     run_id = _id(run_id, "run_id")
+    stage_id = _id(stage_id, "stage_id")
     if not re.fullmatch(r"s-[0-9a-f]{32}", stage_id):
         raise ValueError("invalid stage_id")
     repo = Path(repo)
