@@ -241,6 +241,38 @@ class ReviewScopePersistenceTests(unittest.TestCase):
                 {},
                 {"base": invocation.base},
             )
+            state_path = root / ".kapisch/v3/runs" / run_id / "state.json"
+            valid_uncertain_state = state_path.read_bytes()
+            request_relative = request_path
+            fingerprint_relative = fingerprint_path.relative_to(
+                root / ".kapisch/v3/runs" / run_id
+            ).as_posix()
+            planned_relative = f"invocations/{operation_id}/planned.json"
+            for invalid_order in (
+                (fingerprint_relative, request_relative, planned_relative, uncertain_path),
+                (request_relative, planned_relative, fingerprint_relative, uncertain_path),
+            ):
+                invalid_state = json.loads(valid_uncertain_state)
+                by_path = {
+                    item["path"]: item
+                    for item in invalid_state["history"][-1]["evidence"]
+                }
+                invalid_state["history"][-1]["evidence"] = [
+                    by_path[path] for path in invalid_order
+                ]
+                state_path.write_bytes(canonical_json(invalid_state))
+                try:
+                    with patch(
+                        "kapisch_core._review_chain._load_bound_base",
+                        return_value=producer,
+                    ):
+                        with self.assertRaisesRegex(ValueError, "dependency order"):
+                            publish_review_invocation(root, invocation)
+                    self.assertFalse(
+                        (operation_dir / "review-invocation.json").exists()
+                    )
+                finally:
+                    state_path.write_bytes(valid_uncertain_state)
             with patch("kapisch_core._review_chain._load_bound_base", return_value=producer):
                 invocation_locator = publish_review_invocation(root, invocation)
             report = b"review report\n"
@@ -337,6 +369,40 @@ class ReviewScopePersistenceTests(unittest.TestCase):
                 {**state_after_uncertainty, "revision": 3, "history": [state["history"][0], uncertain, report_observed, complete]},
                 expected_revision=2,
             )
+
+            state_path = root / ".kapisch/v3/runs" / run_id / "state.json"
+            valid_complete_state = state_path.read_bytes()
+            invalid_state = json.loads(valid_complete_state)
+            invalid_order = [
+                request_path,
+                f"invocations/{operation_id}/planned.json",
+                f"review-inputs/{operation_id}/pre-dispatch-fingerprint.json",
+                uncertain_path,
+            ]
+            for row in invalid_state["history"]:
+                by_path = {item["path"]: item for item in row["evidence"]}
+                if all(path in by_path for path in invalid_order):
+                    row["evidence"] = [
+                        *(by_path[path] for path in invalid_order),
+                        *(item for item in row["evidence"] if item["path"] not in invalid_order),
+                    ]
+            invalid_complete_state = canonical_json(invalid_state)
+            state_path.write_bytes(invalid_complete_state)
+            try:
+                with patch(
+                    "kapisch_core._review_chain._load_bound_base",
+                    return_value=producer,
+                ):
+                    self.assertTrue(validate_run(root, run_id))
+                    with self.assertRaises(ValueError):
+                        repair_review_backlinks(root, run_id)
+                self.assertEqual(state_path.read_bytes(), invalid_complete_state)
+                self.assertNotIn(
+                    operation_id,
+                    json.loads(state_path.read_bytes()).get("review_result_ref", {}),
+                )
+            finally:
+                state_path.write_bytes(valid_complete_state)
 
             with patch("kapisch_core._review_chain._load_bound_base", return_value=producer):
                 repaired = repair_review_backlinks(root, run_id)
@@ -641,6 +707,87 @@ class ReviewScopePersistenceTests(unittest.TestCase):
                         {"stage_id": stage_id, "evidence":[{"path": report.path.removeprefix(f".kapisch/v3/runs/{run_id}/"), "sha256": report.sha256}]},
                     ]
                 },
+                run_id,
+                operation_id,
+                stage_id,
+                request,
+                fingerprint,
+                report,
+                "u" * 64,
+                operation_bytes,
+            )
+
+    def test_chain_loader_rejects_reservation_before_fingerprint(self) -> None:
+        from kapisch_core._review_chain import _require_chain_citation_order
+
+        run_id = "run-reservation-order"
+        operation_id = "op-" + "a" * 32
+        stage_id = "s-" + "b" * 32
+        request = ImmutableArtifactLocator(
+            f".kapisch/v3/runs/{run_id}/requests/{operation_id}.json", "a" * 64
+        )
+        fingerprint = ImmutableArtifactLocator(
+            f".kapisch/v3/runs/{run_id}/review-inputs/{operation_id}/pre-dispatch-fingerprint.json",
+            "b" * 64,
+        )
+        report = ImmutableArtifactLocator(
+            f".kapisch/v3/runs/{run_id}/reports/{operation_id}.json", "c" * 64
+        )
+        planned_data = b"planned reservation"
+        operation_bytes = {
+            filename: filename.encode("utf-8")
+            for filename in (
+                "review-invocation.json",
+                "reviewer-return.json",
+                "host-provenance-attestation.json",
+                "post-result.json",
+                "review-result.json",
+            )
+        }
+        operation_bytes["planned.json"] = planned_data
+        citations = [
+            (f"requests/{operation_id}.json", request.sha256),
+            (
+                f"review-inputs/{operation_id}/pre-dispatch-fingerprint.json",
+                fingerprint.sha256,
+            ),
+            (
+                f"invocations/{operation_id}/planned.json",
+                hashlib.sha256(planned_data).hexdigest(),
+            ),
+            (f"invocations/{operation_id}/dispatch-uncertain.json", "u" * 64),
+            (
+                f"invocations/{operation_id}/review-invocation.json",
+                hashlib.sha256(operation_bytes["review-invocation.json"]).hexdigest(),
+            ),
+            (f"reports/{operation_id}.json", report.sha256),
+            *(
+                (
+                    f"invocations/{operation_id}/{filename}",
+                    hashlib.sha256(operation_bytes[filename]).hexdigest(),
+                )
+                for filename in (
+                    "reviewer-return.json",
+                    "host-provenance-attestation.json",
+                    "post-result.json",
+                    "review-result.json",
+                )
+            ),
+        ]
+        # First-owning observations put reservation before its fingerprint.
+        observation_order = [0, 2, 1, *range(3, len(citations))]
+        history = [
+            {
+                "stage_id": stage_id,
+                "evidence": [
+                    {"path": citations[index][0], "sha256": citations[index][1]}
+                ],
+            }
+            for index in observation_order
+        ]
+        with self.assertRaisesRegex(ValueError, "dependency order"):
+            _require_chain_citation_order(
+                {"history": history},
                 run_id,
                 operation_id,
                 stage_id,

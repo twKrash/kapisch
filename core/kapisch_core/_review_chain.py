@@ -154,6 +154,39 @@ def _require_dispatch_uncertainty(
     return data
 
 
+def _first_citation_positions(
+    state: Mapping[str, Any],
+    stage_id: str,
+    artifacts: list[tuple[str, str]],
+) -> list[tuple[int, int]]:
+    positions: list[tuple[int, int]] = []
+    for path, digest in artifacts:
+        matches = [
+            (row_index, evidence_index, row)
+            for row_index, row in enumerate(state["history"])
+            for evidence_index, evidence in enumerate(row["evidence"])
+            if evidence.get("path") == path and evidence.get("sha256") == digest
+        ]
+        if not matches:
+            raise ValueError("review-chain artifact has no owning citation")
+        row_index, evidence_index, row = matches[0]
+        if row["stage_id"] != stage_id:
+            raise ValueError("review-chain artifact has wrong owning stage")
+        positions.append((row_index, evidence_index))
+    return positions
+
+
+def _require_citation_order(
+    state: Mapping[str, Any],
+    stage_id: str,
+    artifacts: list[tuple[str, str]],
+) -> list[tuple[int, int]]:
+    positions = _first_citation_positions(state, stage_id, artifacts)
+    if positions != sorted(positions):
+        raise ValueError("review-chain artifact citations are out of dependency order")
+    return positions
+
+
 def _require_chain_citation_order(
     state: Mapping[str, Any],
     run_id: str,
@@ -196,32 +229,26 @@ def _require_chain_citation_order(
             )
         ),
     ]
-    positions: list[tuple[int, int]] = []
-    for path, digest in ordered:
-        matches = [
-            (row_index, evidence_index, row)
-            for row_index, row in enumerate(state["history"])
-            for evidence_index, evidence in enumerate(row["evidence"])
-            if evidence.get("path") == path and evidence.get("sha256") == digest
-        ]
-        if not matches:
-            raise ValueError("review-chain artifact has no owning citation")
-        row_index, evidence_index, row = matches[0]
-        if row["stage_id"] != stage_id:
-            raise ValueError("review-chain artifact has wrong owning stage")
-        positions.append((row_index, evidence_index))
-    request_row = positions[0][0]
-    fingerprint_row = positions[1][0]
-    if fingerprint_row < request_row:
+    if "planned.json" in operation_bytes:
+        ordered.insert(
+            2,
+            (
+                f"invocations/{operation_id}/planned.json",
+                hashlib.sha256(operation_bytes["planned.json"]).hexdigest(),
+            ),
+        )
+    positions = _first_citation_positions(state, stage_id, ordered)
+    if positions[1][0] < positions[0][0]:
         raise ValueError("pre-dispatch fingerprint must follow request")
     if positions != sorted(positions):
         raise ValueError("review-chain artifact citations are out of dependency order")
-    uncertainty_row = positions[2][0]
-    invocation_row = positions[3][0]
+    offset = 1 if "planned.json" in operation_bytes else 0
+    uncertainty_row = positions[2 + offset][0]
+    invocation_row = positions[3 + offset][0]
     if invocation_row <= uncertainty_row:
         raise ValueError("review invocation must follow durable uncertainty")
-    report_row = positions[4][0]
-    reviewer_return_row = positions[5][0]
+    report_row = positions[4 + offset][0]
+    reviewer_return_row = positions[5 + offset][0]
     if reviewer_return_row <= report_row:
         raise ValueError("reviewer return must follow retained report")
 
@@ -283,8 +310,8 @@ def _load_result_chain(
             if not operation_attempts:
                 raise ValueError("reservation has no owning attempt evidence")
             operation_bytes = {
-                name: _read_file(operation, name)
-                for name in review_names
+                "planned.json": planned_data,
+                **{name: _read_file(operation, name) for name in review_names},
             }
         finally:
             _close([operation])
@@ -522,7 +549,7 @@ def publish_review_invocation(
                 )
                 if invocation.retained_bundle != expected_bundle:
                     raise ValueError("invocation retained bundle binding mismatch")
-                _require_dispatch_uncertainty(
+                uncertainty_data = _require_dispatch_uncertainty(
                     repo, run_id, operation_id, planned, latest_attempt
                 )
                 producer_reservation, _, producer_base = _load_bound_base(
@@ -570,6 +597,27 @@ def publish_review_invocation(
                     raise ValueError("pre-dispatch fingerprint binding mismatch")
                 if tuple(invocation.included_untracked) != fingerprint["included_untracked"]:
                     raise ValueError("pre-dispatch included-untracked binding mismatch")
+                _require_citation_order(
+                    state,
+                    stage_id,
+                    [
+                        (
+                            request_ref.path.removeprefix(
+                                f".kapisch/v3/runs/{run_id}/"
+                            ),
+                            request_ref.sha256,
+                        ),
+                        (fingerprint_path, invocation.pre_dispatch_fingerprint.sha256),
+                        (
+                            f"invocations/{operation_id}/planned.json",
+                            planned_digest,
+                        ),
+                        (
+                            f"invocations/{operation_id}/dispatch-uncertain.json",
+                            hashlib.sha256(uncertainty_data).hexdigest(),
+                        ),
+                    ],
+                )
                 data = invocation.canonical_bytes()
                 try:
                     _atomic_write_at(
