@@ -311,6 +311,14 @@ No identity choice is left as an implementation default in this proposal. Outsta
 
 **Gate acceptance: APPROVED.** The user explicitly approved this contract revision. Stage 4.1 is authorized to begin in a new session, but is not part of this session's work. It must consume this identity and recovery contract unchanged; any implementation requirement that would alter it stops for explicit architectural approval. No Stage 4.1 implementation, schema/bundle regeneration, or protocol changes are authorized in this session.
 
+#### Stage 4.0 `stage-evidence/1` amendment — proposal, approval pending
+
+**Status:** Proposed plan clarification for independent review and explicit approval of this exact revision. The approval above covers the identity/recovery contract only; it does not approve this amendment or authorize its implementation.
+
+The normative proposal is architecture design §32, “Stage 4.0 `stage-evidence/1` amendment — proposal, approval pending.” This plan adopts that proposal without duplicating or extending its requirements: one eligible graph-free review/final-review attempt may append one strictly cumulative pre-dispatch `planned` observation binding the exact unique Stage 5 `review-target-binding/1` reservation. The existing creation row, attempt identity, status vocabulary, retry rules, and earlier evidence remain unchanged. Reservation production remains Stage 5-owned; Stage 4 validates and cites it. Eligibility, immutable-prefix and reservation validation, shared serialization, dispatch veto, cold recovery, retained-history compatibility, and acceptance scenarios are exactly those in architecture §32.1–§32.6.
+
+This is a separate Stage 4.0 approval boundary, not permission to implement the evidence path. Until this exact amendment is explicitly approved and separately implemented, Stage 6.5 comparison-base production and M1.2 remain blocked. Retained bundles must explicitly support `stage-evidence/1` and applicable Stage 6.5 capabilities; support must not be inferred or added by rewriting old bundles. Approval of this amendment alone does not approve the distinct Stage 5 reservation producer, Stage 6.5 comparison-base producer, or other M1.2 obligations.
+
 #### Execution tasks (one PR; each commit boundary is future-only)
 
 ### Task 4.1: Retain exact bundle bytes
