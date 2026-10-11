@@ -985,20 +985,23 @@ class ReviewScopePersistenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "ambiguous"):
             _validate_prior_roots(Path("/tmp"), "run-ambiguous", state, {})
 
-    def test_bound_loader_rejects_numeric_artifact_strictness(self) -> None:
-        from unittest.mock import patch
-
-        from kapisch_core._review_scope import _load_bound_base
+    def _bound_loader_fixture(self, repo: Path) -> dict:
         from kapisch_core.bundle import canonical_json
 
         run_id = "run-artifact"
         stage_id = "s-" + "b" * 32
+        candidate = {
+            "run_id": run_id,
+            "bundle_digest": "bundle",
+            "plan_ref": {"plan_id": "plan"},
+            "execution_binding": {"mode": "graph-free"},
+        }
         candidate_ref = {
             "path": ".kapisch/v3/authority/plan-approval-candidates/" + "a" * 64 + ".json",
             "sha256": "a" * 64,
         }
         target = {"kind": "whole-branch", "ref": "refs/heads/main"}
-        root = {
+        root_artifact = {
             "protocol_version": 3,
             "comparison_root_contract": "comparison-root/1",
             "run_id": run_id,
@@ -1008,88 +1011,114 @@ class ReviewScopePersistenceTests(unittest.TestCase):
             "object_format": "sha1",
             "anchor": "sha1:" + "c" * 40,
         }
-        reservation_root = {
-            "source": "stage5-target-binding",
-            "anchor": root["anchor"],
-            "must_differ_from_head": False,
+        comparison_root = {"source": "stage5-target-binding", "anchor": root_artifact["anchor"], "must_differ_from_head": False}
+        base = "sha1:" + "c" * 40
+        head = "sha1:" + "d" * 40
+        root_ref = {"path": f".kapisch/v3/runs/{run_id}/review-inputs/comparison-roots/{candidate_ref['sha256']}.json", "sha256": "f" * 64}
+        base_ref = {"path": f".kapisch/v3/runs/{run_id}/review-inputs/comparison-bases/{'b' * 64}.json", "sha256": "b" * 64}
+        target_ref = {"path": f".kapisch/v3/runs/{run_id}/review-inputs/review-targets/{'d' * 64}.json", "sha256": "d" * 64}
+        reservation = {
+            "protocol_version": 3,
+            "review_target_binding_contract": "review-target-binding/1",
+            "run_id": run_id,
+            "stage_id": stage_id,
+            "plan_candidate_ref": candidate_ref,
+            "plan_id": "plan",
+            "target": target,
+            "purpose": "iteration",
+            "comparison_root_ref": root_ref,
+            "comparison_root": comparison_root,
+            "comparison_base_ref": base_ref,
+            "object_format": "sha1",
+            "base": base,
+            "head": head,
+            "review_target_ref": target_ref,
         }
-        with tempfile.TemporaryDirectory() as temporary:
-            repo = Path(temporary)
-            root_ref = {
-                "path": f".kapisch/v3/runs/{run_id}/review-inputs/comparison-roots/{candidate_ref['sha256']}.json",
-                "sha256": "f" * 64,
-            }
-            base = "sha1:" + "c" * 40
-            head = "sha1:" + "d" * 40
-            base_ref = {
-                "path": f".kapisch/v3/runs/{run_id}/review-inputs/comparison-bases/{'b' * 64}.json",
-                "sha256": "b" * 64,
-            }
-            target_ref = {
-                "path": f".kapisch/v3/runs/{run_id}/review-inputs/review-targets/{'d' * 64}.json",
-                "sha256": "d" * 64,
-            }
-            reservation = {
-                "protocol_version": 3,
-                "review_target_binding_contract": "review-target-binding/1",
-                "run_id": run_id,
-                "stage_id": stage_id,
-                "plan_candidate_ref": candidate_ref,
-                "plan_id": "plan",
-                "target": target,
-                "purpose": "iteration",
-                "comparison_root_ref": root_ref,
-                "comparison_root": reservation_root,
-                "comparison_base_ref": base_ref,
-                "object_format": "sha1",
-                "base": base,
-                "head": head,
-                "review_target_ref": target_ref,
-            }
-            target_artifact = {**reservation, "review_target_contract": "review-target/1"}
-            target_artifact.pop("review_target_binding_contract")
-            target_artifact["comparison_root"] = {**reservation_root, "must_differ_from_head": 1}
-            target_artifact.pop("review_target_ref")
-            base_artifact = {
-                key: reservation[key]
-                for key in (
+        review_target = {**reservation, "review_target_contract": "review-target/1"}
+        review_target["comparison_root"] = dict(comparison_root)
+        review_target.pop("review_target_binding_contract")
+        review_target.pop("review_target_ref")
+        artifacts = {
+            "comparison-root": root_artifact,
+            "review-target": review_target,
+            "comparison-base": {
+                **{key: reservation[key] for key in (
                     "protocol_version", "run_id", "stage_id", "plan_candidate_ref",
                     "plan_id", "target", "purpose", "comparison_root_ref",
                     "comparison_root", "object_format", "base", "head",
-                )
-            }
-            base_artifact["comparison_base_contract"] = "comparison-base/1"
-            binding_path = f"review-inputs/review-target-bindings/{'e' * 64}.json"
-            binding_data = canonical_json(reservation)
-            binding_file = repo / f".kapisch/v3/runs/{run_id}/{binding_path}"
-            binding_file.parent.mkdir(parents=True)
-            binding_file.write_bytes(binding_data)
-            binding_digest = hashlib.sha256(binding_data).hexdigest()
-            binding_path = f"review-inputs/review-target-bindings/{binding_digest}.json"
-            binding_file.rename(binding_file.with_name(f"{binding_digest}.json"))
-            binding_evidence = {"kind": "review-target-binding/1", "path": binding_path, "sha256": binding_digest}
-            state = {
-                "plan_candidate_ref": candidate_ref,
-                "bundle_digest": "bundle",
-                "history": [
-                    {"stage_id": stage_id, "evidence": []},
-                    {"stage_id": stage_id, "evidence": [binding_evidence]},
-                ],
-            }
-            attempt = {"stage_id": stage_id, "evidence": [binding_evidence]}
-            candidate = {
-                "run_id": run_id,
-                "bundle_digest": "bundle",
-                "plan_ref": {"plan_id": "plan"},
-                "execution_binding": {"mode": "graph-free"},
-            }
+                )},
+                "comparison_base_contract": "comparison-base/1",
+            },
+        }
+        binding_data = canonical_json(reservation)
+        binding_digest = hashlib.sha256(binding_data).hexdigest()
+        binding_path = f"review-inputs/review-target-bindings/{binding_digest}.json"
+        binding_file = repo / f".kapisch/v3/runs/{run_id}/{binding_path}"
+        binding_file.parent.mkdir(parents=True)
+        binding_file.write_bytes(binding_data)
+        binding_evidence = {"kind": "review-target-binding/1", "path": binding_path, "sha256": binding_digest}
+        state = {
+            "plan_candidate_ref": candidate_ref,
+            "bundle_digest": "bundle",
+            "history": [
+                {"stage_id": stage_id, "evidence": []},
+                {"stage_id": stage_id, "evidence": [binding_evidence]},
+            ],
+        }
+        attempt = {"stage_id": stage_id, "evidence": [binding_evidence]}
+        return {"run_id": run_id, "state": state, "attempt": attempt, "binding_path": binding_path, "candidate": candidate, "artifacts": artifacts}
+
+    def test_bound_loader_rejects_numeric_artifact_strictness(self) -> None:
+        from unittest.mock import patch
+
+        from kapisch_core._review_scope import _load_bound_base
+
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary)
+            fixture = self._bound_loader_fixture(repo)
+            fixture["artifacts"]["review-target"]["comparison_root"]["must_differ_from_head"] = 1
             def read_artifact(repo_path, run, value, pattern, label, **kwargs):
-                return {"comparison-root": root, "review-target": target_artifact, "comparison-base": base_artifact}[label], b""
-
-            with patch("kapisch_core._review_scope.validate_plan_approval_candidate", return_value=(candidate, None)), patch("kapisch_core._review_scope._read_locator", side_effect=read_artifact):
+                return fixture["artifacts"][label], b""
+            with patch("kapisch_core._review_scope.validate_plan_approval_candidate", return_value=(fixture["candidate"], None)), patch("kapisch_core._review_scope._read_locator", side_effect=read_artifact):
                 with self.assertRaisesRegex(ValueError, "artifact root is invalid"):
-                    _load_bound_base(repo, run_id, state, attempt)
+                    _load_bound_base(repo, fixture["run_id"], fixture["state"], fixture["attempt"])
 
+    def test_bound_loader_rejects_scan_directory_disappearance_after_binding_read(self) -> None:
+        from unittest.mock import patch
+
+        from kapisch_core._review_scope import _load_bound_base
+        from kapisch_core.storage import _open_dir as open_dir
+        from kapisch_core.storage import _read_contained as read_contained
+
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary)
+            fixture = self._bound_loader_fixture(repo)
+            binding_read = False
+
+            def track_binding_read(repo_path, run, relative):
+                nonlocal binding_read
+                data = read_contained(repo_path, run, relative)
+                if relative == fixture["binding_path"]:
+                    binding_read = True
+                return data
+
+            with patch("kapisch_core._review_scope.validate_plan_approval_candidate", return_value=(fixture["candidate"], None)), \
+                    patch("kapisch_core._review_scope._read_contained", side_effect=track_binding_read), \
+                    patch("kapisch_core._review_scope._read_locator") as read_locator:
+                for missing_directory in ("review-inputs", "review-target-bindings"):
+                    with self.subTest(directory=missing_directory):
+                        binding_read = False
+
+                        def fail_scan_reopen(fd: int, name: str) -> int:
+                            if binding_read and name == missing_directory:
+                                raise FileNotFoundError(name)
+                            return open_dir(fd, name)
+
+                        with patch("kapisch_core._review_scope._open_dir", side_effect=fail_scan_reopen):
+                            with self.assertRaises(FileNotFoundError):
+                                _load_bound_base(repo, fixture["run_id"], fixture["state"], fixture["attempt"])
+                        self.assertTrue(binding_read)
+                        read_locator.assert_not_called()
     def test_reservation_rejects_non_scalar_role(self) -> None:
         from kapisch_core._invocation import _validate_reservation
 
