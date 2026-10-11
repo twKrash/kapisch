@@ -426,7 +426,7 @@ scope and must be delivered separately. This approval does not
 authorize Stage 5 target-selection production, Stage 6.5
 persistence, dispatch, or other independently gated prerequisites.
 
-Proposed docs-only amendment for independent review and explicit human approval of this exact revision. This section does not authorize implementation. It creates one narrow exception to the frozen Stage 4.0 history-observation rule and §31.1–31.2 reservation-recovery rule; all other frozen identity, retry, dispatch, status, evidence, and recovery rules remain unchanged.
+This approved amendment defines one narrow exception to the frozen Stage 4.0 history-observation rule and §31.1–31.2 reservation-recovery rule; all other frozen identity, retry, dispatch, status, evidence, and recovery rules remain unchanged.
 
 ### 32.1 Scope, boundary, and non-goals
 
