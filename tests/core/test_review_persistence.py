@@ -68,6 +68,7 @@ class ReviewScopePersistenceTests(unittest.TestCase):
         scope_validation.start()
         self.addCleanup(scope_validation.stop)
 
+        from kapisch_core._state import _locked, _publish_state_locked
         from kapisch_core.bundle import canonical_json
         from kapisch_core.protocol import (
             load_state,
@@ -261,25 +262,40 @@ class ReviewScopePersistenceTests(unittest.TestCase):
             (operation_dir / "post-result.json").write_bytes(fingerprint_data)
             result_data = result.canonical_bytes()
             (operation_dir / "review-result.json").write_bytes(result_data)
-            complete = {
+            report_observed = {
                 **uncertain,
                 "sequence": 2,
-                "status": "complete",
                 "evidence": [
                     *uncertain["evidence"],
                     {"kind": "protocol", "path": f"invocations/{operation_id}/review-invocation.json", "sha256": hashlib.sha256((operation_dir / "review-invocation.json").read_bytes()).hexdigest()},
                     {"kind": "protocol", "path": f"reports/{operation_id}.json", "sha256": report_digest},
+                ],
+            }
+            complete = {
+                **report_observed,
+                "sequence": 3,
+                "status": "complete",
+                "evidence": [
+                    *report_observed["evidence"],
                     {"kind": "protocol", "path": f"invocations/{operation_id}/reviewer-return.json", "sha256": reviewer_locator.sha256},
                     {"kind": "protocol", "path": f"invocations/{operation_id}/host-provenance-attestation.json", "sha256": provenance_locator.sha256},
                     {"kind": "protocol", "path": f"invocations/{operation_id}/post-result.json", "sha256": fingerprint_digest},
                     {"kind": "protocol", "path": f"invocations/{operation_id}/review-result.json", "sha256": hashlib.sha256(result_data).hexdigest()},
                 ],
             }
+            with _locked(root, run_id):
+                _publish_state_locked(
+                    root,
+                    run_id,
+                    {**state_after_uncertainty, "revision": 2, "history": [state["history"][0], uncertain, report_observed]},
+                    expected_revision=1,
+                    allow_dispatch_uncertain=True,
+                )
             publish_state(
                 root,
                 run_id,
-                {**state_after_uncertainty, "revision": 2, "history": [state["history"][0], uncertain, complete]},
-                expected_revision=1,
+                {**state_after_uncertainty, "revision": 3, "history": [state["history"][0], uncertain, report_observed, complete]},
+                expected_revision=2,
             )
 
             with patch("kapisch_core._review_chain._load_bound_base", return_value=producer):
@@ -291,16 +307,16 @@ class ReviewScopePersistenceTests(unittest.TestCase):
                 loaded["review_result_ref"][operation_id],
                 {"path": repaired[0].path, "sha256": repaired[0].sha256},
             )
-            self.assertEqual(loaded["revision"], 3)
+            self.assertEqual(loaded["revision"], 4)
             with patch("kapisch_core._review_chain._load_bound_base", return_value=producer):
                 self.assertEqual(validate_run(root, run_id), [])
                 self.assertEqual(repair_review_backlinks(root, run_id), repaired)
-            self.assertEqual(load_state(root, run_id)["revision"], 3)
+            self.assertEqual(load_state(root, run_id)["revision"], 4)
             dropped = dict(loaded)
             dropped.pop("review_result_ref")
-            dropped["revision"] = 4
+            dropped["revision"] = 5
             with self.assertRaisesRegex(ValueError, "guarded repair"):
-                publish_state(root, run_id, dropped, expected_revision=3)
+                publish_state(root, run_id, dropped, expected_revision=4)
             replaced = dict(loaded)
             replaced["review_result_ref"] = {
                 operation_id: {
@@ -308,9 +324,9 @@ class ReviewScopePersistenceTests(unittest.TestCase):
                     "sha256": "d" * 64,
                 }
             }
-            replaced["revision"] = 4
+            replaced["revision"] = 5
             with self.assertRaisesRegex(ValueError, "guarded repair"):
-                publish_state(root, run_id, replaced, expected_revision=3)
+                publish_state(root, run_id, replaced, expected_revision=4)
             shutil.rmtree(root / ".kapisch/v3/runs" / run_id / "invocations")
             self.assertTrue(validate_run(root, run_id))
 
@@ -509,6 +525,44 @@ class ReviewScopePersistenceTests(unittest.TestCase):
                 "u" * 64,
                 operation_bytes,
             )
+        with self.assertRaisesRegex(ValueError, "reviewer return must follow retained report"):
+            _require_chain_citation_order(
+                {
+                    "history": [
+                        {
+                            "stage_id": stage_id,
+                            "evidence": [{"path": path, "sha256": digest} for path, digest in paths[:2]],
+                        },
+                        {
+                            "stage_id": stage_id,
+                            "evidence": [{"path": path, "sha256": digest} for path, digest in paths[2:]],
+                        },
+                    ]
+                },
+                run_id,
+                operation_id,
+                stage_id,
+                fingerprint,
+                report,
+                "u" * 64,
+                operation_bytes,
+            )
+        with self.assertRaisesRegex(ValueError, "dependency order"):
+            _require_chain_citation_order(
+                {
+                    "history": [
+                        {"stage_id": stage_id, "evidence": [{"path": path, "sha256": digest} for path, digest in paths[:2]]},
+                        {"stage_id": stage_id, "evidence": [{"path": path, "sha256": digest} for path, digest in reversed(paths[2:])]},
+                    ]
+                },
+                run_id,
+                operation_id,
+                stage_id,
+                fingerprint,
+                report,
+                "u" * 64,
+                operation_bytes,
+            )
         late_report = [item for item in paths if item != (report.path.removeprefix(f".kapisch/v3/runs/{run_id}/"), report.sha256)]
         with self.assertRaisesRegex(ValueError, "dependency order"):
             _require_chain_citation_order(
@@ -580,6 +634,36 @@ class ReviewScopePersistenceTests(unittest.TestCase):
                     raise FileNotFoundError(name)
                 return data
             with patch("kapisch_core._review_scope.os.listdir", return_value=[missing_name, conflict_name]), patch("kapisch_core._review_scope._read_file", side_effect=read_file):
+                with self.assertRaises(FileNotFoundError):
+                    _reject_conflicting_bindings(Path(temporary), run_id, binding, reservation)
+
+    def test_scope_loader_rejects_missing_reservation_scan_directories(self) -> None:
+        from unittest.mock import patch
+
+        from kapisch_core._review_scope import _reject_conflicting_bindings
+
+        run_id = "run-missing-reservation-scan"
+        reservation = {
+            "run_id": run_id,
+            "stage_id": "s-" + "a" * 32,
+            "plan_candidate_ref": {"path": "candidate", "sha256": "a" * 64},
+            "purpose": "final",
+        }
+        binding = {"path": "review-inputs/review-target-bindings/" + "f" * 64 + ".json", "sha256": "f" * 64}
+        with tempfile.TemporaryDirectory() as temporary:
+            run_directory = Path(temporary) / ".kapisch/v3/runs" / run_id
+            run_directory.mkdir(parents=True)
+            with patch("kapisch_core._review_scope._open_dir", side_effect=FileNotFoundError("reservation scan")):
+                with self.assertRaises(FileNotFoundError):
+                    _reject_conflicting_bindings(Path(temporary), run_id, binding, reservation)
+            review_inputs = run_directory / "review-inputs"
+            review_inputs.mkdir()
+            from kapisch_core.storage import _open_dir as open_dir
+            def missing_bindings(fd: int, name: str) -> int:
+                if name == "review-inputs":
+                    return open_dir(fd, name)
+                raise FileNotFoundError(name)
+            with patch("kapisch_core._review_scope._open_dir", side_effect=missing_bindings):
                 with self.assertRaises(FileNotFoundError):
                     _reject_conflicting_bindings(Path(temporary), run_id, binding, reservation)
 

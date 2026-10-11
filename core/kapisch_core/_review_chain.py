@@ -212,6 +212,10 @@ def _require_chain_citation_order(
     invocation_row = positions[2][0]
     if invocation_row <= uncertainty_row:
         raise ValueError("review invocation must follow durable uncertainty")
+    report_row = positions[3][0]
+    reviewer_return_row = positions[4][0]
+    if reviewer_return_row <= report_row:
+        raise ValueError("reviewer return must follow retained report")
 
 
 def _load_result_chain(
