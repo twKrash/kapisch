@@ -45,6 +45,7 @@ from .review import (
 from .storage import (
     _atomic_write_at,
     _close,
+    _id,
     _open_dir,
     _read_contained,
     _read_file,
@@ -158,14 +159,17 @@ def _require_chain_citation_order(
     run_id: str,
     operation_id: str,
     stage_id: str,
+    request: ImmutableArtifactLocator,
     fingerprint: ImmutableArtifactLocator,
     report: ImmutableArtifactLocator,
     uncertainty_digest: str,
     operation_bytes: Mapping[str, bytes],
 ) -> None:
     prefix = f".kapisch/v3/runs/{run_id}/"
+    request_path = request.path.removeprefix(prefix)
     fingerprint_path = fingerprint.path.removeprefix(prefix)
     ordered = [
+        (request_path, request.sha256),
         (fingerprint_path, fingerprint.sha256),
         (
             f"invocations/{operation_id}/dispatch-uncertain.json",
@@ -206,14 +210,18 @@ def _require_chain_citation_order(
         if row["stage_id"] != stage_id:
             raise ValueError("review-chain artifact has wrong owning stage")
         positions.append((row_index, evidence_index))
+    request_row = positions[0][0]
+    fingerprint_row = positions[1][0]
+    if fingerprint_row < request_row:
+        raise ValueError("pre-dispatch fingerprint must follow request")
     if positions != sorted(positions):
         raise ValueError("review-chain artifact citations are out of dependency order")
-    uncertainty_row = positions[1][0]
-    invocation_row = positions[2][0]
+    uncertainty_row = positions[2][0]
+    invocation_row = positions[3][0]
     if invocation_row <= uncertainty_row:
         raise ValueError("review invocation must follow durable uncertainty")
-    report_row = positions[3][0]
-    reviewer_return_row = positions[4][0]
+    report_row = positions[4][0]
+    reviewer_return_row = positions[5][0]
     if reviewer_return_row <= report_row:
         raise ValueError("reviewer return must follow retained report")
 
@@ -310,6 +318,10 @@ def _load_result_chain(
         path = f"invocations/{operation_id}/{filename}"
         if cited.get(path) != hashlib.sha256(data).hexdigest():
             raise ValueError(f"{filename} has no owning attempt evidence")
+    request_locator = ImmutableArtifactLocator(
+        f".kapisch/v3/runs/{run_id}/requests/{operation_id}.json",
+        planned["request_digest"],
+    )
     invocation = ReviewInvocation.from_dict(
         _json(operation_bytes["review-invocation.json"], "review invocation")
     )
@@ -321,6 +333,7 @@ def _load_result_chain(
         run_id,
         operation_id,
         planned["stage_id"],
+        request_locator,
         invocation.pre_dispatch_fingerprint,
         reviewer_return.report,
         hashlib.sha256(uncertainty_data).hexdigest(),
@@ -350,10 +363,6 @@ def _load_result_chain(
     post_result_locator = ImmutableArtifactLocator(
         f".kapisch/v3/runs/{run_id}/invocations/{operation_id}/post-result.json",
         hashlib.sha256(operation_bytes["post-result.json"]).hexdigest(),
-    )
-    request_locator = ImmutableArtifactLocator(
-        f".kapisch/v3/runs/{run_id}/requests/{operation_id}.json",
-        planned["request_digest"],
     )
     if (
         invocation.operation != {"run_id": run_id, "operation_id": operation_id}
@@ -439,8 +448,10 @@ def publish_review_invocation(
 
     if type(invocation) is not ReviewInvocation:
         raise TypeError("invocation must be a ReviewInvocation")
-    run_id = invocation.operation["run_id"]
-    operation_id = invocation.operation["operation_id"]
+    run_id = _id(invocation.operation["run_id"], "run_id")
+    operation_id = _id(invocation.operation["operation_id"], "operation_id")
+    if not re.fullmatch(r"op-[0-9a-f]{32}", operation_id):
+        raise ValueError("invalid operation_id")
     repo = Path(repo)
     with _locked(repo, run_id):
         state, bundle = _load_run_context(repo, run_id)
@@ -581,6 +592,7 @@ def repair_review_backlinks(
     repo: Path, run_id: str
 ) -> tuple[ImmutableArtifactLocator, ...]:
     """Validate complete result chains and repair missing exact backlinks."""
+    run_id = _id(run_id, "run_id")
     repo = Path(repo)
     with _locked(repo, run_id):
         state, bundle = _load_run_context(repo, run_id)

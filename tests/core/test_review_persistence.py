@@ -22,6 +22,46 @@ from kapisch_core.review_persistence import load_review_scope  # noqa: E402
 
 
 class ReviewScopePersistenceTests(unittest.TestCase):
+    def test_review_mutators_reject_path_ids_before_locking(self) -> None:
+        from kapisch_core._review_chain import (
+            publish_review_invocation,
+            repair_review_backlinks,
+        )
+        from kapisch_core._review_scope import publish_review_scope
+
+        stage_id = "s-" + "a" * 32
+        operation_id = "op-" + "b" * 32
+        base_invocation = {
+            "retained_bundle": ImmutableArtifactLocator("bundles/" + "c" * 64 + ".json", "c" * 64),
+            "request": ImmutableArtifactLocator("requests/request.json", "d" * 64),
+            "attempt": {"run_id": "run", "stage_id": stage_id},
+            "operation": {"run_id": "run", "operation_id": operation_id},
+            "scope": ImmutableArtifactLocator("review-inputs/scope.json", "e" * 64),
+            "base": "sha1:" + "f" * 40,
+            "head": "sha1:" + "1" * 40,
+            "purpose": "iteration",
+            "included_untracked": (),
+            "pre_dispatch_fingerprint": ImmutableArtifactLocator("review-inputs/fingerprint.json", "2" * 64),
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for bad_run_id, bad_operation_id in (("../escape", operation_id), ("run", "../escape")):
+                invocation = ReviewInvocation(
+                    **{
+                        **base_invocation,
+                        "attempt": {"run_id": bad_run_id, "stage_id": stage_id},
+                        "operation": {"run_id": bad_run_id, "operation_id": bad_operation_id},
+                    }
+                )
+                with self.assertRaises(ValueError):
+                    publish_review_invocation(root, invocation)
+                self.assertFalse((root / ".kapisch").exists())
+            with self.assertRaises(ValueError):
+                publish_review_scope(root, "../escape", stage_id)
+            with self.assertRaises(ValueError):
+                repair_review_backlinks(root, "../escape")
+            self.assertFalse((root / ".kapisch").exists())
+
     def _state(self, run_id: str, bundle_digest: str) -> dict:
         return {
             "protocol_version": 3,
@@ -423,6 +463,9 @@ class ReviewScopePersistenceTests(unittest.TestCase):
         run_id = "run-order-same-row"
         operation_id = "op-" + "a" * 32
         stage_id = "s-" + "b" * 32
+        request = ImmutableArtifactLocator(
+            f".kapisch/v3/runs/{run_id}/requests/{operation_id}.json", "b" * 64
+        )
         fingerprint = ImmutableArtifactLocator(
             f".kapisch/v3/runs/{run_id}/review-inputs/{operation_id}/pre-dispatch-fingerprint.json",
             "a" * 64,
@@ -441,6 +484,7 @@ class ReviewScopePersistenceTests(unittest.TestCase):
             )
         }
         paths = [
+            (request.path.removeprefix(f".kapisch/v3/runs/{run_id}/"), request.sha256),
             (fingerprint.path.removeprefix(f".kapisch/v3/runs/{run_id}/"), fingerprint.sha256),
             (f"invocations/{operation_id}/dispatch-uncertain.json", "u" * 64),
             (f"invocations/{operation_id}/review-invocation.json", hashlib.sha256(operation_bytes["review-invocation.json"]).hexdigest()),
@@ -464,6 +508,7 @@ class ReviewScopePersistenceTests(unittest.TestCase):
                 run_id,
                 operation_id,
                 stage_id,
+                request,
                 fingerprint,
                 report,
                 "u" * 64,
@@ -476,6 +521,9 @@ class ReviewScopePersistenceTests(unittest.TestCase):
         run_id = "run-order"
         operation_id = "op-" + "a" * 32
         stage_id = "s-" + "b" * 32
+        request = ImmutableArtifactLocator(
+            f".kapisch/v3/runs/{run_id}/requests/{operation_id}.json", "b" * 64
+        )
         fingerprint = ImmutableArtifactLocator(
             f".kapisch/v3/runs/{run_id}/review-inputs/{operation_id}/pre-dispatch-fingerprint.json",
             "a" * 64,
@@ -494,6 +542,7 @@ class ReviewScopePersistenceTests(unittest.TestCase):
             )
         }
         paths = [
+            (request.path.removeprefix(f".kapisch/v3/runs/{run_id}/"), request.sha256),
             (fingerprint.path.removeprefix(f".kapisch/v3/runs/{run_id}/"), fingerprint.sha256),
             (f"invocations/{operation_id}/dispatch-uncertain.json", "u" * 64),
             (f"invocations/{operation_id}/review-invocation.json", hashlib.sha256(operation_bytes["review-invocation.json"]).hexdigest()),
@@ -520,6 +569,24 @@ class ReviewScopePersistenceTests(unittest.TestCase):
                 run_id,
                 operation_id,
                 stage_id,
+                request,
+                fingerprint,
+                report,
+                "u" * 64,
+                operation_bytes,
+            )
+        with self.assertRaisesRegex(ValueError, "pre-dispatch fingerprint must follow request"):
+            _require_chain_citation_order(
+                {
+                    "history": [
+                        {"stage_id": stage_id, "evidence": [{"path": paths[1][0], "sha256": paths[1][1]}]},
+                        {"stage_id": stage_id, "evidence": [{"path": path, "sha256": digest} for path, digest in [paths[0], *paths[2:]]]},
+                    ]
+                },
+                run_id,
+                operation_id,
+                stage_id,
+                request,
                 fingerprint,
                 report,
                 "u" * 64,
@@ -531,17 +598,18 @@ class ReviewScopePersistenceTests(unittest.TestCase):
                     "history": [
                         {
                             "stage_id": stage_id,
-                            "evidence": [{"path": path, "sha256": digest} for path, digest in paths[:2]],
+                            "evidence": [{"path": path, "sha256": digest} for path, digest in paths[:3]],
                         },
                         {
                             "stage_id": stage_id,
-                            "evidence": [{"path": path, "sha256": digest} for path, digest in paths[2:]],
+                            "evidence": [{"path": path, "sha256": digest} for path, digest in paths[3:]],
                         },
                     ]
                 },
                 run_id,
                 operation_id,
                 stage_id,
+                request,
                 fingerprint,
                 report,
                 "u" * 64,
@@ -558,6 +626,7 @@ class ReviewScopePersistenceTests(unittest.TestCase):
                 run_id,
                 operation_id,
                 stage_id,
+                request,
                 fingerprint,
                 report,
                 "u" * 64,
@@ -575,6 +644,7 @@ class ReviewScopePersistenceTests(unittest.TestCase):
                 run_id,
                 operation_id,
                 stage_id,
+                request,
                 fingerprint,
                 report,
                 "u" * 64,

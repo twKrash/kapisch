@@ -28,6 +28,7 @@ from .review import ImmutableArtifactLocator, ReviewScopeArtifact
 from .storage import (
     _atomic_write_at,
     _close,
+    _id,
     _open_dir,
     _read_contained,
     _read_file,
@@ -545,6 +546,9 @@ def publish_review_scope(
     repo: Path, run_id: str, stage_id: str
 ) -> ImmutableArtifactLocator:
     """Publish the producer-bound graph-free review scope."""
+    run_id = _id(run_id, "run_id")
+    if not re.fullmatch(r"s-[0-9a-f]{32}", stage_id):
+        raise ValueError("invalid stage_id")
     repo = Path(repo)
     with _locked(repo, run_id):
         state, bundle = _load_run_context(repo, run_id)
