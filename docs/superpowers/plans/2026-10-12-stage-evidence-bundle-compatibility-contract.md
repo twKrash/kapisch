@@ -49,10 +49,12 @@ review support, or vice versa.
 
 ## 3. Testable support predicate and fail-closed behavior
 
-For a `CoreBundle` returned by successful `verify_bundle(data, digest)`,
-`supports_stage_evidence(bundle)` returns true if and only if
-`bundle.payload["stage_evidence_contract"] == "stage-evidence/1"`.
-All other states return false or fail verification as follows:
+For a CoreBundle that passes `verify_bundle` and the supported retained
+identity-schema validation, `supports_stage_evidence(bundle)` returns true if
+and only if `bundle.payload["stage_evidence_contract"] == "stage-evidence/1"`.
+The accessor must enforce or require that complete validation before returning
+true; a canonical digest-valid bundle with an unsupported schema fingerprint
+is not eligible. All other states return false or fail validation as follows:
 
 - Missing declaration: bundle may remain valid for its previously supported
   operations, but predicate returns false.
@@ -68,10 +70,11 @@ All other states return false or fail verification as follows:
   verification failure continues to reject the bundle before capability use.
 
 No consumer may inspect the raw mapping and implement its own capability
-interpretation. The verifier is the sole validation point for the declaration;
-`supports_stage_evidence` is the sole reader/accessor for the semantic
-predicate. The accessor is called only on a successfully verified
-`CoreBundle`, and does not repair or downgrade invalid input.
+interpretation. `verify_bundle` validates the declaration's closed shape and
+value; `_validation_schema.py` validates the exact supported identity-schema
+fingerprint; `supports_stage_evidence` is the sole reader/accessor for the
+semantic predicate. The accessor accepts only a fully validated retained
+`CoreBundle` and does not repair or downgrade invalid input.
 
 Stage 4's §32.2 predicate may rely on the exact attempt's validated retained
 bundle plus this accessor returning true. It must not substitute an installed
@@ -82,29 +85,35 @@ does not imply or duplicate them.
 
 ## 4. Retained and legacy compatibility
 
-Existing legacy-format bundles continue to verify exactly under their existing
-legacy field and schema-set rules. Existing new-format bundles declaring only
+Under the updated implementation, existing legacy-format bundles continue
+to verify exactly under their existing legacy field and schema-set rules.
+Existing new-format bundles declaring only
 `authority_contract = "global-authority/1"` likewise continue to verify with
 exactly their current meaning and eligibility for existing operations. Existing
 review-capability bundles preserve their current rules. None is reinterpreted
 as declaring `stage-evidence/1`, regardless of schema content or protocol
 version.
 
-Adding support creates a new canonical bundle variant. It does not mutate,
-upgrade, migrate, or replace any retained bundle. Old bytes retain their
-original digest and historical interpretation. A retained bundle without the
-new declaration remains usable for operations it already supports, but is
-ineligible wherever §32 requires explicit stage-evidence support.
+Adding support creates a new canonical bundle variant with a new recognized
+embedded-schema fingerprint. It does not mutate, upgrade, migrate, or replace
+any retained bundle. Old bytes retain their original digest and historical
+interpretation. Updated readers accept those prior variants under their
+existing fingerprint mappings. Older readers that do not recognize the new
+fingerprint may reject new bundle bytes; forward compatibility with older
+implementations is not promised. A retained bundle without the new declaration
+remains usable under updated readers for operations it already supports, but
+is ineligible wherever §32 requires explicit stage-evidence support.
 
 ## 5. Scope limits
 
 This contract defines one capability only. It does not define a general
 capability registry, negotiation protocol, capability inheritance, aliases,
-version ranges, forward compatibility for unknown declarations, schema
-requirements beyond the existing CoreBundle verifier, future capability
-values, or migration of retained bundles. It does not define or modify
-Stage 4 evidence structure, eligibility beyond the explicit bundle check,
-reservation production, Stage 6.5 behavior, or any other §32 invariant.
+version ranges, forward compatibility for unknown declarations, future
+capability values, or migration of retained bundles. Its only schema changes
+are the optional exact CoreBundle declaration and recognition of the resulting
+exact embedded-schema fingerprint described in §6. It does not define or
+modify Stage 4 evidence structure, eligibility beyond the explicit bundle
+check, reservation production, Stage 6.5 behavior, or any other §32 invariant.
 
 ## 6. Implementation plan — pending approval
 
@@ -124,30 +133,41 @@ change these seams:
    value, and continues rejecting unknown/partial declarations. Legacy exact
    fields and current global-authority/review rules remain unchanged. Verify
    that newly compiled payloads validate against their embedded bundle schema.
-4. Adjacent to `supports_review_evidence`, define and export the single
-   `supports_stage_evidence(bundle)` accessor. It returns true only for the
-   verified exact declaration; it does not duplicate declaration validation.
-5. `tooling/build/build_bundle.py` is the existing canonical-copy producer.
+4. `core/kapisch_core/_validation_schema.py` recognizes the exact identity
+   fingerprints produced by the new embedded bundle schema. Preserve every
+   existing fingerprint and its historical mapping. Map each new
+   `global-authority/1` fingerprint to the same existing identity-schema
+   variant as its predecessor, retaining the exact global-gate schema pairing.
+   Do not weaken fingerprint validation, normalize historical schemas, or
+   admit cross-generation hybrids.
+5. Adjacent to `supports_review_evidence`, define and export the single
+   `supports_stage_evidence(bundle)` accessor. It returns true only when the
+   bundle has the exact declaration and its retained identity schema passes
+   supported-fingerprint validation, following the existing review-accessor
+   pattern; it does not duplicate declaration or fingerprint rules.
+6. `tooling/build/build_bundle.py` is the existing canonical-copy producer.
    Run it after changing the compiler to refresh exactly its three outputs:
    `core/dist/core-bundle.json`,
    `core/kapisch_core/resources/core-bundle.json`, and
    `tests/conformance/fixtures/v3/bundle.json`. Do not rewrite legacy fixtures.
-6. `tests/core/test_bundle.py` (existing bundle format and capability
+7. `tests/core/test_bundle.py` (existing bundle format and capability
    coverage) adds focused declaration, accessor, compatibility, and
    canonical-byte tests. `tests/core/test_storage.py` may add a retained exact-
    bundle assertion if needed to prove the accessor operates on the
    digest-verified retained object; no storage production change is expected.
-7. The Stage 4 implementation, in a separate approved scope, calls the
+8. The Stage 4 implementation, in a separate approved scope, calls the
    accessor at its §32.2 eligibility seam using the exact retained bundle. No
    Stage 4 call site changes in this capability implementation.
 
-The capability changes only compilation and verification of the new bundle
-variant, its accessor, generated canonical copies, and focused tests. Bundle
-storage, SHA-256 calculation, canonical JSON algorithm, legacy schema
-recognition, old global-authority bundles, and all existing consumers remain
-behaviorally unchanged except that Stage 4 may later rely on the approved
-accessor. No Stage 4 source, Stage 4 artifact, or §32 implementation is part
-of this plan.
+The capability changes only compilation, bundle-schema validation, exact
+identity-fingerprint recognition, its accessor, generated canonical copies,
+and focused tests. Bundle storage, SHA-256 calculation, canonical JSON
+algorithm, legacy schema recognition, historical identity fingerprints,
+old global-authority bundles, and existing consumers retain their behavior
+under the updated implementation. New exact fingerprints map to existing
+identity variants and their existing gate-schema pairings; no historical
+schema is reinterpreted. Stage 4 may later rely on the approved accessor. No
+Stage 4 source, Stage 4 artifact, or §32 implementation is part of this plan.
 
 Required regressions before approval of implementation:
 
@@ -156,8 +176,16 @@ Required regressions before approval of implementation:
   Stage-only support returns true while existing review support remains false;
   review-pair behavior remains unchanged. A partial or invalid review pair is
   rejected even when stage-evidence is declared.
-- **Embedded schema:** newly compiled payload validates against its embedded
-  `bundle` schema; the optional property accepts only the exact declaration.
+- **Embedded schema and identity:** newly compiled payload validates against
+  its embedded `bundle` schema and exact recognized identity fingerprint;
+  existing fingerprints remain recognized with unchanged mappings. New
+  fingerprints map only to their matching existing identity and global-gate
+  schema variants; unsupported fingerprints and cross-generation hybrids fail.
+  Newly compiled bundle identity validation succeeds and existing review
+  support remains true.
+- **State recovery:** public state publication and loading accept the new
+  retained variant, including a fresh-process reload, while historical legacy,
+  Stage 5.4/5.5, and review variants retain their original interpretation.
 - **Unsupported:** a present but unsupported string declaration is rejected
   by verification and cannot yield eligibility.
 - **Absent:** current valid legacy and new-format bundles without declaration
