@@ -1230,15 +1230,15 @@ class GateApprovalTests(unittest.TestCase):
         self.assertEqual(state_path.read_bytes(), state_before)
         self.assertEqual(
             self.target.target,
-            "5ad69c00645aef6c11d06e7159078d1de4269d710c2617f20a3b4bc987c64a7d",
+            "65b234faa2165d5acc83d2334fff586fde1d78a81859ca270ad8f295d6c882b6",
         )
         self.assertEqual(
             ref["approval_id"],
-            "ga-de23b1b510cdcc04eb08e91f103707101fde22e6980a3dffecadab677121aba7",
+            "ga-575276f29cccab2e273b4354084e102afaa04fffabeae1de311802aae3ce882e",
         )
         self.assertEqual(
             ref["sha256"],
-            "2c23d3daae5033158a7c27d1013e447823dc907958a9f4ae4b8246370f0676d2",
+            "595e6c71c1ba7891cd7c0ec77b85ca2a83fbaf4801ed79f1310fdd661e75d461",
         )
         record = load_gate_approval(self.repo, ref)
         artifact_ref = record["human_authority"]
