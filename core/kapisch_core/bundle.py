@@ -411,6 +411,7 @@ def compile_bundle(source_root: Path) -> bytes:
         "authority_contract": "global-authority/1",
         "review_contract": "review-evidence/1",
         "review_schema_variant": "review-invocation/1",
+        "stage_evidence_contract": "stage-evidence/1",
         "vocabulary": {
             "roles": _enum_values(Role),
             "workflows": _enum_values(Workflow),
@@ -461,6 +462,7 @@ def verify_bundle(data: bytes, digest: str) -> CoreBundle:
     new = isinstance(schemas_value, dict) and set(schemas_value) == set(_SCHEMA_IDS)
     new_required = required | {"authority_contract"}
     review_capabilities = {"review_contract", "review_schema_variant"}
+    stage_capability = "stage_evidence_contract"
     new_fields = set(payload)
     if (
         (legacy and new_fields != required)
@@ -470,16 +472,22 @@ def verify_bundle(data: bytes, digest: str) -> CoreBundle:
                 new_fields not in {
                     frozenset(new_required),
                     frozenset(new_required | review_capabilities),
+                    frozenset(new_required | {stage_capability}),
+                    frozenset(new_required | review_capabilities | {stage_capability}),
                 }
                 or payload.get("authority_contract") != "global-authority/1"
                 or (
                     bool(review_capabilities & new_fields)
                     and (
-                        new_fields != new_required | review_capabilities
+                        not review_capabilities.issubset(new_fields)
                         or payload.get("review_contract") != "review-evidence/1"
                         or payload.get("review_schema_variant")
                         != "review-invocation/1"
                     )
+                )
+                or (
+                    stage_capability in new_fields
+                    and payload.get(stage_capability) != "stage-evidence/1"
                 )
             )
         )
@@ -567,6 +575,19 @@ def verify_bundle(data: bytes, digest: str) -> CoreBundle:
     return CoreBundle(protocol_version=3, payload=_freeze(payload))
 
 
+def supports_stage_evidence(bundle: CoreBundle) -> bool:
+    """Return whether this retained bundle declares stage-evidence/1."""
+    if bundle.payload.get("stage_evidence_contract") != "stage-evidence/1":
+        return False
+    try:
+        from ._validation_schema import _validate_identity_contract
+
+        _validate_identity_contract(bundle)
+    except ValueError:
+        return False
+    return True
+
+
 def supports_review_evidence(bundle: CoreBundle) -> bool:
     """Return whether this retained bundle declares the exact review capability."""
     if (
@@ -624,5 +645,6 @@ __all__ = [
     "canonical_json",
     "compile_bundle",
     "supports_review_evidence",
+    "supports_stage_evidence",
     "verify_bundle",
 ]

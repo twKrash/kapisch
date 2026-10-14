@@ -226,9 +226,7 @@ class BundleTests(unittest.TestCase):
     def test_bundle_schema_sets_are_closed_and_contract_separated(self) -> None:
         from kapisch_core.bundle import canonical_json, verify_bundle
 
-        legacy = (
-            ROOT / "tests/conformance/fixtures/v3/legacy-bundle.json"
-        ).read_bytes()
+        legacy = (ROOT / "tests/conformance/fixtures/v3/legacy-bundle.json").read_bytes()
         legacy_bundle = verify_bundle(legacy, hashlib.sha256(legacy).hexdigest())
         self.assertNotIn("authority_contract", legacy_bundle.payload)
         current = json.loads((ROOT / "core/dist/core-bundle.json").read_bytes())
@@ -267,6 +265,199 @@ class BundleTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 verify_bundle(malformed, hashlib.sha256(malformed).hexdigest())
 
+    def test_new_identity_fingerprints_preserve_historical_variants(self) -> None:
+        from kapisch_core._validation_schema import (
+            _identity_schema_shape,
+            _require_supported_identity_schemas,
+            _validate_identity_contract,
+        )
+        from kapisch_core.bundle import (
+            canonical_json,
+            supports_stage_evidence,
+            verify_bundle,
+        )
+
+        cases = (
+            (
+                "stage5.4",
+                "e9374fb6463e5c8eafdfe28fe1023ffc51fa4774",
+                "3a2b96b4f3d2cba05106373368239b06e766fc3d6f05082e36424a78a4121428",
+                "cc946981a47bf3268a8ae864bff6d42c575770b690cf6ded1e500b4858bafa36",
+                "global-authority/1-stage-5.4",
+            ),
+            (
+                "stage5.5",
+                "e8d066e7b9b6ab9f25ea0ad3bf1c3007e23f7771",
+                "9b01e1eb14b55987832e1648083fffc25b58b0848afd66864d7192b93245aced",
+                "e843191eb3386120bac952d159964006d1c3fb392b4e75d1a7e993e3f32b10a6",
+                "global-authority/1-stage-5.5",
+            ),
+            (
+                "review",
+                "c1f2af5891b579c9efb4b170dc500e43af25f5a4",
+                "59ee7980f4338639323d4f036c9568a646c523de48a82ea395933986b2b1fb36",
+                "ecce72cc4dc9912550ec768ffb0e98a9e7800d5a050880e8490cb7431c5681cc",
+                "review-invocation/1",
+            ),
+        )
+        historical = {
+            name: subprocess.check_output(
+                ["git", "show", f"{revision}:core/dist/core-bundle.json"],
+                cwd=ROOT,
+            )
+            for name, revision, _, _, _ in cases
+        }
+        updated_schema = json.loads((ROOT / "core/schemas/v3/bundle.json").read_text())
+
+        for name, _, old_digest, identity_digest, variant in cases:
+            with self.subTest(variant=variant):
+                old_bytes = historical[name]
+                self.assertEqual(hashlib.sha256(old_bytes).hexdigest(), old_digest)
+                old_bundle = verify_bundle(old_bytes, old_digest)
+                self.assertFalse(supports_stage_evidence(old_bundle))
+
+                payload = json.loads(old_bytes)
+                payload["schemas"]["bundle"] = updated_schema
+                payload["stage_evidence_contract"] = "stage-evidence/1"
+                data = canonical_json(payload)
+                bundle = verify_bundle(data, hashlib.sha256(data).hexdigest())
+                shape = {
+                    key: _identity_schema_shape(bundle.payload["schemas"].get(key))
+                    for key in ("bundle", "invocation", "run", "stage")
+                }
+                self.assertEqual(
+                    hashlib.sha256(canonical_json(shape)).hexdigest(),
+                    identity_digest,
+                )
+                self.assertEqual(
+                    _require_supported_identity_schemas(
+                        bundle.payload["schemas"],
+                        bundle.payload["authority_contract"],
+                    ),
+                    variant,
+                )
+                _validate_identity_contract(bundle)
+                self.assertTrue(supports_stage_evidence(bundle))
+
+    def test_stage_evidence_accessor_rejects_unsupported_identity_and_gate_pairings(
+        self,
+    ) -> None:
+        from kapisch_core.bundle import (
+            canonical_json,
+            supports_stage_evidence,
+            verify_bundle,
+        )
+
+        sources = {
+            "stage5.4": "e9374fb6463e5c8eafdfe28fe1023ffc51fa4774",
+            "review": "c1f2af5891b579c9efb4b170dc500e43af25f5a4",
+        }
+        payloads = {
+            name: json.loads(
+                subprocess.check_output(
+                    ["git", "show", f"{revision}:core/dist/core-bundle.json"],
+                    cwd=ROOT,
+                )
+            )
+            for name, revision in sources.items()
+        }
+        stage54 = payloads["stage5.4"]
+        old_bytes = canonical_json(stage54)
+        old_bundle = verify_bundle(old_bytes, hashlib.sha256(old_bytes).hexdigest())
+        self.assertFalse(supports_stage_evidence(old_bundle))
+
+        declared_old = dict(stage54)
+        declared_old["stage_evidence_contract"] = "stage-evidence/1"
+        declared_bytes = canonical_json(declared_old)
+        self.assertTrue(
+            supports_stage_evidence(
+                verify_bundle(
+                    declared_bytes, hashlib.sha256(declared_bytes).hexdigest()
+                )
+            )
+        )
+
+        updated_schema = json.loads((ROOT / "core/schemas/v3/bundle.json").read_text())
+        valid = json.loads(canonical_json(stage54))
+        valid["schemas"]["bundle"] = updated_schema
+        valid["stage_evidence_contract"] = "stage-evidence/1"
+        review = json.loads(canonical_json(payloads["review"]))
+        review["schemas"]["bundle"] = updated_schema
+        review["stage_evidence_contract"] = "stage-evidence/1"
+
+        hybrid = json.loads(canonical_json(valid))
+        for name in ("approval", "human-action", "scope"):
+            hybrid["schemas"][name] = review["schemas"][name]
+        data = canonical_json(hybrid)
+        self.assertFalse(
+            supports_stage_evidence(
+                verify_bundle(data, hashlib.sha256(data).hexdigest())
+            )
+        )
+
+        hybrid = json.loads(canonical_json(review))
+        for name in ("approval", "human-action", "scope"):
+            hybrid["schemas"][name] = valid["schemas"][name]
+        data = canonical_json(hybrid)
+        with self.assertRaises(ValueError):
+            verify_bundle(data, hashlib.sha256(data).hexdigest())
+
+        unsupported = json.loads(canonical_json(review))
+        unsupported["schemas"]["run"]["properties"]["unrecognized"] = {"type": "string"}
+        data = canonical_json(unsupported)
+        unsupported_bundle = verify_bundle(data, hashlib.sha256(data).hexdigest())
+        self.assertFalse(supports_stage_evidence(unsupported_bundle))
+
+    def test_stage_evidence_capability_is_independent_and_exact(self) -> None:
+        from kapisch_core._validation_schema import _validate_schema
+        from kapisch_core.bundle import (
+            canonical_json,
+            compile_bundle,
+            supports_review_evidence,
+            supports_stage_evidence,
+            verify_bundle,
+        )
+
+        compiled = json.loads(compile_bundle(ROOT / "core"))
+        self.assertEqual(compiled["stage_evidence_contract"], "stage-evidence/1")
+        for review_enabled, stage_enabled in (
+            (False, False),
+            (True, False),
+            (False, True),
+            (True, True),
+        ):
+            payload = dict(compiled)
+            if not review_enabled:
+                payload.pop("review_contract")
+                payload.pop("review_schema_variant")
+            if not stage_enabled:
+                payload.pop("stage_evidence_contract")
+            data = canonical_json(payload)
+            bundle = verify_bundle(data, hashlib.sha256(data).hexdigest())
+            _validate_schema(payload, "bundle", bundle)
+            self.assertEqual(supports_review_evidence(bundle), review_enabled)
+            self.assertEqual(supports_stage_evidence(bundle), stage_enabled)
+
+        for invalid in ("Stage-evidence/1", "stage-evidence/2", None, 1):
+            payload = dict(compiled)
+            payload["stage_evidence_contract"] = invalid
+            data = canonical_json(payload)
+            with self.assertRaises(ValueError):
+                verify_bundle(data, hashlib.sha256(data).hexdigest())
+
+        for field, invalid in (
+            ("review_contract", "review-evidence/2"),
+            ("review_schema_variant", None),
+        ):
+            payload = dict(compiled)
+            payload[field] = invalid
+            data = canonical_json(payload)
+            with self.subTest(field=field):
+                with self.assertRaises(ValueError):
+                    verify_bundle(data, hashlib.sha256(data).hexdigest())
+                with self.assertRaises(ValueError):
+                    _validate_schema(payload, "bundle", bundle)
+
     def test_review_capability_is_explicit_and_exact(self) -> None:
         from kapisch_core._validation_schema import (
             _validate_identity_contract,
@@ -279,7 +470,9 @@ class BundleTests(unittest.TestCase):
             verify_bundle,
         )
 
-        legacy = (ROOT / "tests/conformance/fixtures/v3/legacy-bundle.json").read_bytes()
+        legacy = (
+            ROOT / "tests/conformance/fixtures/v3/legacy-bundle.json"
+        ).read_bytes()
         old = verify_bundle(legacy, hashlib.sha256(legacy).hexdigest())
         self.assertFalse(supports_review_evidence(old))
         current_bytes = compile_bundle(ROOT / "core")

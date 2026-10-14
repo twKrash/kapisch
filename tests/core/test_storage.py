@@ -226,9 +226,13 @@ class StorageTests(unittest.TestCase):
             self.assertEqual(load_bundle(repo, digest), verify_bundle(original, digest))
 
             script = (
-                "from pathlib import Path; from kapisch_core.storage import load_bundle; "
-                "import sys; assert 'Distribution upgrade marker.' not in "
-                "load_bundle(Path(sys.argv[1]), sys.argv[2]).payload['policies']['dispatch']['contract']"
+                "from pathlib import Path; import sys; "
+                "from kapisch_core.bundle import supports_stage_evidence; "
+                "from kapisch_core.storage import load_bundle; "
+                "bundle = load_bundle(Path(sys.argv[1]), sys.argv[2]); "
+                "assert supports_stage_evidence(bundle); "
+                "assert 'Distribution upgrade marker.' not in "
+                "bundle.payload['policies']['dispatch']['contract']"
             )
             run = subprocess.run(
                 [sys.executable, "-c", script, str(repo), digest],
