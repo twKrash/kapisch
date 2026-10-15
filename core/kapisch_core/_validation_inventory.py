@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import os
 import re
 from dataclasses import dataclass
@@ -8,12 +7,12 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping, Sequence
 
-from ._authority import _validate_packet_authority
+from ._authority import _validate_graph_free_request, _validate_packet_authority
 from ._invocation import _validate_reservation
-from ._validation_json import _json
+from ._invocation_inventory import _LoadedOperation, _read_invocation_inventory
 from ._validation_schema import _validate_schema
 from .bundle import CoreBundle
-from .storage import _close, _open_dir, _read_file, _run_dir
+from .storage import _close, _open_dir, _run_dir
 
 
 @dataclass(frozen=True)
@@ -28,12 +27,6 @@ class _HistoryIndex:
     creation_index: Mapping[str, int]
     latest_attempt: Mapping[str, Mapping[str, Any]]
     cited_digests: Mapping[str, str]
-
-
-@dataclass(frozen=True)
-class _LoadedOperation:
-    operation_id: str
-    facts: Mapping[str, tuple[Any, str]]
 
 
 @dataclass(frozen=True)
@@ -64,7 +57,12 @@ def _index_history(history: Sequence[Mapping[str, Any]]) -> _HistoryIndex:
 
 
 def _inventory(
-    repo: Path, run_id: str, state: Mapping[str, Any], bundle: CoreBundle
+    repo: Path,
+    run_id: str,
+    state: Mapping[str, Any],
+    bundle: CoreBundle,
+    *,
+    validate_current_authority: bool = True,
 ) -> None:
     """Coordinate independent read, indexing, operation-validation, and chronology phases."""
     history = state["history"]
@@ -95,48 +93,25 @@ def _inventory(
         try:
             loaded = _read_invocation_inventory(invocations)
             inventory = _validate_inventory_operations(
-                repo, run_id, loaded, authority, bundle, history_index
+                repo,
+                run_id,
+                loaded,
+                authority,
+                bundle,
+                history_index,
+                validate_current_authority=validate_current_authority,
             )
-            _validate_uncertain_history(history, authority, inventory, bundle)
+            _validate_uncertain_history(
+                history,
+                authority,
+                inventory,
+                bundle,
+                validate_current_authority=validate_current_authority,
+            )
         finally:
             os.close(invocations)
     finally:
         _close(fds)
-
-
-def _read_invocation_inventory(invocations: int) -> tuple[_LoadedOperation, ...]:
-    """Discover and parse each immutable invocation fact once, retaining its digest."""
-    try:
-        operation_ids = sorted(os.listdir(invocations))
-    except OSError as error:
-        raise ValueError("invocation inventory is unavailable") from error
-    loaded: list[_LoadedOperation] = []
-    for operation_id in operation_ids:
-        if not re.fullmatch(r"op-[0-9a-f]{32}", operation_id):
-            raise ValueError("invocation inventory contains invalid operation name")
-        try:
-            operation = _open_dir(invocations, operation_id)
-        except OSError as error:
-            raise ValueError("invocation inventory entry is unavailable") from error
-        try:
-            try:
-                names = sorted(os.listdir(operation))
-            except OSError as error:
-                raise ValueError("invocation inventory entry is unavailable") from error
-            facts: dict[str, tuple[Any, str]] = {}
-            for filename in names:
-                if not filename.endswith(".json"):
-                    raise ValueError("invocation inventory contains unknown artifact")
-                relative = f"invocations/{operation_id}/{filename}"
-                data = _read_file(operation, filename)
-                facts[filename] = (
-                    _json(data, relative),
-                    hashlib.sha256(data).hexdigest(),
-                )
-            loaded.append(_LoadedOperation(operation_id, MappingProxyType(facts)))
-        finally:
-            os.close(operation)
-    return tuple(loaded)
 
 
 def _validate_inventory_operations(
@@ -146,13 +121,22 @@ def _validate_inventory_operations(
     authority: Mapping[str, Any],
     bundle: CoreBundle,
     index: _HistoryIndex,
+    *,
+    validate_current_authority: bool = True,
 ) -> Mapping[str, _OperationInventory]:
     """Validate loaded operations against the shared history index."""
     operation_by_attempt: dict[str, str] = {}
     inventory: dict[str, _OperationInventory] = {}
     for operation in operations:
         inventory[operation.operation_id] = _validate_operation(
-            repo, run_id, operation, authority, bundle, index, operation_by_attempt
+            repo,
+            run_id,
+            operation,
+            authority,
+            bundle,
+            index,
+            operation_by_attempt,
+            validate_current_authority=validate_current_authority,
         )
     return MappingProxyType(inventory)
 
@@ -165,6 +149,8 @@ def _validate_operation(
     bundle: CoreBundle,
     index: _HistoryIndex,
     operation_by_attempt: dict[str, str],
+    *,
+    validate_current_authority: bool = True,
 ) -> _OperationInventory:
     operation_id = operation.operation_id
     facts = operation.facts
@@ -172,7 +158,19 @@ def _validate_operation(
     if planned_entry is None:
         raise ValueError("invocation inventory entry lacks original reservation")
     planned, _ = planned_entry
-    packet = _validate_reservation(repo, run_id, operation_id, planned)
+    stage_id = planned.get("stage_id") if isinstance(planned, dict) else None
+    attempt = index.latest_attempt.get(stage_id) if isinstance(stage_id, str) else None
+    historical_binding = attempt is not None and any(
+        ref["kind"] == "review-target-binding/1" for ref in attempt["evidence"]
+    )
+    packet = _validate_reservation(
+        repo,
+        run_id,
+        operation_id,
+        planned,
+        validate_current_authority=validate_current_authority
+        and not historical_binding,
+    )
     _validate_request_producers(planned, packet, index)
     allowed = {
         "planned.json",
@@ -198,6 +196,7 @@ def _validate_operation(
                 bundle,
                 index,
                 operation_by_attempt,
+                validate_current_authority=validate_current_authority,
             )
         else:
             _validate_observation_fact(
@@ -254,6 +253,8 @@ def _validate_planned_fact(
     bundle: CoreBundle,
     index: _HistoryIndex,
     operation_by_attempt: dict[str, str],
+    *,
+    validate_current_authority: bool = True,
 ) -> None:
     _validate_schema(fact, "invocation", bundle)
     stage_id = fact["stage_id"]
@@ -276,7 +277,10 @@ def _validate_planned_fact(
         raise ValueError(
             "operation reservation scope, node, or bundle binding mismatch"
         )
-    _validate_packet_authority(packet, authority, attempt, bundle)
+    if validate_current_authority:
+        _validate_packet_authority(packet, authority, attempt, bundle)
+    else:
+        _validate_graph_free_request(packet, authority, attempt)
     _validate_fact_identity_and_producer(fact, relative, operation_id, run_id, index)
 
 
@@ -394,10 +398,18 @@ def _validate_uncertain_history(
     authority: Mapping[str, Any],
     inventory: Mapping[str, _OperationInventory],
     bundle: CoreBundle,
+    *,
+    validate_current_authority: bool = True,
 ) -> None:
     for row in history:
         if row["status"] == "dispatch-uncertain":
-            _validate_uncertain_observation(row, authority, inventory, bundle)
+            _validate_uncertain_observation(
+                row,
+                authority,
+                inventory,
+                bundle,
+                validate_current_authority=validate_current_authority,
+            )
 
 
 def _validate_uncertain_observation(
@@ -405,6 +417,8 @@ def _validate_uncertain_observation(
     authority: Mapping[str, Any],
     inventory: Mapping[str, _OperationInventory],
     bundle: CoreBundle,
+    *,
+    validate_current_authority: bool = True,
 ) -> None:
     evidence = {ref["path"]: ref["sha256"] for ref in row["evidence"]}
     reservations = [
@@ -423,7 +437,8 @@ def _validate_uncertain_observation(
     packet = operation.packet
     if planned["stage_id"] != row["stage_id"] or planned["role"] != row["role"]:
         raise ValueError("uncertain history cites another attempt's reservation")
-    _validate_packet_authority(packet, authority, row, bundle)
+    if validate_current_authority:
+        _validate_packet_authority(packet, authority, row, bundle)
     uncertain_path = f"invocations/{operation_id}/dispatch-uncertain.json"
     uncertain, uncertain_digest = operation.facts["dispatch-uncertain.json"]
     required_refs = {

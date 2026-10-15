@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any
 
 from ._authority import _validate_state_snapshot
+from ._locking import _locked
+from ._stage_evidence import validate_existing_binding_locked
 from ._state import _load_run_context
 from ._validation_graph import _GraphAuthority, _validate_graph, _validate_plan
 from ._validation_inventory import _inventory
@@ -72,8 +74,10 @@ def _validate_state(
             body = _read_contained(repo, run_id, evidence["path"])
             if hashlib.sha256(body).hexdigest() != evidence["sha256"]:
                 raise ValueError("run history evidence digest mismatch")
+    has_binding = validate_existing_binding_locked(repo, state, bundle)
     if (
-        bundle.payload.get("authority_contract") == "global-authority/1"
+        not has_binding
+        and bundle.payload.get("authority_contract") == "global-authority/1"
         and "approved_plan" in state
     ):
         raise _ValidationFailure(
@@ -82,7 +86,7 @@ def _validate_state(
         )
     plan_doc = (
         _validate_plan(repo, run_id, state["approved_plan"])
-        if "approved_plan" in state
+        if "approved_plan" in state and not has_binding
         else None
     )
     graph_authority = _GraphAuthority(
@@ -125,12 +129,13 @@ def validate_run(
                     str(legacy),
                 )
             ]
-        run, fds = _run_dir(repo, run_id, create=False)
-        try:
-            state_data = _read_file(run, "state.json")
-        finally:
-            _close(fds)
-        _validate_state(repo, run_id, state_data)
+        with _locked(repo, run_id):
+            run, fds = _run_dir(repo, run_id, create=False)
+            try:
+                state_data = _read_file(run, "state.json")
+            finally:
+                _close(fds)
+            _validate_state(repo, run_id, state_data)
         if gate is not None:
             return [_error("unsupported-gate", f"gate {gate!r} is not implemented")]
         return []

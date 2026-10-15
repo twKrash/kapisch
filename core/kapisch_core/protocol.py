@@ -1,7 +1,8 @@
 """Public facade for the durable Stage 4.2 protocol API."""
 
 from ._invocation import persist_request, publish_uncertainty, reserve_operation
-from ._state import ConcurrentModificationError, RunState, load_state, publish_state
+from ._stage_evidence import load_state, publish_state
+from ._state import ConcurrentModificationError, RunState
 
 __all__ = [
     "ConcurrentModificationError",

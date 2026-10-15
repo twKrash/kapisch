@@ -57,6 +57,16 @@ def _valid_adapter_binding(binding: Any) -> bool:
     )
 
 
+def _validate_request_owner(
+    packet: Mapping[str, Any], attempt: Mapping[str, Any]
+) -> None:
+    if (
+        packet.get("node_id", None) != attempt.get("node_id")
+        or "request_digest" in packet
+    ):
+        raise ValueError("request node binding or digest shape is invalid")
+
+
 def _validate_packet_inputs(
     repo: Path, run_id: str, operation_id: str, packet: Mapping[str, Any], bundle: Any
 ) -> None:
@@ -265,11 +275,7 @@ def _persist_request_locked(
         or packet.get("scope_digest") != attempt["scope_digest"]
     ):
         raise ValueError("request bundle or scope differs from run attempt")
-    if (
-        packet.get("node_id", None) != attempt.get("node_id")
-        or "request_digest" in packet
-    ):
-        raise ValueError("request node binding or digest shape is invalid")
+    _validate_request_owner(packet, attempt)
     if packet.get("run_id") != run_id or packet.get("operation_id") != operation_id:
         raise ValueError("request identity does not match publication target")
     if not _valid_adapter_binding(packet.get("adapter_binding")):
@@ -384,19 +390,18 @@ def reserve_operation(
         raise ValueError("operation-specific request path is required")
     if not _valid_adapter_binding(adapter_binding):
         raise ValueError("adapter binding must contain nonempty strings")
-    body = canonical_json(
-        {
-            "protocol_version": 3,
-            "operation_id": operation_id,
-            "run_id": run_id,
-            "stage_id": stage_id,
-            "role": role,
-            "request_digest": request["sha256"],
-            "status": "planned",
-            "request": request,
-            "adapter_binding": adapter_binding,
-        }
-    )
+    reservation = {
+        "protocol_version": 3,
+        "operation_id": operation_id,
+        "run_id": run_id,
+        "stage_id": stage_id,
+        "role": role,
+        "request_digest": request["sha256"],
+        "status": "planned",
+        "request": request,
+        "adapter_binding": adapter_binding,
+    }
+    body = canonical_json(reservation)
     with _locked(repo, run_id):
         state = load_state(repo, run_id)
         attempt = next(
@@ -512,7 +517,7 @@ def reserve_operation(
                 _close(run_fds)
         finally:
             _close(fds)
-    return json.loads(body)
+    return reservation
 
 
 def publish_uncertainty(

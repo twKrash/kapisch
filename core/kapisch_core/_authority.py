@@ -208,6 +208,19 @@ def _validate_state_snapshot(
         )
 
 
+def _validate_graph_free_request(
+    packet: Mapping[str, Any],
+    state: Mapping[str, Any],
+    attempt: Mapping[str, Any],
+) -> None:
+    if (
+        state.get("workflow") != "milestone"
+        and attempt.get("node_id") is None
+        and "graph" in packet
+    ):
+        raise ValueError("graph references are forbidden in graph-free request")
+
+
 def _validate_packet_authority(
     packet: Mapping[str, Any],
     state: Mapping[str, Any],
@@ -268,8 +281,7 @@ def _validate_packet_authority(
             "approved_plan"
         ) != state.get("approved_plan"):
             raise ValueError("request must bind current approved plan authority")
-        if "graph" in packet:
-            raise ValueError("graph references are forbidden in graph-free request")
+        _validate_graph_free_request(packet, state, attempt)
 
 
 def _unique_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
