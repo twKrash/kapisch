@@ -1,0 +1,1411 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "core"))
+
+from kapisch_core.review import (  # noqa: E402
+    HostProvenanceAttestation,
+    ImmutableArtifactLocator,
+    ReviewerReturn,
+    ReviewInvocation,
+    ReviewResult,
+    ReviewScopeArtifact,
+)
+from kapisch_core.review_persistence import load_review_scope  # noqa: E402
+
+
+class ReviewScopePersistenceTests(unittest.TestCase):
+    def test_review_mutators_reject_path_ids_before_locking(self) -> None:
+        from kapisch_core._review_chain import (
+            publish_review_invocation,
+            repair_review_backlinks,
+        )
+        from kapisch_core._review_scope import publish_review_scope
+
+        stage_id = "s-" + "a" * 32
+        operation_id = "op-" + "b" * 32
+        base_invocation = {
+            "retained_bundle": ImmutableArtifactLocator("bundles/" + "c" * 64 + ".json", "c" * 64),
+            "request": ImmutableArtifactLocator("requests/request.json", "d" * 64),
+            "attempt": {"run_id": "run", "stage_id": stage_id},
+            "operation": {"run_id": "run", "operation_id": operation_id},
+            "scope": ImmutableArtifactLocator("review-inputs/scope.json", "e" * 64),
+            "base": "sha1:" + "f" * 40,
+            "head": "sha1:" + "1" * 40,
+            "purpose": "iteration",
+            "included_untracked": (),
+            "pre_dispatch_fingerprint": ImmutableArtifactLocator("review-inputs/fingerprint.json", "2" * 64),
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for bad_run_id, bad_operation_id in (("../escape", operation_id), ("run", "../escape")):
+                invocation = ReviewInvocation(
+                    **{
+                        **base_invocation,
+                        "attempt": {"run_id": bad_run_id, "stage_id": stage_id},
+                        "operation": {"run_id": bad_run_id, "operation_id": bad_operation_id},
+                    }
+                )
+                with self.assertRaises(ValueError):
+                    publish_review_invocation(root, invocation)
+                self.assertFalse((root / ".kapisch").exists())
+            with self.assertRaises(ValueError):
+                publish_review_scope(root, "../escape", stage_id)
+            for bad_stage_id in (None, 123, b"s-" + b"a" * 32):
+                with self.subTest(stage_id=bad_stage_id):
+                    with self.assertRaisesRegex(ValueError, "^invalid stage_id$"):
+                        publish_review_scope(root, "run", bad_stage_id)
+                    self.assertFalse((root / ".kapisch").exists())
+            with self.assertRaises(ValueError):
+                repair_review_backlinks(root, "../escape")
+            self.assertFalse((root / ".kapisch").exists())
+
+    def _state(self, run_id: str, bundle_digest: str) -> dict:
+        return {
+            "protocol_version": 3,
+            "run_id": run_id,
+            "bundle_digest": bundle_digest,
+            "workflow": "task",
+            "revision": 0,
+            "history": [{
+                "stage_id": "s-00000000000000000000000000000001",
+                "stage_kind": "review",
+                "sequence": 0,
+                "role": "reviewer",
+                "status": "planned",
+                "producer": "controller",
+                "evidence": [],
+                "scope_digest": "b" * 64,
+            }],
+            "identity_contract": "stage-attempt/1",
+        }
+
+    def test_scope_publisher_refuses_without_durable_stage_evidence_binding(self) -> None:
+        from kapisch_core.protocol import publish_review_scope, publish_state
+        from kapisch_core.storage import store_bundle
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bundle = (ROOT / "core/dist/core-bundle.json").read_bytes()
+            digest = store_bundle(root, bundle)
+            state = self._state("run-scope-gate", digest)
+            publish_state(root, state["run_id"], state, expected_revision=-1)
+
+            with self.assertRaises(ValueError):
+                publish_review_scope(
+                    root,
+                    state["run_id"],
+                    state["history"][0]["stage_id"],
+                )
+
+    def test_backlink_repair_persists_one_entry_for_complete_chain(self) -> None:
+        import shutil
+        from unittest.mock import patch
+
+        scope_validation = patch("kapisch_core._invocation._validate_review_scope_request")
+        scope_validation.start()
+        self.addCleanup(scope_validation.stop)
+
+        from kapisch_core._state import _locked, _publish_state_locked
+        from kapisch_core.bundle import canonical_json
+        from kapisch_core.protocol import (
+            load_state,
+            persist_request,
+            publish_review_invocation,
+            publish_state,
+            publish_uncertainty,
+            repair_review_backlinks,
+            reserve_operation,
+        )
+        from kapisch_core.storage import store_bundle
+        from kapisch_core.validation import validate_run
+
+        run_id = "run-backlink-complete"
+        operation_id = "op-" + "a" * 32
+        stage_id = "s-00000000000000000000000000000001"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bundle = (ROOT / "core/dist/core-bundle.json").read_bytes()
+            digest = store_bundle(root, bundle)
+            state = self._state(run_id, digest)
+            state["history"][0]["stage_id"] = stage_id
+            publish_state(root, run_id, state, expected_revision=-1)
+
+            candidate_ref = ImmutableArtifactLocator(
+                ".kapisch/v3/authority/plan-approval-candidates/" + "a" * 64 + ".json",
+                "a" * 64,
+            )
+            scope = ReviewScopeArtifact(
+                run_id=run_id,
+                stage_id=stage_id,
+                purpose="iteration",
+                plan_candidate_ref=candidate_ref,
+                comparison_base="sha1:" + "b" * 40,
+            )
+            scope_data = scope.canonical_bytes()
+            scope_digest = hashlib.sha256(scope_data).hexdigest()
+            scope_locator = ImmutableArtifactLocator(
+                f".kapisch/v3/runs/{run_id}/review-inputs/scopes/{scope_digest}.json",
+                scope_digest,
+            )
+            scope_path = root / scope_locator.path
+            scope_path.parent.mkdir(parents=True)
+            scope_path.write_bytes(scope_data)
+
+            packet = {
+                "run_id": run_id,
+                "operation_id": operation_id,
+                "stage_id": stage_id,
+                "role": "reviewer",
+                "purpose": "iteration",
+                "bundle_digest": digest,
+                "scope_digest": state["history"][0]["scope_digest"],
+                "review_scope": scope_locator.to_dict(),
+                "adapter_binding": {"adapter_id": "fake", "lookup_context": "ctx"},
+            }
+            with patch("kapisch_core._invocation._validate_review_scope_request"):
+                request_path, request_digest = persist_request(
+                    root, run_id, operation_id, packet
+                )
+            fingerprint = {
+                "object_format": "sha1",
+                "head": "d" * 40,
+                "index": [],
+                "worktree": [],
+                "untracked": [],
+            }
+            fingerprint_data = canonical_json(fingerprint)
+            fingerprint_digest = hashlib.sha256(fingerprint_data).hexdigest()
+            fingerprint_locator = ImmutableArtifactLocator(
+                f".kapisch/v3/runs/{run_id}/review-inputs/{operation_id}/pre-dispatch-fingerprint.json",
+                fingerprint_digest,
+            )
+            fingerprint_path = root / fingerprint_locator.path
+            fingerprint_path.parent.mkdir(parents=True)
+            fingerprint_path.write_bytes(fingerprint_data)
+            with patch("kapisch_core._invocation._validate_review_scope_request"):
+                reserve_operation(
+                    root,
+                    run_id,
+                    operation_id,
+                    stage_id,
+                    "reviewer",
+                    {"path": request_path, "sha256": request_digest},
+                    packet["adapter_binding"],
+                )
+            operation_dir = root / ".kapisch/v3/runs" / run_id / "invocations" / operation_id
+            planned_data = (operation_dir / "planned.json").read_bytes()
+            uncertain_data = canonical_json(
+                {**json.loads(planned_data), "status": "dispatch-uncertain"}
+            )
+            uncertain_path = f"invocations/{operation_id}/dispatch-uncertain.json"
+            uncertain = {
+                **state["history"][0],
+                "sequence": 1,
+                "status": "dispatch-uncertain",
+                "evidence": [
+                    {"kind": "request", "path": request_path, "sha256": request_digest},
+                    {"kind": "protocol", "path": f"review-inputs/{operation_id}/pre-dispatch-fingerprint.json", "sha256": fingerprint_digest},
+                    {"kind": "protocol", "path": f"invocations/{operation_id}/planned.json", "sha256": hashlib.sha256(planned_data).hexdigest()},
+                    {"kind": "protocol", "path": uncertain_path, "sha256": hashlib.sha256(uncertain_data).hexdigest()},
+                ],
+            }
+            publish_uncertainty(
+                root,
+                run_id,
+                {**state, "revision": 1, "history": [state["history"][0], uncertain]},
+                expected_revision=0,
+                operation_id=operation_id,
+            )
+            invocation = ReviewInvocation(
+                ImmutableArtifactLocator(
+                    f".kapisch/v3/bundles/{digest}.json", digest
+                ),
+                ImmutableArtifactLocator(
+                    f".kapisch/v3/runs/{run_id}/{request_path}", request_digest
+                ),
+                {"run_id": run_id, "stage_id": stage_id},
+                {"run_id": run_id, "operation_id": operation_id},
+                scope_locator,
+                "sha1:" + "b" * 40,
+                "sha1:" + "d" * 40,
+                "iteration",
+                (),
+                fingerprint_locator,
+            )
+            producer = (
+                {"purpose": "iteration", "head": invocation.head},
+                {},
+                {"base": invocation.base},
+            )
+            state_path = root / ".kapisch/v3/runs" / run_id / "state.json"
+            valid_uncertain_state = state_path.read_bytes()
+            request_relative = request_path
+            fingerprint_relative = fingerprint_path.relative_to(
+                root / ".kapisch/v3/runs" / run_id
+            ).as_posix()
+            planned_relative = f"invocations/{operation_id}/planned.json"
+            for invalid_order in (
+                (fingerprint_relative, request_relative, planned_relative, uncertain_path),
+                (request_relative, planned_relative, fingerprint_relative, uncertain_path),
+            ):
+                invalid_state = json.loads(valid_uncertain_state)
+                by_path = {
+                    item["path"]: item
+                    for item in invalid_state["history"][-1]["evidence"]
+                }
+                invalid_state["history"][-1]["evidence"] = [
+                    by_path[path] for path in invalid_order
+                ]
+                state_path.write_bytes(canonical_json(invalid_state))
+                try:
+                    with patch(
+                        "kapisch_core._review_chain._load_bound_base",
+                        return_value=producer,
+                    ):
+                        with self.assertRaisesRegex(ValueError, "dependency order"):
+                            publish_review_invocation(root, invocation)
+                    self.assertFalse(
+                        (operation_dir / "review-invocation.json").exists()
+                    )
+                finally:
+                    state_path.write_bytes(valid_uncertain_state)
+            with patch("kapisch_core._review_chain._load_bound_base", return_value=producer):
+                invocation_locator = publish_review_invocation(root, invocation)
+            report = b"review report\n"
+            report_digest = hashlib.sha256(report).hexdigest()
+            report_locator = ImmutableArtifactLocator(
+                f".kapisch/v3/runs/{run_id}/reports/{operation_id}.json", report_digest
+            )
+            report_path = root / report_locator.path
+            report_path.parent.mkdir(parents=True)
+            report_path.write_bytes(report)
+            target = {
+                "run_id": run_id,
+                "stage_id": stage_id,
+                "operation_id": operation_id,
+                "base": invocation.base,
+                "head": invocation.head,
+            }
+            reviewer_return = ReviewerReturn(
+                invocation_locator,
+                {"run_id": run_id, "operation_id": operation_id},
+                invocation.request,
+                target,
+                invocation.pre_dispatch_fingerprint,
+                report_locator,
+                report_digest,
+                "clear",
+            )
+            reviewer_locator = ImmutableArtifactLocator(
+                f".kapisch/v3/runs/{run_id}/invocations/{operation_id}/reviewer-return.json",
+                hashlib.sha256(reviewer_return.canonical_bytes()).hexdigest(),
+            )
+            provenance = HostProvenanceAttestation(
+                reviewer_locator,
+                reviewer_locator.sha256,
+                {"host": "test"},
+                {"context": "test"},
+                {"dispatch": "not-run"},
+            )
+            provenance_locator = ImmutableArtifactLocator(
+                f".kapisch/v3/runs/{run_id}/invocations/{operation_id}/host-provenance-attestation.json",
+                hashlib.sha256(provenance.canonical_bytes()).hexdigest(),
+            )
+            post_result_locator = ImmutableArtifactLocator(
+                f".kapisch/v3/runs/{run_id}/invocations/{operation_id}/post-result.json",
+                fingerprint_digest,
+            )
+            result = ReviewResult(
+                invocation_locator,
+                invocation.request,
+                target,
+                scope_locator,
+                fingerprint_locator,
+                reviewer_locator,
+                post_result_locator,
+                provenance_locator,
+            )
+            (operation_dir / "reviewer-return.json").write_bytes(reviewer_return.canonical_bytes())
+            (operation_dir / "host-provenance-attestation.json").write_bytes(provenance.canonical_bytes())
+            (operation_dir / "post-result.json").write_bytes(fingerprint_data)
+            result_data = result.canonical_bytes()
+            (operation_dir / "review-result.json").write_bytes(result_data)
+            review_artifacts = [
+                {
+                    "kind": "protocol",
+                    "path": f"invocations/{operation_id}/review-invocation.json",
+                    "sha256": hashlib.sha256(
+                        (operation_dir / "review-invocation.json").read_bytes()
+                    ).hexdigest(),
+                },
+                {
+                    "kind": "protocol",
+                    "path": f"reports/{operation_id}.json",
+                    "sha256": report_digest,
+                },
+                {
+                    "kind": "protocol",
+                    "path": f"invocations/{operation_id}/reviewer-return.json",
+                    "sha256": reviewer_locator.sha256,
+                },
+                {
+                    "kind": "protocol",
+                    "path": f"invocations/{operation_id}/host-provenance-attestation.json",
+                    "sha256": provenance_locator.sha256,
+                },
+                {
+                    "kind": "protocol",
+                    "path": f"invocations/{operation_id}/post-result.json",
+                    "sha256": fingerprint_digest,
+                },
+            ]
+            # Validation-only fixture: M1.2 defers public chain producers.
+            history = [state["history"][0], uncertain]
+            revision = 1
+            for artifact in review_artifacts:
+                observation = {
+                    **history[-1],
+                    "sequence": len(history),
+                    "evidence": [*history[-1]["evidence"], artifact],
+                }
+                history.append(observation)
+                with _locked(root, run_id):
+                    _publish_state_locked(
+                        root,
+                        run_id,
+                        {**state, "revision": revision + 1, "history": history},
+                        expected_revision=revision,
+                        allow_dispatch_uncertain=True,
+                    )
+                revision += 1
+            complete = {
+                **history[-1],
+                "sequence": len(history),
+                "status": "complete",
+                "evidence": [
+                    *history[-1]["evidence"],
+                    {
+                        "kind": "protocol",
+                        "path": f"invocations/{operation_id}/review-result.json",
+                        "sha256": hashlib.sha256(result_data).hexdigest(),
+                    },
+                ],
+            }
+            history.append(complete)
+            publish_state(
+                root,
+                run_id,
+                {**state, "revision": revision + 1, "history": history},
+                expected_revision=revision,
+            )
+
+            state_path = root / ".kapisch/v3/runs" / run_id / "state.json"
+            valid_complete_state = state_path.read_bytes()
+            for producer_index, consumer_index in (
+                (2, 3),
+                (3, 4),
+                (4, 5),
+                (5, 6),
+                (6, 7),
+            ):
+                invalid_state = json.loads(valid_complete_state)
+                rows = invalid_state["history"]
+                rows[producer_index]["status"] = rows[consumer_index]["status"]
+                rows[producer_index]["evidence"] = rows[consumer_index]["evidence"]
+                del rows[consumer_index]
+                for sequence, row in enumerate(rows):
+                    row["sequence"] = sequence
+                invalid_bytes = canonical_json(invalid_state)
+                state_path.write_bytes(invalid_bytes)
+                try:
+                    with patch(
+                        "kapisch_core._review_chain_validation._load_bound_base",
+                        return_value=producer,
+                    ):
+                        self.assertTrue(validate_run(root, run_id))
+                        with self.assertRaises(ValueError):
+                            repair_review_backlinks(root, run_id)
+                    self.assertEqual(state_path.read_bytes(), invalid_bytes)
+                finally:
+                    state_path.write_bytes(valid_complete_state)
+
+            invalid_state = json.loads(valid_complete_state)
+            invalid_state["history"] = [
+                *invalid_state["history"][:2],
+                {
+                    **invalid_state["history"][-1],
+                    "sequence": 2,
+                },
+            ]
+            same_observation = canonical_json(invalid_state)
+            state_path.write_bytes(same_observation)
+            try:
+                with patch(
+                    "kapisch_core._review_chain_validation._load_bound_base",
+                    return_value=producer,
+                ):
+                    self.assertTrue(validate_run(root, run_id))
+                    with self.assertRaises(ValueError):
+                        repair_review_backlinks(root, run_id)
+                self.assertEqual(state_path.read_bytes(), same_observation)
+            finally:
+                state_path.write_bytes(valid_complete_state)
+
+            invalid_state = json.loads(valid_complete_state)
+            invalid_order = [
+                request_path,
+                f"invocations/{operation_id}/planned.json",
+                f"review-inputs/{operation_id}/pre-dispatch-fingerprint.json",
+                uncertain_path,
+            ]
+            for row in invalid_state["history"]:
+                by_path = {item["path"]: item for item in row["evidence"]}
+                if all(path in by_path for path in invalid_order):
+                    row["evidence"] = [
+                        *(by_path[path] for path in invalid_order),
+                        *(item for item in row["evidence"] if item["path"] not in invalid_order),
+                    ]
+            invalid_complete_state = canonical_json(invalid_state)
+            state_path.write_bytes(invalid_complete_state)
+            try:
+                with patch(
+                    "kapisch_core._review_chain_validation._load_bound_base",
+                    return_value=producer,
+                ):
+                    self.assertTrue(validate_run(root, run_id))
+                    with self.assertRaises(ValueError):
+                        repair_review_backlinks(root, run_id)
+                self.assertEqual(state_path.read_bytes(), invalid_complete_state)
+                self.assertNotIn(
+                    operation_id,
+                    json.loads(state_path.read_bytes()).get("review_result_ref", {}),
+                )
+            finally:
+                state_path.write_bytes(valid_complete_state)
+
+            from kapisch_core import _review_chain_validation
+
+            real_loader = _review_chain_validation._load_result_chain
+            with (
+                patch(
+                    "kapisch_core._review_chain_validation._load_bound_base",
+                    return_value=producer,
+                ),
+                patch.object(
+                    _review_chain_validation,
+                    "_load_result_chain",
+                    wraps=real_loader,
+                ) as load_chain,
+            ):
+                repaired = repair_review_backlinks(root, run_id)
+            self.assertEqual(load_chain.call_count, 1)
+
+            self.assertEqual(len(repaired), 1)
+            loaded = load_state(root, run_id)
+            self.assertEqual(
+                loaded["review_result_ref"][operation_id],
+                {"path": repaired[0].path, "sha256": repaired[0].sha256},
+            )
+            self.assertEqual(loaded["revision"], 8)
+            with patch("kapisch_core._review_chain_validation._load_bound_base", return_value=producer):
+                self.assertEqual(validate_run(root, run_id), [])
+                self.assertEqual(repair_review_backlinks(root, run_id), repaired)
+            self.assertEqual(load_state(root, run_id)["revision"], 8)
+            dropped = dict(loaded)
+            dropped.pop("review_result_ref")
+            dropped["revision"] = 9
+            with self.assertRaisesRegex(ValueError, "guarded repair"):
+                publish_state(root, run_id, dropped, expected_revision=8)
+            replaced = dict(loaded)
+            replaced["review_result_ref"] = {
+                operation_id: {
+                    "path": repaired[0].path,
+                    "sha256": "d" * 64,
+                }
+            }
+            replaced["revision"] = 9
+            with self.assertRaisesRegex(ValueError, "guarded repair"):
+                publish_state(root, run_id, replaced, expected_revision=8)
+            shutil.rmtree(root / ".kapisch/v3/runs" / run_id / "invocations")
+            self.assertTrue(validate_run(root, run_id))
+
+    def test_backlink_repair_rejects_partial_review_chain(self) -> None:
+        from kapisch_core.protocol import publish_state, repair_review_backlinks
+        from kapisch_core.storage import store_bundle
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bundle = (ROOT / "core/dist/core-bundle.json").read_bytes()
+            digest = store_bundle(root, bundle)
+            state = self._state("run-backlink-partial", digest)
+            publish_state(root, state["run_id"], state, expected_revision=-1)
+            operation = (
+                root
+                / ".kapisch/v3/runs"
+                / state["run_id"]
+                / "invocations"
+                / ("op-" + "a" * 32)
+            )
+            operation.mkdir(parents=True)
+            (operation / "review-invocation.json").write_bytes(b"{}\n")
+
+            with self.assertRaisesRegex(ValueError, "original reservation|partial"):
+                repair_review_backlinks(root, state["run_id"])
+
+    def test_generic_state_publication_rejects_fabricated_backlinks(self) -> None:
+        from kapisch_core.protocol import publish_state
+        from kapisch_core.storage import store_bundle
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bundle = (ROOT / "core/dist/core-bundle.json").read_bytes()
+            digest = store_bundle(root, bundle)
+            state = self._state("run-backlink-state", digest)
+            operation_id = "op-" + "a" * 32
+            state["review_result_ref"] = {
+                operation_id: {
+                    "path": f".kapisch/v3/runs/{state['run_id']}/invocations/{operation_id}/review-result.json",
+                    "sha256": "c" * 64,
+                }
+            }
+            with self.assertRaisesRegex(ValueError, "guarded repair"):
+                publish_state(root, state["run_id"], state, expected_revision=-1)
+
+    def test_backlink_repair_is_noop_without_complete_result_chains(self) -> None:
+        from kapisch_core.protocol import publish_state, repair_review_backlinks
+        from kapisch_core.storage import store_bundle
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bundle = (ROOT / "core/dist/core-bundle.json").read_bytes()
+            digest = store_bundle(root, bundle)
+            state = self._state("run-backlink-noop", digest)
+            publish_state(root, state["run_id"], state, expected_revision=-1)
+
+            self.assertEqual(repair_review_backlinks(root, state["run_id"]), ())
+
+            from kapisch_core.protocol import load_state
+
+            loaded = load_state(root, state["run_id"])
+            self.assertNotIn("review_result_ref", loaded)
+
+    def test_invocation_publisher_refuses_without_owned_reservation(self) -> None:
+        from kapisch_core.protocol import publish_review_invocation, publish_state
+        from kapisch_core.storage import store_bundle
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bundle = (ROOT / "core/dist/core-bundle.json").read_bytes()
+            digest = store_bundle(root, bundle)
+            state = self._state("run-invocation-gate", digest)
+            publish_state(root, state["run_id"], state, expected_revision=-1)
+            locator = ImmutableArtifactLocator
+            invocation = ReviewInvocation(
+                locator(".kapisch/v3/bundles/" + digest + ".json", digest),
+                locator(".kapisch/v3/runs/run-invocation-gate/requests/op-" + "a" * 32 + ".json", "a" * 64),
+                {"run_id": state["run_id"], "stage_id": state["history"][0]["stage_id"]},
+                {"run_id": state["run_id"], "operation_id": "op-" + "a" * 32},
+                locator(".kapisch/v3/runs/run-invocation-gate/review-inputs/scopes/" + "b" * 64 + ".json", "b" * 64),
+                "sha1:" + "c" * 40,
+                "sha1:" + "d" * 40,
+                "iteration",
+                (),
+                locator(".kapisch/v3/runs/run-invocation-gate/review-inputs/op-" + "a" * 32 + "/pre-dispatch-fingerprint.json", "e" * 64),
+            )
+
+            with self.assertRaises(ValueError):
+                publish_review_invocation(root, invocation)
+
+    def test_chain_loader_rejects_uncertainty_and_invocation_in_one_row(self) -> None:
+        from kapisch_core._review_chain_validation import _require_chain_citation_order
+
+        run_id = "run-order-same-row"
+        operation_id = "op-" + "a" * 32
+        stage_id = "s-" + "b" * 32
+        request = ImmutableArtifactLocator(
+            f".kapisch/v3/runs/{run_id}/requests/{operation_id}.json", "b" * 64
+        )
+        fingerprint = ImmutableArtifactLocator(
+            f".kapisch/v3/runs/{run_id}/review-inputs/{operation_id}/pre-dispatch-fingerprint.json",
+            "a" * 64,
+        )
+        report = ImmutableArtifactLocator(
+            f".kapisch/v3/runs/{run_id}/reports/{operation_id}.json", "e" * 64
+        )
+        operation_bytes = {
+            filename: filename.encode("utf-8")
+            for filename in (
+                "review-invocation.json",
+                "reviewer-return.json",
+                "host-provenance-attestation.json",
+                "post-result.json",
+                "review-result.json",
+            )
+        }
+        paths = [
+            (request.path.removeprefix(f".kapisch/v3/runs/{run_id}/"), request.sha256),
+            (fingerprint.path.removeprefix(f".kapisch/v3/runs/{run_id}/"), fingerprint.sha256),
+            (f"invocations/{operation_id}/dispatch-uncertain.json", "u" * 64),
+            (f"invocations/{operation_id}/review-invocation.json", hashlib.sha256(operation_bytes["review-invocation.json"]).hexdigest()),
+            (report.path.removeprefix(f".kapisch/v3/runs/{run_id}/"), report.sha256),
+            *(
+                (
+                    f"invocations/{operation_id}/{filename}",
+                    hashlib.sha256(data).hexdigest(),
+                )
+                for filename, data in operation_bytes.items()
+                if filename != "review-invocation.json"
+            ),
+        ]
+        row = {
+            "stage_id": stage_id,
+            "evidence": [{"path": path, "sha256": digest} for path, digest in paths],
+        }
+        with self.assertRaisesRegex(ValueError, "follow durable uncertainty"):
+            _require_chain_citation_order(
+                {"history": [row]},
+                run_id,
+                operation_id,
+                stage_id,
+                request,
+                fingerprint,
+                report,
+                "u" * 64,
+                operation_bytes,
+            )
+
+    def test_chain_loader_rejects_out_of_order_first_citations(self) -> None:
+        from kapisch_core._review_chain_validation import _require_chain_citation_order
+
+        run_id = "run-order"
+        operation_id = "op-" + "a" * 32
+        stage_id = "s-" + "b" * 32
+        request = ImmutableArtifactLocator(
+            f".kapisch/v3/runs/{run_id}/requests/{operation_id}.json", "b" * 64
+        )
+        fingerprint = ImmutableArtifactLocator(
+            f".kapisch/v3/runs/{run_id}/review-inputs/{operation_id}/pre-dispatch-fingerprint.json",
+            "a" * 64,
+        )
+        report = ImmutableArtifactLocator(
+            f".kapisch/v3/runs/{run_id}/reports/{operation_id}.json", "e" * 64
+        )
+        operation_bytes = {
+            filename: filename.encode("utf-8")
+            for filename in (
+                "review-invocation.json",
+                "reviewer-return.json",
+                "host-provenance-attestation.json",
+                "post-result.json",
+                "review-result.json",
+            )
+        }
+        paths = [
+            (request.path.removeprefix(f".kapisch/v3/runs/{run_id}/"), request.sha256),
+            (fingerprint.path.removeprefix(f".kapisch/v3/runs/{run_id}/"), fingerprint.sha256),
+            (f"invocations/{operation_id}/dispatch-uncertain.json", "u" * 64),
+            (f"invocations/{operation_id}/review-invocation.json", hashlib.sha256(operation_bytes["review-invocation.json"]).hexdigest()),
+            (report.path.removeprefix(f".kapisch/v3/runs/{run_id}/"), report.sha256),
+            *(
+                (
+                    f"invocations/{operation_id}/{filename}",
+                    hashlib.sha256(data).hexdigest(),
+                )
+                for filename, data in operation_bytes.items()
+                if filename != "review-invocation.json"
+            ),
+        ]
+        row = {
+            "stage_id": stage_id,
+            "evidence": [
+                {"path": path, "sha256": digest}
+                for path, digest in reversed(paths)
+            ],
+        }
+        with self.assertRaisesRegex(ValueError, "dependency order"):
+            _require_chain_citation_order(
+                {"history": [row]},
+                run_id,
+                operation_id,
+                stage_id,
+                request,
+                fingerprint,
+                report,
+                "u" * 64,
+                operation_bytes,
+            )
+        with self.assertRaisesRegex(ValueError, "pre-dispatch fingerprint must follow request"):
+            _require_chain_citation_order(
+                {
+                    "history": [
+                        {"stage_id": stage_id, "evidence": [{"path": paths[1][0], "sha256": paths[1][1]}]},
+                        {"stage_id": stage_id, "evidence": [{"path": path, "sha256": digest} for path, digest in [paths[0], *paths[2:]]]},
+                    ]
+                },
+                run_id,
+                operation_id,
+                stage_id,
+                request,
+                fingerprint,
+                report,
+                "u" * 64,
+                operation_bytes,
+            )
+        with self.assertRaisesRegex(ValueError, "reviewer return must follow retained report"):
+            _require_chain_citation_order(
+                {
+                    "history": [
+                        {
+                            "stage_id": stage_id,
+                            "evidence": [{"path": path, "sha256": digest} for path, digest in paths[:3]],
+                        },
+                        {
+                            "stage_id": stage_id,
+                            "evidence": [{"path": path, "sha256": digest} for path, digest in paths[3:4]],
+                        },
+                        {
+                            "stage_id": stage_id,
+                            "evidence": [{"path": path, "sha256": digest} for path, digest in paths[4:]],
+                        },
+                    ]
+                },
+                run_id,
+                operation_id,
+                stage_id,
+                request,
+                fingerprint,
+                report,
+                "u" * 64,
+                operation_bytes,
+            )
+        with self.assertRaisesRegex(ValueError, "dependency order"):
+            _require_chain_citation_order(
+                {
+                    "history": [
+                        {"stage_id": stage_id, "evidence": [{"path": path, "sha256": digest} for path, digest in paths[:2]]},
+                        {"stage_id": stage_id, "evidence": [{"path": path, "sha256": digest} for path, digest in reversed(paths[2:])]},
+                    ]
+                },
+                run_id,
+                operation_id,
+                stage_id,
+                request,
+                fingerprint,
+                report,
+                "u" * 64,
+                operation_bytes,
+            )
+        late_report = [item for item in paths if item != (report.path.removeprefix(f".kapisch/v3/runs/{run_id}/"), report.sha256)]
+        with self.assertRaisesRegex(ValueError, "dependency order"):
+            _require_chain_citation_order(
+                {
+                    "history": [
+                        {"stage_id": stage_id, "evidence": [{"path": path, "sha256": digest} for path, digest in late_report]},
+                        {"stage_id": stage_id, "evidence":[{"path": report.path.removeprefix(f".kapisch/v3/runs/{run_id}/"), "sha256": report.sha256}]},
+                    ]
+                },
+                run_id,
+                operation_id,
+                stage_id,
+                request,
+                fingerprint,
+                report,
+                "u" * 64,
+                operation_bytes,
+            )
+
+    def test_chain_loader_rejects_reservation_before_fingerprint(self) -> None:
+        from kapisch_core._review_chain_validation import _require_chain_citation_order
+
+        run_id = "run-reservation-order"
+        operation_id = "op-" + "a" * 32
+        stage_id = "s-" + "b" * 32
+        request = ImmutableArtifactLocator(
+            f".kapisch/v3/runs/{run_id}/requests/{operation_id}.json", "a" * 64
+        )
+        fingerprint = ImmutableArtifactLocator(
+            f".kapisch/v3/runs/{run_id}/review-inputs/{operation_id}/pre-dispatch-fingerprint.json",
+            "b" * 64,
+        )
+        report = ImmutableArtifactLocator(
+            f".kapisch/v3/runs/{run_id}/reports/{operation_id}.json", "c" * 64
+        )
+        planned_data = b"planned reservation"
+        operation_bytes = {
+            filename: filename.encode("utf-8")
+            for filename in (
+                "review-invocation.json",
+                "reviewer-return.json",
+                "host-provenance-attestation.json",
+                "post-result.json",
+                "review-result.json",
+            )
+        }
+        operation_bytes["planned.json"] = planned_data
+        citations = [
+            (f"requests/{operation_id}.json", request.sha256),
+            (
+                f"review-inputs/{operation_id}/pre-dispatch-fingerprint.json",
+                fingerprint.sha256,
+            ),
+            (
+                f"invocations/{operation_id}/planned.json",
+                hashlib.sha256(planned_data).hexdigest(),
+            ),
+            (f"invocations/{operation_id}/dispatch-uncertain.json", "u" * 64),
+            (
+                f"invocations/{operation_id}/review-invocation.json",
+                hashlib.sha256(operation_bytes["review-invocation.json"]).hexdigest(),
+            ),
+            (f"reports/{operation_id}.json", report.sha256),
+            *(
+                (
+                    f"invocations/{operation_id}/{filename}",
+                    hashlib.sha256(operation_bytes[filename]).hexdigest(),
+                )
+                for filename in (
+                    "reviewer-return.json",
+                    "host-provenance-attestation.json",
+                    "post-result.json",
+                    "review-result.json",
+                )
+            ),
+        ]
+        # First-owning observations put reservation before its fingerprint.
+        observation_order = [0, 2, 1, *range(3, len(citations))]
+        history = [
+            {
+                "stage_id": stage_id,
+                "evidence": [
+                    {"path": citations[index][0], "sha256": citations[index][1]}
+                ],
+            }
+            for index in observation_order
+        ]
+        with self.assertRaisesRegex(ValueError, "dependency order"):
+            _require_chain_citation_order(
+                {"history": history},
+                run_id,
+                operation_id,
+                stage_id,
+                request,
+                fingerprint,
+                report,
+                "u" * 64,
+                operation_bytes,
+            )
+
+    def test_scope_loader_rejects_binding_in_attempt_creation(self) -> None:
+        from kapisch_core._review_scope import _require_binding_after_creation
+
+        binding = {"path": "review-inputs/review-target-bindings/" + "a" * 64 + ".json", "sha256": "a" * 64}
+        state = {
+            "history": [{
+                "stage_id": "s-" + "a" * 32,
+                "status": "planned",
+                "evidence": [binding],
+            }],
+        }
+        with self.assertRaisesRegex(ValueError, "follow attempt creation"):
+            _require_binding_after_creation(state, {"stage_id": state["history"][0]["stage_id"]}, binding)
+
+    def test_scope_loader_rejects_conflicting_namespace_reservation(self) -> None:
+        from kapisch_core._review_scope import _reject_conflicting_bindings
+        from kapisch_core.bundle import canonical_json
+
+        run_id = "run-conflicting-reservations"
+        candidate = {"path": ".kapisch/v3/authority/plan-approval-candidates/" + "a" * 64 + ".json", "sha256": "a" * 64}
+        reservation = {"run_id": run_id, "stage_id": "s-" + "a" * 32, "plan_candidate_ref": candidate, "purpose": "iteration"}
+        data = canonical_json({**reservation, "purpose": "final"})
+        digest = hashlib.sha256(data).hexdigest()
+        binding = {"path": "review-inputs/review-target-bindings/" + "b" * 64 + ".json", "sha256": "b" * 64}
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary) / ".kapisch/v3/runs" / run_id / "review-inputs/review-target-bindings"
+            directory.mkdir(parents=True)
+            (directory / f"{digest}.json").write_bytes(data)
+            with self.assertRaisesRegex(ValueError, "conflicting"):
+                _reject_conflicting_bindings(Path(temporary), run_id, binding, reservation)
+
+    def test_scope_loader_rejects_unreadable_reservation_scan_entry(self) -> None:
+        from unittest.mock import patch
+
+        from kapisch_core._review_scope import _reject_conflicting_bindings
+        from kapisch_core.bundle import canonical_json
+
+        run_id = "run-unreadable-reservation"
+        candidate = {"path": ".kapisch/v3/authority/plan-approval-candidates/" + "a" * 64 + ".json", "sha256": "a" * 64}
+        reservation = {"run_id": run_id, "stage_id": "s-" + "a" * 32, "plan_candidate_ref": candidate, "purpose": "final"}
+        data = canonical_json(reservation)
+        conflict_name = hashlib.sha256(data).hexdigest() + ".json"
+        missing_name = "0" * 64 + ".json"
+        binding = {"path": "review-inputs/review-target-bindings/" + "f" * 64 + ".json", "sha256": "f" * 64}
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary) / ".kapisch/v3/runs" / run_id / "review-inputs/review-target-bindings"
+            directory.mkdir(parents=True)
+            (directory / conflict_name).write_bytes(data)
+            def read_file(_directory: int, name: str) -> bytes:
+                if name == missing_name:
+                    raise FileNotFoundError(name)
+                return data
+            with patch("kapisch_core._review_scope.os.listdir", return_value=[missing_name, conflict_name]), patch("kapisch_core._review_scope._read_file", side_effect=read_file):
+                with self.assertRaises(FileNotFoundError):
+                    _reject_conflicting_bindings(Path(temporary), run_id, binding, reservation)
+
+    def test_scope_loader_rejects_missing_reservation_scan_directories(self) -> None:
+        from unittest.mock import patch
+
+        from kapisch_core._review_scope import _reject_conflicting_bindings
+
+        run_id = "run-missing-reservation-scan"
+        reservation = {
+            "run_id": run_id,
+            "stage_id": "s-" + "a" * 32,
+            "plan_candidate_ref": {"path": "candidate", "sha256": "a" * 64},
+            "purpose": "final",
+        }
+        binding = {"path": "review-inputs/review-target-bindings/" + "f" * 64 + ".json", "sha256": "f" * 64}
+        with tempfile.TemporaryDirectory() as temporary:
+            run_directory = Path(temporary) / ".kapisch/v3/runs" / run_id
+            run_directory.mkdir(parents=True)
+            with patch("kapisch_core._review_scope._open_dir", side_effect=FileNotFoundError("reservation scan")):
+                with self.assertRaises(FileNotFoundError):
+                    _reject_conflicting_bindings(Path(temporary), run_id, binding, reservation)
+            review_inputs = run_directory / "review-inputs"
+            review_inputs.mkdir()
+            from kapisch_core.storage import _open_dir as open_dir
+            def missing_bindings(fd: int, name: str) -> int:
+                if name == "review-inputs":
+                    return open_dir(fd, name)
+                raise FileNotFoundError(name)
+            with patch("kapisch_core._review_scope._open_dir", side_effect=missing_bindings):
+                with self.assertRaises(FileNotFoundError):
+                    _reject_conflicting_bindings(Path(temporary), run_id, binding, reservation)
+
+    def test_prior_root_loader_rejects_ambiguous_stage_bindings(self) -> None:
+        from kapisch_core._review_scope import _validate_prior_roots
+
+        state = {
+            "history": [{
+                "stage_id": "s-" + "a" * 32,
+                "evidence": [
+                    {"kind": "review-target-binding/1", "path": "first", "sha256": "a" * 64},
+                    {"kind": "review-target-binding/1", "path": "second", "sha256": "b" * 64},
+                ],
+            }],
+        }
+        with self.assertRaisesRegex(ValueError, "ambiguous"):
+            _validate_prior_roots(Path("/tmp"), "run-ambiguous", state, {})
+
+    def _bound_loader_fixture(self, repo: Path) -> dict:
+        from kapisch_core.bundle import canonical_json
+
+        run_id = "run-artifact"
+        stage_id = "s-" + "b" * 32
+        candidate = {
+            "run_id": run_id,
+            "bundle_digest": "bundle",
+            "plan_ref": {"plan_id": "plan"},
+            "execution_binding": {"mode": "graph-free"},
+        }
+        candidate_ref = {
+            "path": ".kapisch/v3/authority/plan-approval-candidates/" + "a" * 64 + ".json",
+            "sha256": "a" * 64,
+        }
+        target = {"kind": "whole-branch", "ref": "refs/heads/main"}
+        root_artifact = {
+            "protocol_version": 3,
+            "comparison_root_contract": "comparison-root/1",
+            "run_id": run_id,
+            "plan_candidate_ref": candidate_ref,
+            "plan_id": "plan",
+            "target": target,
+            "object_format": "sha1",
+            "anchor": "sha1:" + "c" * 40,
+        }
+        comparison_root = {"source": "stage5-target-binding", "anchor": root_artifact["anchor"], "must_differ_from_head": False}
+        base = "sha1:" + "c" * 40
+        head = "sha1:" + "d" * 40
+        root_ref = {"path": f".kapisch/v3/runs/{run_id}/review-inputs/comparison-roots/{candidate_ref['sha256']}.json", "sha256": "f" * 64}
+        base_ref = {"path": f".kapisch/v3/runs/{run_id}/review-inputs/comparison-bases/{'b' * 64}.json", "sha256": "b" * 64}
+        target_ref = {"path": f".kapisch/v3/runs/{run_id}/review-inputs/review-targets/{'d' * 64}.json", "sha256": "d" * 64}
+        reservation = {
+            "protocol_version": 3,
+            "review_target_binding_contract": "review-target-binding/1",
+            "run_id": run_id,
+            "stage_id": stage_id,
+            "plan_candidate_ref": candidate_ref,
+            "plan_id": "plan",
+            "target": target,
+            "purpose": "iteration",
+            "comparison_root_ref": root_ref,
+            "comparison_root": comparison_root,
+            "comparison_base_ref": base_ref,
+            "object_format": "sha1",
+            "base": base,
+            "head": head,
+            "review_target_ref": target_ref,
+        }
+        review_target = {**reservation, "review_target_contract": "review-target/1"}
+        review_target["comparison_root"] = dict(comparison_root)
+        review_target.pop("review_target_binding_contract")
+        review_target.pop("review_target_ref")
+        artifacts = {
+            "comparison-root": root_artifact,
+            "review-target": review_target,
+            "comparison-base": {
+                **{key: reservation[key] for key in (
+                    "protocol_version", "run_id", "stage_id", "plan_candidate_ref",
+                    "plan_id", "target", "purpose", "comparison_root_ref",
+                    "comparison_root", "object_format", "base", "head",
+                )},
+                "comparison_base_contract": "comparison-base/1",
+            },
+        }
+        binding_data = canonical_json(reservation)
+        binding_digest = hashlib.sha256(binding_data).hexdigest()
+        binding_path = f"review-inputs/review-target-bindings/{binding_digest}.json"
+        binding_file = repo / f".kapisch/v3/runs/{run_id}/{binding_path}"
+        binding_file.parent.mkdir(parents=True)
+        binding_file.write_bytes(binding_data)
+        binding_evidence = {"kind": "review-target-binding/1", "path": binding_path, "sha256": binding_digest}
+        state = {
+            "plan_candidate_ref": candidate_ref,
+            "bundle_digest": "bundle",
+            "history": [
+                {"stage_id": stage_id, "evidence": []},
+                {"stage_id": stage_id, "evidence": [binding_evidence]},
+            ],
+        }
+        attempt = {"stage_id": stage_id, "evidence": [binding_evidence]}
+        return {"run_id": run_id, "state": state, "attempt": attempt, "binding_path": binding_path, "candidate": candidate, "artifacts": artifacts}
+
+    def test_comparison_root_structural_rule_is_exact(self) -> None:
+        from types import MappingProxyType
+
+        from kapisch_core._review_scope import _valid_comparison_root
+
+        base = {
+            "source": "stage5-target-binding",
+            "anchor": object(),
+            "must_differ_from_head": False,
+        }
+        for flag in (False, True):
+            value = {**base, "must_differ_from_head": flag}
+            self.assertTrue(_valid_comparison_root(value))
+            self.assertTrue(_valid_comparison_root(MappingProxyType(value)))
+        self.assertFalse(_valid_comparison_root(None))
+        self.assertFalse(_valid_comparison_root([]))
+        for change in (
+            {"source": "stage5-target-binding", "anchor": object()},
+            {**base, "extra": True},
+            {**base, "source": "other"},
+        ):
+            self.assertFalse(_valid_comparison_root(change))
+        for flag in (0, 1, "true", None):
+            self.assertFalse(
+                _valid_comparison_root({**base, "must_differ_from_head": flag})
+            )
+
+    def test_bound_loader_rejects_numeric_reservation_strictness(self) -> None:
+        from kapisch_core._review_scope import _load_bound_base
+        from kapisch_core.bundle import canonical_json
+
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary)
+            fixture = self._bound_loader_fixture(repo)
+            binding_file = repo / ".kapisch/v3/runs" / fixture["run_id"] / fixture["binding_path"]
+            reservation = json.loads(binding_file.read_bytes())
+            reservation["comparison_root"]["must_differ_from_head"] = 1
+            data = canonical_json(reservation)
+            binding_file.unlink()
+            binding_file = binding_file.with_name(hashlib.sha256(data).hexdigest() + ".json")
+            binding_file.write_bytes(data)
+            evidence = {"kind": "review-target-binding/1", "path": f"review-inputs/review-target-bindings/{binding_file.name}", "sha256": hashlib.sha256(data).hexdigest()}
+            fixture["attempt"]["evidence"] = [evidence]
+            fixture["state"]["history"][1]["evidence"] = [evidence]
+            with self.assertRaisesRegex(ValueError, "comparison root is invalid"):
+                _load_bound_base(repo, fixture["run_id"], fixture["state"], fixture["attempt"])
+
+    def test_bound_loader_rejects_numeric_artifact_strictness(self) -> None:
+        from unittest.mock import patch
+
+        from kapisch_core._review_scope import _load_bound_base
+
+        for label in ("review-target", "comparison-base"):
+            for strictness in (0, 1):
+                with self.subTest(artifact=label, strictness=strictness), tempfile.TemporaryDirectory() as temporary:
+                    repo = Path(temporary)
+                    fixture = self._bound_loader_fixture(repo)
+                    fixture["artifacts"][label] = dict(fixture["artifacts"][label])
+                    fixture["artifacts"][label]["comparison_root"] = dict(fixture["artifacts"][label]["comparison_root"])
+                    fixture["artifacts"][label]["comparison_root"]["must_differ_from_head"] = strictness
+
+                    def read_artifact(repo_path, run, value, pattern, artifact_label, **kwargs):
+                        return fixture["artifacts"][artifact_label], b""
+
+                    with patch("kapisch_core._review_scope.validate_plan_approval_candidate", return_value=(fixture["candidate"], None)), \
+                            patch("kapisch_core._review_scope._read_locator", side_effect=read_artifact):
+                        with self.assertRaisesRegex(ValueError, "^producer artifact root is invalid$"):
+                            _load_bound_base(repo, fixture["run_id"], fixture["state"], fixture["attempt"])
+
+    def test_bound_loader_artifact_validation_precedence(self) -> None:
+        from unittest.mock import patch
+
+        from kapisch_core._review_scope import _load_bound_base
+        from kapisch_core.bundle import canonical_json
+
+        cases = ("candidate", "root", "reservation")
+        for case in cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as temporary:
+                repo = Path(temporary)
+                fixture = self._bound_loader_fixture(repo)
+                if case == "candidate":
+                    fixture["artifacts"]["review-target"] = dict(fixture["artifacts"]["review-target"])
+                    fixture["artifacts"]["review-target"]["plan_candidate_ref"] = {"path": "different", "sha256": "e" * 64}
+                    expected = "^producer artifact candidate binding mismatch$"
+                elif case == "root":
+                    fixture["artifacts"]["review-target"] = dict(fixture["artifacts"]["review-target"])
+                    fixture["artifacts"]["review-target"]["comparison_root"] = dict(fixture["artifacts"]["review-target"]["comparison_root"])
+                    fixture["artifacts"]["review-target"]["comparison_root"]["anchor"] = "sha1:" + "e" * 40
+                    expected = "^producer artifact root mismatch$"
+                else:
+                    binding_file = repo / ".kapisch/v3/runs" / fixture["run_id"] / fixture["binding_path"]
+                    reservation = json.loads(binding_file.read_bytes())
+                    reservation["comparison_root"]["must_differ_from_head"] = 1
+                    data = canonical_json(reservation)
+                    binding_file.unlink()
+                    binding_file = binding_file.with_name(hashlib.sha256(data).hexdigest() + ".json")
+                    binding_file.write_bytes(data)
+                    evidence = {"kind": "review-target-binding/1", "path": f"review-inputs/review-target-bindings/{binding_file.name}", "sha256": hashlib.sha256(data).hexdigest()}
+                    fixture["attempt"]["evidence"] = [evidence]
+                    fixture["state"]["history"][1]["evidence"] = [evidence]
+                    fixture["artifacts"]["review-target"] = dict(fixture["artifacts"]["review-target"])
+                    fixture["artifacts"]["review-target"]["comparison_root"] = dict(fixture["artifacts"]["review-target"]["comparison_root"])
+                    fixture["artifacts"]["review-target"]["comparison_root"]["must_differ_from_head"] = 1
+                    expected = "^review-target comparison root is invalid$"
+
+                def read_artifact(repo_path, run, value, pattern, label, **kwargs):
+                    return fixture["artifacts"][label], b""
+
+                with patch("kapisch_core._review_scope.validate_plan_approval_candidate", return_value=(fixture["candidate"], None)), \
+                        patch("kapisch_core._review_scope._read_locator", side_effect=read_artifact):
+                    with self.assertRaisesRegex(ValueError, expected):
+                        _load_bound_base(repo, fixture["run_id"], fixture["state"], fixture["attempt"])
+
+    def test_bound_loader_rejects_root_mismatch_in_both_artifacts_using_shared_predicate(self) -> None:
+        from unittest.mock import patch
+
+        from kapisch_core._review_scope import _load_bound_base, _valid_comparison_root
+
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary)
+            fixture = self._bound_loader_fixture(repo)
+            def read_artifact(repo_path, run, value, pattern, label, **kwargs):
+                artifact = fixture["artifacts"][label]
+                if label == "review-target":
+                    artifact["comparison_root"]["must_differ_from_head"] = True
+                elif label == "comparison-base":
+                    artifact["comparison_root"]["must_differ_from_head"] = True
+                return artifact, b""
+            with patch("kapisch_core._review_scope.validate_plan_approval_candidate", return_value=(fixture["candidate"], None)), \
+                    patch("kapisch_core._review_scope._read_locator", side_effect=read_artifact), \
+                    patch("kapisch_core._review_scope._valid_comparison_root", wraps=_valid_comparison_root) as predicate:
+                with self.assertRaisesRegex(ValueError, "producer artifact root mismatch"):
+                    _load_bound_base(repo, fixture["run_id"], fixture["state"], fixture["attempt"])
+            self.assertEqual(predicate.call_count, 3)
+
+    def test_bound_loader_rejects_scan_directory_disappearance_after_binding_read(self) -> None:
+        from unittest.mock import patch
+
+        from kapisch_core._review_scope import _load_bound_base
+        from kapisch_core.storage import _open_dir as open_dir
+        from kapisch_core.storage import _read_contained as read_contained
+
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary)
+            fixture = self._bound_loader_fixture(repo)
+            binding_read = False
+
+            def track_binding_read(repo_path, run, relative):
+                nonlocal binding_read
+                data = read_contained(repo_path, run, relative)
+                if relative == fixture["binding_path"]:
+                    binding_read = True
+                return data
+
+            with patch("kapisch_core._review_scope.validate_plan_approval_candidate", return_value=(fixture["candidate"], None)), \
+                    patch("kapisch_core._review_scope._read_contained", side_effect=track_binding_read), \
+                    patch("kapisch_core._review_scope._read_locator") as read_locator:
+                for missing_directory in ("review-inputs", "review-target-bindings"):
+                    with self.subTest(directory=missing_directory):
+                        binding_read = False
+
+                        def fail_scan_reopen(fd: int, name: str) -> int:
+                            if binding_read and name == missing_directory:
+                                raise FileNotFoundError(name)
+                            return open_dir(fd, name)
+
+                        with patch("kapisch_core._review_scope._open_dir", side_effect=fail_scan_reopen):
+                            with self.assertRaises(FileNotFoundError):
+                                _load_bound_base(repo, fixture["run_id"], fixture["state"], fixture["attempt"])
+                        self.assertTrue(binding_read)
+                        read_locator.assert_not_called()
+    def test_reservation_rejects_non_scalar_role(self) -> None:
+        from kapisch_core._invocation import _validate_reservation
+
+        operation_id = "op-" + "a" * 32
+        fact = {
+            "protocol_version": 3,
+            "operation_id": operation_id,
+            "run_id": "run-role",
+            "stage_id": "s-" + "b" * 32,
+            "role": [],
+            "request_digest": "c" * 64,
+            "status": "planned",
+            "request": {"path": f"requests/{operation_id}.json", "sha256": "c" * 64},
+            "adapter_binding": {"adapter_id": "adapter", "lookup_context": "context"},
+        }
+        with self.assertRaises(ValueError):
+            _validate_reservation(Path("/tmp"), "run-role", operation_id, fact)
+
+    def test_fingerprint_rejects_noncanonical_optional_digest_fields(self) -> None:
+        from kapisch_core._review_chain import _fingerprint_data
+        from kapisch_core.bundle import canonical_json
+
+        run_id = "run-fingerprint"
+        operation_id = "op-" + "a" * 32
+        value = {
+            "object_format": "sha1",
+            "head": "b" * 40,
+            "index": [],
+            "worktree": [],
+            "untracked": [{"path_hex": "61", "included": False, "sha256": None}],
+        }
+        data = canonical_json(value)
+        digest = hashlib.sha256(data).hexdigest()
+        locator = ImmutableArtifactLocator(
+            f".kapisch/v3/runs/{run_id}/review-inputs/{operation_id}/pre-dispatch-fingerprint.json",
+            digest,
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / locator.path
+            path.parent.mkdir(parents=True)
+            path.write_bytes(data)
+            with self.assertRaisesRegex(ValueError, "facts are invalid"):
+                _fingerprint_data(Path(temporary), run_id, operation_id, locator)
+
+    def test_comparison_root_uses_candidate_addressed_path_and_content_digest(self) -> None:
+        from kapisch_core._review_scope import _load_root
+        from kapisch_core.bundle import canonical_json
+
+        run_id = "run-root"
+        candidate_ref = {
+            "path": ".kapisch/v3/authority/plan-approval-candidates/" + "a" * 64 + ".json",
+            "sha256": "a" * 64,
+        }
+        target = {"kind": "whole-branch", "ref": "refs/heads/main"}
+        root = {
+            "protocol_version": 3,
+            "comparison_root_contract": "comparison-root/1",
+            "run_id": run_id,
+            "plan_candidate_ref": candidate_ref,
+            "plan_id": "plan-1",
+            "target": target,
+            "object_format": "sha1",
+            "anchor": "sha1:" + "b" * 40,
+        }
+        data = canonical_json(root)
+        digest = hashlib.sha256(data).hexdigest()
+        locator = {
+            "path": f".kapisch/v3/runs/{run_id}/review-inputs/comparison-roots/{candidate_ref['sha256']}.json",
+            "sha256": digest,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / locator["path"]
+            path.parent.mkdir(parents=True)
+            path.write_bytes(data)
+            loaded = _load_root(
+                Path(temporary), run_id, locator, candidate_ref, "plan-1", target
+            )
+            invalid = {**root, "protocol_version": 3.0}
+            invalid_data = canonical_json(invalid)
+            path.write_bytes(invalid_data)
+            invalid_locator = {
+                "path": locator["path"],
+                "sha256": hashlib.sha256(invalid_data).hexdigest(),
+            }
+            with self.assertRaises(ValueError):
+                _load_root(
+                    Path(temporary),
+                    run_id,
+                    invalid_locator,
+                    candidate_ref,
+                    "plan-1",
+                    target,
+                )
+        self.assertEqual(loaded, root)
+
+    def test_load_review_scope_requires_exact_digest_addressed_bytes(self) -> None:
+        scope = ReviewScopeArtifact(
+            run_id="run",
+            stage_id="s-00000000000000000000000000000001",
+            purpose="iteration",
+            plan_candidate_ref=ImmutableArtifactLocator(
+                ".kapisch/v3/authority/plan-approval-candidates/" + "a" * 64 + ".json",
+                "a" * 64,
+            ),
+            comparison_base="sha1:" + "b" * 40,
+        )
+        data = scope.canonical_bytes()
+        digest = hashlib.sha256(data).hexdigest()
+        locator = ImmutableArtifactLocator(
+            f".kapisch/v3/runs/run/review-inputs/scopes/{digest}.json", digest
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = root / locator.path
+            path.parent.mkdir(parents=True)
+            path.write_bytes(data)
+
+            loaded = load_review_scope(root, locator)
+
+        self.assertEqual(loaded.canonical_bytes(), data)
+
+    def test_load_review_scope_rejects_substituted_bytes(self) -> None:
+        scope = ReviewScopeArtifact(
+            run_id="run",
+            stage_id="s-00000000000000000000000000000001",
+            purpose="iteration",
+            plan_candidate_ref=ImmutableArtifactLocator(
+                ".kapisch/v3/authority/plan-approval-candidates/" + "a" * 64 + ".json",
+                "a" * 64,
+            ),
+            comparison_base="sha1:" + "b" * 40,
+        )
+        data = scope.canonical_bytes()
+        digest = hashlib.sha256(data).hexdigest()
+        locator = ImmutableArtifactLocator(
+            f".kapisch/v3/runs/run/review-inputs/scopes/{digest}.json", digest
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = root / locator.path
+            path.parent.mkdir(parents=True)
+            path.write_bytes(data + b"tampered")
+
+            with self.assertRaises(ValueError):
+                load_review_scope(root, locator)
+
+
+if __name__ == "__main__":
+    unittest.main()

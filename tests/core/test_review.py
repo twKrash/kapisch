@@ -9,6 +9,7 @@ from kapisch_core.review import (
     ReviewerReturn,
     ReviewInvocation,
     ReviewResult,
+    ReviewScopeArtifact,
 )
 
 
@@ -40,6 +41,49 @@ class AuthoritativeItemsMapping(Mapping):
 class ReviewFormatTests(unittest.TestCase):
     def _locator(self, path="artifact.json"):
         return ImmutableArtifactLocator(path, "a" * 64)
+
+    def test_graph_free_review_scope_artifact_round_trips_closed_payload(self):
+        scope = ReviewScopeArtifact(
+            run_id="run",
+            stage_id="s-00000000000000000000000000000001",
+            purpose="final",
+            plan_candidate_ref=ImmutableArtifactLocator(
+                ".kapisch/v3/authority/plan-approval-candidates/" + "a" * 64 + ".json",
+                "a" * 64,
+            ),
+            comparison_base="sha1:" + "b" * 40,
+        )
+
+        self.assertEqual(
+            ReviewScopeArtifact.from_dict(scope.to_dict()).canonical_bytes(),
+            scope.canonical_bytes(),
+        )
+        self.assertEqual(scope.to_dict()["coverage"], {"kind": "graph-free-task"})
+
+        invalid_stage = scope.to_dict()
+        invalid_stage["stage_id"] = 42
+        with self.assertRaises(ValueError):
+            ReviewScopeArtifact.from_dict(invalid_stage)
+        with self.assertRaises(ValueError):
+            ImmutableArtifactLocator.from_dict({"path": "artifact.json", "sha256": 42})
+
+    def test_graph_free_review_scope_rejects_milestone_coverage(self):
+        scope = {
+            "protocol_version": 3,
+            "scope_contract": "review-scope/1",
+            "run_id": "run",
+            "stage_id": "s-00000000000000000000000000000001",
+            "purpose": "iteration",
+            "plan_candidate_ref": {
+                "path": ".kapisch/v3/authority/plan-approval-candidates/" + "a" * 64 + ".json",
+                "sha256": "a" * 64,
+            },
+            "comparison_base": "sha1:" + "b" * 40,
+            "coverage": {"kind": "milestone", "node_ids": ["n-" + "c" * 32]},
+        }
+
+        with self.assertRaises(ValueError):
+            ReviewScopeArtifact.from_dict(scope)
 
     def _records(self):
         locator = self._locator
