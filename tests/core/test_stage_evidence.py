@@ -1167,6 +1167,28 @@ except ConcurrentModificationError:
         self.binding["stage_id"] = self.first["stage_id"]
         self.ref = self.external_binding(self.binding)
 
+    def test_bound_history_loads_with_unrelated_historical_operation(self):
+        from kapisch_core.protocol import load_state
+        from kapisch_core.validation import validate_run
+
+        self._prepare_unrelated_operations(("op-" + "4" * 32,))
+        self.bind()
+        before = self.authority_bytes()
+        self.assertEqual(load_state(self.repo, "run-1"), self.proposal())
+        self.assertEqual(validate_run(self.repo, "run-1"), [])
+        self.assertEqual(self.authority_bytes(), before)
+        result = self.cold_process("""
+import sys
+from pathlib import Path
+from kapisch_core.protocol import load_state
+from kapisch_core.validation import validate_run
+repo = Path(sys.argv[1])
+assert len(load_state(repo, 'run-1')['history']) == 4
+assert validate_run(repo, 'run-1') == []
+""")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.authority_bytes(), before)
+
     def test_unrelated_attempt_cannot_own_multiple_operations(self):
         self._prepare_unrelated_operations(("op-" + "4" * 32, "op-" + "5" * 32))
         before = self.authority_bytes()

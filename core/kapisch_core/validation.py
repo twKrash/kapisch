@@ -98,7 +98,9 @@ def _validate_state(
     )
     _validate_graph(repo, run_id, graph_authority, plan_doc)
     try:
-        _inventory(repo, run_id, state, bundle)
+        _inventory(
+            repo, run_id, state, bundle, validate_current_authority=not has_binding
+        )
     except Exception as error:
         if "unsupported-gate:" in str(error):
             raise _ValidationFailure("unsupported-gate", str(error)) from error
