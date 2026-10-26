@@ -2,6 +2,7 @@
 
 Date: 2026-10-25
 Status: **Approved architecture direction** (owner approval; implementation is not authorized)
+Clarified 2026-10-26 by the owner: decision sources and operator-reported external decisions (§5.1, §8), and graph-free advisory/standalone review independence from the optional review gate (§5.2, §5.4, §8). No requirement was changed.
 Source plan: [Kapisch Product Realignment and Architecture Simplification Proposal](../plans/2026-10-25-kapisch-product-realignment-proposal.md)
 
 ## 1. Intent
@@ -67,6 +68,7 @@ The LLM aggregator performs evidence-based aggregation and produces the aggregat
 4. Preserve the original question, governing inputs, subject, answer, and scope in the immutable HumanDecision. A new Context carrying that answer is propagation, not a new decision and not a reason by itself to invalidate the original.
 5. Reassess applicability after a substantive governing-input change. Obtain a fresh HumanDecision only when the existing answer or authorization no longer covers the affected work. Do not infer approval from agent output, reviewer verdict, timestamps, context changes, or task completion.
 6. An approval of a WorkOrder DAG authorizes its listed tasks and demonstrably in-scope additions within the approved scope. Do not require per-task or per-attempt approval for work inside that scope. If a task would exceed scope, pause for discussion/research and explicit additional human approval.
+7. Record the decision source. A HumanDecision may come from the direct operator, from the operator reporting an external decision (for example a meeting or review approval), or from a referenced external artifact such as a wiki/Confluence page, Jira item, or ADR. Under the approved local-operator trust model, the operator's report is a valid authority source for the decision it states, provided the record carries its subject, authorization scope, and source attribution. Do not require cryptographic proof of human origin or a second approval ceremony for a decision that is already established. Ambiguous external text, agent output, aggregation reports, and reviewer recommendations never become a decision by inference.
 
 ### 5.2 Task DAG, attempts, parallelism, and aggregation
 
@@ -77,6 +79,7 @@ The LLM aggregator performs evidence-based aggregation and produces the aggregat
 5. Report production and transition-barrier satisfaction are distinct. A report documenting failure or incompleteness is valid evidence, but does not satisfy required-work criteria. Missing or invalid required outcomes cannot meet downstream dependencies. The coordinator decides which dependent tasks are blocked and which independent work may continue.
 6. The coordinator validates the aggregation report’s required-task coverage and evidence references, applies the explicit dependency/acceptance policy, and alone controls transitions or issues dependent WorkOrders. A completeness check by the coordinator alone does not replace the LLM aggregation barrier. The report is evidence, not human approval.
 7. An in-scope retry creates a fresh attempt identity and output location without editing or reapproving the DAG. It does not require another human approval solely because a prior attempt failed.
+8. Parallel dispatch and the aggregation barrier are independent of the optional review-gate implementation. A WorkOrder that requires no review lens proceeds without a gate; only WorkOrders that explicitly require lenses depend on the corresponding gate.
 
 ### 5.3 Local failure and recovery
 
@@ -89,12 +92,12 @@ The LLM aggregator performs evidence-based aggregation and produces the aggregat
 
 1. `kapisch-reviewer` reports requested lens findings and recommendations. It is advisory and never supplies human approval.
 2. Preserve the portable, reusable lens families in the [source plan’s reviewer architecture](../plans/2026-10-25-kapisch-product-realignment-proposal.md#7-reviewer-architecture): intent and requirements completeness; research and documentation quality; architecture, ADRs, API/event contracts, and NFRs; decision readiness before human approval; code quality and maintainability; security, permissions, privacy, and isolation; testing strategy, coverage, and verification; and operational/deployment readiness. Preserve applicable existing risk lenses, including compatibility, concurrency, data, tenant isolation, audit, migration, and recovery where relevant. Review must work across SDLC artifacts and decisions, not only code changes or Git commits.
-3. Each lens has defined evaluation criteria and expected evidence in the shared portable contract; do not create a separate framework or subsystem per lens. A WorkOrder may require particular lenses to meet its pass criteria before dependent tasks proceed; exact per-WorkOrder criteria and permitted exceptions remain delegated design details.
+3. Each lens has defined evaluation criteria and expected evidence in the shared portable contract; do not create a separate framework or subsystem per lens. A WorkOrder may require particular lenses to meet its pass criteria before dependent tasks proceed; exact per-WorkOrder criteria and permitted exceptions remain delegated design details. WorkOrders that require no lens proceed without a gate. `workflow=advisory` and standalone `workflow=review` remain first-class, graph-free capabilities: they require no WorkOrder, no execution DAG, no implementation authorization, and no review gate, and they return findings and recommendations only.
 4. Preserve the review report and original verdict. A permitted human exception is a separate HumanDecision referencing the relevant verdict and authorizing only the stated in-scope continuation; it must not rewrite the report.
 5. Generic risk acceptance cannot waive normative or security restrictions. A prohibited exception blocks.
 6. Human-directed review/fix steps remain within approved scope. A fix direction does not release dependent tasks. Pending, interrupted/resumed, or still-failing remediation keeps them blocked. Release requires a new passing review or a separate permitted HumanDecision exception.
 7. Do not implement an autonomous unbounded review/fix loop or a separate review-approval subsystem. Scope growth requires discussion/research and additional human approval.
-8. Claim read-only capability only where the adapter enforces it and evidence proves it. Pi must report read-only review unsupported while Bash can bypass tool-level write restrictions.
+8. Claim read-only capability only where the adapter enforces it and evidence proves it. Pi must report read-only review unsupported while Bash can bypass tool-level write restrictions. Declare the limitation and block only work that requires that enforcement guarantee; advisory research and standalone review remain available with the limitation disclosed and must not claim enforced read-only isolation.
 
 ### 5.5 External effects
 
@@ -156,7 +159,7 @@ The concrete removal inventory and repository evidence are maintained in the sou
 The later implementation plan must turn these criteria into focused automated tests and real-adapter smoke tests:
 
 1. A single-task SDLC flow reaches a durable Outcome while respecting human decisions and deployment authorization boundaries.
-2. Existing decisions prevent duplicate questions; propagation preserves identity; substantive governing changes trigger applicability reassessment; in-scope DAG tasks proceed without per-task approval; out-of-scope work blocks.
+2. Existing decisions prevent duplicate questions; propagation preserves identity; substantive governing changes trigger applicability reassessment; in-scope DAG tasks proceed without per-task approval; out-of-scope work blocks. A decision reported from an external record (meeting, wiki/Confluence, Jira, ADR) is captured with source attribution and scope and is not re-requested.
 3. An LLM aggregation barrier can produce a report at batch completion or an explicit terminal/interrupted condition without waiting indefinitely. It accounts for all required tasks, including failed, interrupted, cancelled, and missing results, and preserves evidence, contradictions, incomplete work, and unresolved questions. A failure report is valid evidence but does not satisfy downstream requirements; missing or invalid results keep dependent tasks blocked while eligible independent work may continue. Coordinator-only completeness checking cannot substitute for the LLM barrier.
 4. In-scope retries use fresh attempt IDs/output locations, preserve failed work, reject stale checkpoints, and never reset shared/user-owned work.
 5. Reviewer reports remain immutable; remediation alone does not release dependencies; only a passing new review or permitted separate HumanDecision exception does. Prohibited exceptions and normative/security waivers block.
@@ -165,6 +168,7 @@ The later implementation plan must turn these criteria into focused automated te
 8. Fresh-session reconstruction succeeds without conversational/process memory or mutable derived authority.
 9. Presentation styles preserve normalized facts, evidence, options, decisions, and authority.
 10. Reviewer installation/invocation and new-format packaging are verified before any legacy-path removal; no old-format migration is required or claimed.
+11. `workflow=advisory` and standalone `workflow=review` remain first-class, graph-free capabilities with no execution DAG, no implementation authorization, and no mandatory review gate. They return findings and recommendations only. Parallel WorkOrder execution and LLM aggregation do not depend on the optional review-gate implementation; only a WorkOrder that explicitly requires particular lenses has a corresponding gate.
 
 ## 9. Delegated engineering design responsibilities
 
