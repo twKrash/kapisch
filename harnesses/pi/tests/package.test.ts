@@ -9,7 +9,8 @@ const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url),
 test("Pi package exposes skill and pi-subagents agents declaratively", () => {
   assert.equal(pkg.pi?.skills?.includes("./skills/kapisch"), true);
   assert.ok(pkg["pi-subagents"]?.agents?.includes("./agents") || pkg.pi?.subagents?.agents?.includes("./agents"));
-  assert.equal(pkg.pi?.extensions, undefined);
+  assert.equal(pkg.pi?.extensions?.includes("./extensions/human-decisions.ts"), true);
+  assert.equal(existsSync(new URL("../extensions/human-decisions.ts", import.meta.url)), true);
   assert.equal(pkg.version, JSON.parse(readFileSync(new URL("../../../plugins/kapisch/.codex-plugin/plugin.json", import.meta.url), "utf8")).version);
   assert.equal(pkg.version, readFileSync(new URL("../../../plugins/kapisch/pyproject.toml", import.meta.url), "utf8").match(/^version = "([^"]+)"/m)?.[1]);
 });
@@ -34,6 +35,37 @@ test("standalone review workflow is graph-free and delegates findings only", () 
   assert.match(adapter, /review_mode=standalone/);
   assert.match(normalization, /workflow=task[\s\S]*?does not support delegation/);
   assert.match(canonical, /workflow=milestone[\s\S]*?durable sequential artifacts/);
+});
+
+test("one-task native worker exception has durable file authority and narrow precedence", () => {
+  const canonical = readFileSync(new URL("../../../plugins/kapisch/skills/kapisch/SKILL.md", import.meta.url), "utf8");
+  const normalization = readFileSync(new URL("../../../plugins/kapisch/skills/kapisch/references/request-normalization.md", import.meta.url), "utf8");
+  const review = readFileSync(new URL("../../../plugins/kapisch/skills/kapisch/references/review.md", import.meta.url), "utf8");
+  const resume = readFileSync(new URL("../../../plugins/kapisch/skills/kapisch/references/resume.md", import.meta.url), "utf8");
+  const adapter = readFileSync(new URL("../skills/kapisch/SKILL.md", import.meta.url), "utf8");
+
+  assert.match(canonical, /one-task host-native[\s\S]*\.kapisch\/runs\/<run-id>/i);
+  assert.match(canonical, /Context[\s\S]*WorkOrder[\s\S]*Outcome/);
+  assert.match(canonical, /attempt output[\s\S]*parent LLM[\s\S]*aggregate/i);
+  assert.match(canonical, /advisory[\s\S]*persisted/i);
+  assert.match(canonical, /fresh session[\s\S]*reread/i);
+  assert.match(canonical, /never redispatch automatically/i);
+  assert.match(canonical, /in-scope local retry[\s\S]*fresh attempt ID and output location[\s\S]*preserv(?:e|es) the prior attempt[\s\S]*without changing or reapproving the WorkOrder[\s\S]*no per-attempt approval is required/i);
+  assert.match(canonical, /current user prompt[\s\S]*WorkOrder[\s\S]*without an extra approval ceremony/i);
+  assert.match(canonical, /exact user message[\s\S]*content digest[\s\S]*approval summary is derived, not authority/i);
+  assert.match(canonical, /immutable source refs or digests[\s\S]*missing, stale, or mismatched[\s\S]*block continuation/i);
+  assert.match(adapter, /exact Pi session\/message[\s\S]*canonical message digest[\s\S]*missing or mismatched[\s\S]*block/i);
+  assert.match(normalization, /one-task host-native[\s\S]*precedence[\s\S]*graph-free delegation/i);
+  assert.match(normalization, /precedence[\s\S]*task-review wording[\s\S]*resume\.md/i);
+  assert.match(review, /one-task host-native[\s\S]*advisory[\s\S]*persisted/i);
+  assert.match(canonical, /one-task exception[\s\S]*reviewer dispatch is optional[\s\S]*no canonical review invocation\/approval artifacts/i);
+  assert.match(canonical, /ordinary task\/milestone review requirements[\s\S]*remain unchanged/i);
+  assert.match(review, /one-task host-native[\s\S]*optional[\s\S]*findings-only[\s\S]*no canonical invocation or approval artifacts[\s\S]*cannot claim `approve` or `ready`/i);
+  assert.match(adapter, /reviewer dispatch is optional[\s\S]*if dispatched[\s\S]*findings-only[\s\S]*advisory/i);
+  assert.match(resume, /one-task host-native[\s\S]*fresh session[\s\S]*never redispatch automatically/i);
+  assert.match(resume, /Before trusting a WorkOrder[\s\S]*approval `source_ref`[\s\S]*adapter metadata[\s\S]*canonical[\s\S]*message digest[\s\S]*governing-input refs\/digests[\s\S]*missing, stale, or mismatched[\s\S]*block continuation/i);
+  assert.match(adapter, /worker[\s\S]*not `kapisch-implementer`/);
+  assert.match(adapter, /ordinary canonical role mappings[\s\S]*unchanged/i);
 });
 
 test("standalone reviewer returns findings without weakening durable review", () => {

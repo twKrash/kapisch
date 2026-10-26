@@ -1,6 +1,6 @@
 # KAPISCH Pi package
 
-Local Pi package exposing the thin KAPISCH skill and six canonical KAPISCH roles through pi-subagents. It adds no runtime extension and does not alter KAPISCH workflow semantics.
+Local Pi package exposing the thin KAPISCH skill, six canonical roles through pi-subagents, and a HumanDecision input adapter. The adapter records explicit operator input without changing canonical workflow semantics.
 
 ## Install and update
 
@@ -23,7 +23,9 @@ Canonical model IDs become Pi `openai/<model-id>` IDs; reasoning effort maps unc
 
 ## Capabilities and limitations
 
-Read-only roles omit Pi `edit` and `write` tools and deny those tools through native child permissions. Writers receive `edit` and `write`; no role enables nested subagents. Researcher and reviewer receive Bash for required Git/history and focused evidence operations. pi-subagents cannot constrain Bash commands, so Bash is not shell-level read-only and must not be described as enforced read-only behavior. No user-specific extension or discovery tool is required. Optional tools may aid navigation but are not canonical evidence or authority.
+The `human-decisions.ts` extension records a non-empty UI-backed input as a HumanDecision only when the latest assistant message contains a valid visible `kapisch-decision` request block. It writes JSON under `.kapisch/runs/<session-id>/decisions/`; the answer is stored verbatim and is not interpreted as approval. The extension ignores extension-injected and headless input. Pi exposes RPC input without locality or forwarding provenance, so this adapter currently accepts only TUI input and rejects all RPC input; local stdio RPC remains unsupported until the host can prove its origin. Agent or reviewer output alone never creates a decision.
+
+Read-only roles omit Pi `edit` and `write` tools and deny those tools through native child permissions. Writers receive `edit` and `write`; no role enables nested subagents. Researcher and reviewer receive Bash for required Git/history and focused evidence operations. pi-subagents cannot constrain Bash commands, so Bash is not shell-level read-only and must not be described as enforced read-only behavior. No model-callable decision-writing tool is added. Optional tools may aid navigation but are not canonical evidence or authority.
 
 ## Generate and validate
 

@@ -103,7 +103,10 @@ Graph-free means that no execution graph, manifest, durable task nodes, or
 sequential execution state is required. It does not mean artifact-free for
 advisory work. `workflow=advisory` may assign bounded `researcher` and
 `architect` roles; `workflow=review` permits only its single independent
-`reviewer` dispatch; `workflow=task` does not delegate in the current scope.
+`reviewer` dispatch; `workflow=task` normally does not delegate. For the explicitly approved one-task host-native path, the controller may dispatch exactly one bounded task to a host-native agent when the canonical `implementer` is unavailable, provided the user authorizes this route. Report the actual host role and its capability limits; do not represent it as `implementer` or alter canonical role mappings. This exception permits no multi-task scheduling or generalized graph-free delegation. For an in-scope local retry, create a fresh attempt ID and output location, preserve the prior attempt, and retry without changing or reapproving the WorkOrder; no per-attempt approval is required. The parent may direct a retry, but never redispatch automatically. An uncertain remote effect blocks retry until an authoritative query establishes its exact outcome or the human records explicit scoped authorization. It takes precedence only over the graph-free delegation rule in [request-normalization.md](references/request-normalization.md), the mandatory review and invocation-artifact requirements in this skill and [review.md](references/review.md), and graph-required resume wording in [resume.md](references/resume.md); ordinary task/milestone review requirements and canonical role mappings remain unchanged.
+
+The one-task path is file-based under `.kapisch/runs/<run-id>` and does not create or promote an execution graph. The coordinator alone creates a `Context`, `WorkOrder`, `Outcome`, and parent handoff. The WorkOrder records the bounded task, user authority, worker role/capability disclosure, and output location. If the current user prompt explicitly approves this path and scope, the coordinator may create the WorkOrder without an extra approval ceremony; do not invent a `HumanDecision`. Persist an immutable reference to the exact user message and its content digest. The approval summary is derived, not authority. Bind governing inputs to immutable source refs or digests (for example, Git commit/blob IDs). On a fresh session, resolve and validate both the source and governing inputs; missing, stale, or mismatched bindings block continuation. The worker writes one uniquely named attempt output; it does not write Outcome or dispatch another task. The parent LLM collects the attempt output, aggregates repository and verification evidence, and writes Outcome/handoff. Missing or failed attempt output leaves the task incomplete; never redispatch automatically. For this one-task exception, reviewer dispatch is optional; the coordinator may dispatch at most one independent `kapisch-reviewer` for findings-only review. If used, persist findings as advisory evidence, not authority, approval, or a gate. This exception requires no canonical review invocation/approval artifacts and must not claim `approve` or `ready`; record whether review ran in Outcome. On a fresh session, reread the run files and current repository state, then derive the next action from those files; do not rely on conversational memory. Pi's native session persistence remains the host transcript mechanism, not task authority.
+
 A mandated skill or plugin blocks for a user choice to promote the work to a
 supported durable version-3 or version-4 graph or relax the capability
 constraint; an automatic selection may use the disclosed native fallback only
@@ -118,14 +121,16 @@ and applicable normative references before any later classification, dispatch,
 review/final decision, or completion report. See [request
 normalization](references/request-normalization.md).
 
-When independent review or final readiness is required within a task or
-milestone workflow, the controller must create the canonical pre-dispatch
+For ordinary task and milestone workflows when independent review or final
+readiness is required, the controller must create the canonical pre-dispatch
 invocation artifact and persist the returned reviewer result. Without those
 artifacts, the result is advisory only and cannot be reported as approve or
-ready. Standalone `workflow=review` is separate: it returns findings to the
+ready. The one-task host-native exception follows the optional findings-only
+rule above. Standalone `workflow=review` is separate: it returns findings to the
 parent/orchestrator and does not claim approval or readiness.
 Risk is independent of workflow shape. Behavioral tasks receive independent
-review. An ordinary reviewed local task may end after independent review when
+review in ordinary task and milestone workflows; the one-task exception follows
+the optional rule above. An ordinary reviewed local task may end after independent review when
 no delivery boundary applies. High risk strengthens review depth and lenses;
 High risk alone does not require final readiness. Final readiness is separate
 and required for commit preparation, PR preparation, merge, release, deployment

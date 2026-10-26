@@ -6,7 +6,8 @@
   "keywords": ["pi-package", "kapisch", "pi-subagents"],
   "type": "module",
   "pi": {
-    "skills": ["./skills/kapisch"]
+    "skills": ["./skills/kapisch"],
+    "extensions": ["./extensions/human-decisions.ts"]
   },
   "pi-subagents": {
     "agents": ["./agents"]

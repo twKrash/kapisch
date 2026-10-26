@@ -5,6 +5,25 @@ idempotent resume, and missing-artifact behavior. The manifest/state schema and
 next-action table are owned by [execution-graph.md](execution-graph.md); artifact
 paths and invocation envelope fields are owned by [handoffs.md](handoffs.md).
 
+## One-task host-native resume
+
+For the explicitly approved one-task host-native path defined in the canonical
+skill, `.kapisch/runs/<run-id>` files, not graph/state files, are durable task
+authority. Before trusting a WorkOrder, resolve its approval `source_ref` through
+adapter metadata to the exact host-owned user message; verify the canonical
+message digest and that the recorded scope basis is present in that message.
+Validate governing-input refs/digests against the current repository. The
+approval summary is derived, not authority. Missing, stale, or mismatched
+bindings block continuation. Coordinator-owned `Context`, `WorkOrder`,
+`Outcome`, and handoff state, the worker's unique attempt output, persisted
+advisory reviewer findings, and current repository evidence are reread in a
+fresh session. The coordinator alone creates Context/WorkOrder/Outcome/handoff;
+the worker writes only one attempt output; the parent LLM aggregates evidence.
+Derive the next action from the files and current repository state. Missing or
+failed result remains incomplete, and never redispatch automatically. This exception takes precedence
+only over the conflicting graph-required resume instructions below for this
+one-task path; all other durable resumes remain unchanged.
+
 For an initial `execution_action=start`, first validate one unambiguous approved
 plan. If no execution manifest/state exists, initialize them as described in
 [execution graph](execution-graph.md) before selecting or dispatching a node.
