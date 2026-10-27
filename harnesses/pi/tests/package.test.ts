@@ -15,6 +15,35 @@ test("Pi package exposes skill and pi-subagents agents declaratively", () => {
   assert.equal(pkg.version, readFileSync(new URL("../../../plugins/kapisch/pyproject.toml", import.meta.url), "utf8").match(/^version = "([^"]+)"/m)?.[1]);
 });
 
+test("realignment tracker separates historical decision capture from current Pi capability", () => {
+  const tracker = readFileSync(new URL("../../../docs/superpowers/product-realignment-tracker.md", import.meta.url), "utf8");
+  const section = (heading: string) => tracker.match(new RegExp(`## ${heading}\\n([\\s\\S]*?)(?=\\n## |$)`))?.[1] ?? "";
+  const row = (content: string, id: string) => content.split("\n").find((line) => line.startsWith(`| ${id} |`)) ?? "";
+  const glance = section("At a glance");
+  const workstreams = section("Workstreams");
+  const coverage = section("Specification acceptance coverage");
+  const blockers = section("Blockers, limitations, and unknowns");
+  const nextSlice = section("Next recommended vertical slice");
+  const historical = section("Evidence index");
+
+  assert.match(section("Historical evidence and current status"), /decision-capture claims are superseded/i);
+  assert.match(glance, /formal GitHub review\/approval remains pending/i);
+  assert.match(glance, /advisory review completed[\s\S]*not GitHub approval/i);
+  assert.doesNotMatch(glance, /independent review of #84/i);
+  assert.match(tracker, /Last updated: 2026-10-27/);
+  assert.match(glance, /decision-required work remains blocked on Pi/i);
+  assert.match(row(workstreams, "WS-1"), /historical/i);
+  assert.match(row(workstreams, "WS-1.1"), /`BLOCKED` on Pi.*immutable original-input provenance/i);
+  assert.match(row(workstreams, "WS-1.3"), /`BLOCKED` on Pi.*immutable original-input provenance/i);
+  assert.match(row(coverage, "AC2"), /not currently captured on Pi/i);
+  assert.match(blockers, /local advisory review completed.*findings-only/i);
+  assert.match(blockers, /not\s+GitHub approval[\s\S]*local candidate is still unpushed[\s\S]*formal PR review remains\s+pending/i);
+  assert.match(blockers, /decision-required work is blocked on Pi/i);
+  assert.match(nextSlice, /WS-1\.1 only after decision capability is verified/i);
+  assert.match(historical, /commit `8ed3f85`/);
+  assert.match(historical, /historical and superseded as evidence for current Pi decision capture/i);
+});
+
 test("standalone review workflow is graph-free and delegates findings only", () => {
   const canonical = readFileSync(new URL("../../../plugins/kapisch/skills/kapisch/SKILL.md", import.meta.url), "utf8");
   const normalization = readFileSync(new URL("../../../plugins/kapisch/skills/kapisch/references/request-normalization.md", import.meta.url), "utf8");
@@ -54,14 +83,19 @@ test("one-task native worker exception has durable file authority and narrow pre
   assert.match(canonical, /current user prompt[\s\S]*WorkOrder[\s\S]*without an extra approval ceremony/i);
   assert.match(canonical, /exact user message[\s\S]*content digest[\s\S]*approval summary is derived, not authority/i);
   assert.match(canonical, /immutable source refs or digests[\s\S]*missing, stale, or mismatched[\s\S]*block continuation/i);
-  assert.match(adapter, /exact Pi session\/message[\s\S]*canonical message digest[\s\S]*missing or mismatched[\s\S]*block/i);
+  assert.match(adapter, /HumanDecision capture is unavailable[\s\S]*cannot establish immutable original-input provenance/i);
+  assert.match(adapter, /Do not create new `kapisch-decision` request blocks or treat[\s\S]*as authority/i);
+  assert.match(adapter, /If a workflow requires a HumanDecision, report it blocked/i);
+  assert.match(adapter, /latest assistant message[\s\S]*quoted, incomplete, nested, and superseded marker text does not gate ordinary input/i);
+  assert.match(adapter, /kapisch-decision-dismiss[\s\S]*without granting authorization[\s\S]*keep the gated workflow blocked/i);
+  assert.match(adapter, /one-task direct-prompt WorkOrder route is unsupported/i);
+  assert.doesNotMatch(adapter, /bind the WorkOrder approval source ref and content digest to that exact user message/i);
   assert.match(normalization, /one-task host-native[\s\S]*precedence[\s\S]*graph-free delegation/i);
   assert.match(normalization, /precedence[\s\S]*task-review wording[\s\S]*resume\.md/i);
   assert.match(review, /one-task host-native[\s\S]*advisory[\s\S]*persisted/i);
   assert.match(canonical, /one-task exception[\s\S]*reviewer dispatch is optional[\s\S]*no canonical review invocation\/approval artifacts/i);
   assert.match(canonical, /ordinary task\/milestone review requirements[\s\S]*remain unchanged/i);
   assert.match(review, /one-task host-native[\s\S]*optional[\s\S]*findings-only[\s\S]*no canonical invocation or approval artifacts[\s\S]*cannot claim `approve` or `ready`/i);
-  assert.match(adapter, /reviewer dispatch is optional[\s\S]*if dispatched[\s\S]*findings-only[\s\S]*advisory/i);
   assert.match(resume, /one-task host-native[\s\S]*fresh session[\s\S]*never redispatch automatically/i);
   assert.match(resume, /Before trusting a WorkOrder[\s\S]*approval `source_ref`[\s\S]*adapter metadata[\s\S]*canonical[\s\S]*message digest[\s\S]*governing-input refs\/digests[\s\S]*missing, stale, or mismatched[\s\S]*block continuation/i);
   assert.match(adapter, /worker[\s\S]*not `kapisch-implementer`/);

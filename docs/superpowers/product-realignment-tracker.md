@@ -8,23 +8,36 @@ WorkOrder execution artifacts. Requirements live in the
 execution detail lives in per-run artifacts under `.kapisch/runs/<run-id>/` (local,
 gitignored).
 
-Last updated: 2026-10-26. Update this file when a slice changes state; never infer
+## Historical evidence and current status
+
+The implementation and run evidence below records the earlier candidate at `8ed3f85`.
+It is retained as historical evidence, but its decision-capture claims are superseded
+for current Pi capability: the current Pi README, adapter skill, and
+`extensions/human-decisions.ts` disable HumanDecision capture and direct-prompt
+WorkOrder approval until immutable original-input provenance exists. The extension
+only gates, repairs, or dismisses request blocks; it does not persist decisions or grant
+authorization. Do not treat old
+capture tests or run notes as proof of current capture support.
+
+Last updated: 2026-10-27. Update this file when a slice changes state; never infer
 state from it.
 
 ## At a glance
 
 - **Finished (implemented):** advisory and standalone review remain graph-free; the
-  one-task Pi-host slice; decision capture for direct, operator-reported external, and
-  external-artifact sources.
+  one-task Pi-host slice, excluding decision capture.
 - **Submitted:** Draft PR [#84](https://github.com/twKrash/kapisch/pull/84); not merged.
-- **Verified:** the slice's own one-task path, locally; CI on the implementation
-  commit; every supported test suite passes in a clean worktree.
-- **Not verified:** independent review or merge; no decision consumed end to end; the
-  acceptance harness is untracked.
+- **Historical verification:** one-task candidate path, local run, implementation-commit
+  CI and test evidence at `8ed3f85`; superseded where it claimed Pi decision capture.
+- **Current status:** no decision consumed end to end; Pi HumanDecision capture and
+  direct-prompt WorkOrder approval are unavailable pending immutable original-input
+  provenance or a separately verified adapter.
 - **Remaining:** all 11 specification acceptance criteria are partial or unmet.
-- **Blocked:** independent review of #84.
-- **Next slice:** WS-1.2 + WS-1.1 — track the acceptance harness, consume one real
-  decision.
+- **Review:** local advisory review completed findings-only; this is not GitHub approval.
+- **Blocked:** formal GitHub review/approval remains pending for the unpushed local
+  candidate; decision-required work remains blocked on Pi.
+- **Next slice:** WS-1.2 harness work may proceed; WS-1.1 decision acceptance waits for a
+  verified decision-capable adapter or immutable original-input provenance on Pi.
 - **Overall realignment: NOT complete.**
 
 ## Status semantics
@@ -47,10 +60,10 @@ evidence. A WorkOrder `Outcome` marked complete covers its stated scope only.
 | ID | Objective | Depends on | Acceptance criteria | Status | Delivery | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
 | WS-0 | Advisory and standalone review stay first-class and graph-free | — | AC11: no WorkOrder, DAG, implementation authorization, or review gate; findings only | `IMPLEMENTED / AWAITING REVIEW` | Merged on `main`; preserved by PR #84 | `SKILL.md` advisory/review sections, `request-normalization.md`, `review.md`; no tracked test asserts the graph-free, no-gate property |
-| WS-1 | One-task Pi-host slice (`WO-2026-10-26-PI-01/T01`): Context → WorkOrder → attempt → aggregation → advisory review → Outcome → handoff | — | Durable one-task records; validated TUI-only decision capture; retry uses fresh attempt IDs and preserves prior work; review is advisory findings-only; fresh-session reconstruction | `IMPLEMENTED / AWAITING REVIEW` | Draft PR [#84](https://github.com/twKrash/kapisch/pull/84), implementation commit `8ed3f85` | Pi package tests 22 pass; 9 decision-capture cases; local Outcome `complete` with attempts `A003` + `TEST-951202cef2e0`; `comparison.log` PASS |
-| WS-1.1 | Consume one real decision end to end, from any approved source | WS-1 | A decision is persisted and cited by aggregation and Outcome with its scope and attribution | `TODO` | `local` | Run records `decision_refs: []`; capture proven by unit tests only |
+| WS-1 | One-task Pi-host slice (`WO-2026-10-26-PI-01/T01`): Context → WorkOrder → attempt → aggregation → advisory review → Outcome → handoff | — | Durable one-task records; retry uses fresh attempt IDs and preserves prior work; review is advisory findings-only; fresh-session reconstruction | `IMPLEMENTED / AWAITING REVIEW` (decision capability blocked on Pi) | Draft PR [#84](https://github.com/twKrash/kapisch/pull/84), implementation commit `8ed3f85` (historical) | Historical: Pi package tests 22 pass; 9 decision-capture cases; local Outcome `complete` with attempts `A003` + `TEST-951202cef2e0`; `comparison.log` PASS. Current Pi README and adapter skill refuse capture and direct-prompt approval pending immutable original-input provenance. |
+| WS-1.1 | Consume one real decision end to end, from any approved source | WS-1 | A decision is persisted and cited by aggregation and Outcome with its scope and attribution | `BLOCKED` on Pi pending immutable original-input provenance or a separately verified adapter | — | Run records `decision_refs: []`; prior capture unit tests are historical and superseded by the current Pi refusal. |
 | WS-1.2 | Track the acceptance harness in Git | WS-1 | Aggregation/Outcome/comparison validation runs from tracked code in CI | `TODO` | `local` only | `compare.py`, `run.py`, `real_adapter.py`, `decision_records.py` and 16 comparator tests exist only under `.kapisch/runs/…` |
-| WS-1.3 | Decision source kinds: direct, operator-reported external, external artifact | WS-1 | Each source is captured with scope and attribution; ambiguous text and agent/reviewer output are never inferred as decisions | `IMPLEMENTED / AWAITING REVIEW` | Draft PR [#84](https://github.com/twKrash/kapisch/pull/84) | `source_kind`, `source_ref`, `approving_party`, `operator_label` in the extension; tests cover external-source attribution and rejection of agent/reviewer sources; not yet cited end to end |
+| WS-1.3 | Decision source kinds: direct, operator-reported external, external artifact | WS-1 | Each source is captured with scope and attribution; ambiguous text and agent/reviewer output are never inferred as decisions | `BLOCKED` on Pi pending immutable original-input provenance or a separately verified adapter | — | Historical `source_kind`, `source_ref`, `approving_party`, `operator_label` and capture tests at `8ed3f85` do not establish current capture. Current evidence is refusal/gating in the Pi README and adapter skill. |
 | WS-2 | Decision applicability, duplicate-question prevention, scope coverage | WS-1.1, WS-1.2 | AC2, including not re-requesting a decision reported from an external record | `TODO` | — | Guidance only (`resume.md`, Pi `SKILL.md`); no applicability field or test |
 | WS-3 | Optional review gate: immutable report, required-lens pass, permitted exception | WS-1.2, WS-2 | AC5, applied only where a WorkOrder explicitly requires lenses; no gate for advisory or standalone review | `TODO` | — | `reviews.md` is a local advisory record; no gate and no exception binding |
 | WS-4 | Multi-task DAG: parallel dispatch and aggregation barrier | WS-1.2 | AC3, AC7; independent of WS-3 | `TODO` | — | One task only; no scheduler, no terminal/interrupted handling |
@@ -66,13 +79,13 @@ Coverage is independent of workstream status. Criteria are from specification §
 
 | AC | Requirement (abbreviated) | Coverage | Evidence or gap |
 | --- | --- | --- | --- |
-| AC1 | Single-task SDLC flow reaches a durable Outcome, respecting human decisions and deployment authorization | partial | One-task Outcome exists locally; no decision consumed; no deployment boundary exercised |
-| AC2 | Decisions prevent duplicate questions; propagation preserves identity; substantive change reassesses; in-scope tasks need no per-task approval; out-of-scope blocks; external-record decisions are captured and not re-requested | partial | Source kinds captured (WS-1.3); applicability and duplicate-question behavior absent |
+| AC1 | Single-task SDLC flow reaches a durable Outcome, respecting human decisions and deployment authorization | partial | One-task Outcome exists locally; no decision consumed; no deployment boundary exercised; decision-required work blocks on Pi |
+| AC2 | Decisions prevent duplicate questions; propagation preserves identity; substantive change reassesses; in-scope tasks need no per-task approval; out-of-scope blocks; external-record decisions are captured and not re-requested | partial | Decision applicability and duplicate-question behavior absent; current Pi does not capture decisions, so external-record decisions are not currently captured on Pi |
 | AC3 | Aggregation barrier at completion or terminal condition; all required tasks accounted for; failure report is evidence but does not release dependents | partial | Single task, parent-LLM aggregation, no terminal/interrupted handling |
 | AC4 | In-scope retries use fresh IDs, preserve failed work, reject stale checkpoints, never reset shared work | partial | Fresh IDs preserved; checkpoint rejection absent |
 | AC5 | Immutable review report; remediation alone does not release; new pass or separate exception does; prohibited exceptions block; gate only where a WorkOrder requires lenses | none | Advisory wording and a local report only; no gate |
 | AC6 | Ambiguous remote effects block until authoritative observation or explicit scoped authorization | none | Guidance only |
-| AC7 | Same WorkOrder yields equivalent logical status, authority, decisions, evidence, reports, Outcome via real and test adapters; missing capabilities block | partial | One-task comparison PASS locally; harness untracked; capability blocking exists only in untracked code |
+| AC7 | Same WorkOrder yields equivalent logical status, authority, decisions, evidence, reports, Outcome via real and test adapters; missing capabilities block | partial | One-task comparison PASS locally; harness untracked; historical capture evidence is superseded; current Pi capability refusal/gating is explicit |
 | AC8 | Fresh-session reconstruction without conversational or mutable derived authority | partial | One-task state revalidated by a fresh process; not by an independent fresh agent session, and not for decisions or multi-task state |
 | AC9 | Presentation styles preserve normalized facts, evidence, decisions, authority | none | No mechanism or test |
 | AC10 | Reviewer installation/invocation and new-format packaging verified before legacy removal | none | Nothing removed (correct); no install smoke test; retention is a delegated decision |
@@ -117,17 +130,20 @@ realignment.
 
 **Blocker**
 
-1. **Independent review of PR #84 is outstanding.** `pi-subagents` was disabled in the
-   authoring session, so no post-change reviewer ran. GitHub reports
-   `REVIEW_REQUIRED`. Unblocks with a reviewer session or human review.
+1. **Local advisory review completed.** K84-009 was reviewed findings-only; this is not
+   GitHub approval. The local candidate is still unpushed, and formal PR review remains
+   pending (`REVIEW_REQUIRED`).
+2. **Decision-required work is blocked on Pi.** HumanDecision capture and direct-prompt
+   WorkOrder approval remain unavailable until immutable original-input provenance
+   exists or a separately verified adapter is available.
 
 **Limitations (not blockers; block only the work that requires the guarantee)**
 
 - Pi cannot enforce read-only review; the adapter declares it unsupported. Advisory
   research and standalone review remain available with the limitation disclosed. Only
   a WorkOrder that requires enforced read-only isolation blocks.
-- No live HumanDecision has been consumed; the extension is unit-tested and the run
-  records zero decisions.
+- No live HumanDecision has been consumed; the current extension only gates/repairs and
+  does not persist decisions.
 - The acceptance harness is untracked (WS-1.2).
 - Root-level pytest is not the supported harness and reports 21 false failures because
   those tests resolve paths relative to `plugins/kapisch`; the supported suites pass,
@@ -137,8 +153,8 @@ realignment.
 
 - Canonical artifact schemas, field ownership, and publication order (§9) are still
   local conventions in an untracked run directory.
-- Whether Pi or a verified Codex path is used when a WorkOrder first requires lens
-  gating.
+- Whether Pi can gain immutable original-input provenance or another adapter can be
+  separately verified for decision capture.
 
 ## Escalations and delegated decisions
 
@@ -161,17 +177,18 @@ host-native exception is already scoped and must not be widened.
 
 ## Next recommended vertical slice
 
-**WS-1.2 + WS-1.1 — make the one-task acceptance reproducible and decision-backed.**
+**WS-1.2 harness work; WS-1.1 only after decision capability is verified.**
 
 1. Move the artifact/aggregation/comparison harness from `.kapisch/runs/…` into
    tracked tests, keeping the same assertions.
-2. Consume one real decision — direct TUI answer or operator-reported external
-   approval — and have aggregation and Outcome cite it with scope and attribution.
-3. Re-run the Pi and test-adapter comparison from tracked code.
+2. Defer decision-backed aggregation and Outcome until immutable original-input
+   provenance exists on Pi or a separately verified adapter can capture decisions.
+3. Re-run the Pi and test-adapter comparison from tracked code once the required
+   adapter capability is verified.
 
-Rationale: it converts local-only claims into reviewable, CI-verifiable evidence and
-exercises the decision invariant end to end. It adds no product semantics. WS-3
-(optional review gate) follows; it is not a prerequisite for WS-4.
+Rationale: harness work turns local-only claims into reviewable, CI-verifiable evidence;
+it does not make decision capture available. WS-3 (optional review gate) follows; it is
+not a prerequisite for WS-4.
 
 ## Evidence index
 
@@ -179,12 +196,12 @@ exercises the decision invariant end to end. It adds no product semantics. WS-3
 | --- | --- |
 | Approved proposal / specification | PR #83 (merged); specification clarified 2026-10-26 |
 | Plan assessment baseline | `fc31633` (per proposal §9) |
-| Slice implementation | Draft PR [#84](https://github.com/twKrash/kapisch/pull/84), commit `8ed3f85` |
-| CI on the implementation commit | 4 check runs `SUCCESS`; `REVIEW_REQUIRED` |
-| Focused verification (worktree) | `bun test` 22 pass; `check:generated` current; `pytest tests/core/test_review.py tests/core/test_package.py` 24 passed, 125 subtests; `git diff --check` clean |
+| Slice implementation (historical) | Draft PR [#84](https://github.com/twKrash/kapisch/pull/84), commit `8ed3f85` |
+| CI on the implementation commit (historical) | 4 check runs `SUCCESS`; `REVIEW_REQUIRED`; historical and superseded as evidence for current Pi decision capture |
+| Focused verification (historical worktree) | `bun test` 22 pass; `check:generated` current; `pytest tests/core/test_review.py tests/core/test_package.py` 24 passed, 125 subtests; `git diff --check` clean; historical capture tests do not prove current capability |
 | Test-harness triage | CI-equivalent suites pass on the branch; root-level pytest and `.worktrees` artifacts classified; failure-set diff shows no branch-only failures |
-| Run evidence (local, gitignored) | `.kapisch/runs/pi-task-first-2026-10-26-01/`: WorkOrder `WO-2026-10-26-PI-01`, attempt `A003`, test attempt `TEST-951202cef2e0`, `parent-generated-v2/{aggregation,outcome}.json`, `comparison.log` PASS, `cold-session-reconstruction.md` |
-| Adapter capability declaration | `.kapisch/runs/…/adapter/pi.json`: `read_only_review: unsupported`, `direct_user_decision: unproven` |
+| Run evidence (historical, local, gitignored) | `.kapisch/runs/pi-task-first-2026-10-26-01/`: WorkOrder `WO-2026-10-26-PI-01`, attempt `A003`, test attempt `TEST-951202cef2e0`, `parent-generated-v2/{aggregation,outcome}.json`, `comparison.log` PASS, `cold-session-reconstruction.md`; no decision persisted |
+| Current adapter capability evidence | Current Pi README, adapter `SKILL.md`, and `extensions/human-decisions.ts`: capture/direct-prompt approval unavailable; extension gates/repairs but does not persist decisions |
 | Existing product roadmap (not this tracker) | `plugins/kapisch/docs/roadmap.md` |
 
 ## Update rules

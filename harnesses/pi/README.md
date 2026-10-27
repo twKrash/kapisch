@@ -1,6 +1,6 @@
 # KAPISCH Pi package
 
-Local Pi package exposing the thin KAPISCH skill, six canonical roles through pi-subagents, and a HumanDecision input adapter. The adapter records explicit operator input without changing canonical workflow semantics.
+Local Pi package exposing the thin KAPISCH skill, six canonical roles through pi-subagents, and a decision-request gating/repair adapter. HumanDecision capture is disabled on this runtime.
 
 ## Install and update
 
@@ -23,7 +23,7 @@ Canonical model IDs become Pi `openai/<model-id>` IDs; reasoning effort maps unc
 
 ## Capabilities and limitations
 
-The `human-decisions.ts` extension records a non-empty UI-backed input as a HumanDecision only when the latest assistant message contains a valid visible `kapisch-decision` request block. It writes JSON under `.kapisch/runs/<session-id>/decisions/`; the answer is stored verbatim and is not interpreted as approval. The extension ignores extension-injected and headless input. Pi exposes RPC input without locality or forwarding provenance, so this adapter currently accepts only TUI input and rejects all RPC input; local stdio RPC remains unsupported until the host can prove its origin. Agent or reviewer output alone never creates a decision.
+The `human-decisions.ts` extension gates input only for a complete top-level decision block in the latest assistant message; quoted, incomplete, nested, and superseded marker text does not gate ordinary input. In UI modes, a pending gate explains why input was not forwarded. `/kapisch-decision-dismiss` clears that gate without granting authorization or creating a HumanDecision, and tells the agent to keep the gated workflow blocked. On this Pi runtime, `/kapisch-decision` refuses capture because the host cannot establish immutable original-input provenance; it does not prompt, write a HumanDecision, or send a completion message. The persisted current user prompt and `ui.input()` results are not authority. `/kapisch-decision-repair` can request regeneration of a complete but invalid or interrupted request but creates no HumanDecision and grants no continuation. Ordinary input without an active marker remains normal Pi input and is not captured as a HumanDecision or authorization. The one-task direct-prompt WorkOrder route is unsupported and fails closed on this runtime until Pi supplies immutable original-input provenance.
 
 Read-only roles omit Pi `edit` and `write` tools and deny those tools through native child permissions. Writers receive `edit` and `write`; no role enables nested subagents. Researcher and reviewer receive Bash for required Git/history and focused evidence operations. pi-subagents cannot constrain Bash commands, so Bash is not shell-level read-only and must not be described as enforced read-only behavior. No model-callable decision-writing tool is added. Optional tools may aid navigation but are not canonical evidence or authority.
 
