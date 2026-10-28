@@ -11,8 +11,9 @@ KAPISCH is explicitly opt-in. Ordinary Pi work MUST NOT activate KAPISCH just be
 
 ## Human-decision capture
 
-The effective user-role input received from Pi is trusted under the selected host's trust model. The adapter does not authenticate the person, recover original keystrokes, or verify pre-extension input integrity. The extension captures the next non-empty text input only when the latest assistant message contains one complete, valid top-level `kapisch-decision` block; quoted, incomplete, nested, malformed, or superseded markers do not create decisions. It accepts these source kinds: `direct_operator`, `operator_reported_external`, and `external_artifact`. For this one-task Pi path, the extension is the designated human-input-boundary producer for captured `HumanDecision` records: it assigns `decision_id` and persists the immutable record once. The coordinator validates and binds that same record to the WorkOrder; it does not create or reconcile a second record. The raw answer, question, governing inputs, subject, scope, decision type, source kind, optional source reference and approving-party attribution are stored before forwarding under `.kapisch/runs/<Pi session ID>/decisions/<decision_id>.json`. The optional OS operator label is informational, not authentication. TUI, RPC, JSON, and print inputs are supported when the Pi session is persistent and project storage is writable; on missing session or storage failure, the pending answer stays blocked. An ambiguous answer remains raw evidence and must not be interpreted as approval. Downstream aggregation and Outcome processing must read and cite the persisted decision and its `decision_id`; agent or reviewer output alone never creates a HumanDecision. `/kapisch-decision` explains how to answer using normal Pi input, with no second prompt. `/kapisch-decision-dismiss` dismisses without granting authorization, and `/kapisch-decision-repair` requests regeneration of an invalid or interrupted request without creating a decision.
+The effective user-role input received from Pi is trusted under the selected host's trust model. The adapter does not authenticate the person or require proof of original keystrokes or pre-extension integrity. The extension captures the next non-empty text input only when the latest assistant message contains one complete, valid top-level `kapisch-decision` block; quoted, incomplete, nested, malformed, or superseded markers do not create decisions. It accepts `direct_operator`, `operator_reported_external`, and `external_artifact` sources. For these pending-request answers, the extension is the sole producer and writes one immutable record under `.kapisch/runs/<Pi session ID>/decisions/<decision_id>.json` before forwarding; the coordinator binds that same record and never duplicates it. External-artifact requests require a stable `source_ref`. TUI, RPC, JSON, and print input are supported when the Pi session is persistent and project storage is writable; on missing session or storage failure, a pending answer stays blocked. Ambiguous answers remain raw evidence and are not interpreted as approval.
 
+For the one-task direct-prompt route, an explicit and unambiguous user instruction that bounds the task and scope is already authorization; do not ask the user to approve that same scope again. The coordinator may materialize exactly one `HumanDecision` using the existing portable fields and `.kapisch/runs/<run-id>/decisions/<decision_id>.json` layout, using the existing fields with a unique `decision_id` and `question_id`, the request verbatim in `question` and `answer`, relevant existing `governing_inputs`, the authorized `subject` and `scope`, `decision_type=approval`, and `source_kind=direct_operator`. A stable host message ID may be used as `question_id`; do not require a message digest or other input-provenance proof. Bind that same `decision_id` to the WorkOrder. The direct path is the coordinator's record for that user instruction; the input extension does not auto-capture ordinary prompts, and must not create a second record for it. If the prompt is ambiguous or unbounded, clarify before persisting authorization or dispatching. A host message reference identifies stored text; it does not prove physical identity or original keystrokes. Downstream aggregation and Outcome cite the persisted decision and its `decision_id`; agent or reviewer output alone never creates a HumanDecision. `/kapisch-decision` explains how to answer an explicit pending request using normal Pi input, with no second prompt. `/kapisch-decision-dismiss` dismisses without granting authorization, and `/kapisch-decision-repair` requests regeneration of an invalid request without creating a decision.
 ## Role mapping
 
 Use `pi-subagents` and the exact canonical role selected by KAPISCH. Do not substitute generic Pi agents after KAPISCH controls the workflow:
@@ -27,15 +28,22 @@ Use `pi-subagents` and the exact canonical role selected by KAPISCH. Do not subs
 If a mapped agent is unavailable, follow the canonical contract's blocking or escalation behavior; do not silently choose a different role. For the canonical contract's user-authorized one-task host-native exception only, dispatch the bounded task to Pi's native `worker` role and disclose explicitly that the runtime role is `worker`, not `kapisch-implementer`, along with its capabilities/limits. This is a task-specific host route, not a canonical role mapping or general fallback; ordinary canonical role mappings remain unchanged.
 
 For this exception, follow the canonical file-based contract under
-`.kapisch/runs/<run-id>`. This Pi package does not capture ordinary user input
-as a HumanDecision, so the direct-prompt route is blocked unless the coordinator
-has a bindable record from the designated producer. Never treat the initial
-prompt itself as persisted authority. Use the host-persisted message reference
-and its digest only to identify content Pi recorded, not as proof of physical
-identity, original keystrokes, or pre-extension integrity. If a supported flow
-produces a HumanDecision, include its persisted decision-file path and
-`decision_id` in aggregation and Outcome references. Continue to apply the
-canonical scope, applicability, and external-effect safeguards.
+`.kapisch/runs/<run-id>`. An explicit, unambiguous user prompt that bounds the
+one task and its scope is authorization; do not ask for redundant approval. The
+coordinator may materialize exactly one `HumanDecision` in the existing
+`decisions/<decision_id>.json` layout, using the existing fields with a unique `decision_id` and `question_id`, the
+request verbatim in `question` and `answer`, relevant existing
+`governing_inputs`, the authorized `subject` and `scope`,
+`decision_type=approval`, and `source_kind=direct_operator`. A stable host
+message ID may be used as `question_id`; do not require a message digest or
+other input-provenance proof. Bind that same `decision_id` to the
+WorkOrder. The extension only persists answers to explicit pending decision
+requests; it does not auto-record ordinary input or duplicate the coordinator's
+direct-prompt record. Clarify ambiguous or unbounded instructions before
+recording approval or dispatching. A host message reference identifies stored text, not physical identity or original keystrokes. On resume, resolve
+and validate the decision's immutable source and governing inputs, then
+reassess applicability; missing, stale, or mismatched evidence blocks. Continue
+to apply the canonical scope and external-effect safeguards.
 
 For `workflow=review`, dispatch exactly one fresh `kapisch-reviewer` child with
 an explicit `review_mode=standalone` marker, the requested review scope, and

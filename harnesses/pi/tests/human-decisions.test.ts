@@ -27,48 +27,11 @@ type PortableDecision = {
   approving_party?: string;
 };
 
-type TestWorkOrder = { id: string; subject: string; scope: string; tasks: Array<{ id: string }> };
-
-type AppliedWorkOrder = {
-  work_order_id: string;
-  status: "authorized" | "blocked";
-  decision_ref: string;
-  task_ids: string[];
-  evidence_refs: { governing_inputs: PortableDecision["governing_inputs"]; source_ref?: string };
-};
-
 async function testAdapterDecision(directory: string, facts: Omit<PortableDecision, "decision_id">): Promise<PortableDecision> {
   const decision = { decision_id: "test-adapter-decision", ...facts };
   await mkdir(directory, { recursive: true });
   await writeFile(join(directory, `${decision.decision_id}.json`), `${JSON.stringify(decision, null, 2)}\n`, { flag: "wx" });
   return decision;
-}
-
-function applyCapturedPiDecision(decision: PortableDecision, workOrder: TestWorkOrder): AppliedWorkOrder {
-  // shortcut: exact subject/scope matching only; expand when the portable contract defines structured scope semantics.
-  const covered = decision.decision_type === "approval" && decision.subject === workOrder.subject && decision.scope === workOrder.scope;
-  return {
-    work_order_id: workOrder.id,
-    status: covered ? "authorized" : "blocked",
-    decision_ref: decision.decision_id,
-    task_ids: covered ? workOrder.tasks.map(({ id }) => id) : [],
-    evidence_refs: { governing_inputs: decision.governing_inputs, ...(decision.source_ref ? { source_ref: decision.source_ref } : {}) },
-  };
-}
-
-function runTestAdapterWorkOrder(decision: PortableDecision, workOrder: TestWorkOrder): AppliedWorkOrder {
-  // Independent test-adapter implementation of this exact-scope approval case.
-  const decisionMatches = decision.decision_type === "approval"
-    && workOrder.subject === decision.subject
-    && workOrder.scope === decision.scope;
-  const taskIds = decisionMatches ? workOrder.tasks.map((task) => task.id) : [];
-  return {
-    work_order_id: workOrder.id,
-    status: decisionMatches ? "authorized" : "blocked",
-    decision_ref: decision.decision_id,
-    task_ids: taskIds,
-    evidence_refs: { governing_inputs: decision.governing_inputs, ...(decision.source_ref ? { source_ref: decision.source_ref } : {}) },
-  };
 }
 
 function portableDecisionFacts(decision: Record<string, unknown>) {
@@ -277,7 +240,7 @@ test("persistence failures do not forward a pending decision answer", async () =
   assert.deepEqual(await readdir(runDirectory), ["decisions"]);
 }));
 
-test("Pi and host-independent test adapters preserve and apply the same external decision", async () => temp(async (cwd) => {
+test("Pi and host-independent test adapters preserve the same portable decision facts", async () => temp(async (cwd) => {
   const facts = {
     ...request,
     subject: "staging deployment",
@@ -297,29 +260,11 @@ test("Pi and host-independent test adapters preserve and apply the same external
   const directory = join(cwd, ".kapisch", "runs", "session-pi", "decisions");
   const [filename] = await readdir(directory);
   const piDecision = JSON.parse(await readFile(join(directory, filename), "utf8")) as PortableDecision;
+  const piSnapshot = structuredClone(piDecision);
+  const testSnapshot = structuredClone(testDecision);
 
   assert.deepEqual(portableDecisionFacts(piDecision), portableDecisionFacts(testDecision));
   assert.equal("operator_label" in piDecision, false);
-  const workOrder = { id: "WO-1", subject: facts.subject, scope: facts.scope, tasks: [{ id: "T-1" }, { id: "T-2" }] };
-  const piSnapshot = structuredClone(piDecision);
-  const testSnapshot = structuredClone(testDecision);
-  const piOutcome = applyCapturedPiDecision(piDecision, workOrder);
-  const testOutcome = runTestAdapterWorkOrder(testDecision, workOrder);
-  const normalizeOutcome = (outcome: AppliedWorkOrder) => ({ ...outcome, decision_ref: "<HumanDecision>" });
-  const expectedOutcome = {
-    work_order_id: "WO-1",
-    status: "authorized",
-    decision_ref: "<HumanDecision>",
-    task_ids: ["T-1", "T-2"],
-    evidence_refs: { governing_inputs: facts.governing_inputs, source_ref: facts.source_ref },
-  };
-  assert.deepEqual(normalizeOutcome(piOutcome), expectedOutcome);
-  assert.deepEqual(normalizeOutcome(testOutcome), expectedOutcome);
-  assert.equal(piOutcome.decision_ref, piDecision.decision_id);
-  assert.equal(testOutcome.decision_ref, testDecision.decision_id);
-  const outOfScope = { ...workOrder, scope: "production" };
-  assert.equal(applyCapturedPiDecision(piDecision, outOfScope).status, "blocked");
-  assert.equal(runTestAdapterWorkOrder(testDecision, outOfScope).status, "blocked");
   assert.deepEqual(piDecision, piSnapshot);
   assert.deepEqual(testDecision, testSnapshot);
 }));

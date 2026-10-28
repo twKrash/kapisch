@@ -7,31 +7,9 @@ paths and invocation envelope fields are owned by [handoffs.md](handoffs.md).
 
 ## One-task host-native resume
 
-For the explicitly approved one-task path defined in the canonical skill,
-`.kapisch/runs/<run-id>` files, not graph/state files, are durable task
-authority. Before trusting a WorkOrder, load and validate its referenced
-`HumanDecision` record, including its source kind, any external source reference,
-and immutable governing-input refs/digests against the current repository. For Pi
-records, resolve `decision_id` from persisted files by scanning
-`.kapisch/runs/*/decisions/<decision_id>.json` from the project root and require
-exactly one valid match. Zero or multiple matches block; do not depend on the
-current process's Pi session ID or conversational memory. The controller
-reassesses decision applicability to the current WorkOrder and scope;
-external source evidence does not require host-session metadata. The approval
-summary is derived, not authority. Missing, stale, mismatched, or inapplicable
-bindings block continuation. Coordinator-owned `Context`, `WorkOrder`,
-`Outcome`, and handoff state, human-input-boundary-owned `HumanDecision` records,
-the worker's unique attempt output, persisted advisory reviewer findings, and
-current repository evidence are reread in a fresh session. The coordinator alone creates Context/WorkOrder/Outcome/handoff; the human input
-boundary alone produces HumanDecision. On the Pi one-task path, the registered
-`human-decisions.ts` input extension is the designated human-input-boundary
-producer for captured HumanDecision records. The coordinator validates and binds
-that same `decision_id` to the WorkOrder; it never creates or reconciles a second
-record. The worker writes only one attempt output; the parent LLM aggregates evidence.
-Derive the next action from the files and current repository state. Missing or
-failed result remains incomplete, and never redispatch automatically. This exception takes precedence
-only over the conflicting graph-required resume instructions below for this
-one-task path; all other durable resumes remain unchanged.
+For the explicitly approved one-task path defined in the canonical skill, `.kapisch/runs/<run-id>` files, not graph/state files, are durable task authority. Before trusting a WorkOrder, load and validate its referenced `HumanDecision`, including source kind, any external source reference, and immutable governing-input refs/digests against current repository evidence. Resolve `decision_id` by scanning `.kapisch/runs/*/decisions/<decision_id>.json` from the project root and require exactly one valid match. Zero or multiple matches block; do not depend on the current process's Pi session ID or conversational memory. For a direct-prompt authorization, the decision preserves the original user request as its `question` and `answer`; a host-persisted message reference may identify that request but is not an input-provenance prerequisite. Reassess decision applicability to the current WorkOrder and scope; external source evidence does not require host-session metadata. The approval summary is derived, not authority. Missing, stale, mismatched, or inapplicable bindings block continuation.
+
+Coordinator-owned `Context`, `WorkOrder`, `Outcome`, and handoff state, `HumanDecision` records, the worker's unique attempt output, persisted advisory reviewer findings, and current repository evidence are reread in a fresh session. The Pi input extension remains the sole producer for captured answers to explicit pending decision requests. For an explicit direct user instruction authorizing one bounded WorkOrder, the coordinator may materialize one durable `HumanDecision` in the same file layout, preserving the original user request and binding its exact `decision_id` to the WorkOrder; it must not create a second record if one already exists. Derive the next action from the files and current repository state. Missing or failed attempt output remains incomplete; never redispatch automatically. This exception takes precedence only over the conflicting graph-required resume instructions below for this one-task path; all other durable resumes remain unchanged.
 
 For an initial `execution_action=start`, first validate one unambiguous approved
 plan. If no execution manifest/state exists, initialize them as described in

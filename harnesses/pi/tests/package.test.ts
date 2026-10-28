@@ -26,44 +26,56 @@ test("realignment tracker separates historical decision capture from current Pi 
   const nextSlice = section("Next recommended vertical slice");
   const historical = section("Evidence index");
 
-  assert.match(section("Historical evidence and current status"), /older run's capture[\s\S]*claims as proof of this current capability/i);
+  assert.match(section("Historical evidence and current status"), /older run's capture[\s\S]*claims as proof of those capabilities/i);
   assert.match(glance, /formal GitHub review\/approval remains pending/i);
-  assert.match(glance, /advisory review completed[\s\S]*not GitHub approval/i);
+  assert.match(glance, /current delta received a standalone findings-only review/i);
+  assert.match(glance, /first pass found K84-010[\s\S]*restored with a regression assertion/i);
+  assert.match(glance, /final pass found no new diff-causal findings/i);
+  assert.match(glance, /zero formal\s+GitHub reviews/i);
+  assert.match(glance, /K84-010[\s\S]*final pass found no new diff-causal findings/i);
   assert.doesNotMatch(glance, /independent review of #84/i);
   assert.match(tracker, /Last updated: 2026-10-28/);
-  assert.match(glance, /Pi HumanDecision capture and persistence are verified[\s\S]*sole human-input-boundary\s+producer[\s\S]*full WorkOrder consumption remains unverified/i);
+  assert.match(tracker, /four completed successful check runs[\s\S]*do\s+not cover this uncommitted delta/i);
+  assert.match(glance, /Pi pending-request HumanDecision capture and persistence are/);
+  assert.match(glance, /direct user prompts use the coordinator/);
+  assert.match(glance, /not[\s\S]*live direct-prompt file write/);
   assert.match(row(workstreams, "WS-1"), /historical/i);
   assert.match(row(workstreams, "WS-1.1"), /`BLOCKED`.*WorkOrder consumer.*Outcome.*not input provenance/i);
-  assert.match(row(workstreams, "WS-1.3"), /`IMPLEMENTED \/ AWAITING REVIEW`.*source kinds.*actual RPC smoke/i);
-  assert.match(row(coverage, "AC2"), /capture.*but.*duplicate-question.*applicability reassessment.*remain/i);
-  assert.match(row(coverage, "AC7"), /decision-application comparison.*full reports.*Outcome.*remain unverified/i);
-  assert.match(blockers, /local advisory review completed.*findings-only/i);
-  assert.match(blockers, /not\s+GitHub approval[\s\S]*local candidate is still unpushed[\s\S]*formal PR review remains\s+pending/i);
-  assert.match(blockers, /decision-required work remains blocked on WorkOrder consumer integration/i);
+  assert.match(row(workstreams, "WS-1.3"), /`IMPLEMENTED \/ AWAITING REVIEW`.*Tracked tests cover source-kind fields.*earlier RPC smoke.*contract-tested only/i);
+  assert.match(row(coverage, "AC2"), /Direct one-task instructions.*Runtime direct-record creation.*applicability reassessment.*remain unverified/i);
+  assert.match(row(coverage, "AC7"), /HumanDecision facts only.*No WorkOrder outcome.*capability-failure equivalence.*claimed/i);
+  assert.match(blockers, /Formal GitHub review\/approval remains pending/i);
+  assert.match(blockers, /zero formal GitHub\s+reviews[\s\S]*three existing owner comments record standalone advisory DO NOT APPROVE[\s\S]*not formal reviews/i);
+  assert.match(blockers, /Decision-required work remains blocked on WorkOrder consumer integration[\s\S]*direct record creation and\s+decision resume remain unverified/i);
   assert.match(nextSlice, /WS-1\.2 tracked harness[\s\S]*Full decision-to-Outcome\s+integration remains incomplete/i);
   assert.doesNotMatch(tracker, /current Pi does not capture decisions|extension only gates\/repairs|decision capability is unavailable/i);
   assert.match(historical, /commit `8ed3f85`/);
   assert.match(historical, /historical and superseded as evidence for current Pi decision capture/i);
 });
 
-test("Pi HumanDecision producer belongs to the human input boundary", () => {
+test("direct one-task authorization binds one durable decision without another prompt", () => {
   const canonical = readFileSync(new URL("../../../plugins/kapisch/skills/kapisch/SKILL.md", import.meta.url), "utf8");
   const resume = readFileSync(new URL("../../../plugins/kapisch/skills/kapisch/references/resume.md", import.meta.url), "utf8");
   const adapter = readFileSync(new URL("../README.md", import.meta.url), "utf8");
   const piSkill = readFileSync(new URL("../skills/kapisch/SKILL.md", import.meta.url), "utf8");
   const oneTask = canonical.split("The one-task path is file-based")[1]?.split("A mandated skill")[0] ?? "";
 
-  assert.match(adapter, /sole `?HumanDecision`? producer at the human input boundary/i);
-  assert.match(adapter, /binds that record's `decision_id` to the WorkOrder; it does not create a competing record/i);
-  assert.match(adapter, /direct-prompt one-task route[\s\S]*block that route here/i);
-  assert.match(canonical, /coordinator alone creates `Context`, `WorkOrder`, `Outcome`, and parent handoff/i);
-  assert.match(canonical, /human input\s+boundary alone produces `HumanDecision`[\s\S]*designated human-input-boundary\s+producer/i);
-  assert.match(oneTask, /human input boundary records that authorization as a `HumanDecision`[\s\S]*coordinator validates and binds that persisted record/i);
-  assert.doesNotMatch(oneTask, /coordinator (?:alone )?(?:creates?|records?) [^.;]*HumanDecision/i);
-  assert.match(resume, /human input\s+boundary alone produces HumanDecision[\s\S]*designated human-input-boundary\s+producer[\s\S]*never creates or reconciles a second\s+record/i);
-  assert.match(resume, /scanning[\s\S]*\.kapisch\/runs\/\*\/decisions\/<decision_id>\.json[\s\S]*exactly one valid match/i);
-  assert.match(piSkill, /designated human-input-boundary producer[\s\S]*binds that same record/i);
-  assert.match(piSkill, /direct-prompt route is blocked[\s\S]*never treat the initial\s+prompt itself as persisted authority/i);
+  assert.match(oneTask, /current user prompt itself explicitly and unambiguously authorizes/);
+  assert.match(oneTask, /coordinator may materialize exactly one immutable `HumanDecision` from the host-persisted user message/);
+  assert.match(oneTask, /do not create a second record or ask for another approval of the same scope/i);
+  assert.match(oneTask, /existing HumanDecision fields[\s\S]*unique `decision_id` and `question_id`[\s\S]*`question` and `answer`[\s\S]*`decision_type=approval`[\s\S]*`source_kind=direct_operator`/);
+  assert.doesNotMatch(oneTask, /host-persisted user message.{0,120}digest|digest.{0,120}host-persisted user message/i);
+  assert.match(oneTask, /source_kind=direct_operator[\s\S]*WorkOrder cites the applicable `decision_id`/i);
+  assert.match(oneTask, /ambiguous[\s\S]*do not create an approval decision or dispatch[\s\S]*ask a focused clarification/i);
+  assert.match(adapter, /explicit, unambiguous user prompt[\s\S]*coordinator may materialize exactly one `HumanDecision`/i);
+  assert.match(adapter, /unique `decision_id` and `question_id`[\s\S]*`decision_type=approval`[\s\S]*`source_kind=direct_operator`/i);
+  assert.match(adapter, /stable host message ID may be used as `question_id`[\s\S]*no message digest or other input-provenance proof is required/i);
+  assert.match(piSkill, /direct-prompt route[\s\S]*coordinator may materialize exactly one `HumanDecision`[\s\S]*unique `decision_id` and `question_id`[\s\S]*`decision_type=approval`[\s\S]*`source_kind=direct_operator`/i);
+  assert.match(piSkill, /do not require a message digest or other input-provenance proof/i);
+  assert.doesNotMatch(piSkill, /direct-prompt route is blocked unless/i);
+  assert.match(resume, /one-task host-native[\s\S]*exactly one valid match/i);
+  assert.match(resume, /host-persisted message reference may identify that request but is not an input-provenance prerequisite/i);
+  assert.match(resume, /direct-prompt authorization[\s\S]*coordinator may materialize one durable `HumanDecision`/i);
 });
 
 test("standalone review workflow is graph-free and delegates findings only", () => {
@@ -97,21 +109,22 @@ test("one-task native worker exception has durable file authority and narrow pre
 
   assert.match(canonical, /one-task host-native[\s\S]*\.kapisch\/runs\/<run-id>/i);
   assert.match(canonical, /Context[\s\S]*WorkOrder[\s\S]*Outcome/);
+  assert.match(canonical, /The WorkOrder records the bounded task, human-decision reference, worker role\/capability disclosure, and output location/);
   assert.match(canonical, /attempt output[\s\S]*parent LLM[\s\S]*aggregate/i);
   assert.match(canonical, /advisory[\s\S]*persisted/i);
   assert.match(canonical, /fresh session[\s\S]*reread/i);
   assert.match(canonical, /never redispatch automatically/i);
   assert.match(canonical, /in-scope local retry[\s\S]*fresh attempt ID and output location[\s\S]*preserv(?:e|es) the prior attempt[\s\S]*without changing or reapproving the WorkOrder[\s\S]*no per-attempt approval is required/i);
-  assert.match(canonical, /current user prompt[\s\S]*human input boundary records that authorization as a `HumanDecision`[\s\S]*coordinator validates and binds that persisted record[\s\S]*without an extra approval ceremony/i);
+  assert.match(canonical, /current user prompt itself explicitly and unambiguously authorizes[\s\S]*coordinator may materialize exactly one immutable `HumanDecision`[\s\S]*do not create a second record or ask for another approval of the same scope/i);
   assert.match(canonical, /HumanDecision[\s\S]*decision_id[\s\S]*WorkOrder[\s\S]*applicability is assessed\s+separately/i);
   assert.match(canonical, /immutable source refs or digests[\s\S]*missing, stale, or mismatched[\s\S]*block continuation/i);
   assert.match(adapter, /effective user-role input received from Pi[\s\S]*trusted under the selected host's trust model/i);
   assert.match(adapter, /TUI[\s\S]*RPC[\s\S]*JSON[\s\S]*print/i);
-  assert.match(adapter, /direct-prompt route is blocked[\s\S]*never treat the initial\s+prompt itself as persisted authority/i);
+  assert.match(adapter, /direct-prompt route[\s\S]*coordinator may materialize exactly one `HumanDecision`[\s\S]*`question` and `answer`/i);
   assert.match(adapter, /latest assistant message[\s\S]*one complete, valid top-level `kapisch-decision` block/);
   assert.match(adapter, /kapisch-decision-dismiss[\s\S]*dismisses without granting authorization/i);
   assert.match(adapter, /kapisch-decision-repair[\s\S]*requests regeneration[\s\S]*without creating a decision/i);
-  assert.match(adapter, /does not capture ordinary user input\s+as a HumanDecision[\s\S]*direct-prompt route is blocked/i);
+  assert.match(adapter, /does not auto-capture ordinary prompts[\s\S]*must not create a second record for it/i);
   assert.match(normalization, /one-task host-native[\s\S]*precedence[\s\S]*graph-free delegation/i);
   assert.match(normalization, /precedence[\s\S]*task-review wording[\s\S]*resume\.md/i);
   assert.match(review, /one-task host-native[\s\S]*advisory[\s\S]*persisted/i);
@@ -134,7 +147,7 @@ test("portable HumanDecision contract covers external sources without host-sessi
   assert.match(section, /WorkOrder[\s\S]*decision_id[\s\S]*applicability is assessed\s+separately/i);
   assert.match(section, /governing_inputs[\s\S]*subject[\s\S]*scope/);
   assert.doesNotMatch(section, /Pi|TUI|RPC|sessionManager/i);
-  assert.match(canonical, /current user prompt[\s\S]*human input boundary records that authorization as a `HumanDecision`[\s\S]*coordinator validates and binds that persisted record[\s\S]*without an extra approval ceremony/i);
+  assert.match(canonical, /current user prompt itself explicitly and unambiguously authorizes[\s\S]*coordinator may materialize exactly one immutable `HumanDecision`[\s\S]*do not create a second record or ask for another approval of the same scope/i);
   assert.match(resume, /HumanDecision[\s\S]*external source[\s\S]*applicability/i);
 });
 
@@ -162,8 +175,8 @@ test("Pi adapter trusts effective user input and exposes durable decisions downs
   assert.match(adapter, /direct_operator[\s\S]*operator_reported_external[\s\S]*external_artifact/);
   assert.match(adapter, /\.kapisch\/runs\/<Pi session ID>\/decisions/);
   assert.match(adapter, /aggregation and Outcome[\s\S]*decision_id/i);
-  assert.match(adapter, /ambiguous answer[\s\S]*not be interpreted as approval/i);
-  assert.match(adapter, /does not capture ordinary user input\s+as a HumanDecision[\s\S]*direct-prompt route is blocked/i);
+  assert.match(adapter, /ambiguous answers remain raw evidence and are not interpreted as approval/i);
+  assert.match(adapter, /does not auto-capture ordinary prompts[\s\S]*must not create a second record for it/i);
   assert.doesNotMatch(adapter, /immutable original-input provenance|capture is unavailable/i);
   assert.match(readme, /effective user-role text[\s\S]*aggregation and Outcome/i);
 });
