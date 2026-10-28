@@ -49,9 +49,9 @@ prohibition. The same one-task exception takes precedence only over the
 conflicting mandatory review/invocation-artifact requirements in the canonical
 skill, task-review wording in `review.md`, and graph-required wording in
 `resume.md`. It does not change standalone graph-free review dispatch or
-ordinary task and milestone review behavior or canonical role mappings. The current user prompt may itself explicitly
-approve this path and be materialized as the WorkOrder/decision without an extra
-approval ceremony.
+ordinary task and milestone review behavior or canonical role mappings. An explicit current user prompt may authorize this path without an extra
+approval ceremony. The canonical one-task contract requires the coordinator to
+persist its single `HumanDecision` and referenced WorkOrder before dispatch.
 
 The LLM/controller selects `advisory`, `review`, `task`, or `milestone`, logical
 roles, risk, review needs, and whether a request is read-only. Select `advisory`
