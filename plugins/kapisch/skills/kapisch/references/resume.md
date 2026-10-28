@@ -7,18 +7,27 @@ paths and invocation envelope fields are owned by [handoffs.md](handoffs.md).
 
 ## One-task host-native resume
 
-For the explicitly approved one-task host-native path defined in the canonical
-skill, `.kapisch/runs/<run-id>` files, not graph/state files, are durable task
-authority. Before trusting a WorkOrder, resolve its approval `source_ref` through
-adapter metadata to the exact host-owned user message; verify the canonical
-message digest and that the recorded scope basis is present in that message.
-Validate governing-input refs/digests against the current repository. The
-approval summary is derived, not authority. Missing, stale, or mismatched
+For the explicitly approved one-task path defined in the canonical skill,
+`.kapisch/runs/<run-id>` files, not graph/state files, are durable task
+authority. Before trusting a WorkOrder, load and validate its referenced
+`HumanDecision` record, including its source kind, any external source reference,
+and immutable governing-input refs/digests against the current repository. For Pi
+records, resolve `decision_id` from persisted files by scanning
+`.kapisch/runs/*/decisions/<decision_id>.json` from the project root and require
+exactly one valid match. Zero or multiple matches block; do not depend on the
+current process's Pi session ID or conversational memory. The controller
+reassesses decision applicability to the current WorkOrder and scope;
+external source evidence does not require host-session metadata. The approval
+summary is derived, not authority. Missing, stale, mismatched, or inapplicable
 bindings block continuation. Coordinator-owned `Context`, `WorkOrder`,
-`Outcome`, and handoff state, the worker's unique attempt output, persisted
-advisory reviewer findings, and current repository evidence are reread in a
-fresh session. The coordinator alone creates Context/WorkOrder/Outcome/handoff;
-the worker writes only one attempt output; the parent LLM aggregates evidence.
+`Outcome`, and handoff state, human-input-boundary-owned `HumanDecision` records,
+the worker's unique attempt output, persisted advisory reviewer findings, and
+current repository evidence are reread in a fresh session. The coordinator alone creates Context/WorkOrder/Outcome/handoff; the human input
+boundary alone produces HumanDecision. On the Pi one-task path, the registered
+`human-decisions.ts` input extension is the designated human-input-boundary
+producer for captured HumanDecision records. The coordinator validates and binds
+that same `decision_id` to the WorkOrder; it never creates or reconciles a second
+record. The worker writes only one attempt output; the parent LLM aggregates evidence.
 Derive the next action from the files and current repository state. Missing or
 failed result remains incomplete, and never redispatch automatically. This exception takes precedence
 only over the conflicting graph-required resume instructions below for this

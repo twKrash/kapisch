@@ -11,7 +11,7 @@ KAPISCH is explicitly opt-in. Ordinary Pi work MUST NOT activate KAPISCH just be
 
 ## Human-decision capture
 
-HumanDecision capture is unavailable on this Pi runtime because the host cannot establish immutable original-input provenance. Do not create new `kapisch-decision` request blocks or treat the persisted current user prompt, `ui.input()` results, or ordinary chat text as authority. The one-task direct-prompt WorkOrder route is unsupported and fails closed until Pi supplies immutable original-input provenance. If a workflow requires a HumanDecision, report it blocked; do not proceed as approved. The extension gates input only for a complete top-level decision block in the latest assistant message; quoted, incomplete, nested, and superseded marker text does not gate ordinary input. In UI modes, a pending gate explains why input was not forwarded. `/kapisch-decision-dismiss` clears the gate without granting authorization or creating a HumanDecision, and tells the agent to keep the gated workflow blocked. `/kapisch-decision` refuses without prompting, writing a HumanDecision, or sending a completion message. `/kapisch-decision-repair` may request regeneration of complete but malformed or interrupted requests, but creates no HumanDecision and grants no continuation. Agent and reviewer messages are never decision sources.
+The effective user-role input received from Pi is trusted under the selected host's trust model. The adapter does not authenticate the person, recover original keystrokes, or verify pre-extension input integrity. The extension captures the next non-empty text input only when the latest assistant message contains one complete, valid top-level `kapisch-decision` block; quoted, incomplete, nested, malformed, or superseded markers do not create decisions. It accepts these source kinds: `direct_operator`, `operator_reported_external`, and `external_artifact`. For this one-task Pi path, the extension is the designated human-input-boundary producer for captured `HumanDecision` records: it assigns `decision_id` and persists the immutable record once. The coordinator validates and binds that same record to the WorkOrder; it does not create or reconcile a second record. The raw answer, question, governing inputs, subject, scope, decision type, source kind, optional source reference and approving-party attribution are stored before forwarding under `.kapisch/runs/<Pi session ID>/decisions/<decision_id>.json`. The optional OS operator label is informational, not authentication. TUI, RPC, JSON, and print inputs are supported when the Pi session is persistent and project storage is writable; on missing session or storage failure, the pending answer stays blocked. An ambiguous answer remains raw evidence and must not be interpreted as approval. Downstream aggregation and Outcome processing must read and cite the persisted decision and its `decision_id`; agent or reviewer output alone never creates a HumanDecision. `/kapisch-decision` explains how to answer using normal Pi input, with no second prompt. `/kapisch-decision-dismiss` dismisses without granting authorization, and `/kapisch-decision-repair` requests regeneration of an invalid or interrupted request without creating a decision.
 
 ## Role mapping
 
@@ -27,13 +27,15 @@ Use `pi-subagents` and the exact canonical role selected by KAPISCH. Do not subs
 If a mapped agent is unavailable, follow the canonical contract's blocking or escalation behavior; do not silently choose a different role. For the canonical contract's user-authorized one-task host-native exception only, dispatch the bounded task to Pi's native `worker` role and disclose explicitly that the runtime role is `worker`, not `kapisch-implementer`, along with its capabilities/limits. This is a task-specific host route, not a canonical role mapping or general fallback; ordinary canonical role mappings remain unchanged.
 
 For this exception, follow the canonical file-based contract under
-`.kapisch/runs/<run-id>`. The canonical current-prompt route is unsupported on
-this Pi runtime: neither the persisted current user prompt nor `ui.input()`
-results provide immutable original-input provenance. Fail closed; do not
-construct or approve a WorkOrder from either source. This is runtime-specific
-and does not change the canonical contract. Only resume this route when a host
-API supplies immutable original-input provenance; do not infer it from a digest
-of transformed text or from TUI controls.
+`.kapisch/runs/<run-id>`. This Pi package does not capture ordinary user input
+as a HumanDecision, so the direct-prompt route is blocked unless the coordinator
+has a bindable record from the designated producer. Never treat the initial
+prompt itself as persisted authority. Use the host-persisted message reference
+and its digest only to identify content Pi recorded, not as proof of physical
+identity, original keystrokes, or pre-extension integrity. If a supported flow
+produces a HumanDecision, include its persisted decision-file path and
+`decision_id` in aggregation and Outcome references. Continue to apply the
+canonical scope, applicability, and external-effect safeguards.
 
 For `workflow=review`, dispatch exactly one fresh `kapisch-reviewer` child with
 an explicit `review_mode=standalone` marker, the requested review scope, and

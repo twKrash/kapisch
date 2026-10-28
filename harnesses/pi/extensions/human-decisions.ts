@@ -1,3 +1,7 @@
+import { randomUUID } from "node:crypto";
+import { mkdir, rename, unlink, writeFile } from "node:fs/promises";
+import { basename, extname, join } from "node:path";
+
 type SourceKind = "direct_operator" | "operator_reported_external" | "external_artifact";
 type DecisionType = "answer" | "correction" | "approval" | "risk_acceptance" | "external_effect_authorization";
 type DecisionRequest = {
@@ -15,10 +19,11 @@ type BranchEntry =
   | { type: "message"; id: string; message: { role?: string; content?: unknown; stopReason?: string; errorMessage?: string } }
   | { type: "custom_message"; id: string; parentId?: string; customType: string; content: unknown; details?: unknown };
 type Context = {
+  cwd: string;
   mode: "tui" | "rpc" | "json" | "print";
   hasUI: boolean;
   ui: { notify(message: string, type?: "info" | "warning" | "error"): void };
-  sessionManager: { getBranch(): BranchEntry[] };
+  sessionManager: { getBranch(): BranchEntry[]; getSessionFile(): string | undefined };
 };
 type PiApi = {
   on(event: "input", handler: (event: { text: string; images?: unknown[]; streamingBehavior?: string }, context: Context) => Promise<unknown>): void;
@@ -38,7 +43,10 @@ const fenceClosingPattern = /^([ \t]*)(`+|~+)[ \t]*$/;
 const requiredFields = ["question_id", "question", "governing_inputs", "subject", "scope", "decision_type", "source_kind"];
 const optionalFields = ["source_ref", "approving_party"];
 
-type RequestState = "none" | "invalid" | "valid";
+type DecisionRequestLookup =
+  | { kind: "none" }
+  | { kind: "invalid" }
+  | { kind: "valid"; request: DecisionRequest };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -61,6 +69,7 @@ function parseRequest(value: unknown): DecisionRequest | undefined {
   for (const metadata of [value.source_ref, value.approving_party]) {
     if (metadata !== undefined && metadata !== null && !isNonEmptyString(metadata)) return;
   }
+  if (value.source_kind === "external_artifact" && !isNonEmptyString(value.source_ref)) return;
   return {
     question_id: value.question_id,
     question: value.question,
@@ -161,48 +170,101 @@ function decisionBlocks(text: string): string[] {
   return blocks;
 }
 
-function requestState(text: string, message: BranchEntry & { type: "message" }): RequestState {
+function requestState(text: string, message: BranchEntry & { type: "message" }): DecisionRequestLookup {
   const blocks = decisionBlocks(text);
-  if (blocks.length === 0) return "none";
-  if (blocks.length > 1 || message.message.stopReason !== "stop" || message.message.errorMessage) return "invalid";
-  try { return parseRequest(JSON.parse(blocks[0])) ? "valid" : "invalid"; }
-  catch { return "invalid"; }
+  if (blocks.length === 0) return { kind: "none" };
+  if (blocks.length > 1 || message.message.stopReason !== "stop" || message.message.errorMessage) return { kind: "invalid" };
+  try {
+    const request = parseRequest(JSON.parse(blocks[0]));
+    return request ? { kind: "valid", request } : { kind: "invalid" };
+  } catch {
+    return { kind: "invalid" };
+  }
 }
 
-function latestDecisionRequest(context: Context): RequestState {
+function latestDecisionRequest(context: Context): DecisionRequestLookup {
   const branch = context.sessionManager.getBranch();
   for (let index = branch.length - 1; index >= 0; index -= 1) {
     const entry = branch[index];
-    if (entry.type === "custom_message" && entry.customType === "kapisch-decision-dismiss") return "none";
+    if (entry.type === "custom_message" && entry.customType === "kapisch-decision-dismiss") return { kind: "none" };
     if (entry.type !== "message" || entry.message.role !== "assistant") continue;
     // A later ordinary assistant message retires older markers.
     return requestState(messageText(entry.message.content), entry);
   }
-  return "none";
+  return { kind: "none" };
+}
+
+// Sole HumanDecision producer at the Pi human input boundary; the controller binds, but does not recreate, this record.
+async function recordDecision(text: string, request: DecisionRequest, context: Context): Promise<boolean> {
+  const sessionFile = context.sessionManager.getSessionFile();
+  if (!sessionFile) {
+    if (context.hasUI) context.ui.notify("HumanDecision capture requires a persistent Pi session; input was not processed.", "warning");
+    return false;
+  }
+  const sessionId = basename(sessionFile, extname(sessionFile));
+  if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) {
+    if (context.hasUI) context.ui.notify("HumanDecision capture could not identify the Pi session; input was not processed.", "error");
+    return false;
+  }
+
+  const decision = {
+    decision_id: randomUUID(),
+    question_id: request.question_id,
+    question: request.question,
+    governing_inputs: request.governing_inputs,
+    subject: request.subject,
+    scope: request.scope,
+    answer: text,
+    decision_type: request.decision_type,
+    source_kind: request.source_kind,
+    ...(request.source_ref ? { source_ref: request.source_ref } : {}),
+    ...(request.approving_party ? { approving_party: request.approving_party } : {}),
+  };
+  const directory = join(context.cwd, ".kapisch", "runs", sessionId, "decisions");
+  const temporaryPath = join(directory, `.${decision.decision_id}.tmp`);
+  try {
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    await writeFile(temporaryPath, `${JSON.stringify(decision, null, 2)}\n`, { flag: "wx", mode: 0o600 });
+    await rename(temporaryPath, join(directory, `${decision.decision_id}.json`));
+    return true;
+  } catch {
+    await unlink(temporaryPath).catch(() => {});
+    if (context.hasUI) context.ui.notify("HumanDecision capture failed; no decision was recorded or processed. Retry the answer after storage is available.", "error");
+    return false;
+  }
 }
 
 export default function registerHumanDecisions(pi: PiApi): void {
-  pi.on("input", async (_event, context) => {
-    if (latestDecisionRequest(context) === "none") return { action: "continue" };
-    if (context.hasUI) {
-      context.ui.notify("Input was not forwarded because a decision request is pending and this Pi host cannot establish immutable original-input provenance. Use /kapisch-decision-dismiss to dismiss it; dismissal does not authorize the gated workflow.", "warning");
+  pi.on("input", async (event, context) => {
+    const pending = latestDecisionRequest(context);
+    if (pending.kind === "none") return { action: "continue" };
+    if (pending.kind === "invalid") {
+      if (context.hasUI) context.ui.notify("The decision request is invalid; input was not processed. Repair the request before proceeding.", "warning");
+      return { action: "handled" };
     }
-    return { action: "handled" };
+    if (!event.text.trim()) {
+      if (context.hasUI) context.ui.notify("A text answer is required for this pending decision request.", "warning");
+      return { action: "handled" };
+    }
+    return { action: await recordDecision(event.text, pending.request, context) ? "continue" : "handled" };
   });
   pi.registerCommand("kapisch-decision", {
-    description: "Explain that this Pi host cannot safely capture a decision",
+    description: "Show how to answer the pending decision request",
     handler: async (_args, context) => {
-      if (latestDecisionRequest(context) === "none") {
-        context.ui.notify("No pending decision request is available.", "warning");
+      const pending = latestDecisionRequest(context);
+      if (pending.kind === "none") {
+        if (context.hasUI) context.ui.notify("No pending decision request is available.", "warning");
         return;
       }
-      context.ui.notify("HumanDecision capture is unavailable: this Pi host cannot establish immutable original-input provenance. No prompt was opened and no decision or authorization was recorded.", "error");
+      if (context.hasUI) context.ui.notify(pending.kind === "valid"
+        ? "Answer through normal Pi input. The effective user message is recorded verbatim before it is forwarded."
+        : "The decision request is invalid. Use /kapisch-decision-repair to ask the agent to regenerate it.", pending.kind === "valid" ? "info" : "warning");
     },
   });
   pi.registerCommand("kapisch-decision-dismiss", {
     description: "Dismiss a pending decision request without granting authorization",
     handler: async (_args, context) => {
-      if (latestDecisionRequest(context) === "none") {
+      if (latestDecisionRequest(context).kind === "none") {
         if (context.hasUI) context.ui.notify("No pending decision request is available.", "warning");
         return;
       }
@@ -217,8 +279,8 @@ export default function registerHumanDecisions(pi: PiApi): void {
   pi.registerCommand("kapisch-decision-repair", {
     description: "Ask the agent to regenerate an invalid decision request",
     handler: async (_args, context) => {
-      if (latestDecisionRequest(context) !== "invalid") {
-        context.ui.notify("No invalid decision request needs repair.", "warning");
+      if (latestDecisionRequest(context).kind !== "invalid") {
+        if (context.hasUI) context.ui.notify("No invalid decision request needs repair.", "warning");
         return;
       }
       pi.sendMessage({ customType: "kapisch-decision-repair", content: "The previous kapisch-decision request was invalid. Regenerate the request with exactly one valid kapisch-decision JSON block. This is a repair instruction only; it grants no decision or authorization.", display: false }, { triggerTurn: true });
