@@ -30,7 +30,8 @@ state from it.
   covered by tracked tests and the earlier actual RPC smoke. The extension remains the
   producer for pending-request answers; direct user prompts use the coordinator's
   single-record path in the existing format. Tests assert that workflow contract, not
-  a live direct-prompt file write. A test-only external adapter compares decision facts.
+  a live direct-prompt file write. A test-only external-source fixture compares
+  HumanDecision facts only; it does not establish WorkOrder or Outcome equivalence.
 - **Submitted:** Draft PR [#84](https://github.com/twKrash/kapisch/pull/84); not merged.
 - **Historical verification:** one-task candidate path, local run, implementation-commit
   CI and test evidence at `8ed3f85`; superseded where it claimed Pi decision capture.
@@ -43,9 +44,10 @@ state from it.
 - **Review:** the current delta received a standalone findings-only review. Its first pass found K84-010; the WorkOrder binding was restored with a regression assertion, and the final pass found no new diff-causal findings. This is not GitHub review approval.
 - **Blocked:** formal GitHub review/approval remains pending. PR #84 has zero formal
   GitHub reviews. Three existing owner comments record standalone advisory DO NOT APPROVE
-  dispositions on earlier heads; they are discussion, not formal reviews. The direct-authorization update was pushed as `1d94f8d`; its four GitHub checks were
-  in progress at the last query. This tracker/test follow-up requires its own current-head
-  CI check. Decision-required end-to-end work remains blocked on WorkOrder
+  dispositions on earlier heads; they are discussion, not formal reviews. The last
+  queried pushed PR head `e872870` had all four check runs completed successfully. The
+  local tracker/test follow-up was not included; check live PR status for the current
+  head after push. Decision-required end-to-end work remains blocked on WorkOrder
   consumer/aggregation/Outcome integration, not input provenance.
 - **Next slice:** complete the tracked full WorkOrder-to-Outcome comparison. Direct
   prompt record creation still needs runtime coverage, separate from full acceptance.
@@ -111,10 +113,9 @@ Root-level `pytest` is not that harness.
 Current local verification for this delta (2026-10-28): `bun test
 harnesses/pi/tests/*.test.ts` — 37 passed; `bun run --cwd harnesses/pi
 check:generated` — passed; `git diff --check` — clean. These are local checks, not
-GitHub CI. PR #84 head `1d94f8d` had four check runs in progress at the last query;
-the combined commit-status API reported pending with zero legacy statuses. Its parent
-head `795b9c9` had four completed successful check runs. This tracker/test follow-up
-commit triggers a fresh head and requires a separate CI status check.
+GitHub CI. The last queried pushed PR head `e872870` had four completed successful
+checks: two `ci` and two `windows-profile-setup` runs. The local tracker/test follow-up
+was not included in those results; check the live PR for current-head status after push.
 
 CI-equivalent run in the clean feature worktree (2026-10-26):
 

@@ -35,7 +35,7 @@ test("realignment tracker separates historical decision capture from current Pi 
   assert.match(glance, /K84-010[\s\S]*final pass found no new diff-causal findings/i);
   assert.doesNotMatch(glance, /independent review of #84/i);
   assert.match(tracker, /Last updated: 2026-10-28/);
-  assert.match(tracker, /PR #84 head `1d94f8d`[\s\S]*four check runs in progress at the last query[\s\S]*follow-up\s+commit triggers a fresh head/i);
+  assert.match(tracker, /last[\s\S]*queried pushed PR head `e872870`[\s\S]*all four check runs completed successfully[\s\S]*local tracker\/test follow-up was not included/i);
   assert.match(glance, /Pi pending-request HumanDecision capture and persistence are/);
   assert.match(glance, /direct user prompts use the coordinator/);
   assert.match(glance, /not[\s\S]*live direct-prompt file write/);
