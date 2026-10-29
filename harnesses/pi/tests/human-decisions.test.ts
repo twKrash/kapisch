@@ -209,6 +209,61 @@ test("a persisted decision consumes its request after a session restart", async 
   assert.equal(await readFile(join(directory, filename), "utf8"), original);
 }));
 
+test("canonical legacy HumanDecision files consume requests without mutation", async () => temp(async (cwd) => {
+  const directory = join(cwd, ".kapisch", "runs", "session-1", "decisions");
+  await mkdir(directory, { recursive: true });
+  const decision = { decision_id: "123e4567-e89b-42d3-a456-426614174000", ...request, answer: "I approve." };
+  const path = join(directory, `${decision.decision_id}.json`);
+  const original = `${JSON.stringify(decision, null, 2)}\n`;
+  await writeFile(path, original, { flag: "wx" });
+
+  const f = fixture([assistant()], { cwd, sessionFile: join(cwd, "session-1.jsonl") });
+  assert.deepEqual(await f.input({ text: "Show me the status" }, f.context), { action: "continue" });
+  assert.deepEqual(await readdir(directory), [`${decision.decision_id}.json`]);
+  assert.equal(await readFile(path, "utf8"), original);
+}));
+
+test("noncanonical decision filenames fail closed without replacing the request", async () => temp(async (cwd) => {
+  const directory = join(cwd, ".kapisch", "runs", "session-1", "decisions");
+  await mkdir(directory, { recursive: true });
+  const decision = { decision_id: "123e4567-e89b-42d3-a456-426614174000", ...request, answer: "I approve." };
+  const path = join(directory, "unrelated-name.json");
+  const original = `${JSON.stringify(decision, null, 2)}\n`;
+  await writeFile(path, original, { flag: "wx" });
+
+  const f = fixture([assistant()], { cwd, sessionFile: join(cwd, "session-1.jsonl") });
+  assert.deepEqual(await f.input({ text: "Show me the status" }, f.context), { action: "handled" });
+  assert.deepEqual(await readdir(directory), ["unrelated-name.json"]);
+  assert.equal(await readFile(path, "utf8"), original);
+}));
+
+test("conflicting or invalid persisted decisions fail closed in either file order", async () => temp(async (cwd) => {
+  const directory = join(cwd, ".kapisch", "runs", "session-1", "decisions");
+  await mkdir(directory, { recursive: true });
+  const id1 = "123e4567-e89b-42d3-a456-426614174001";
+  const id2 = "123e4567-e89b-42d3-a456-426614174002";
+  const cases = [
+    [{ decision_id: id1, ...request, answer: "No, do not deploy." }, { decision_id: id2, ...request, answer: "Yes, deploy." }],
+    [{ decision_id: id1, ...request, answer: "Yes, deploy." }, { decision_id: id2, ...request, answer: "No, do not deploy." }],
+    [{ decision_id: id1, ...request, answer: "I approve." }, { decision_id: id2, ...request, scope: "production", answer: "I approve." }],
+  ];
+  for (const [index, records] of cases.entries()) {
+    const session = `session-${index + 1}`;
+    const caseDirectory = join(cwd, ".kapisch", "runs", session, "decisions");
+    await mkdir(caseDirectory, { recursive: true });
+    const originals = await Promise.all(records.map(async (record) => {
+      const path = join(caseDirectory, `${record.decision_id}.json`);
+      const text = `${JSON.stringify(record, null, 2)}\n`;
+      await writeFile(path, text, { flag: "wx" });
+      return [path, text] as const;
+    }));
+    const f = fixture([assistant()], { cwd, sessionFile: join(cwd, `${session}.jsonl`) });
+    assert.deepEqual(await f.input({ text: "Show me the status" }, f.context), { action: "handled" });
+    assert.deepEqual(await Promise.all(originals.map(([path]) => readFile(path, "utf8"))), originals.map(([, text]) => text));
+    assert.deepEqual((await readdir(caseDirectory)).sort(), records.map((record) => `${record.decision_id}.json`).sort());
+  }
+}));
+
 test("repeated and concurrent delivery creates one immutable decision per request", async () => temp(async (cwd) => {
   const branch = [assistant()];
   const f = fixture(branch, { cwd, sessionFile: join(cwd, "session-1.jsonl") });

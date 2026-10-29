@@ -194,8 +194,8 @@ function latestDecisionRequest(context: Context): DecisionRequestLookup {
   return { kind: "none" };
 }
 
-function matchesRequest(value: unknown, request: DecisionRequest): boolean {
-  if (!isRecord(value) || !isNonEmptyString(value.decision_id) || !isNonEmptyString(value.answer)) return false;
+function matchesRequest(value: unknown, request: DecisionRequest): value is Record<string, unknown> & { decision_id: string; answer: string } {
+  if (!isRecord(value) || typeof value.decision_id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value.decision_id) || !isNonEmptyString(value.answer)) return false;
   if (value.question_id !== request.question_id || value.question !== request.question || value.subject !== request.subject || value.scope !== request.scope || value.decision_type !== request.decision_type || value.source_kind !== request.source_kind || value.source_ref !== request.source_ref || value.approving_party !== request.approving_party) return false;
   return Array.isArray(value.governing_inputs) && value.governing_inputs.length === request.governing_inputs.length && value.governing_inputs.every((input, index) => isRecord(input) && input.ref === request.governing_inputs[index].ref && input.digest === request.governing_inputs[index].digest);
 }
@@ -208,15 +208,19 @@ async function existingDecision(directory: string, request: DecisionRequest): Pr
     if (isRecord(error) && error.code === "ENOENT") return false;
     return;
   }
+  const answers = new Set<string>();
   try {
-    for (const filename of filenames.filter((name) => name.endsWith(".json"))) {
+    for (const filename of filenames.filter((name) => name.endsWith(".json")).sort()) {
       const value: unknown = JSON.parse(await readFile(join(directory, filename), "utf8"));
-      if (isRecord(value) && value.question_id === request.question_id) return matchesRequest(value, request) ? true : undefined;
+      if (!isRecord(value) || value.question_id !== request.question_id) continue;
+      if (!matchesRequest(value, request) || filename !== `${value.decision_id}.json`) return;
+      answers.add(value.answer);
     }
-    return false;
   } catch {
     return;
   }
+  if (answers.size > 1) return;
+  return answers.size === 1;
 }
 
 function decisionId(sessionId: string, questionId: string): string {
