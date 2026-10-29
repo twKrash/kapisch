@@ -194,6 +194,55 @@ test("pending request captures normal user input and leaves blank or image-only 
   assert.equal("authorization_granted" in decision, false);
 }));
 
+test("a persisted decision consumes its request after a session restart", async () => temp(async (cwd) => {
+  const branch = [assistant()];
+  const sessionFile = join(cwd, "session-1.jsonl");
+  const first = fixture(branch, { cwd, sessionFile });
+  assert.deepEqual(await first.input({ text: "I approve." }, first.context), { action: "continue" });
+  const directory = join(cwd, ".kapisch", "runs", "session-1", "decisions");
+  const [filename] = await readdir(directory);
+  const original = await readFile(join(directory, filename), "utf8");
+
+  const restarted = fixture(branch, { cwd, sessionFile });
+  assert.deepEqual(await restarted.input({ text: "Show me the status" }, restarted.context), { action: "continue" });
+  assert.deepEqual(await readdir(directory), [filename]);
+  assert.equal(await readFile(join(directory, filename), "utf8"), original);
+}));
+
+test("repeated and concurrent delivery creates one immutable decision per request", async () => temp(async (cwd) => {
+  const branch = [assistant()];
+  const f = fixture(branch, { cwd, sessionFile: join(cwd, "session-1.jsonl") });
+  const results = await Promise.all([
+    f.input({ text: "Answer one" }, f.context),
+    f.input({ text: "Answer two" }, f.context),
+  ]);
+  assert.deepEqual(results, [{ action: "continue" }, { action: "continue" }]);
+  const directory = join(cwd, ".kapisch", "runs", "session-1", "decisions");
+  const [filename] = await readdir(directory);
+  const original = await readFile(join(directory, filename), "utf8");
+  assert.deepEqual(await f.input({ text: "Repeated answer" }, f.context), { action: "continue" });
+  assert.deepEqual(await readdir(directory), [filename]);
+  assert.equal(await readFile(join(directory, filename), "utf8"), original);
+
+  branch.push(assistant({ ...request, question_id: "Q-2", question: "May I continue?" }, "stop", "assistant-2"));
+  assert.deepEqual(await f.input({ text: "A new answer" }, f.context), { action: "continue" });
+  assert.equal((await readdir(directory)).length, 2);
+  assert.equal(await readFile(join(directory, filename), "utf8"), original);
+}));
+
+test("decision IDs stay unique across sessions for the same question ID", async () => temp(async (cwd) => {
+  for (const session of ["session-1", "session-2"]) {
+    const f = fixture([assistant()], { cwd, sessionFile: join(cwd, `${session}.jsonl`) });
+    assert.deepEqual(await f.input({ text: "I approve." }, f.context), { action: "continue" });
+  }
+  const files = await Promise.all(["session-1", "session-2"].map(async (session) => {
+    const directory = join(cwd, ".kapisch", "runs", session, "decisions");
+    const [filename] = await readdir(directory);
+    return JSON.parse(await readFile(join(directory, filename), "utf8"));
+  }));
+  assert.notEqual(files[0].decision_id, files[1].decision_id);
+}));
+
 test("invalid pending request stays blocked and repair remains non-authorizing", async () => temp(async (cwd) => {
   const f = fixture([assistant({ ...request, source_kind: "reviewer" })], { cwd, sessionFile: join(cwd, "session-1.jsonl") });
   assert.deepEqual(await f.input({ text: "injected" }, f.context), { action: "handled" });
@@ -236,8 +285,11 @@ test("persistence failures do not forward a pending decision answer", async () =
   await writeFile(join(runDirectory, "decisions"), "blocks the decisions directory");
   const f = fixture([assistant()], { cwd, sessionFile: join(cwd, "session-1.jsonl") });
   assert.deepEqual(await f.input({ text: "I approve." }, f.context), { action: "handled" });
-  assert.match(f.notices[0], /capture failed/i);
+  assert.match(f.notices[0], /could not be read/i);
   assert.deepEqual(await readdir(runDirectory), ["decisions"]);
+  await rm(join(runDirectory, "decisions"));
+  assert.deepEqual(await f.input({ text: "I approve." }, f.context), { action: "continue" });
+  assert.equal((await readdir(join(runDirectory, "decisions"))).length, 1);
 }));
 
 test("Pi and host-independent test adapters preserve the same portable decision facts", async () => temp(async (cwd) => {

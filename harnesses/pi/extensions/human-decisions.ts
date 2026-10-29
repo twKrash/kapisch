@@ -1,5 +1,5 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, rename, unlink, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { link, mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
 
 type SourceKind = "direct_operator" | "operator_reported_external" | "external_artifact";
@@ -194,6 +194,39 @@ function latestDecisionRequest(context: Context): DecisionRequestLookup {
   return { kind: "none" };
 }
 
+function matchesRequest(value: unknown, request: DecisionRequest): boolean {
+  if (!isRecord(value) || !isNonEmptyString(value.decision_id) || !isNonEmptyString(value.answer)) return false;
+  if (value.question_id !== request.question_id || value.question !== request.question || value.subject !== request.subject || value.scope !== request.scope || value.decision_type !== request.decision_type || value.source_kind !== request.source_kind || value.source_ref !== request.source_ref || value.approving_party !== request.approving_party) return false;
+  return Array.isArray(value.governing_inputs) && value.governing_inputs.length === request.governing_inputs.length && value.governing_inputs.every((input, index) => isRecord(input) && input.ref === request.governing_inputs[index].ref && input.digest === request.governing_inputs[index].digest);
+}
+
+async function existingDecision(directory: string, request: DecisionRequest): Promise<boolean | undefined> {
+  let filenames: string[];
+  try {
+    filenames = await readdir(directory);
+  } catch (error) {
+    if (isRecord(error) && error.code === "ENOENT") return false;
+    return;
+  }
+  try {
+    for (const filename of filenames.filter((name) => name.endsWith(".json"))) {
+      const value: unknown = JSON.parse(await readFile(join(directory, filename), "utf8"));
+      if (isRecord(value) && value.question_id === request.question_id) return matchesRequest(value, request) ? true : undefined;
+    }
+    return false;
+  } catch {
+    return;
+  }
+}
+
+function decisionId(sessionId: string, questionId: string): string {
+  const bytes = createHash("sha256").update(`${sessionId}\0${questionId}`).digest().subarray(0, 16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x50;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 // Sole HumanDecision producer at the Pi human input boundary; the controller binds, but does not recreate, this record.
 async function recordDecision(text: string, request: DecisionRequest, context: Context): Promise<boolean> {
   const sessionFile = context.sessionManager.getSessionFile();
@@ -207,8 +240,12 @@ async function recordDecision(text: string, request: DecisionRequest, context: C
     return false;
   }
 
+  const directory = join(context.cwd, ".kapisch", "runs", sessionId, "decisions");
+  const consumed = await existingDecision(directory, request);
+  if (consumed !== false) return consumed === true;
+
   const decision = {
-    decision_id: randomUUID(),
+    decision_id: decisionId(sessionId, request.question_id),
     question_id: request.question_id,
     question: request.question,
     governing_inputs: request.governing_inputs,
@@ -220,15 +257,16 @@ async function recordDecision(text: string, request: DecisionRequest, context: C
     ...(request.source_ref ? { source_ref: request.source_ref } : {}),
     ...(request.approving_party ? { approving_party: request.approving_party } : {}),
   };
-  const directory = join(context.cwd, ".kapisch", "runs", sessionId, "decisions");
-  const temporaryPath = join(directory, `.${decision.decision_id}.tmp`);
+  const temporaryPath = join(directory, `.${randomUUID()}.tmp`);
   try {
     await mkdir(directory, { recursive: true, mode: 0o700 });
     await writeFile(temporaryPath, `${JSON.stringify(decision, null, 2)}\n`, { flag: "wx", mode: 0o600 });
-    await rename(temporaryPath, join(directory, `${decision.decision_id}.json`));
-    return true;
-  } catch {
+    await link(temporaryPath, join(directory, `${decision.decision_id}.json`));
     await unlink(temporaryPath).catch(() => {});
+    return true;
+  } catch (error) {
+    await unlink(temporaryPath).catch(() => {});
+    if (isRecord(error) && error.code === "EEXIST") return await existingDecision(directory, request) === true;
     if (context.hasUI) context.ui.notify("HumanDecision capture failed; no decision was recorded or processed. Retry the answer after storage is available.", "error");
     return false;
   }
@@ -240,6 +278,15 @@ export default function registerHumanDecisions(pi: PiApi): void {
     if (pending.kind === "none") return { action: "continue" };
     if (pending.kind === "invalid") {
       if (context.hasUI) context.ui.notify("The decision request is invalid; input was not processed. Repair the request before proceeding.", "warning");
+      return { action: "handled" };
+    }
+    const sessionFile = context.sessionManager.getSessionFile();
+    if (!sessionFile) return { action: await recordDecision(event.text, pending.request, context) ? "continue" : "handled" };
+    const sessionId = basename(sessionFile, extname(sessionFile));
+    const consumed = await existingDecision(join(context.cwd, ".kapisch", "runs", sessionId, "decisions"), pending.request);
+    if (consumed === true) return { action: "continue" };
+    if (consumed === undefined) {
+      if (context.hasUI) context.ui.notify("HumanDecision state could not be read; input was not processed.", "error");
       return { action: "handled" };
     }
     if (!event.text.trim()) {
