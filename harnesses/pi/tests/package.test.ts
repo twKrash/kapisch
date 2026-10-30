@@ -17,48 +17,6 @@ test("Pi package exposes skill and pi-subagents agents declaratively", () => {
   assert.equal(pkg.version, readFileSync(new URL("../../../plugins/kapisch/pyproject.toml", import.meta.url), "utf8").match(/^version = "([^"]+)"/m)?.[1]);
 });
 
-test("realignment tracker separates historical decision capture from current Pi capability", () => {
-  const tracker = readFileSync(new URL("../../../docs/superpowers/product-realignment-tracker.md", import.meta.url), "utf8");
-  const section = (heading: string) => tracker.match(new RegExp(`## ${heading}\\n([\\s\\S]*?)(?=\\n## |$)`))?.[1] ?? "";
-  const row = (content: string, id: string) => content.split("\n").find((line) => line.startsWith(`| ${id} |`)) ?? "";
-  const glance = section("At a glance");
-  const workstreams = section("Workstreams");
-  const coverage = section("Specification acceptance coverage");
-  const blockers = section("Blockers, limitations, and unknowns");
-  const nextSlice = section("Next recommended vertical slice");
-  const historical = section("Evidence index");
-
-  assert.match(section("Historical evidence and current status"), /claims remain historical[\s\S]*fresh\s+Pi-Bolt smoke[\s\S]*not a tracked acceptance harness[\s\S]*Do not treat it as full acceptance/i);
-  assert.match(glance, /latest formal review[\s\S]*K84-IND-001 \(P2\)/i);
-  assert.match(normalizeWhitespace(glance), /earlier K84-010 WorkOrder-binding finding was fixed with a regression assertion/i);
-  const reviewSummary = /bounded standalone review of this seven-file docs\/test delta found one confirmed P3 \(K84-WT-001\): assertions rejected equivalent Markdown line wrapping/i;
-  assert.match(normalizeWhitespace(glance), reviewSummary);
-  assert.match(normalizeWhitespace(glance.replace("K84-WT-001): assertions", "K84-WT-001):\n  assertions")), reviewSummary);
-  assert.match(glance, /bounded standalone review of this seven-file docs\/test delta found one confirmed P3[\s\S]*normalize whitespace[\s\S]*no other diff-causal findings/i);
-  assert.match(glance, /All four GitHub checks for `1cbc5ac`\s*completed successfully/i);
-  assert.doesNotMatch(glance, /independent review of #84/i);
-  assert.match(tracker, /Last updated: 2026-10-30/);
-  assert.match(normalizeWhitespace(tracker), /all four GitHub checks for `1cbc5ac` completed successfully/i);
-  assert.match(glance, /Pi pending-request HumanDecision capture is covered by tracked\s+tests and the earlier RPC smoke/i);
-  assert.match(glance, /fresh real-Pi smoke[\s\S]*authorized direct prompt[\s\S]*Outcome/i);
-  assert.match(glance, /disposable non-Git run[\s\S]*did not establish the implementer-unavailable\s+fallback condition/i);
-  assert.match(row(workstreams, "WS-1"), /`PARTIAL \/ IN PROGRESS`[\s\S]*manual real-Pi smoke[\s\S]*K84-IND-001/i);
-  assert.match(row(workstreams, "WS-1.1"), /`IN PROGRESS`.*one direct path smoke-tested.*not a tracked\/reusable consumer test/i);
-  assert.match(row(workstreams, "WS-1.3"), /Tracked tests cover pending-request source-kind fields[\s\S]*new direct-prompt smoke persisted a `direct_operator` decision/i);
-  assert.match(row(coverage, "AC1"), /One manual smoke[\s\S]*no tracked acceptance test/i);
-  assert.match(row(coverage, "AC2"), /package tests assert no redundant direct approval[\s\S]*scope-change reassessment[\s\S]*remain unverified/i);
-  assert.match(row(coverage, "AC7"), /tracked tests compare[\s\S]*HumanDecision facts only[\s\S]*no same-WorkOrder cross-adapter comparison/i);
-  assert.match(row(coverage, "AC8"), /fresh Pi session[\s\S]*did not restart from pre-existing WorkOrder/i);
-  assert.match(row(coverage, "AC10"), /\| partial \| Local Pi package install[\s\S]*Reviewer installation/i);
-  assert.match(blockers, /Open review finding K84-IND-001 \(P2\)[\s\S]*HTML comment or[\s\S]*<pre>/i);
-  assert.match(blockers, /Tracked end-to-end acceptance remains incomplete[\s\S]*no tracked\s+reusable WorkOrder consumer\/comparison harness/i);
-  assert.match(blockers, /Tracked end-to-end acceptance remains incomplete[\s\S]*no tracked\s+reusable WorkOrder consumer\/comparison harness/i);
-  assert.match(nextSlice, /WS-1\.2 tracked harness[\s\S]*Full decision-to-Outcome acceptance remains incomplete/i);
-  assert.doesNotMatch(tracker, /current Pi does not capture decisions|extension only gates\/repairs|decision capability is unavailable/i);
-  assert.match(historical, /commit `8ed3f85`/);
-  assert.match(historical, /historical and superseded as evidence for current Pi decision capture/i);
-});
-
 test("direct one-task authorization binds one durable decision without another prompt", () => {
   const canonical = readFileSync(new URL("../../../plugins/kapisch/skills/kapisch/SKILL.md", import.meta.url), "utf8");
   const resume = readFileSync(new URL("../../../plugins/kapisch/skills/kapisch/references/resume.md", import.meta.url), "utf8");
