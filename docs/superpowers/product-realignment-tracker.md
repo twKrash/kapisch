@@ -52,7 +52,7 @@ state from it.
   and did not exercise resume or scope-change reassessment. Those broader behaviors
   remain unverified.
 - **Remaining:** all 11 specification acceptance criteria are partial or unmet.
-- **Review history:** the earlier K84-010 WorkOrder-binding finding was fixed with a regression assertion. The requested bounded standalone review of an earlier seven-file docs/test delta found one confirmed P3 (K84-WT-001): assertions rejected equivalent Markdown line wrapping. The tests now normalize whitespace and test wrapped prose while retaining decision-binding and before-dispatch checks. The reviewer found no other diff-causal findings; this earlier review was not rerun after the fix and was not formal GitHub review approval.
+- **Review history:** the earlier K84-010 WorkOrder-binding finding was fixed with a regression assertion. The requested bounded standalone review of this seven-file docs/test delta found one confirmed P3 (K84-WT-001): assertions rejected equivalent Markdown line wrapping. The tests now normalize whitespace and test wrapped prose while retaining decision-binding and before-dispatch checks. The reviewer found no other diff-causal findings; this earlier review was not rerun after the fix and was not formal GitHub review approval.
 - **Latest formal review:** the review of `1cbc5ac` requested changes for unresolved P2 K84-IND-001; see the blocker below.
 - **Blocked:** formal review on head `1cbc5ac` requested changes for open finding
   K84-IND-001 (P2): a complete decision fence inside an HTML comment or `<pre>`
