@@ -5,10 +5,15 @@ description: Use only when the user explicitly requests KAPISCH or repository-lo
 
 # KAPISCH Pi adapter
 
-The discovered canonical KAPISCH contract owns workflow and artifact semantics. Canonical contract path: `../../../../plugins/kapisch/skills/kapisch/SKILL.md`, resolved relative to this loaded Pi skill's directory. Read its current contents and resolve canonical normative references relative to that canonical skill directory; do not copy or duplicate canonical workflow instructions here. This adapter owns only Pi execution mechanics.
+The discovered canonical KAPISCH contract owns workflow and artifact semantics. Canonical contract path: `../../../../plugins/kapisch/skills/kapisch/SKILL.md`, resolved relative to this loaded Pi skill's directory. Before any workflow selection or dispatch, use Pi's `read` tool to load the complete current canonical `SKILL.md`; do not use `grep`, search snippets, or agent summaries as a substitute. If the tool reports truncation, continue with `read` offsets until the file ends. Then read the normative references required by the selected workflow. If the canonical contract cannot be loaded completely, stop before classifying or dispatching. This adapter owns only Pi-specific loading and execution mechanics; canonical workflow instructions remain in the shared contract.
 
 KAPISCH is explicitly opt-in. Ordinary Pi work MUST NOT activate KAPISCH just because it is complex or may benefit from planning, architecture work, or review. Activate it only when the user explicitly requests KAPISCH or authoritative repository-local instructions explicitly require it.
 
+## Human-decision capture
+
+The effective user-role input received from Pi is trusted under the selected host's trust model. The adapter does not authenticate the person or require proof of original keystrokes or pre-extension integrity. The extension captures the next non-empty text input only when the latest assistant message contains one complete, valid top-level `kapisch-decision` block; quoted, incomplete, nested, malformed, or superseded markers do not create decisions. It accepts `direct_operator`, `operator_reported_external`, and `external_artifact` sources. For these pending-request answers, the extension is the sole producer and writes one immutable record under `.kapisch/runs/<Pi session ID>/decisions/<decision_id>.json` before forwarding; the coordinator binds that same record and never duplicates it. External-artifact requests require a stable `source_ref`. TUI, RPC, JSON, and print input are supported when the Pi session is persistent and project storage is writable; on missing session or storage failure, a pending answer stays blocked. Ambiguous answers remain raw evidence and are not interpreted as approval.
+
+This extension captures only answers to explicit pending decision requests. Ordinary direct prompts are not auto-captured; the coordinator owns direct-prompt records under the canonical one-task contract, and this extension must not duplicate them. `/kapisch-decision` explains how to answer a pending request through normal Pi input; `/kapisch-decision-dismiss` dismisses without granting authorization; `/kapisch-decision-repair` requests regeneration without creating a decision.
 ## Role mapping
 
 Use `pi-subagents` and the exact canonical role selected by KAPISCH. Do not substitute generic Pi agents after KAPISCH controls the workflow:
@@ -20,7 +25,7 @@ Use `pi-subagents` and the exact canonical role selected by KAPISCH. Do not subs
 - mechanic -> kapisch-mechanic
 - reviewer -> kapisch-reviewer
 
-If a mapped agent is unavailable, follow the canonical contract's blocking or escalation behavior; do not silently choose a different role.
+If a mapped agent is unavailable, follow the canonical contract's blocking or escalation behavior; do not silently choose a different role. For the canonical contract's user-authorized one-task host-native exception only, dispatch the bounded task to Pi's native `worker` role and disclose explicitly that the runtime role is `worker`, not `kapisch-implementer`, along with its capabilities/limits. This is a task-specific host route, not a canonical role mapping or general fallback; ordinary canonical role mappings remain unchanged.
 
 For `workflow=review`, dispatch exactly one fresh `kapisch-reviewer` child with
 an explicit `review_mode=standalone` marker, the requested review scope, and

@@ -45,7 +45,16 @@ parent/orchestrator. The reviewer does not approve, reject, or declare ready; th
 parent/orchestrator judges the findings. This path creates no durable graph,
 manifest, invocation artifact, or review result artifact. It does not replace
 iteration or whole-branch review within a task or milestone, whose canonical
-evidence and approval rules remain unchanged.
+evidence and approval rules remain unchanged. For the explicitly approved
+one-task host-native path defined in the canonical skill, reviewer dispatch is
+optional. If dispatched, at most one independent `kapisch-reviewer` returns
+findings-only evidence that may be persisted under `.kapisch/runs/<run-id>` as
+advisory only. No canonical invocation or approval artifacts are required for
+this path, and the report cannot claim `approve` or `ready`. The parent records
+whether review ran and evaluates any findings in Outcome. This exception takes
+precedence only over conflicting task-review and invocation-artifact wording
+for this one-task path; ordinary task and milestone review behavior remains
+unchanged.
 
 For an ordinary one-step task, `task_base...task_head` is the entire task diff,
 so its task review may be the whole-branch review; do not require two identical

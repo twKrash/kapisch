@@ -86,6 +86,33 @@ role IDs, profiles, routes, permissions, artifact fields or values, validation,
 review depth, gates, or side-effect authority. See
 [themes.md](references/themes.md).
 
+## Portable HumanDecision contract
+
+A `HumanDecision` is immutable, host-independent evidence of a human answer,
+correction, or authorization. Its logical fields are `decision_id`,
+`question_id`, `question`, `governing_inputs` (immutable refs/digests),
+`subject`, `scope`, `answer`, `decision_type`, and `source_kind`; optional
+`source_ref` and `approving_party` preserve available attribution. Supported
+sources are `direct_operator`, `operator_reported_external`, and
+`external_artifact`. External human decisions from meeting records, wikis,
+issues, or similar sources are valid independently of any host UI or decision
+capture extension. When the current user prompt itself explicitly and unambiguously authorizes a
+bounded one-task WorkOrder, the coordinator must persist exactly one
+`direct_operator` HumanDecision from the host-persisted request through the
+existing file mechanism before dispatch, without asking the user to approve the
+same scope again. Host message references identify the recorded text; they do
+not authenticate identity or original keystrokes. Host session IDs, event types,
+and interaction mechanics remain adapter metadata, not part of this portable
+contract. Trust follows the selected host's supported input mechanisms; a
+decision record does not authenticate identity or original keystrokes.
+
+A `WorkOrder` cites the applicable `decision_id`. Applicability is assessed
+separately: the controller records whether the decision's subject and scope
+cover that WorkOrder; approval authorizes only covered work. Ambiguous or out-of-scope
+authority blocks. Applying a decision never mutates it; a changed human choice
+creates a new decision. Agent or reviewer statements and recommendations never
+create or authorize a `HumanDecision`.
+
 ## What happens
 
 The LLM/controller interprets natural language, applies explicit controls, and
@@ -103,7 +130,10 @@ Graph-free means that no execution graph, manifest, durable task nodes, or
 sequential execution state is required. It does not mean artifact-free for
 advisory work. `workflow=advisory` may assign bounded `researcher` and
 `architect` roles; `workflow=review` permits only its single independent
-`reviewer` dispatch; `workflow=task` does not delegate in the current scope.
+`reviewer` dispatch; `workflow=task` normally does not delegate. For the explicitly approved one-task host-native path, the controller may dispatch exactly one bounded task to a host-native agent when the canonical `implementer` is unavailable, provided the user authorizes this route. Report the actual host role and its capability limits; do not represent it as `implementer` or alter canonical role mappings. This exception permits no multi-task scheduling or generalized graph-free delegation. For an in-scope local retry, create a fresh attempt ID and output location, preserve the prior attempt, and retry without changing or reapproving the WorkOrder; no per-attempt approval is required. The parent may direct a retry, but never redispatch automatically. An uncertain remote effect blocks retry until an authoritative query establishes its exact outcome or the human records explicit scoped authorization. It takes precedence only over the graph-free delegation rule in [request-normalization.md](references/request-normalization.md), the mandatory review and invocation-artifact requirements in this skill and [review.md](references/review.md), and graph-required resume wording in [resume.md](references/resume.md); ordinary task/milestone review requirements and canonical role mappings remain unchanged.
+
+The one-task path is file-based under `.kapisch/runs/<run-id>` and does not create or promote an execution graph. The coordinator alone creates `Context`, `WorkOrder`, `Outcome`, and parent handoff. When the current user prompt itself explicitly and unambiguously authorizes the bounded one-task route and its scope, the coordinator must first persist exactly one immutable `HumanDecision` at `.kapisch/runs/<run-id>/decisions/<decision_id>.json`. Then create `context.md` and persist `workorder.json` with that exact `decision_id`, bounded task and scope, worker role/capability disclosure, and output location before dispatch. Read back both records and verify the WorkOrder references that decision and its subject/scope cover the requested work. If either record is missing, invalid, or mismatched, do not dispatch; fail closed without asking for redundant approval. Decision production is single-owner per input path: the Pi `human-decisions.ts` input extension persists a valid answer to an explicit pending decision request once; for an ordinary direct prompt it does not auto-capture input, and the coordinator is the sole producer of the direct-prompt record. For that direct path, create one record with the existing HumanDecision fields: a unique `decision_id` and `question_id`, the original request verbatim in `question` and `answer`, only relevant existing `governing_inputs`, the WorkOrder's authorized `subject` and `scope`, `decision_type=approval`, and `source_kind=direct_operator`. A stable host message ID may be used as `question_id`, but no message digest or other input-provenance proof is required. Do not create a second record or ask for another approval of the same scope. The input extension does not auto-record ordinary input and must not duplicate the coordinator's direct-prompt record. If the user instruction is ambiguous or does not bound the subject and scope, do not create an approval decision or dispatch; ask a focused clarification. A decision reported from an external meeting or artifact uses `operator_reported_external` or `external_artifact` and remains valid independently of host UI. The WorkOrder cites the applicable `decision_id`; on resume, validate the decision record and reassess applicability against the WorkOrder and current inputs. Keep adapter-specific session metadata outside the decision contract. The approval summary is derived, not authority. Bind governing inputs to immutable source refs or digests (for example, Git commit/blob IDs). On a fresh session, resolve and validate both the source and governing inputs; missing, stale, or mismatched bindings block continuation. The worker writes one uniquely named attempt output; it does not write the coordinator-owned attempt record, aggregation, Outcome, or dispatch another task. After the worker returns, the coordinator persists its exact returned attempt evidence and output reference in `attempts/<attempt_id>.json`, writes `aggregation.md`, then writes `outcome.json` and the parent handoff. The attempt, aggregation, and Outcome must reference the same `work_order_id`, `decision_id`, and `attempt_id`; verify the persisted bytes and references before reporting completion. Missing or failed records or attempt output leave the task incomplete; never redispatch automatically. For this one-task exception, reviewer dispatch is optional; the coordinator may dispatch at most one independent `kapisch-reviewer` for findings-only review. If used, persist findings as advisory evidence, not authority, approval, or a gate. This exception requires no canonical review invocation/approval artifacts and must not claim `approve` or `ready`; record whether review ran in Outcome. On a fresh session, reread the run files and current repository state, then derive the next action from those files; do not rely on conversational memory. The selected host's supported persistence may supply input evidence, but does not authenticate the human or attest to original keystrokes.
+
 A mandated skill or plugin blocks for a user choice to promote the work to a
 supported durable version-3 or version-4 graph or relax the capability
 constraint; an automatic selection may use the disclosed native fallback only
@@ -118,14 +148,16 @@ and applicable normative references before any later classification, dispatch,
 review/final decision, or completion report. See [request
 normalization](references/request-normalization.md).
 
-When independent review or final readiness is required within a task or
-milestone workflow, the controller must create the canonical pre-dispatch
+For ordinary task and milestone workflows when independent review or final
+readiness is required, the controller must create the canonical pre-dispatch
 invocation artifact and persist the returned reviewer result. Without those
 artifacts, the result is advisory only and cannot be reported as approve or
-ready. Standalone `workflow=review` is separate: it returns findings to the
+ready. The one-task host-native exception follows the optional findings-only
+rule above. Standalone `workflow=review` is separate: it returns findings to the
 parent/orchestrator and does not claim approval or readiness.
 Risk is independent of workflow shape. Behavioral tasks receive independent
-review. An ordinary reviewed local task may end after independent review when
+review in ordinary task and milestone workflows; the one-task exception follows
+the optional rule above. An ordinary reviewed local task may end after independent review when
 no delivery boundary applies. High risk strengthens review depth and lenses;
 High risk alone does not require final readiness. Final readiness is separate
 and required for commit preparation, PR preparation, merge, release, deployment

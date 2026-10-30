@@ -5,13 +5,44 @@ import { fileURLToPath } from "node:url";
 
 const root = new URL("../../../", import.meta.url);
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+const normalizeWhitespace = (text: string) => text.replace(/\s+/g, " ").trim();
 
 test("Pi package exposes skill and pi-subagents agents declaratively", () => {
   assert.equal(pkg.pi?.skills?.includes("./skills/kapisch"), true);
   assert.ok(pkg["pi-subagents"]?.agents?.includes("./agents") || pkg.pi?.subagents?.agents?.includes("./agents"));
-  assert.equal(pkg.pi?.extensions, undefined);
+  assert.equal(pkg.pi?.extensions?.includes("./extensions/human-decisions.ts"), true);
+  assert.equal(pkg.peerDependencies?.["@earendil-works/pi-tui"], "*");
+  assert.equal(existsSync(new URL("../extensions/human-decisions.ts", import.meta.url)), true);
   assert.equal(pkg.version, JSON.parse(readFileSync(new URL("../../../plugins/kapisch/.codex-plugin/plugin.json", import.meta.url), "utf8")).version);
   assert.equal(pkg.version, readFileSync(new URL("../../../plugins/kapisch/pyproject.toml", import.meta.url), "utf8").match(/^version = "([^"]+)"/m)?.[1]);
+});
+
+test("direct one-task authorization binds one durable decision without another prompt", () => {
+  const canonical = readFileSync(new URL("../../../plugins/kapisch/skills/kapisch/SKILL.md", import.meta.url), "utf8");
+  const resume = readFileSync(new URL("../../../plugins/kapisch/skills/kapisch/references/resume.md", import.meta.url), "utf8");
+  const adapter = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+  const piSkill = readFileSync(new URL("../skills/kapisch/SKILL.md", import.meta.url), "utf8");
+  const oneTask = canonical.split("The one-task path is file-based")[1]?.split("A mandated skill")[0] ?? "";
+
+  assert.match(oneTask, /current user prompt itself explicitly and unambiguously authorizes/);
+  assert.match(oneTask, /persist exactly one immutable `HumanDecision`[\s\S]*decisions\/<decision_id>\.json[\s\S]*workorder\.json[\s\S]*before dispatch/i);
+  assert.match(oneTask, /WorkOrder[\s\S]*decision_id[\s\S]*missing[\s\S]*invalid[\s\S]*do not dispatch/i);
+  assert.match(oneTask, /attempts\/<attempt_id>\.json[\s\S]*aggregation\.md[\s\S]*outcome\.json/i);
+  assert.match(oneTask, /attempt evidence[\s\S]*aggregation\.md[\s\S]*outcome\.json[\s\S]*same[\s\S]*decision_id/i);
+  assert.match(resume, /on resume[\s\S]*if the HumanDecision or WorkOrder is missing[\s\S]*block instead of reconstructing/i);
+  assert.match(oneTask, /coordinator must first persist exactly one immutable `HumanDecision`[\s\S]*before dispatch/i);
+  assert.match(oneTask, /do not create a second record or ask for another approval of the same scope/i);
+  assert.match(oneTask, /existing HumanDecision fields[\s\S]*unique `decision_id` and `question_id`[\s\S]*`question` and `answer`[\s\S]*`decision_type=approval`[\s\S]*`source_kind=direct_operator`/);
+  assert.doesNotMatch(oneTask, /host-persisted user message.{0,120}digest|digest.{0,120}host-persisted user message/i);
+  assert.match(oneTask, /source_kind=direct_operator[\s\S]*WorkOrder cites the applicable `decision_id`/i);
+  assert.match(oneTask, /ambiguous[\s\S]*do not create an approval decision or dispatch[\s\S]*ask a focused clarification/i);
+  assert.match(adapter, /canonical KAPISCH skill owns direct-prompt authorization and the one-task file-based artifact lifecycle/i);
+  assert.match(piSkill, /ordinary direct prompts are not auto-captured[\s\S]*coordinator owns direct-prompt records under the canonical one-task contract/i);
+  assert.doesNotMatch(piSkill, /coordinator must persist exactly one immutable `HumanDecision`/i);
+  assert.match(resume, /one-task host-native[\s\S]*exactly one valid match/i);
+  assert.match(resume, /host-persisted message reference may identify that request but is not an input-provenance prerequisite/i);
+  assert.match(resume, /initial direct user instruction[\s\S]*must persist exactly one durable `HumanDecision` before WorkOrder dispatch/i);
+  assert.match(resume, /on resume[\s\S]*missing[\s\S]*block instead of reconstructing/i);
 });
 
 test("standalone review workflow is graph-free and delegates findings only", () => {
@@ -36,6 +67,62 @@ test("standalone review workflow is graph-free and delegates findings only", () 
   assert.match(canonical, /workflow=milestone[\s\S]*?durable sequential artifacts/);
 });
 
+test("one-task native worker exception has durable file authority and narrow precedence", () => {
+  const canonical = readFileSync(new URL("../../../plugins/kapisch/skills/kapisch/SKILL.md", import.meta.url), "utf8");
+  const normalization = readFileSync(new URL("../../../plugins/kapisch/skills/kapisch/references/request-normalization.md", import.meta.url), "utf8");
+  const review = readFileSync(new URL("../../../plugins/kapisch/skills/kapisch/references/review.md", import.meta.url), "utf8");
+  const resume = readFileSync(new URL("../../../plugins/kapisch/skills/kapisch/references/resume.md", import.meta.url), "utf8");
+  const adapter = readFileSync(new URL("../skills/kapisch/SKILL.md", import.meta.url), "utf8");
+
+  assert.match(canonical, /one-task host-native[\s\S]*\.kapisch\/runs\/<run-id>/i);
+  assert.match(canonical, /Context[\s\S]*WorkOrder[\s\S]*Outcome/);
+  const workOrderPublication = /persist `workorder\.json` with that exact `decision_id`, bounded task and scope, worker role\/capability disclosure, and output location before dispatch/;
+  const normalizedCanonical = normalizeWhitespace(canonical);
+  assert.match(normalizedCanonical, workOrderPublication);
+  assert.match(normalizeWhitespace(canonical.replace("bounded task and scope, worker role", "bounded task and scope,\n  worker role")), workOrderPublication);
+  assert.doesNotMatch(normalizedCanonical.replace("that exact `decision_id`", "a decision"), workOrderPublication);
+  assert.doesNotMatch(normalizedCanonical.replace("output location before dispatch", "output location after dispatch"), workOrderPublication);
+  assert.match(canonical, /attempts\/<attempt_id>\.json[\s\S]*aggregation\.md[\s\S]*outcome\.json/i);
+  assert.match(canonical, /advisory[\s\S]*persisted/i);
+  assert.match(canonical, /fresh session[\s\S]*reread/i);
+  assert.match(canonical, /never redispatch automatically/i);
+  assert.match(canonical, /in-scope local retry[\s\S]*fresh attempt ID and output location[\s\S]*preserv(?:e|es) the prior attempt[\s\S]*without changing or reapproving the WorkOrder[\s\S]*no per-attempt approval is required/i);
+  assert.match(canonical, /current user prompt itself explicitly and unambiguously authorizes[\s\S]*coordinator must first persist exactly one immutable `HumanDecision`[\s\S]*before dispatch[\s\S]*do not create a second record or ask for another approval of the same scope/i);
+  assert.match(canonical, /HumanDecision[\s\S]*decision_id[\s\S]*WorkOrder[\s\S]*applicability is assessed\s+separately/i);
+  assert.match(canonical, /immutable source refs or digests[\s\S]*missing, stale, or mismatched[\s\S]*block continuation/i);
+  assert.match(adapter, /effective user-role input received from Pi[\s\S]*trusted under the selected host's trust model/i);
+  assert.match(adapter, /TUI[\s\S]*RPC[\s\S]*JSON[\s\S]*print/i);
+  assert.match(adapter, /before any workflow selection or dispatch[\s\S]*use Pi's `read` tool[\s\S]*complete current canonical `SKILL.md`[\s\S]*do not use `grep`/i);
+  assert.match(adapter, /latest assistant message[\s\S]*one complete, valid top-level `kapisch-decision` block/);
+  assert.match(adapter, /kapisch-decision-dismiss[\s\S]*dismisses without granting authorization/i);
+  assert.match(adapter, /kapisch-decision-repair[\s\S]*requests regeneration[\s\S]*without creating a decision/i);
+  assert.match(adapter, /ordinary direct prompts are not auto-captured[\s\S]*coordinator owns direct-prompt records/i);
+  assert.match(normalization, /one-task host-native[\s\S]*precedence[\s\S]*graph-free delegation/i);
+  assert.match(normalization, /precedence[\s\S]*task-review wording[\s\S]*resume\.md/i);
+  assert.match(review, /one-task host-native[\s\S]*advisory[\s\S]*persisted/i);
+  assert.match(canonical, /one-task exception[\s\S]*reviewer dispatch is optional[\s\S]*no canonical review invocation\/approval artifacts/i);
+  assert.match(canonical, /ordinary task\/milestone review requirements[\s\S]*remain unchanged/i);
+  assert.match(review, /one-task host-native[\s\S]*optional[\s\S]*findings-only[\s\S]*no canonical invocation or approval artifacts[\s\S]*cannot claim `approve` or `ready`/i);
+  assert.match(resume, /one-task host-native[\s\S]*fresh session[\s\S]*never redispatch automatically/i);
+  assert.match(resume, /Before trusting a WorkOrder[\s\S]*HumanDecision[\s\S]*source reference[\s\S]*governing-input refs\/digests[\s\S]*applicability[\s\S]*missing, stale, mismatched, or inapplicable[\s\S]*block continuation/i);
+  assert.match(adapter, /worker[\s\S]*not `kapisch-implementer`/);
+  assert.match(adapter, /ordinary canonical role mappings[\s\S]*unchanged/i);
+});
+
+test("portable HumanDecision contract covers external sources without host-session authority", () => {
+  const canonical = readFileSync(new URL("../../../plugins/kapisch/skills/kapisch/SKILL.md", import.meta.url), "utf8");
+  const resume = readFileSync(new URL("../../../plugins/kapisch/skills/kapisch/references/resume.md", import.meta.url), "utf8");
+  const section = canonical.split("## Portable HumanDecision contract")[1]?.split("\n## ")[0] ?? "";
+
+  assert.notEqual(section, "");
+  assert.match(section, /immutable[\s\S]*direct_operator[\s\S]*operator_reported_external[\s\S]*external_artifact/i);
+  assert.match(section, /WorkOrder[\s\S]*decision_id[\s\S]*applicability is assessed\s+separately/i);
+  assert.match(section, /governing_inputs[\s\S]*subject[\s\S]*scope/);
+  assert.doesNotMatch(section, /Pi|TUI|RPC|sessionManager/i);
+  assert.match(canonical, /current user prompt itself explicitly and unambiguously authorizes[\s\S]*coordinator must first persist exactly one immutable `HumanDecision`[\s\S]*before dispatch[\s\S]*do not create a second record or ask for another approval of the same scope/i);
+  assert.match(resume, /HumanDecision[\s\S]*external source[\s\S]*applicability/i);
+});
+
 test("standalone reviewer returns findings without weakening durable review", () => {
   const reviewer = readFileSync(new URL("../../../plugins/kapisch/agents/kapisch-reviewer.toml", import.meta.url), "utf8");
 
@@ -51,6 +138,21 @@ test("standalone reviewer returns findings without weakening durable review", ()
   assert.match(reviewer, /Return approve only/);
 });
 
+test("Pi adapter trusts effective user input and exposes durable decisions downstream", () => {
+  const adapter = readFileSync(new URL("../skills/kapisch/SKILL.md", import.meta.url), "utf8");
+  const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+
+  assert.match(adapter, /effective user-role input received from Pi/i);
+  assert.match(adapter, /TUI[\s\S]*RPC[\s\S]*JSON[\s\S]*print/i);
+  assert.match(adapter, /direct_operator[\s\S]*operator_reported_external[\s\S]*external_artifact/);
+  assert.match(adapter, /\.kapisch\/runs\/<Pi session ID>\/decisions/);
+  assert.match(adapter, /ordinary direct prompts are not auto-captured[\s\S]*coordinator owns direct-prompt records/i);
+  assert.match(adapter, /ambiguous answers remain raw evidence and are not interpreted as approval/i);
+  assert.doesNotMatch(adapter, /coordinator must persist exactly one immutable `HumanDecision`/i);
+  assert.doesNotMatch(adapter, /immutable original-input provenance|capture is unavailable/i);
+  assert.match(readme, /canonical KAPISCH skill owns direct-prompt authorization/i);
+});
+
 test("canonical contract path resolves relative to the loaded Pi skill", () => {
   const skillUrl = new URL("../skills/kapisch/SKILL.md", import.meta.url);
   const skill = readFileSync(skillUrl, "utf8");
@@ -61,6 +163,7 @@ test("canonical contract path resolves relative to the loaded Pi skill", () => {
   const resolved = new URL(canonicalPath, skillUrl);
   const expected = new URL("../../../plugins/kapisch/skills/kapisch/SKILL.md", import.meta.url);
   assert.equal(fileURLToPath(resolved), fileURLToPath(expected));
+  assert.match(skill, /before any workflow selection or dispatch[\s\S]*use Pi's `read` tool[\s\S]*complete current canonical `SKILL\.md`[\s\S]*do not use `grep`/i);
   assert.match(readFileSync(resolved, "utf8"), /^---\nname: kapisch\n/);
 });
 

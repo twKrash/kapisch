@@ -37,12 +37,21 @@ review-evidence artifacts. The parent/orchestrator judges findings and owns
 follow-up actions. A request that also asks for implementation is not review-only
 and must use the applicable task or milestone workflow.
 
-The current graph-free `workflow=task` surface does not support delegation. A
-mandated capability therefore blocks for a user choice to promote the work to a
-supported durable version-3 or version-4 graph or relax the constraint; it is
-never silently executed natively. An automatic capability selection may use
-native execution only when the approved outcome remains unchanged, otherwise it
-asks whether to promote the work to a durable graph.
+Ordinary graph-free `workflow=task` does not support delegation: a mandated
+capability blocks for a user choice to promote the work to a supported durable
+graph or relax the constraint, and automatic capability selection may use native
+execution only when the approved outcome remains unchanged. The sole exception
+is the explicitly approved one-task host-native path defined in the canonical
+skill: it allows exactly one bounded task when `kapisch-implementer` is
+unavailable, with the actual host role disclosed. For this exception only, that
+rule takes precedence over this paragraph's conflicting graph-free delegation
+prohibition. The same one-task exception takes precedence only over the
+conflicting mandatory review/invocation-artifact requirements in the canonical
+skill, task-review wording in `review.md`, and graph-required wording in
+`resume.md`. It does not change standalone graph-free review dispatch or
+ordinary task and milestone review behavior or canonical role mappings. An explicit current user prompt may authorize this path without an extra
+approval ceremony. The canonical one-task contract requires the coordinator to
+persist its single `HumanDecision` and referenced WorkOrder before dispatch.
 
 The LLM/controller selects `advisory`, `review`, `task`, or `milestone`, logical
 roles, risk, review needs, and whether a request is read-only. Select `advisory`
