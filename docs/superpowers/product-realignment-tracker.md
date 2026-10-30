@@ -26,7 +26,7 @@ not establish the canonical-implementer-unavailable condition for native-worker
 fallback, exercise Git-bound governing-input refs, resume from persisted state, or
 compare equivalent WorkOrders across adapters. Do not treat it as full acceptance.
 
-Last updated: 2026-10-29 (PR head `1cbc5ac`). Update this file when a slice changes state; never infer
+Last updated: 2026-10-30 (PR head `f8e9485`). Update this file when a slice changes state; never infer
 state from it.
 
 ## At a glance
@@ -52,7 +52,8 @@ state from it.
   and did not exercise resume or scope-change reassessment. Those broader behaviors
   remain unverified.
 - **Remaining:** all 11 specification acceptance criteria are partial or unmet.
-- **Review:** the earlier K84-010 WorkOrder-binding finding was fixed with a regression assertion. The requested bounded standalone review of this seven-file docs/test delta found one confirmed P3 (K84-WT-001): assertions rejected equivalent Markdown line wrapping. They now normalize whitespace and test wrapped prose while retaining decision-binding and before-dispatch checks. The reviewer reported no other diff-causal findings; the review was not rerun after this fix and is not formal GitHub review approval.
+- **Review history:** the earlier K84-010 WorkOrder-binding finding was fixed with a regression assertion. A bounded standalone review of an earlier seven-file docs/test delta found P3 K84-WT-001 (Markdown line wrapping); tests were updated, but that review was not rerun after the fix.
+- **Latest formal review:** the review of `1cbc5ac` requested changes for unresolved P2 K84-IND-001; see the blocker below.
 - **Blocked:** formal review on head `1cbc5ac` requested changes for open finding
   K84-IND-001 (P2): a complete decision fence inside an HTML comment or `<pre>`
   example is recognized as a live request; malformed HTML examples can also alter
