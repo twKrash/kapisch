@@ -5,6 +5,9 @@
   "description": "Local Pi package for canonical KAPISCH roles",
   "keywords": ["pi-package", "kapisch", "pi-subagents"],
   "type": "module",
+  "peerDependencies": {
+    "@earendil-works/pi-tui": "*"
+  },
   "pi": {
     "skills": ["./skills/kapisch"],
     "extensions": ["./extensions/human-decisions.ts"]

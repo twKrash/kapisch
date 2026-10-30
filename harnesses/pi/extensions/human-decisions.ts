@@ -33,13 +33,14 @@ type PiApi = {
 
 const sourceKinds = new Set<string>(["direct_operator", "operator_reported_external", "external_artifact"]);
 const decisionTypes = new Set<string>(["answer", "correction", "approval", "risk_acceptance", "external_effect_authorization"]);
-type MarkdownFence = { character: "`" | "~"; length: number; indent: number; info: string; containerIndent?: number; content: string[] };
-type ListContext = { markerIndent: number; contentIndent: number };
+type MarkdownToken = { type: string; lang?: string; text?: string };
+type DecisionLexer = (text: string) => Promise<MarkdownToken[]>;
 
-const listItemPattern = /^([ \t]*)([-+*]|\d+[.)])([ \t]+)(.*)$/;
-const listFenceOpeningPattern = /^([ \t]*)([-+*]|\d+[.)])([ \t]+)(`{3,}|~{3,})(.*)$/;
-const fenceOpeningPattern = /^([ \t]*)(`{3,}|~{3,})(.*)$/;
-const fenceClosingPattern = /^([ \t]*)(`+|~+)[ \t]*$/;
+let markedInstance: Promise<{ lexer(text: string): MarkdownToken[] }> | undefined;
+const markedLexer: DecisionLexer = async (text) => {
+  markedInstance ??= import("@earendil-works/pi-tui").then(({ Marked }) => new Marked());
+  return (await markedInstance).lexer(text);
+};
 const requiredFields = ["question_id", "question", "governing_inputs", "subject", "scope", "decision_type", "source_kind"];
 const optionalFields = ["source_ref", "approving_party"];
 
@@ -88,90 +89,12 @@ function messageText(content: unknown): string {
   return content.flatMap((part) => isRecord(part) && part.type === "text" && typeof part.text === "string" ? [part.text] : []).join("\n");
 }
 
-function indentationWidth(prefix: string): number {
-  let width = 0;
-  for (const character of prefix) width += character === "\t" ? 4 - (width % 4) : 1;
-  return width;
+async function decisionBlocks(text: string, lexer: DecisionLexer): Promise<string[]> {
+  return (await lexer(text)).filter((token) => token.type === "code" && token.lang?.trim() === "kapisch-decision").map((token) => token.text ?? "");
 }
 
-function lineIndentation(line: string): number {
-  return indentationWidth(/^[ \t]*/.exec(line)?.[0] ?? "");
-}
-
-function listItem(line: string): ListContext | undefined {
-  const match = listItemPattern.exec(line);
-  if (!match) return;
-  const markerIndent = indentationWidth(match[1]);
-  const contentIndent = indentationWidth(`${match[1]}${match[2]}${match[3]}`);
-  return { markerIndent, contentIndent };
-}
-
-function updateListContexts(line: string, contexts: ListContext[]): void {
-  if (line.trim() === "") return;
-  const indent = lineIndentation(line);
-  while (contexts.length > 0 && indent < contexts[contexts.length - 1].contentIndent) contexts.pop();
-
-  const item = listItem(line);
-  if (!item || (contexts.length === 0 ? item.markerIndent > 3 : item.markerIndent < contexts[contexts.length - 1].contentIndent || item.markerIndent > contexts[contexts.length - 1].contentIndent + 3)) return;
-  while (contexts.length > 0 && item.markerIndent <= contexts[contexts.length - 1].markerIndent) contexts.pop();
-  contexts.push(item);
-}
-
-function makeFence(marker: string, info: string, indent: number, containerIndent?: number): MarkdownFence | undefined {
-  const character = marker[0];
-  if ((character !== "`" && character !== "~") || (character === "`" && info.includes("`"))) return;
-  return { character, length: marker.length, indent, info: info.trim(), ...(containerIndent !== undefined ? { containerIndent } : {}), content: [] };
-}
-
-function parseFenceOpening(line: string, contexts: ListContext[]): MarkdownFence | undefined {
-  const listMatch = listFenceOpeningPattern.exec(line);
-  const context = contexts[contexts.length - 1];
-  if (listMatch && context?.markerIndent === indentationWidth(listMatch[1])) {
-    return makeFence(listMatch[4], listMatch[5], 0, context.contentIndent);
-  }
-
-  const match = fenceOpeningPattern.exec(line);
-  if (!match) return;
-  const containerIndent = context?.contentIndent ?? 0;
-  const indent = indentationWidth(match[1]) - containerIndent;
-  if (indent < 0 || indent > 3) return;
-  return makeFence(match[2], match[3], indent, containerIndent > 0 ? containerIndent : undefined);
-}
-
-function isFenceClosing(line: string, fence: MarkdownFence): boolean {
-  const match = fenceClosingPattern.exec(line);
-  if (!match || match[2][0] !== fence.character || match[2].length < fence.length) return false;
-  const indent = indentationWidth(match[1]) - (fence.containerIndent ?? 0);
-  return indent >= 0 && indent <= 3;
-}
-
-function decisionBlocks(text: string): string[] {
-  const blocks: string[] = [];
-  const contexts: ListContext[] = [];
-  let fence: MarkdownFence | undefined;
-
-  for (const line of text.split(/\r?\n/)) {
-    if (fence?.containerIndent !== undefined && line.trim() !== "" && lineIndentation(line) < fence.containerIndent) fence = undefined;
-    if (fence) {
-      if (isFenceClosing(line, fence)) {
-        // shortcut: only column-zero, non-list request fences are active; widen if the producer emits indented blocks.
-        if (fence.character === "`" && fence.containerIndent === undefined && fence.info === "kapisch-decision" && fence.indent === 0 && fence.length === 3) blocks.push(fence.content.join("\n"));
-        fence = undefined;
-      } else {
-        fence.content.push(line);
-      }
-      continue;
-    }
-
-    updateListContexts(line, contexts);
-    fence = parseFenceOpening(line, contexts);
-  }
-
-  return blocks;
-}
-
-function requestState(text: string, message: BranchEntry & { type: "message" }): DecisionRequestLookup {
-  const blocks = decisionBlocks(text);
+async function requestState(text: string, message: BranchEntry & { type: "message" }, lexer: DecisionLexer): Promise<DecisionRequestLookup> {
+  const blocks = await decisionBlocks(text, lexer);
   if (blocks.length === 0) return { kind: "none" };
   if (blocks.length > 1 || message.message.stopReason !== "stop" || message.message.errorMessage) return { kind: "invalid" };
   try {
@@ -182,14 +105,14 @@ function requestState(text: string, message: BranchEntry & { type: "message" }):
   }
 }
 
-function latestDecisionRequest(context: Context): DecisionRequestLookup {
+async function latestDecisionRequest(context: Context, lexer: DecisionLexer): Promise<DecisionRequestLookup> {
   const branch = context.sessionManager.getBranch();
   for (let index = branch.length - 1; index >= 0; index -= 1) {
     const entry = branch[index];
     if (entry.type === "custom_message" && entry.customType === "kapisch-decision-dismiss") return { kind: "none" };
     if (entry.type !== "message" || entry.message.role !== "assistant") continue;
     // A later ordinary assistant message retires older markers.
-    return requestState(messageText(entry.message.content), entry);
+    return requestState(messageText(entry.message.content), entry, lexer);
   }
   return { kind: "none" };
 }
@@ -276,9 +199,9 @@ async function recordDecision(text: string, request: DecisionRequest, context: C
   }
 }
 
-export default function registerHumanDecisions(pi: PiApi): void {
+export default function registerHumanDecisions(pi: PiApi, lexer: DecisionLexer = markedLexer): void {
   pi.on("input", async (event, context) => {
-    const pending = latestDecisionRequest(context);
+    const pending = await latestDecisionRequest(context, lexer);
     if (pending.kind === "none") return { action: "continue" };
     if (pending.kind === "invalid") {
       if (context.hasUI) context.ui.notify("The decision request is invalid; input was not processed. Repair the request before proceeding.", "warning");
@@ -302,7 +225,7 @@ export default function registerHumanDecisions(pi: PiApi): void {
   pi.registerCommand("kapisch-decision", {
     description: "Show how to answer the pending decision request",
     handler: async (_args, context) => {
-      const pending = latestDecisionRequest(context);
+      const pending = await latestDecisionRequest(context, lexer);
       if (pending.kind === "none") {
         if (context.hasUI) context.ui.notify("No pending decision request is available.", "warning");
         return;
@@ -315,7 +238,7 @@ export default function registerHumanDecisions(pi: PiApi): void {
   pi.registerCommand("kapisch-decision-dismiss", {
     description: "Dismiss a pending decision request without granting authorization",
     handler: async (_args, context) => {
-      if (latestDecisionRequest(context).kind === "none") {
+      if ((await latestDecisionRequest(context, lexer)).kind === "none") {
         if (context.hasUI) context.ui.notify("No pending decision request is available.", "warning");
         return;
       }
@@ -330,7 +253,7 @@ export default function registerHumanDecisions(pi: PiApi): void {
   pi.registerCommand("kapisch-decision-repair", {
     description: "Ask the agent to regenerate an invalid decision request",
     handler: async (_args, context) => {
-      if (latestDecisionRequest(context).kind !== "invalid") {
+      if ((await latestDecisionRequest(context, lexer)).kind !== "invalid") {
         if (context.hasUI) context.ui.notify("No invalid decision request needs repair.", "warning");
         return;
       }

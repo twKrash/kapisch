@@ -11,6 +11,7 @@ test("Pi package exposes skill and pi-subagents agents declaratively", () => {
   assert.equal(pkg.pi?.skills?.includes("./skills/kapisch"), true);
   assert.ok(pkg["pi-subagents"]?.agents?.includes("./agents") || pkg.pi?.subagents?.agents?.includes("./agents"));
   assert.equal(pkg.pi?.extensions?.includes("./extensions/human-decisions.ts"), true);
+  assert.equal(pkg.peerDependencies?.["@earendil-works/pi-tui"], "*");
   assert.equal(existsSync(new URL("../extensions/human-decisions.ts", import.meta.url)), true);
   assert.equal(pkg.version, JSON.parse(readFileSync(new URL("../../../plugins/kapisch/.codex-plugin/plugin.json", import.meta.url), "utf8")).version);
   assert.equal(pkg.version, readFileSync(new URL("../../../plugins/kapisch/pyproject.toml", import.meta.url), "utf8").match(/^version = "([^"]+)"/m)?.[1]);
