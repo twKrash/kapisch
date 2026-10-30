@@ -26,7 +26,7 @@ not establish the canonical-implementer-unavailable condition for native-worker
 fallback, exercise Git-bound governing-input refs, resume from persisted state, or
 compare equivalent WorkOrders across adapters. Do not treat it as full acceptance.
 
-Last updated: 2026-10-30 (PR head `f8e9485`). Update this file when a slice changes state; never infer
+Last updated: 2026-10-30 (PR head `c5c1457`). Update this file when a slice changes state; never infer
 state from it.
 
 ## At a glance
@@ -53,15 +53,8 @@ state from it.
   remain unverified.
 - **Remaining:** all 11 specification acceptance criteria are partial or unmet.
 - **Review history:** the earlier K84-010 WorkOrder-binding finding was fixed with a regression assertion. The requested bounded standalone review of this seven-file docs/test delta found one confirmed P3 (K84-WT-001): assertions rejected equivalent Markdown line wrapping. The tests now normalize whitespace and test wrapped prose while retaining decision-binding and before-dispatch checks. The reviewer found no other diff-causal findings; this earlier review was not rerun after the fix and was not formal GitHub review approval.
-- **Latest formal review:** the review of `1cbc5ac` requested changes for unresolved P2 K84-IND-001; see the blocker below.
-- **Blocked:** formal review on head `1cbc5ac` requested changes for open finding
-  K84-IND-001 (P2): a complete decision fence inside an HTML comment or `<pre>`
-  example is recognized as a live request; malformed HTML examples can also alter
-  capture behavior. The review requests parser exclusions and regression tests; this
-  is not fixed by the documentation update. All four GitHub checks for `1cbc5ac`
-  completed successfully, but green checks do not resolve the review finding. Tracked
-  WorkOrder acceptance, cross-adapter comparison, Git-bound input freshness, and
-  resume behavior also remain open.
+- **Latest formal review:** The older P1 persisted-answer-consumption finding and K84-IND-001 (P2), raised against `1cbc5ac`, are fixed; both GitHub review threads are resolved. K84-IND-001 was fixed in PR head `c5c1457`, and the standalone reviewer re-reviewed that change with no new findings.
+- **Blocked:** tracked WorkOrder acceptance, cross-adapter comparison, Git-bound input freshness, and resume behavior remain open. All four GitHub checks passed on PR head `c5c1457`; green checks do not establish these broader acceptance criteria.
 - **Next slice:** add the tracked full WorkOrder-to-Outcome comparison and broader
   direct-path coverage, including implementer-unavailable routing, Git-bound inputs,
   applicability, and fresh-session resume.
@@ -88,7 +81,7 @@ evidence. A WorkOrder `Outcome` marked complete covers its stated scope only.
 | ID | Objective | Depends on | Acceptance criteria | Status | Delivery | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
 | WS-0 | Advisory and standalone review stay first-class and graph-free | — | AC11: no WorkOrder, DAG, implementation authorization, or review gate; findings only | `IMPLEMENTED / AWAITING REVIEW` | Merged on `main`; preserved by PR #84 | `SKILL.md` advisory/review sections, `request-normalization.md`, `review.md`; no tracked test asserts the graph-free, no-gate property |
-| WS-1 | First bounded one-task Pi-host slice (`WO-2026-10-26-PI-01/T01`): direct decision → WorkOrder → attempt → aggregation → Outcome → handoff | — | Durable one-task records; retry uses fresh attempt IDs and preserves prior work; review is advisory findings-only; fresh-session reconstruction | `PARTIAL / IN PROGRESS` | Draft PR [#84](https://github.com/twKrash/kapisch/pull/84); all four CI checks passed on reviewed head `1cbc5ac` | Tracked code captures pending-request decisions and implements coordinator-owned direct-prompt authorization/binding. One manual real-Pi smoke exercised a direct decision through WorkOrder, attempt, aggregation, Outcome, and handoff. The smoke was disposable and non-Git; it did not verify implementer-unavailable routing, Git-bound inputs, restart/resume, retries, review, or cross-adapter equivalence. Open review finding K84-IND-001 remains. |
+| WS-1 | First bounded one-task Pi-host slice (`WO-2026-10-26-PI-01/T01`): direct decision → WorkOrder → attempt → aggregation → Outcome → handoff | — | Durable one-task records; retry uses fresh attempt IDs and preserves prior work; review is advisory findings-only; fresh-session reconstruction | `PARTIAL / IN PROGRESS` | Draft PR [#84](https://github.com/twKrash/kapisch/pull/84); all four GitHub checks passed on PR head `c5c1457` | Tracked code captures pending-request decisions and implements coordinator-owned direct-prompt authorization/binding. One manual real-Pi smoke exercised a direct decision through WorkOrder, attempt, aggregation, Outcome, and handoff. The smoke was disposable and non-Git; it did not verify implementer-unavailable routing, Git-bound inputs, restart/resume, retries, review, or cross-adapter equivalence. K84-IND-001 was fixed in `c5c1457` and re-reviewed with no new findings. |
 | WS-1.1 | Consume one real decision end to end, from any approved source | WS-1 | A decision is persisted and cited by aggregation and Outcome with its scope and attribution | `IN PROGRESS` (one direct path smoke-tested; reusable acceptance remains) | Draft PR [#84](https://github.com/twKrash/kapisch/pull/84) | A fresh direct-prompt Pi run persisted one decision and cited its ID through a WorkOrder, attempt, aggregation, and Outcome. This establishes one manual scenario, not a tracked/reusable consumer test or broader source/applicability coverage. |
 | WS-1.2 | Track the acceptance harness in Git | WS-1 | Aggregation/Outcome/comparison validation runs from tracked code in CI | `TODO` | `local` only | `compare.py`, `run.py`, `real_adapter.py`, `decision_records.py` and 16 comparator tests exist only under `.kapisch/runs/…` |
 | WS-1.3 | Decision source kinds: direct, operator-reported external, external artifact | WS-1 | Each source is captured with scope and attribution; ambiguous text and agent/reviewer output are never inferred as decisions | `IMPLEMENTED / AWAITING REVIEW` | Draft PR [#84](https://github.com/twKrash/kapisch/pull/84) | Tracked tests cover pending-request source-kind fields; the earlier RPC smoke persisted an external-artifact decision with stable `source_ref`; the new direct-prompt smoke persisted a `direct_operator` decision. This verifies only those exercised paths, not all external-source applicability. Records omit host identity fields; no cryptographic or original-keystroke provenance is claimed or required. |
@@ -165,18 +158,11 @@ it is not a blocker for this realignment.
 
 **Blockers**
 
-1. **Open review finding K84-IND-001 (P2).** The formal standalone review of head
-   `1cbc5ac` found that a complete `kapisch-decision` fence inside an HTML comment or
-   `<pre>` example is treated as a live request; malformed HTML examples can change
-   capture behavior. The reviewer requested excluding raw HTML/comment contents from
-   active fence discovery and adding regressions for examples, genuine requests, and
-   malformed HTML. This remains unresolved; see
-   [review thread](https://github.com/twKrash/kapisch/pull/84#discussion_r4416399995).
-2. **Tracked end-to-end acceptance remains incomplete.** One real-Pi smoke consumed a
+1. **Tracked end-to-end acceptance remains incomplete.** One real-Pi smoke consumed a
    direct decision in a simple WorkOrder and wrote an Outcome, but there is no tracked
    reusable WorkOrder consumer/comparison harness. Direct-path applicability, Git-bound
-   input freshness, and resume/restart behavior remain unverified. CI success on
-   `1cbc5ac` does not close either gap.
+   input freshness, and resume/restart behavior remain unverified. All four GitHub checks
+   passed on PR head `c5c1457`, but they do not close these gaps.
 
 **Limitations (not blockers; block only the work that requires the guarantee)**
 
