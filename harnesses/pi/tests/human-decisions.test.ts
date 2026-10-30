@@ -7,7 +7,7 @@ import registerHumanDecisions from "../extensions/human-decisions.ts";
 
 const request = { question_id: "Q-1", question: "May I proceed?", governing_inputs: [{ ref: "context:C0", digest: "a".repeat(64) }], subject: "release", scope: "staging", decision_type: "approval", source_kind: "direct_operator" };
 function codeToken(text: string, lang = "kapisch-decision") {
-  return { type: "code", lang, text };
+  return { type: "code", lang, text, raw: "```" + lang + "\n" + text + "\n```" };
 }
 function assistant(value: unknown = request, stopReason = "stop", id = "assistant-1") {
   const text = `Approval needed.\n\n\`\`\`kapisch-decision\n${JSON.stringify(value)}\n\`\`\``;
@@ -106,6 +106,21 @@ test("local token selection accepts only top-level exact-language code requests"
   const directory = join(cwd, ".kapisch", "runs", "session-token", "decisions");
   const [filename] = await readdir(directory);
   assert.equal(JSON.parse(await readFile(join(directory, filename), "utf8")).question_id, "Q-top-level");
+}));
+
+test("unterminated and invalid closing fences do not capture decision answers", async () => temp(async (cwd) => {
+  const payload = JSON.stringify(request);
+  const cases = [
+    ["unterminated", "```kapisch-decision\n" + payload],
+    ["short-closer", "````kapisch-decision\n" + payload + "\n```"],
+    ["mismatched-closer", "```kapisch-decision\n" + payload + "\n~~~"],
+  ] as const;
+  for (const [id, raw] of cases) {
+    const token = { type: "code", lang: "kapisch-decision", text: payload, raw };
+    const f = fixture([assistantText("local fixture", id, [token])], { cwd, sessionFile: join(cwd, `${id}.jsonl`) });
+    assert.deepEqual(await f.input({ text: "Show me the release checklist." }, f.context), { action: "handled" });
+    await assertNoDecisionFiles(cwd);
+  }
 }));
 
 test("local token selection ignores nested, HTML, and nonmatching tokens", async () => temp(async (cwd) => {

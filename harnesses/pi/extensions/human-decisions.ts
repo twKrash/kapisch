@@ -33,7 +33,7 @@ type PiApi = {
 
 const sourceKinds = new Set<string>(["direct_operator", "operator_reported_external", "external_artifact"]);
 const decisionTypes = new Set<string>(["answer", "correction", "approval", "risk_acceptance", "external_effect_authorization"]);
-type MarkdownToken = { type: string; lang?: string; text?: string };
+type MarkdownToken = { type: string; lang?: string; text?: string; raw?: string };
 type DecisionLexer = (text: string) => Promise<MarkdownToken[]>;
 
 let markedInstance: Promise<{ lexer(text: string): MarkdownToken[] }> | undefined;
@@ -89,16 +89,29 @@ function messageText(content: unknown): string {
   return content.flatMap((part) => isRecord(part) && part.type === "text" && typeof part.text === "string" ? [part.text] : []).join("\n");
 }
 
-async function decisionBlocks(text: string, lexer: DecisionLexer): Promise<string[]> {
-  return (await lexer(text)).filter((token) => token.type === "code" && token.lang?.trim() === "kapisch-decision").map((token) => token.text ?? "");
+async function decisionBlocks(text: string, lexer: DecisionLexer): Promise<MarkdownToken[]> {
+  return (await lexer(text)).filter((token) => token.type === "code" && token.lang?.trim() === "kapisch-decision");
+}
+
+function hasClosedDecisionFence(raw: string | undefined, language: string): boolean {
+  if (!raw) return false;
+  const lines = raw.split(/\r?\n/);
+  const opening = lines[0]?.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+  if (!opening || opening[2].trim() !== language) return false;
+  const fence = opening[1];
+  return lines.slice(1).some((line) => {
+    const closing = line.match(/^ {0,3}(`+|~+)[\t ]*$/);
+    return closing !== null && closing[1][0] === fence[0] && closing[1].length >= fence.length;
+  });
 }
 
 async function requestState(text: string, message: BranchEntry & { type: "message" }, lexer: DecisionLexer): Promise<DecisionRequestLookup> {
   const blocks = await decisionBlocks(text, lexer);
   if (blocks.length === 0) return { kind: "none" };
   if (blocks.length > 1 || message.message.stopReason !== "stop" || message.message.errorMessage) return { kind: "invalid" };
+  if (blocks.some((token) => !hasClosedDecisionFence(token.raw, token.lang?.trim() ?? ""))) return { kind: "invalid" };
   try {
-    const request = parseRequest(JSON.parse(blocks[0]));
+    const request = parseRequest(JSON.parse(blocks[0].text ?? ""));
     return request ? { kind: "valid", request } : { kind: "invalid" };
   } catch {
     return { kind: "invalid" };
