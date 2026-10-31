@@ -27,8 +27,8 @@ test("direct one-task authorization binds one durable decision without another p
   assert.match(oneTask, /current user prompt itself explicitly and unambiguously authorizes/);
   assert.match(oneTask, /persist exactly one immutable `HumanDecision`[\s\S]*decisions\/<decision_id>\.json[\s\S]*workorder\.json[\s\S]*before dispatch/i);
   assert.match(oneTask, /WorkOrder[\s\S]*decision_id[\s\S]*missing[\s\S]*invalid[\s\S]*do not dispatch/i);
-  assert.match(oneTask, /attempts\/<attempt_id>\.json[\s\S]*aggregation\.md[\s\S]*outcome\.json/i);
-  assert.match(oneTask, /attempt evidence[\s\S]*aggregation\.md[\s\S]*outcome\.json[\s\S]*same[\s\S]*decision_id/i);
+  assert.match(oneTask, /attempts\/<attempt_id>\.json[\s\S]*aggregation\.json[\s\S]*outcome\.json/i);
+  assert.match(oneTask, /attempt evidence[\s\S]*aggregation\.json[\s\S]*outcome\.json[\s\S]*same[\s\S]*decision_id/i);
   assert.match(resume, /on resume[\s\S]*if the HumanDecision or WorkOrder is missing[\s\S]*block instead of reconstructing/i);
   assert.match(oneTask, /coordinator must first persist exactly one immutable `HumanDecision`[\s\S]*before dispatch/i);
   assert.match(oneTask, /do not create a second record or ask for another approval of the same scope/i);
@@ -82,11 +82,12 @@ test("one-task native worker exception has durable file authority and narrow pre
   assert.match(normalizeWhitespace(canonical.replace("bounded task and scope, worker role", "bounded task and scope,\n  worker role")), workOrderPublication);
   assert.doesNotMatch(normalizedCanonical.replace("that exact `decision_id`", "a decision"), workOrderPublication);
   assert.doesNotMatch(normalizedCanonical.replace("output location before dispatch", "output location after dispatch"), workOrderPublication);
-  assert.match(canonical, /attempts\/<attempt_id>\.json[\s\S]*aggregation\.md[\s\S]*outcome\.json/i);
+  assert.match(canonical, /attempts\/<attempt_id>\.json[\s\S]*aggregation\.json[\s\S]*outcome\.json/i);
+  assert.match(canonical, /LLM aggregator[\s\S]*not the coordinator data-collection step[\s\S]*produces `aggregation\.json`/i);
   assert.match(canonical, /advisory[\s\S]*persisted/i);
   assert.match(canonical, /fresh session[\s\S]*reread/i);
   assert.match(canonical, /never redispatch automatically/i);
-  assert.match(canonical, /in-scope local retry[\s\S]*fresh attempt ID and output location[\s\S]*preserv(?:e|es) the prior attempt[\s\S]*without changing or reapproving the WorkOrder[\s\S]*no per-attempt approval is required/i);
+  assert.match(canonical, /task-first core slice supports one claimed attempt only[\s\S]*retries and checkpoints are out of scope[\s\S]*persisted dispatch claim blocks every redispatch/i);
   assert.match(canonical, /current user prompt itself explicitly and unambiguously authorizes[\s\S]*coordinator must first persist exactly one immutable `HumanDecision`[\s\S]*before dispatch[\s\S]*do not create a second record or ask for another approval of the same scope/i);
   assert.match(canonical, /HumanDecision[\s\S]*decision_id[\s\S]*WorkOrder[\s\S]*applicability is assessed\s+separately/i);
   assert.match(canonical, /immutable source refs or digests[\s\S]*missing, stale, or mismatched[\s\S]*block continuation/i);
@@ -141,16 +142,22 @@ test("standalone reviewer returns findings without weakening durable review", ()
 test("Pi adapter trusts effective user input and exposes durable decisions downstream", () => {
   const adapter = readFileSync(new URL("../skills/kapisch/SKILL.md", import.meta.url), "utf8");
   const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+  const canonical = readFileSync(new URL("../../../plugins/kapisch/skills/kapisch/SKILL.md", import.meta.url), "utf8");
+  const taskContract = readFileSync(new URL("../../../core/contracts/task-first.md", import.meta.url), "utf8");
 
   assert.match(adapter, /effective user-role input received from Pi/i);
   assert.match(adapter, /TUI[\s\S]*RPC[\s\S]*JSON[\s\S]*print/i);
   assert.match(adapter, /direct_operator[\s\S]*operator_reported_external[\s\S]*external_artifact/);
-  assert.match(adapter, /\.kapisch\/runs\/<Pi session ID>\/decisions/);
+  assert.match(adapter, /run_id[\s\S]*\.kapisch\/runs\/<run_id>\/decisions/);
   assert.match(adapter, /ordinary direct prompts are not auto-captured[\s\S]*coordinator owns direct-prompt records/i);
   assert.match(adapter, /ambiguous answers remain raw evidence and are not interpreted as approval/i);
   assert.doesNotMatch(adapter, /coordinator must persist exactly one immutable `HumanDecision`/i);
   assert.doesNotMatch(adapter, /immutable original-input provenance|capture is unavailable/i);
   assert.match(readme, /canonical KAPISCH skill owns direct-prompt authorization/i);
+  assert.match(readme, /opaque portable `run_id`[\s\S]*Pi session ID out of portable references/i);
+  assert.match(canonical, /portable single-task record contract and core validator[\s\S]*task-first\.md[\s\S]*task_contract\.py/i);
+  assert.match(taskContract, /any change requires reassessment/i);
+  assert.match(readme, /Pi session and child handles adapter-owned[\s\S]*supported, unsupported, or unknown/i);
 });
 
 test("canonical contract path resolves relative to the loaded Pi skill", () => {

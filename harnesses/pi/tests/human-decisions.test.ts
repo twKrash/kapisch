@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -30,8 +31,18 @@ type PortableDecision = {
   approving_party?: string;
 };
 
-async function testAdapterDecision(directory: string, facts: Omit<PortableDecision, "decision_id">): Promise<PortableDecision> {
-  const decision = { decision_id: "test-adapter-decision", ...facts };
+// Independent reimplementation of the documented derivation: the id is the first
+// 16 bytes of sha256(identity + "\0" + question_id) as a version-5-shaped UUID.
+function portableDecisionId(identity: string, questionId: string): string {
+  const bytes = createHash("sha256").update(identity + "\0" + questionId).digest().subarray(0, 16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x50;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.toString("hex");
+  return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join("-");
+}
+
+async function testAdapterDecision(directory: string, facts: Omit<PortableDecision, "decision_id">, decisionId = "test-adapter-decision"): Promise<PortableDecision> {
+  const decision = { decision_id: decisionId, ...facts };
   await mkdir(directory, { recursive: true });
   await writeFile(join(directory, `${decision.decision_id}.json`), `${JSON.stringify(decision, null, 2)}\n`, { flag: "wx" });
   return decision;
@@ -272,6 +283,21 @@ test("repeated and concurrent delivery creates one immutable decision per reques
   assert.equal(await readFile(join(directory, filename), "utf8"), original);
 }));
 
+test("portable Run IDs own decision paths without entering decision identity", async () => temp(async (cwd) => {
+  const runId = "run-portable-01";
+  const f = fixture([assistant({ ...request, run_id: runId })], {
+    cwd,
+    sessionFile: join(cwd, "host-session-should-stay-adapter-only.jsonl"),
+  });
+  assert.deepEqual(await f.input({ text: "I approve." }, f.context), { action: "continue" });
+  const directory = join(cwd, ".kapisch", "runs", runId, "decisions");
+  const [filename] = await readdir(directory);
+  const decision = JSON.parse(await readFile(join(directory, filename), "utf8"));
+  assert.equal(decision.run_id, undefined);
+  assert.equal(decision.decision_id, portableDecisionId(runId, request.question_id));
+  assert.deepEqual(await readdir(join(cwd, ".kapisch", "runs")), [runId]);
+}));
+
 test("decision IDs stay unique across sessions for the same question ID", async () => temp(async (cwd) => {
   for (const session of ["session-1", "session-2"]) {
     const f = fixture([assistant()], { cwd, sessionFile: join(cwd, `${session}.jsonl`) });
@@ -345,22 +371,23 @@ test("Pi and host-independent test adapters preserve the same portable decision 
     source_ref: "wiki:release-decisions/M-42",
     approving_party: "Release Board",
   };
-  const testDirectory = join(cwd, ".kapisch", "runs", "test-adapter-run", "decisions");
-  const testDecision = await testAdapterDecision(testDirectory, facts);
-  assert.deepEqual(JSON.parse(await readFile(join(testDirectory, `${testDecision.decision_id}.json`), "utf8")), testDecision);
+  const runId = "shared-portable-run";
+  const directory = join(cwd, ".kapisch", "runs", runId, "decisions");
   const { answer, ...decisionRequest } = facts;
-  const f = fixture([assistant(decisionRequest)], { cwd, sessionFile: join(cwd, "session-pi.jsonl") });
+  const f = fixture([assistant({ ...decisionRequest, run_id: runId })], { cwd });
   assert.deepEqual(await f.input({ text: answer }, f.context), { action: "continue" });
-  const directory = join(cwd, ".kapisch", "runs", "session-pi", "decisions");
   const [filename] = await readdir(directory);
   const piDecision = JSON.parse(await readFile(join(directory, filename), "utf8")) as PortableDecision;
   const piSnapshot = structuredClone(piDecision);
-  const testSnapshot = structuredClone(testDecision);
-
+  await rm(join(directory, filename));
+  const derivedId = portableDecisionId(runId, facts.question_id);
+  assert.equal(piDecision.decision_id, derivedId);
+  const testDecision = await testAdapterDecision(directory, facts, derivedId);
   assert.deepEqual(portableDecisionFacts(piDecision), portableDecisionFacts(testDecision));
+  assert.equal(piDecision.decision_id, testDecision.decision_id);
   assert.equal("operator_label" in piDecision, false);
   assert.deepEqual(piDecision, piSnapshot);
-  assert.deepEqual(testDecision, testSnapshot);
+  assert.deepEqual(testDecision, { decision_id: piDecision.decision_id, ...facts });
 }));
 
 test("external-artifact decisions require a stable source reference", async () => temp(async (cwd) => {
@@ -380,6 +407,7 @@ test("request validation rejects malformed and duplicate selected token content"
     [codeToken("{bad}")],
     [codeToken(JSON.stringify({ question_id: "Q-1" }))],
     [codeToken(JSON.stringify({ ...request, unexpected: true }))],
+    [codeToken(JSON.stringify({ ...request, run_id: "../escape" }))],
     [codeToken(JSON.stringify({ ...request, source_kind: "reviewer" }))],
     [codeToken(JSON.stringify({ ...request, governing_inputs: [{ ref: "x", digest: "bad" }] }))],
     [codeToken(JSON.stringify(request)), codeToken(JSON.stringify(request))],
@@ -426,5 +454,46 @@ test("captures effective user input across supported Pi modes and preserves deci
     assert.equal(decision.source_ref, item.source_ref);
     assert.equal(decision.approving_party, item.approving_party);
     assert.equal("authorization_granted" in decision, false);
+  }
+}));
+
+
+test("portable decision lookup and write use the same Run directory", async () => temp(async (cwd) => {
+  const runId = "portable-run-lookup";
+  const session = "session-legacy";
+  const legacyDirectory = join(cwd, ".kapisch", "runs", session, "decisions");
+  await mkdir(legacyDirectory, { recursive: true });
+  await writeFile(join(legacyDirectory, "00000000-0000-4000-8000-000000000001.json"), JSON.stringify({ decision_id: "00000000-0000-4000-8000-000000000001", ...request, answer: "I approve." }));
+  const f = fixture([assistant({ ...request, run_id: runId })], { cwd, sessionFile: join(cwd, session + ".jsonl") });
+  assert.deepEqual(await f.input({ text: "I approve." }, f.context), { action: "continue" });
+  const portable = join(cwd, ".kapisch", "runs", runId, "decisions");
+  assert.equal((await readdir(portable)).length, 1);
+}));
+
+test("a portable repeated blank delivery uses the persisted portable decision", async () => temp(async (cwd) => {
+  const f = fixture([assistant({ ...request, run_id: "portable-blank" })], { cwd, sessionFile: join(cwd, "session-blank.jsonl") });
+  assert.deepEqual(await f.input({ text: "I approve." }, f.context), { action: "continue" });
+  assert.deepEqual(await f.input({ text: "" }, f.context), { action: "continue" });
+}));
+
+test("portable decisions do not require a persistent host session", async () => temp(async (cwd) => {
+  const runId = "portable-no-session";
+  const f = fixture([assistant({ ...request, run_id: runId })], { cwd, sessionFile: undefined });
+  assert.deepEqual(await f.input({ text: "I approve." }, f.context), { action: "continue" });
+  assert.equal((await readdir(join(cwd, ".kapisch", "runs", runId, "decisions"))).length, 1);
+}));
+
+test("a symlinked portable Run directory cannot write outside the project", async () => temp(async (cwd) => {
+  const outside = await mkdtemp(join(tmpdir(), "human-decision-outside-"));
+  try {
+    const runId = "portable-symlink";
+    const runs = join(cwd, ".kapisch", "runs");
+    await mkdir(runs, { recursive: true });
+    await (await import("node:fs/promises")).symlink(outside, join(runs, runId), "dir");
+    const f = fixture([assistant({ ...request, run_id: runId })], { cwd, sessionFile: join(cwd, "session-symlink.jsonl") });
+    assert.deepEqual(await f.input({ text: "I approve." }, f.context), { action: "handled" });
+    assert.deepEqual(await readdir(outside), []);
+  } finally {
+    await rm(outside, { recursive: true, force: true });
   }
 }));

@@ -1,11 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
-import { link, mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
-import { basename, extname, join } from "node:path";
+import { link, mkdir, readFile, readdir, realpath, unlink, writeFile } from "node:fs/promises";
+import { basename, dirname, extname, isAbsolute, join, relative } from "node:path";
 
 type SourceKind = "direct_operator" | "operator_reported_external" | "external_artifact";
 type DecisionType = "answer" | "correction" | "approval" | "risk_acceptance" | "external_effect_authorization";
 type DecisionRequest = {
   question_id: string;
+  run_id?: string;
   question: string;
   governing_inputs: Array<{ ref: string; digest: string }>;
   subject: string;
@@ -42,7 +43,7 @@ const markedLexer: DecisionLexer = async (text) => {
   return (await markedInstance).lexer(text);
 };
 const requiredFields = ["question_id", "question", "governing_inputs", "subject", "scope", "decision_type", "source_kind"];
-const optionalFields = ["source_ref", "approving_party"];
+const optionalFields = ["source_ref", "approving_party", "run_id"];
 
 type DecisionRequestLookup =
   | { kind: "none" }
@@ -67,12 +68,14 @@ function parseRequest(value: unknown): DecisionRequest | undefined {
     if (!isRecord(input) || Object.keys(input).length !== 2 || !isNonEmptyString(input.ref) || typeof input.digest !== "string" || !/^[0-9a-f]{64}$/.test(input.digest)) return;
     governingInputs.push({ ref: input.ref, digest: input.digest });
   }
+  if (value.run_id !== undefined && (typeof value.run_id !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(value.run_id))) return;
   for (const metadata of [value.source_ref, value.approving_party]) {
     if (metadata !== undefined && metadata !== null && !isNonEmptyString(metadata)) return;
   }
   if (value.source_kind === "external_artifact" && !isNonEmptyString(value.source_ref)) return;
   return {
     question_id: value.question_id,
+    ...(typeof value.run_id === "string" ? { run_id: value.run_id } : {}),
     question: value.question,
     governing_inputs: governingInputs,
     subject: value.subject,
@@ -159,33 +162,63 @@ async function existingDecision(directory: string, request: DecisionRequest): Pr
   return answers.size === 1;
 }
 
-function decisionId(sessionId: string, questionId: string): string {
-  const bytes = createHash("sha256").update(`${sessionId}\0${questionId}`).digest().subarray(0, 16);
+
+function decisionId(identity: string, questionId: string): string {
+  const bytes = createHash("sha256").update(identity + "\0" + questionId).digest().subarray(0, 16);
   bytes[6] = (bytes[6] & 0x0f) | 0x50;
   bytes[8] = (bytes[8] & 0x3f) | 0x80;
   const hex = bytes.toString("hex");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join("-");
 }
-
 // Sole HumanDecision producer at the Pi human input boundary; the controller binds, but does not recreate, this record.
-async function recordDecision(text: string, request: DecisionRequest, context: Context): Promise<boolean> {
+function decisionIdentity(request: DecisionRequest, context: Context): string | undefined {
+  if (request.run_id) return request.run_id;
   const sessionFile = context.sessionManager.getSessionFile();
   if (!sessionFile) {
     if (context.hasUI) context.ui.notify("HumanDecision capture requires a persistent Pi session; input was not processed.", "warning");
-    return false;
+    return;
   }
   const sessionId = basename(sessionFile, extname(sessionFile));
   if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) {
     if (context.hasUI) context.ui.notify("HumanDecision capture could not identify the Pi session; input was not processed.", "error");
-    return false;
+    return;
   }
+  return sessionId;
+}
 
-  const directory = join(context.cwd, ".kapisch", "runs", sessionId, "decisions");
+function isWithin(root: string, path: string): boolean {
+  const pathFromRoot = relative(root, path);
+  return pathFromRoot === "" || (!pathFromRoot.startsWith("..") && !isAbsolute(pathFromRoot));
+}
+
+async function decisionDirectory(cwd: string, identity: string): Promise<string> {
+  const root = await realpath(cwd);
+  const directory = join(root, ".kapisch", "runs", identity, "decisions");
+  let ancestor = directory;
+  while (true) {
+    try {
+      ancestor = await realpath(ancestor);
+      break;
+    } catch (error) {
+      if (!isRecord(error) || error.code !== "ENOENT") throw error;
+      const parent = dirname(ancestor);
+      if (parent === ancestor) throw error;
+      ancestor = parent;
+    }
+  }
+  if (!isWithin(root, ancestor)) throw new Error("decision directory escapes project root");
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  const resolved = await realpath(directory);
+  if (!isWithin(root, resolved)) throw new Error("decision directory escapes project root");
+  return resolved;
+}
+
+async function recordDecision(text: string, request: DecisionRequest, identity: string, directory: string): Promise<boolean> {
   const consumed = await existingDecision(directory, request);
   if (consumed !== false) return consumed === true;
 
   const decision = {
-    decision_id: decisionId(sessionId, request.question_id),
+    decision_id: decisionId(identity, request.question_id),
     question_id: request.question_id,
     question: request.question,
     governing_inputs: request.governing_inputs,
@@ -197,17 +230,15 @@ async function recordDecision(text: string, request: DecisionRequest, context: C
     ...(request.source_ref ? { source_ref: request.source_ref } : {}),
     ...(request.approving_party ? { approving_party: request.approving_party } : {}),
   };
-  const temporaryPath = join(directory, `.${randomUUID()}.tmp`);
+  const temporaryPath = join(directory, "." + randomUUID() + ".tmp");
   try {
-    await mkdir(directory, { recursive: true, mode: 0o700 });
-    await writeFile(temporaryPath, `${JSON.stringify(decision, null, 2)}\n`, { flag: "wx", mode: 0o600 });
-    await link(temporaryPath, join(directory, `${decision.decision_id}.json`));
+    await writeFile(temporaryPath, JSON.stringify(decision, null, 2) + "\n", { flag: "wx", mode: 0o600 });
+    await link(temporaryPath, join(directory, decision.decision_id + ".json"));
     await unlink(temporaryPath).catch(() => {});
     return true;
   } catch (error) {
     await unlink(temporaryPath).catch(() => {});
     if (isRecord(error) && error.code === "EEXIST") return await existingDecision(directory, request) === true;
-    if (context.hasUI) context.ui.notify("HumanDecision capture failed; no decision was recorded or processed. Retry the answer after storage is available.", "error");
     return false;
   }
 }
@@ -220,10 +251,16 @@ export default function registerHumanDecisions(pi: PiApi, lexer: DecisionLexer =
       if (context.hasUI) context.ui.notify("The decision request is invalid; input was not processed. Repair the request before proceeding.", "warning");
       return { action: "handled" };
     }
-    const sessionFile = context.sessionManager.getSessionFile();
-    if (!sessionFile) return { action: await recordDecision(event.text, pending.request, context) ? "continue" : "handled" };
-    const sessionId = basename(sessionFile, extname(sessionFile));
-    const consumed = await existingDecision(join(context.cwd, ".kapisch", "runs", sessionId, "decisions"), pending.request);
+    const identity = decisionIdentity(pending.request, context);
+    if (!identity) return { action: "handled" };
+    let directory: string;
+    try {
+      directory = await decisionDirectory(context.cwd, identity);
+    } catch {
+      if (context.hasUI) context.ui.notify("HumanDecision state could not be read or safely written; input was not processed.", "error");
+      return { action: "handled" };
+    }
+    const consumed = await existingDecision(directory, pending.request);
     if (consumed === true) return { action: "continue" };
     if (consumed === undefined) {
       if (context.hasUI) context.ui.notify("HumanDecision state could not be read; input was not processed.", "error");
@@ -233,7 +270,12 @@ export default function registerHumanDecisions(pi: PiApi, lexer: DecisionLexer =
       if (context.hasUI) context.ui.notify("A text answer is required for this pending decision request.", "warning");
       return { action: "handled" };
     }
-    return { action: await recordDecision(event.text, pending.request, context) ? "continue" : "handled" };
+    const stored = await recordDecision(event.text, pending.request, identity, directory);
+    if (!stored) {
+      if (context.hasUI) context.ui.notify("HumanDecision capture failed; no decision was recorded or processed. Retry after storage is available.", "error");
+      return { action: "handled" };
+    }
+    return { action: "continue" };
   });
   pi.registerCommand("kapisch-decision", {
     description: "Show how to answer the pending decision request",
