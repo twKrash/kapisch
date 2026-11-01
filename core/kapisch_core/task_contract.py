@@ -166,7 +166,7 @@ def claim_dispatch(
     capabilities: dict[str, dict[str, str]],
     canonical_implementer_available: bool,
 ) -> dict[str, Any]:
-    """Durably claim the sole attempt before invoking the host adapter."""
+    """Exclusively claim the sole attempt before invoking the host adapter."""
     records = validate_dispatch(
         root,
         run_ref,

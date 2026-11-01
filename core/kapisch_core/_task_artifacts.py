@@ -108,28 +108,14 @@ def _create_exclusive(root: Path, ref: str, record: dict[str, Any]) -> None:
     try:
         with os.fdopen(descriptor, "wb") as output:
             output.write(payload)
-            output.flush()
-            os.fsync(output.fileno())
     except OSError as exc:
-        # Remove the partial claim so a reported failure never leaves behind a
-        # claim that blocks every later dispatch of this Run. Cleanup failure
-        # must not replace the contract error with a raw filesystem error.
+        # Remove a partial claim; cleanup failure must not replace the contract
+        # error with a raw filesystem error.
         try:
             target.unlink(missing_ok=True)
         except OSError:
             pass
         raise ContractError("could not persist dispatch claim") from exc
-    # The claim file is already durable; directory sync only hardens the entry.
-    # Some filesystems reject fsync on directories, and reporting failure here
-    # would strand a claim that already exists and cannot be reclaimed.
-    try:
-        directory = os.open(parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
-    except OSError:
-        pass
 
 
 def _required_text(record: dict[str, Any], key: str, label: str) -> str:

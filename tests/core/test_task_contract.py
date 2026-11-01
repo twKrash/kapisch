@@ -1331,68 +1331,15 @@ def test_workorder_cannot_exceed_decided_subject_or_scope(tmp_path, field, value
         validate_run(tmp_path, RUN_REF)
 
 
-def test_directory_sync_failure_keeps_a_durable_claim(tmp_path):
+def test_claim_does_not_require_filesystem_sync(tmp_path):
     fixture(tmp_path)
     _reset_to_unclaimed(tmp_path)
-    real_fsync = os.fsync
-    calls = []
-
-    def flaky_fsync(descriptor):
-        calls.append(descriptor)
-        if len(calls) == 2:
-            raise OSError(22, "Invalid argument")
-        return real_fsync(descriptor)
-
-    with mock.patch("os.fsync", flaky_fsync):
-        task_contract.claim_dispatch(
+    with mock.patch("os.fsync", side_effect=OSError(22, "Invalid argument")):
+        claim = task_contract.claim_dispatch(
             tmp_path,
             RUN_REF,
             capabilities={"write": {"status": "supported", "reason": "available"}},
             canonical_implementer_available=False,
         )
+    assert claim["dispatch_claim"]["status"] == "claimed"
     assert (tmp_path / f"{RUN_DIR}/dispatch-claim.json").is_file()
-
-
-def test_failed_claim_write_leaves_no_claim_behind(tmp_path):
-    fixture(tmp_path)
-    _reset_to_unclaimed(tmp_path)
-
-    def failing_fsync(descriptor):
-        del descriptor
-        raise OSError(5, "Input/output error")
-
-    with mock.patch("os.fsync", failing_fsync):
-        with _raises(ContractError, match="could not persist dispatch claim"):
-            task_contract.claim_dispatch(
-                tmp_path,
-                RUN_REF,
-                capabilities={"write": {"status": "supported", "reason": "available"}},
-                canonical_implementer_available=False,
-            )
-    assert not (tmp_path / f"{RUN_DIR}/dispatch-claim.json").exists()
-
-    claimed = task_contract.claim_dispatch(
-        tmp_path,
-        RUN_REF,
-        capabilities={"write": {"status": "supported", "reason": "available"}},
-        canonical_implementer_available=False,
-    )
-    assert claimed["dispatch_claim"]["status"] == "claimed"
-
-
-def test_failed_claim_write_with_failing_cleanup_raises_contract_error(tmp_path):
-    fixture(tmp_path)
-    _reset_to_unclaimed(tmp_path)
-    with mock.patch("os.fsync", side_effect=OSError(5, "Input/output error")):
-        with mock.patch(
-            "pathlib.Path.unlink", side_effect=PermissionError(13, "Permission denied")
-        ):
-            with _raises(ContractError, match="could not persist dispatch claim"):
-                task_contract.claim_dispatch(
-                    tmp_path,
-                    RUN_REF,
-                    capabilities={
-                        "write": {"status": "supported", "reason": "available"}
-                    },
-                    canonical_implementer_available=False,
-                )
