@@ -87,7 +87,7 @@ test("one-task native worker exception has durable file authority and narrow pre
   assert.match(canonical, /advisory[\s\S]*persisted/i);
   assert.match(canonical, /fresh session[\s\S]*reread/i);
   assert.match(canonical, /never redispatch automatically/i);
-  assert.match(canonical, /task-first core slice supports one claimed attempt only[\s\S]*retries and checkpoints are out of scope[\s\S]*persisted dispatch claim blocks every redispatch/i);
+  assert.match(canonical, /task-first core slice supports one claimed attempt only[\s\S]*automatic retries and checkpoints are out of scope[\s\S]*surviving dispatch claim blocks redispatch[\s\S]*After interruption, reconcile before any explicitly authorized restart/i);
   assert.match(canonical, /current user prompt itself explicitly and unambiguously authorizes[\s\S]*coordinator must first persist exactly one immutable `HumanDecision`[\s\S]*before dispatch[\s\S]*do not create a second record or ask for another approval of the same scope/i);
   assert.match(canonical, /HumanDecision[\s\S]*decision_id[\s\S]*WorkOrder[\s\S]*applicability is assessed\s+separately/i);
   assert.match(canonical, /immutable source refs or digests[\s\S]*missing, stale, or mismatched[\s\S]*block continuation/i);
