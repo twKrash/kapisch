@@ -111,6 +111,8 @@ async function acceptWithAdapter(root: string, decision: Record<string, any>) {
     run_id: runId,
     workorder_ref: workRef,
     workorder_digest: workDigest,
+    dispatch_state: "ready",
+    advisory_review: { status: "not_run" },
     attempt_allocation: { attempt_id: attemptId, output_ref: outputRef },
   };
   await save(root, runRef, run);
@@ -120,6 +122,9 @@ async function acceptWithAdapter(root: string, decision: Record<string, any>) {
     "capabilities={'write': {'status': 'supported', 'reason': 'available'}}, " +
     "canonical_implementer_available=False)['attempt_allocation']))"));
   assert.equal(dispatch.attempt_id, attemptId);
+  const persistedRun = JSON.parse(await readFile(join(root, runRef), "utf8"));
+  assert.equal(persistedRun.dispatch_state, "claimed");
+  Object.assign(run, persistedRun);
   const outputDigest = await save(root, outputRef, { evidence: "test adapter completed the task" });
   const attemptRef = runDir + "/attempts/" + attemptId + ".json";
   const attempt = {

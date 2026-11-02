@@ -10,6 +10,7 @@ from ._task_artifacts import (
     _create_exclusive,
     _load,
     _read_bytes,
+    _replace_json_atomically,
     _required_id,
     _required_text,
 )
@@ -30,6 +31,12 @@ def validate_run(
     """Load persisted Run, WorkOrder, and authority evidence from disk."""
     base = Path(root).resolve()
     run = _load(base, run_ref, run_digest, require_digest=False)
+    dispatch_state = run.get("dispatch_state")
+    if not isinstance(dispatch_state, str) or dispatch_state not in (
+        "ready",
+        "claimed",
+    ):
+        raise ContractError("invalid persisted dispatch state")
     run_directory = _run_directory(run, run_ref)
     workorder_ref = _required_text(run, "workorder_ref", "WorkOrder reference")
     if workorder_ref != run_directory + "/workorder.json":
@@ -87,6 +94,8 @@ def _validate_dispatch_claim(
         raise ContractError("dispatch claim is missing or invalid") from exc
     if claim != _dispatch_claim_record(run_ref, records):
         raise ContractError("dispatch claim does not match this WorkOrder allocation")
+    if records["run"].get("dispatch_state") != "claimed":
+        raise ContractError("persisted dispatch boundary is missing")
     return claim
 
 
@@ -111,6 +120,10 @@ def validate_dispatch(
         )
     run = records["run"]
     claim_ref = _dispatch_claim_ref(run_ref)
+    if run["dispatch_state"] != "ready":
+        raise ContractError(
+            "dispatch claim already exists or allocation was consumed; automatic redispatch is forbidden"
+        )
     claim_path = (Path(root).resolve() / claim_ref).resolve()
     if not claim_path.is_relative_to(Path(root).resolve()):
         raise ContractError("dispatch claim escapes project root")
@@ -173,8 +186,11 @@ def claim_dispatch(
         capabilities=capabilities,
         canonical_implementer_available=canonical_implementer_available,
     )
+    base = Path(root).resolve()
     claim = _dispatch_claim_record(run_ref, records)
-    _create_exclusive(Path(root).resolve(), _dispatch_claim_ref(run_ref), claim)
+    _create_exclusive(base, _dispatch_claim_ref(run_ref), claim)
+    records["run"]["dispatch_state"] = "claimed"
+    _replace_json_atomically(base, run_ref, records["run"])
     return {**records, "dispatch_claim": claim}
 
 
@@ -264,6 +280,29 @@ def _validate_attempt_report(
     return attempt_id, output_ref
 
 
+def _advisory_review_outcome(run: dict[str, Any], attempt_id: str) -> dict[str, str]:
+    review = run.get("advisory_review", {"status": "not_run"})
+    if not isinstance(review, dict):
+        raise ContractError("invalid advisory review metadata")
+    if review == {"status": "not_run"}:
+        return {"status": "not_run"}
+    if review.get("status") != "performed":
+        raise ContractError("invalid advisory review metadata")
+    expected = {
+        "status": "performed",
+        "workorder_ref": run["workorder_ref"],
+        "workorder_digest": run["workorder_digest"],
+        "attempt_ref": run["attempt_ref"],
+        "attempt_id": attempt_id,
+        "attempt_digest": run["attempt_digest"],
+    }
+    if review != expected:
+        raise ContractError(
+            "advisory review is not bound to this WorkOrder and Attempt"
+        )
+    return expected
+
+
 def _make_outcome(
     run_ref: str,
     records: dict[str, Any],
@@ -319,6 +358,7 @@ def _make_outcome(
             "coverage": report["coverage"],
             "acceptance_criteria": report["acceptance_criteria"],
         },
+        "advisory_review": _advisory_review_outcome(run, attempt_id),
     }
 
 

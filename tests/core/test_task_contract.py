@@ -17,6 +17,7 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
+from threading import Event, current_thread
 from unittest import mock
 
 from kapisch_core import task_contract
@@ -101,6 +102,7 @@ def _reset_to_unclaimed(tmp_path):
         "outcome_digest",
     ):
         run.pop(key, None)
+    run["dispatch_state"] = "ready"
     run_path.write_text(json.dumps(run, sort_keys=True))
     for ref in (
         "attempts/a1.json",
@@ -189,6 +191,8 @@ def fixture(tmp_path):
         "run_id": "r1",
         "workorder_ref": work_ref,
         "workorder_digest": work_digest,
+        "dispatch_state": "ready",
+        "advisory_review": {"status": "not_run"},
         "attempt_allocation": {
             "attempt_id": "a1",
             "output_ref": f"{RUN_DIR}/attempts/a1-output.json",
@@ -201,7 +205,10 @@ def fixture(tmp_path):
         capabilities={"write": {"status": "supported", "reason": "available"}},
         canonical_implementer_available=False,
     )
+    run = json.loads((tmp_path / RUN_REF).read_text())
+    assert run["dispatch_state"] == "claimed"
     output_ref = f"{RUN_DIR}/attempts/a1-output.json"
+
     (tmp_path / output_ref).parent.mkdir(parents=True, exist_ok=True)
     (tmp_path / output_ref).write_text('{"evidence": "passed"}')
     output_digest = hashlib.sha256((tmp_path / output_ref).read_bytes()).hexdigest()
@@ -318,6 +325,7 @@ def test_persisted_files_reconstruct_acceptance(tmp_path):
             "coverage": ["t1"],
             "acceptance_criteria": ["produced valid evidence for the scoped change"],
         },
+        "advisory_review": {"status": "not_run"},
     }
     assert (
         validate_acceptance(
@@ -545,6 +553,7 @@ def test_capability_gaps_block_before_attempt_creation(tmp_path, status):
         "aggregation_digest",
     ):
         run.pop(key)
+    run["dispatch_state"] = "ready"
     run_path.write_text(json.dumps(run, sort_keys=True))
     (tmp_path / f"{RUN_DIR}/attempts/a1.json").unlink()
     (tmp_path / f"{RUN_DIR}/aggregation.json").unlink()
@@ -572,6 +581,7 @@ def test_authorized_host_fallback_requires_canonical_implementer_unavailable(tmp
         "aggregation_digest",
     ):
         run.pop(key)
+    run["dispatch_state"] = "ready"
     run_path.write_text(json.dumps(run, sort_keys=True))
     (tmp_path / RUN_DIR / "dispatch-claim.json").unlink()
     with _raises(ContractError, match="canonical implementer"):
@@ -652,6 +662,10 @@ def test_external_artifact_decision_requires_stable_source_reference(tmp_path):
 
 def test_outcome_is_persisted_and_reconstructed_in_a_fresh_process(tmp_path):
     fixture(tmp_path)
+    run_path = tmp_path / RUN_REF
+    run = json.loads(run_path.read_text())
+    del run["advisory_review"]
+    run_path.write_text(json.dumps(run, sort_keys=True))
     expected = validate_acceptance(
         tmp_path,
         RUN_REF,
@@ -659,6 +673,7 @@ def test_outcome_is_persisted_and_reconstructed_in_a_fresh_process(tmp_path):
             "write": {"status": "supported", "reason": "test adapter write support"}
         },
     )
+    assert expected["advisory_review"] == {"status": "not_run"}
     outcome_ref = f"{RUN_DIR}/outcome.json"
     outcome_path = tmp_path / outcome_ref
     outcome_path.write_text(json.dumps(expected, sort_keys=True))
@@ -679,6 +694,116 @@ def test_outcome_is_persisted_and_reconstructed_in_a_fresh_process(tmp_path):
         text=True,
     )
     assert json.loads(result.stdout) == expected
+
+
+def test_performed_advisory_review_is_persisted_and_reconstructed(tmp_path):
+    fixture(tmp_path)
+    run_path = tmp_path / RUN_REF
+    run = json.loads(run_path.read_text())
+    attempt = json.loads((tmp_path / run["attempt_ref"]).read_text())
+    run["advisory_review"] = {
+        "status": "performed",
+        "workorder_ref": run["workorder_ref"],
+        "workorder_digest": run["workorder_digest"],
+        "attempt_ref": run["attempt_ref"],
+        "attempt_id": attempt["attempt_id"],
+        "attempt_digest": run["attempt_digest"],
+    }
+    run_path.write_text(json.dumps(run, sort_keys=True))
+
+    expected = validate_acceptance(
+        tmp_path,
+        RUN_REF,
+        capabilities={"write": {"status": "supported", "reason": "available"}},
+    )
+    assert expected["advisory_review"] == run["advisory_review"]
+    outcome_ref = f"{RUN_DIR}/outcome.json"
+    outcome_path = tmp_path / outcome_ref
+    outcome_path.write_text(json.dumps(expected, sort_keys=True))
+    run["outcome_ref"] = outcome_ref
+    run["outcome_digest"] = hashlib.sha256(outcome_path.read_bytes()).hexdigest()
+    run_path.write_text(json.dumps(run, sort_keys=True))
+
+    script = (
+        "import json, sys; from kapisch_core.task_contract import validate_outcome; "
+        "print(json.dumps(validate_outcome(sys.argv[1], sys.argv[2], "
+        "capabilities={'write': {'status': 'supported', 'reason': 'restart'}}), sort_keys=True))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(tmp_path), RUN_REF],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert json.loads(result.stdout) == expected
+
+
+@_params(
+    "advisory_review",
+    [
+        None,
+        [],
+        {"status": "unknown"},
+        {"status": "not_run", "attempt_id": "a1"},
+        {"status": "performed"},
+        {
+            "status": "performed",
+            "workorder_ref": "other/workorder.json",
+            "workorder_digest": "0" * 64,
+            "attempt_ref": "other/attempt.json",
+            "attempt_id": "other",
+            "attempt_digest": "0" * 64,
+        },
+    ],
+)
+def test_advisory_review_metadata_must_be_valid_and_bound(tmp_path, advisory_review):
+    fixture(tmp_path)
+    run_path = tmp_path / RUN_REF
+    run = json.loads(run_path.read_text())
+    run["advisory_review"] = advisory_review
+    run_path.write_text(json.dumps(run, sort_keys=True))
+
+    with _raises(ContractError, match="advisory review"):
+        validate_acceptance(
+            tmp_path,
+            RUN_REF,
+            capabilities={"write": {"status": "supported", "reason": "available"}},
+        )
+
+
+def test_persisted_outcome_rejects_rebound_advisory_review(tmp_path):
+    fixture(tmp_path)
+    run_path = tmp_path / RUN_REF
+    run = json.loads(run_path.read_text())
+    attempt = json.loads((tmp_path / run["attempt_ref"]).read_text())
+    run["advisory_review"] = {
+        "status": "performed",
+        "workorder_ref": run["workorder_ref"],
+        "workorder_digest": run["workorder_digest"],
+        "attempt_ref": run["attempt_ref"],
+        "attempt_id": attempt["attempt_id"],
+        "attempt_digest": run["attempt_digest"],
+    }
+    run_path.write_text(json.dumps(run, sort_keys=True))
+    outcome = validate_acceptance(
+        tmp_path,
+        RUN_REF,
+        capabilities={"write": {"status": "supported", "reason": "available"}},
+    )
+    outcome["advisory_review"]["attempt_id"] = "rebound"
+    outcome_ref = f"{RUN_DIR}/outcome.json"
+    outcome_path = tmp_path / outcome_ref
+    outcome_path.write_text(json.dumps(outcome, sort_keys=True))
+    run["outcome_ref"] = outcome_ref
+    run["outcome_digest"] = hashlib.sha256(outcome_path.read_bytes()).hexdigest()
+    run_path.write_text(json.dumps(run, sort_keys=True))
+
+    with _raises(ContractError, match="persisted Outcome does not match"):
+        task_contract.validate_outcome(
+            tmp_path,
+            RUN_REF,
+            capabilities={"write": {"status": "supported", "reason": "fresh process"}},
+        )
 
 
 def test_host_native_fallback_requires_persisted_explicit_authorization(tmp_path):
@@ -756,6 +881,7 @@ def test_dispatch_rejects_preexisting_attempt_allocation(tmp_path):
         "aggregation_digest",
     ):
         run.pop(key)
+    run["dispatch_state"] = "ready"
     run_path.write_text(json.dumps(run, sort_keys=True))
     (tmp_path / RUN_DIR / "dispatch-claim.json").unlink()
     (tmp_path / f"{RUN_DIR}/attempts/a1-output.json").unlink()
@@ -946,6 +1072,7 @@ def test_dispatch_rejects_malformed_or_unsupported_capability_status(tmp_path, s
         "outcome_digest",
     ):
         run.pop(key, None)
+    run["dispatch_state"] = "ready"
     run_path.write_text(json.dumps(run, sort_keys=True))
     for ref in (
         "attempts/a1.json",
@@ -992,6 +1119,7 @@ def test_dispatch_claim_blocks_restart_before_collection(tmp_path):
         "outcome_digest",
     ):
         run.pop(key, None)
+    run["dispatch_state"] = "ready"
     run_path.write_text(json.dumps(run, sort_keys=True))
     for ref in (
         "attempts/a1.json",
@@ -1041,6 +1169,224 @@ else:
         )
 
 
+def test_lost_dispatch_claim_does_not_reenable_allocation_after_restart(tmp_path):
+    fixture(tmp_path)
+    _reset_to_unclaimed(tmp_path)
+    task_contract.claim_dispatch(
+        tmp_path,
+        RUN_REF,
+        capabilities={"write": {"status": "supported", "reason": "available"}},
+        canonical_implementer_available=False,
+    )
+    run_path = tmp_path / RUN_REF
+    run = json.loads(run_path.read_text())
+    assert run["dispatch_state"] == "claimed"
+    (tmp_path / RUN_DIR / "dispatch-claim.json").unlink()
+    assert not (tmp_path / f"{RUN_DIR}/attempts/a1.json").exists()
+    assert not (tmp_path / f"{RUN_DIR}/attempts/a1-output.json").exists()
+
+    script = """
+import sys
+from kapisch_core.task_contract import ContractError, validate_dispatch
+try:
+    validate_dispatch(sys.argv[1], sys.argv[2], capabilities={"write":{"status":"supported","reason":"restart"}}, canonical_implementer_available=False)
+except ContractError as exc:
+    print(type(exc).__name__ + ": " + str(exc))
+else:
+    raise SystemExit(1)
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(tmp_path), RUN_REF],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONPATH": "core"},
+    )
+    assert "consumed" in result.stdout
+
+
+def test_dispatch_state_write_failure_keeps_claim_and_blocks_restart(tmp_path):
+    fixture(tmp_path)
+    _reset_to_unclaimed(tmp_path)
+    with mock.patch(
+        "kapisch_core._task_artifacts.os.replace",
+        side_effect=OSError("injected Run replacement failure"),
+    ):
+        with _raises(ContractError, match="could not persist dispatch boundary"):
+            task_contract.claim_dispatch(
+                tmp_path,
+                RUN_REF,
+                capabilities={"write": {"status": "supported", "reason": "available"}},
+                canonical_implementer_available=False,
+            )
+
+    run = json.loads((tmp_path / RUN_REF).read_text())
+    assert run["dispatch_state"] == "ready"
+    assert (tmp_path / RUN_DIR / "dispatch-claim.json").is_file()
+    with _raises(ContractError, match="dispatch claim already exists"):
+        task_contract.validate_dispatch(
+            tmp_path,
+            RUN_REF,
+            capabilities={"write": {"status": "supported", "reason": "restart"}},
+            canonical_implementer_available=False,
+        )
+
+
+@_params("dispatch_state", [None, True, False, 0, [], {}, "unknown"])
+def test_malformed_dispatch_state_fails_closed(tmp_path, dispatch_state):
+    fixture(tmp_path)
+    run_path = tmp_path / RUN_REF
+    run = json.loads(run_path.read_text())
+    run["dispatch_state"] = dispatch_state
+    run_path.write_text(json.dumps(run, sort_keys=True))
+
+    with _raises(ContractError, match="invalid persisted dispatch state"):
+        task_contract.validate_dispatch(
+            tmp_path,
+            RUN_REF,
+            capabilities={"write": {"status": "supported", "reason": "restart"}},
+            canonical_implementer_available=False,
+        )
+
+
+def test_missing_dispatch_state_fails_closed(tmp_path):
+    fixture(tmp_path)
+    run_path = _reset_to_unclaimed(tmp_path)
+    run = json.loads(run_path.read_text())
+    del run["dispatch_state"]
+    run_path.write_text(json.dumps(run, sort_keys=True))
+
+    with _raises(ContractError, match="invalid persisted dispatch state"):
+        task_contract.validate_dispatch(
+            tmp_path,
+            RUN_REF,
+            capabilities={"write": {"status": "supported", "reason": "restart"}},
+            canonical_implementer_available=False,
+        )
+
+
+def test_claim_creation_failure_does_not_consume_allocation(tmp_path):
+    fixture(tmp_path)
+    _reset_to_unclaimed(tmp_path)
+    with mock.patch(
+        "kapisch_core.task_contract._create_exclusive",
+        side_effect=ContractError("injected claim write failure"),
+    ):
+        with _raises(ContractError, match="injected claim write failure"):
+            task_contract.claim_dispatch(
+                tmp_path,
+                RUN_REF,
+                capabilities={"write": {"status": "supported", "reason": "available"}},
+                canonical_implementer_available=False,
+            )
+
+    run = json.loads((tmp_path / RUN_REF).read_text())
+    assert run["dispatch_state"] == "ready"
+    assert not (tmp_path / RUN_DIR / "dispatch-claim.json").exists()
+    claim = task_contract.claim_dispatch(
+        tmp_path,
+        RUN_REF,
+        capabilities={"write": {"status": "supported", "reason": "available"}},
+        canonical_implementer_available=False,
+    )
+    assert claim["dispatch_claim"]["status"] == "claimed"
+
+
+def test_losing_claimant_cannot_overwrite_published_outcome(tmp_path):
+    fixture(tmp_path)
+    artifact_refs = (
+        "attempts/a1-output.json",
+        "attempts/a1.json",
+        "aggregation.json",
+    )
+    artifacts = {ref: (tmp_path / RUN_DIR / ref).read_bytes() for ref in artifact_refs}
+    run_path = _reset_to_unclaimed(tmp_path)
+    preflight_complete = Event()
+    release_loser = Event()
+    original_validate_dispatch = task_contract.validate_dispatch
+
+    def delayed_preflight(*args, **kwargs):
+        records = original_validate_dispatch(*args, **kwargs)
+        if current_thread().name.startswith("stale-claim"):
+            preflight_complete.set()
+            if not release_loser.wait(timeout=5):
+                raise AssertionError("timed out waiting to release stale claimant")
+        return records
+
+    with mock.patch.object(task_contract, "validate_dispatch", delayed_preflight):
+        with ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="stale-claim"
+        ) as pool:
+            loser = pool.submit(
+                task_contract.claim_dispatch,
+                tmp_path,
+                RUN_REF,
+                capabilities={"write": {"status": "supported", "reason": "available"}},
+                canonical_implementer_available=False,
+            )
+            try:
+                assert preflight_complete.wait(timeout=5)
+                task_contract.claim_dispatch(
+                    tmp_path,
+                    RUN_REF,
+                    capabilities={
+                        "write": {"status": "supported", "reason": "available"}
+                    },
+                    canonical_implementer_available=False,
+                )
+                run = json.loads(run_path.read_text())
+                for ref, content in artifacts.items():
+                    (tmp_path / RUN_DIR / ref).write_bytes(content)
+                attempt_ref = f"{RUN_DIR}/attempts/a1.json"
+                aggregation_ref = f"{RUN_DIR}/aggregation.json"
+                run.update(
+                    attempt_ref=attempt_ref,
+                    attempt_digest=hashlib.sha256(
+                        (tmp_path / attempt_ref).read_bytes()
+                    ).hexdigest(),
+                    aggregation_ref=aggregation_ref,
+                    aggregation_digest=hashlib.sha256(
+                        (tmp_path / aggregation_ref).read_bytes()
+                    ).hexdigest(),
+                )
+                run_path.write_text(json.dumps(run, sort_keys=True))
+                outcome = validate_acceptance(
+                    tmp_path,
+                    RUN_REF,
+                    capabilities={
+                        "write": {"status": "supported", "reason": "available"}
+                    },
+                )
+                outcome_ref = f"{RUN_DIR}/outcome.json"
+                outcome_path = tmp_path / outcome_ref
+                outcome_path.write_text(json.dumps(outcome, sort_keys=True))
+                run["outcome_ref"] = outcome_ref
+                run["outcome_digest"] = hashlib.sha256(
+                    outcome_path.read_bytes()
+                ).hexdigest()
+                run_path.write_text(json.dumps(run, sort_keys=True))
+                published_run = run_path.read_bytes()
+            finally:
+                release_loser.set()
+
+            with _raises(ContractError, match="dispatch claim already exists"):
+                loser.result(timeout=5)
+
+    assert run_path.read_bytes() == published_run
+    script = (
+        "import json, sys; from kapisch_core.task_contract import validate_outcome; "
+        "print(json.dumps(validate_outcome(sys.argv[1], sys.argv[2], "
+        "capabilities={'write': {'status': 'supported', 'reason': 'restart'}}), sort_keys=True))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(tmp_path), RUN_REF],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert json.loads(result.stdout) == outcome
+
+
 def test_concurrent_dispatch_claims_allow_only_one_process(tmp_path):
     fixture(tmp_path)
     run_path = tmp_path / RUN_REF
@@ -1054,6 +1400,7 @@ def test_concurrent_dispatch_claims_allow_only_one_process(tmp_path):
         "outcome_digest",
     ):
         run.pop(key, None)
+    run["dispatch_state"] = "ready"
     run_path.write_text(json.dumps(run, sort_keys=True))
     for ref in (
         "attempts/a1.json",
@@ -1331,10 +1678,10 @@ def test_workorder_cannot_exceed_decided_subject_or_scope(tmp_path, field, value
         validate_run(tmp_path, RUN_REF)
 
 
-def test_claim_does_not_require_filesystem_sync(tmp_path):
+def test_dispatch_boundary_does_not_require_filesystem_sync(tmp_path):
     fixture(tmp_path)
     _reset_to_unclaimed(tmp_path)
-    with mock.patch("os.fsync", side_effect=OSError(22, "Invalid argument")):
+    with mock.patch("os.fsync", side_effect=OSError(22, "Invalid argument")) as fsync:
         claim = task_contract.claim_dispatch(
             tmp_path,
             RUN_REF,
@@ -1343,3 +1690,4 @@ def test_claim_does_not_require_filesystem_sync(tmp_path):
         )
     assert claim["dispatch_claim"]["status"] == "claimed"
     assert (tmp_path / f"{RUN_DIR}/dispatch-claim.json").is_file()
+    assert not fsync.called

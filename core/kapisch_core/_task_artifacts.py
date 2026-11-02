@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -116,6 +117,38 @@ def _create_exclusive(root: Path, ref: str, record: dict[str, Any]) -> None:
         except OSError:
             pass
         raise ContractError("could not persist dispatch claim") from exc
+
+
+def _replace_json_atomically(root: Path, ref: str, record: dict[str, Any]) -> None:
+    if not isinstance(ref, str) or not _REF.fullmatch(ref) or ".." in ref.split("/"):
+        raise ContractError("malformed portable reference")
+    parts = ref.split("/")
+    parent = (root / Path(*parts[:-1])).resolve()
+    if not parent.is_relative_to(root):
+        raise ContractError("portable reference escapes project root")
+    target = parent / parts[-1]
+    if target.is_symlink() or not target.is_file():
+        raise ContractError("mutable artifact is missing or is a symlink")
+
+    payload = (
+        json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n"
+    ).encode()
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb", dir=parent, prefix=f".{target.name}.", delete=False
+        ) as output:
+            temporary_path = Path(output.name)
+            output.write(payload)
+        os.replace(temporary_path, target)
+    except OSError as exc:
+        raise ContractError("could not persist dispatch boundary") from exc
+    finally:
+        if temporary_path is not None:
+            try:
+                temporary_path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 def _required_text(record: dict[str, Any], key: str, label: str) -> str:
