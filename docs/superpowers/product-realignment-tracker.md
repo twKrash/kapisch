@@ -26,25 +26,27 @@ not establish the canonical-implementer-unavailable condition for native-worker
 fallback, exercise Git-bound governing-input refs, resume from persisted state, or
 compare equivalent WorkOrders across adapters. Do not treat it as full acceptance.
 
-Last updated: GitHub state was read immediately after the implementation push and before this tracker-only follow-up. At that read, PR #85 was open and non-draft at remote head `490cc99b2ed5ea8b334eab496ada8f2de0521d5c`; four check runs were in progress, and the latest formal review remained `CHANGES_REQUESTED` on `816abdb2827b166e609a03d9ed3a5a5b683a19fd`. Its recorded base is `c259d28363d862976f9c980a71faaee8a14a3895`. The implementation was pushed; this tracker-only follow-up is a separate commit and triggers fresh checks. An aligned local Pi worker smoke at `.kapisch/runs/task-first-real-worker-smoke-2026-11-02-workorder-1/` used the tracked integration fixture's exact WorkOrder and decision identity and matched all nine persisted artifacts byte-for-byte with the deterministic adapter, including fresh-process reconstruction. A separate synthetic direct-prompt coordinator preflight is recorded below; neither local smoke is CI or real-user approval. Update this file when a slice changes state; never infer state from it.
+Last updated: GitHub state checked 2026-11-02. PR #85 is open and non-draft at head `1d86f83ef305f6cd4a16d7fb77d6838467ed28b7`, with four successful check runs; the latest formal review remains `CHANGES_REQUESTED` on `816abdb2827b166e609a03d9ed3a5a5b683a19fd`. The review reassessment is recorded in [PR comment #6590462154](https://github.com/twKrash/kapisch/pull/85#issuecomment-6590462154); Finding 3's deferral is recorded in [PR comment #6590593116](https://github.com/twKrash/kapisch/pull/85#issuecomment-6590593116). Findings 1 and 2 are superseded by current code, subject to the documented power-loss/storage-rollback limitation for finding 1. Finding 3 remains open and is deferred to a dedicated Pi harness-integration follow-up; AC7 remains partial. An aligned local Pi worker smoke at `.kapisch/runs/task-first-real-worker-smoke-2026-11-02-workorder-1/` used the tracked integration fixture's exact WorkOrder and decision identity and matched all nine persisted artifacts byte-for-byte with the deterministic adapter, including fresh-process reconstruction. A separate synthetic direct-prompt coordinator preflight is recorded below; neither local smoke is CI or real-user approval. Update this file when a slice changes state; never infer state from it.
 
 ## At a glance
 
 - **Finished (implemented):** advisory and standalone review remain graph-free; the
   bounded one-task Pi-host execution contract and validation are locally implemented.
 - **Current slice:** Pi pending-request HumanDecision capture and one-task WorkOrder acceptance have tracked tests. The aligned local real-Pi worker smoke at `.kapisch/runs/task-first-real-worker-smoke-2026-11-02-workorder-1/` used the tracked fixture's exact `workorder-1` and decision identity, validated the Git-bound input and persisted claim, matched all nine persisted artifacts byte-for-byte with the deterministic adapter, and passed fresh-process reconstruction. A separate synthetic direct-prompt coordinator smoke persisted one exact-prompt `direct_operator` decision and bound WorkOrder, then passed fresh-process dispatch validation without starting a worker. Both are local manual evidence, not CI or real-user approval; broader source/applicability coverage, interrupted resume, and multi-task acceptance remain unverified. The extension remains the producer for pending-request answers, while the coordinator owns direct-prompt records.
-- **Submitted:** PR [#85](https://github.com/twKrash/kapisch/pull/85) is open, not draft; implementation commit `490cc99` was pushed, and four check runs were in progress at the latest read. The latest formal review remains `CHANGES_REQUESTED` on `816abdb`. PR #84 is merged.
+- **Submitted:** PR [#85](https://github.com/twKrash/kapisch/pull/85) is open, not draft, at head `1d86f83`; all four check runs pass. The latest formal review remains `CHANGES_REQUESTED` on `816abdb`; the current reassessment is in [PR comment #6590462154](https://github.com/twKrash/kapisch/pull/85#issuecomment-6590462154). PR #84 is merged.
 - **Historical verification:** one-task candidate path, local run, implementation-commit
   CI and test evidence at `8ed3f85`; superseded where it claimed Pi decision capture.
-- **Current status:** tracked one-task acceptance and comparison tests exist, and the aligned local real-worker smoke matched the deterministic adapter for the exact same WorkOrder and passed fresh-process Outcome reconstruction. The implementation is pushed as `490cc99`; four check runs were in progress at the latest GitHub read, while the latest formal review remains `CHANGES_REQUESTED` on `816abdb`. The direct-prompt synthetic preflight is manual evidence only. Interrupted resume, scope-change reassessment, broader source coverage, and multi-task behavior remain unverified.
+- **Current status:** tracked one-task contract tests and the aligned local real-worker smoke exist. Oracle assessment finds review findings 1 and 2 superseded by current code, with the known storage-rollback qualification for finding 1. Finding 3 remains valid for tracked acceptance and is deferred to a dedicated Pi harness-integration follow-up; AC7 remains partial. PR #85 is at `1d86f83` with four successful checks; formal review status remains `CHANGES_REQUESTED` on `816abdb`. The direct-prompt synthetic preflight is manual evidence only. Interrupted resume, scope-change reassessment, broader source coverage, and multi-task behavior remain unverified.
 - **Remaining:** all 11 specification acceptance criteria are partial or unmet.
 - **Review history:** the earlier K84-010 WorkOrder-binding finding was fixed with a regression assertion. The requested bounded standalone review of this seven-file docs/test delta found one confirmed P3 (K84-WT-001): assertions rejected equivalent Markdown line wrapping. The tests now normalize whitespace and test wrapped prose while retaining decision-binding and before-dispatch checks. The reviewer found no other diff-causal findings; this earlier review was not rerun after the fix and was not formal GitHub review approval.
 - **Latest formal review:** The older P1 persisted-answer-consumption finding and K84-IND-001 (P2), raised against `1cbc5ac`, are fixed; both GitHub review threads are resolved. K84-IND-001 was fixed in PR head `c5c1457`, and the standalone reviewer re-reviewed that change with no new findings.
-- **Blocked:** interrupted resume and full product acceptance remain open. Tracked task-first tests cover Git-bound input freshness and same-WorkOrder comparison; the latest review requests changes on `816abdb`, and check runs were in progress on pushed head `490cc99`. The local real-worker smoke is not a CI check.
-- **Next slice:** run CI and independent review for the local task-first delta, then
-  expand direct-path source/applicability coverage and interrupted resume. Keep
-  multi-task scheduling, review gates, and remote-effect reconciliation in their
-  separate workstreams.
+- **Blocked:** interrupted resume and full product acceptance remain open. Finding 3 is intentionally deferred to dedicated Pi harness integration; the tracked test is synthetic, so AC7 remains partial. The latest formal review still requests changes on `816abdb`; the reassessment comment asks the reviewer to reevaluate findings 1 and 2 against current code. The local real-worker smoke is not a CI check.
+- **Next slice:** dedicated Pi harness integration for deferred Finding 3: exercise the
+  same WorkOrder through real capability probing and start/collect, compare normalized
+  results with the deterministic adapter, and verify unsupported/unknown/unproven
+  capabilities block start. Keep AC7 partial until that tracked acceptance passes; then
+  expand direct-path source/applicability coverage and interrupted resume. Keep multi-task
+  scheduling, review gates, and remote-effect reconciliation in separate workstreams.
 - **Overall realignment: NOT complete.**
 
 ## Status semantics
@@ -68,9 +70,9 @@ evidence. A WorkOrder `Outcome` marked complete covers its stated scope only.
 | ID | Objective | Depends on | Acceptance criteria | Status | Delivery | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
 | WS-0 | Advisory and standalone review stay first-class and graph-free | — | AC11: no WorkOrder, DAG, implementation authorization, or review gate; findings only | `IMPLEMENTED / AWAITING REVIEW` | Merged on `main`; preserved by PR #84 | `SKILL.md` advisory/review sections, `request-normalization.md`, `review.md`; no tracked test asserts the graph-free, no-gate property |
-| WS-1 | First bounded one-task Pi-host slice (`WO-2026-10-26-PI-01/T01`): direct decision → WorkOrder → attempt → aggregation → Outcome → handoff | — | Durable one-task records; retry uses fresh attempt IDs and preserves prior work; review is advisory findings-only; fresh-session reconstruction | `PARTIAL / IN PROGRESS` | PR [#85](https://github.com/twKrash/kapisch/pull/85) open | Tracked tests cover one-task authorization and Attempt/report/Outcome reconstruction. A local real Pi worker smoke used Git-bound inputs and the same WorkOrder/decision identity as the test fixture, matched the deterministic adapter Outcome, and validated it from a fresh process. Retry and interrupted resume remain outside this slice. The last successful PR #85 checks were at `816abdb`; check runs on pushed head `490cc99` were in progress, and review requests changes. The manual smoke itself is not CI evidence. K84-IND-001 was fixed in `c5c1457` and re-reviewed with no new findings. |
+| WS-1 | First bounded one-task Pi-host slice (`WO-2026-10-26-PI-01/T01`): direct decision → WorkOrder → attempt → aggregation → Outcome → handoff | — | Durable one-task records; retry uses fresh attempt IDs and preserves prior work; review is advisory findings-only; fresh-session reconstruction | `PARTIAL / IN PROGRESS` | PR [#85](https://github.com/twKrash/kapisch/pull/85) open | Tracked tests cover one-task authorization and Attempt/report/Outcome reconstruction. A local real Pi worker smoke used Git-bound inputs and the same WorkOrder/decision identity as the test fixture, matched the deterministic adapter Outcome, and validated it from a fresh process. Retry and interrupted resume remain outside this slice. The current PR head `1d86f83` has four successful checks; the formal review still requests changes on `816abdb`. Finding 3 is deferred to harness integration, so AC7 remains partial. The manual smoke itself is not CI evidence. K84-IND-001 was fixed in `c5c1457` and re-reviewed with no new findings. |
 | WS-1.1 | Consume one real decision end to end, from any approved source | WS-1 | A decision is persisted and cited by aggregation and Outcome with its scope and attribution | `IN PROGRESS` (one direct path smoke-tested; broader source coverage remains) | PR #84 merged; continuation in [#85](https://github.com/twKrash/kapisch/pull/85) | The tracked integration test exercises pending-request capture and a same-WorkOrder test adapter. A separate local direct-operator worker smoke cited one decision through WorkOrder, Attempt, aggregation, and Outcome; broader source/applicability coverage remains. |
-| WS-1.2 | Track the acceptance harness in Git | WS-1 | Aggregation/Outcome/comparison validation runs from tracked code in CI | `IMPLEMENTED / AWAITING REVIEW` | PR [#85](https://github.com/twKrash/kapisch/pull/85) open | Tracked `tests/core/test_task_contract.py` and `harnesses/pi/tests/task-first.integration.test.ts` cover validation and same-WorkOrder comparison; local suites pass; check runs on pushed head `490cc99` were in progress, and GitHub review requests changes. The old `.kapisch/runs/…` harness is historical, not the source of test authority. |
+| WS-1.2 | Track the acceptance harness in Git | WS-1 | Aggregation/Outcome/comparison validation runs from tracked code in CI | `IMPLEMENTED / AWAITING REVIEW` | PR [#85](https://github.com/twKrash/kapisch/pull/85) open | Tracked `tests/core/test_task_contract.py` and `harnesses/pi/tests/task-first.integration.test.ts` cover validation and same-WorkOrder comparison; local suites pass; current PR head `1d86f83` has four successful checks. The tracked integration test remains synthetic, and Finding 3 is deferred. The old `.kapisch/runs/…` harness is historical, not the source of test authority. |
 | WS-1.3 | Decision source kinds: direct, operator-reported external, external artifact | WS-1 | Each source is captured with scope and attribution; ambiguous text and agent/reviewer output are never inferred as decisions | `IMPLEMENTED / AWAITING REVIEW` | PR #84 merged; current task-first continuation in [#85](https://github.com/twKrash/kapisch/pull/85) | Tracked tests cover pending-request source-kind fields; the earlier RPC smoke persisted an external-artifact decision with stable `source_ref`; a local task-first worker smoke used a synthetic `direct_operator` fixture. This verifies only those exercised paths, not all external-source applicability. Records omit host identity fields; no cryptographic or original-keystroke provenance is claimed or required. |
 | WS-2 | Decision applicability, duplicate-question prevention, scope coverage | WS-1.1, WS-1.2 | AC2, including not re-requesting a decision reported from an external record | `TODO` | — | Guidance only (`resume.md`, Pi `SKILL.md`); no applicability field or test |
 | WS-3 | Optional review gate: immutable report, required-lens pass, permitted exception | WS-1.2, WS-2 | AC5, applied only where a WorkOrder explicitly requires lenses; no gate for advisory or standalone review | `TODO` | — | `reviews.md` is a local advisory record; no gate and no exception binding |
@@ -79,7 +81,7 @@ evidence. A WorkOrder `Outcome` marked complete covers its stated scope only.
 | WS-6 | Ambiguous remote-effect gate | WS-2 | AC6: retry blocked until an authoritative outcome query or explicit scoped human authorization; local retries do not invoke it | `TODO` | Guidance only | Pi `SKILL.md` requires an exact `AUTHORIZE` answer; no enforcement or blocking test |
 | WS-7 | Audience-neutral presentation invariance | — | AC9: an explicit style changes wording only; facts, evidence, decisions, authority identical | `TODO` | — | No style mechanism and no test |
 | WS-8 | Packaging, install smoke test, validator retention, legacy cutover | WS-1.2, WS-4, WS-0 | AC10: reviewer install/invocation and new-format packaging verified before any legacy removal | `TODO` (removal correctly not started) | Pi package declares the extension | A fresh local Pi package install and one worker invocation succeeded in the smoke workspace. Reviewer installation/invocation, validator retention, and cutover acceptance remain unverified; `core/schemas/v3` and migrators are untouched. |
-| WS-9 | Test-harness health and regression watch | — | Supported suites run as CI runs them; non-source artifacts classified; no source-caused regression hidden | `IMPLEMENTED / AWAITING REVIEW` | PR [#85](https://github.com/twKrash/kapisch/pull/85) open | Local supported suites pass; check runs on pushed head `490cc99` were in progress, and review changes are requested. Root-level pytest and `.worktrees` artifacts are explained below. |
+| WS-9 | Test-harness health and regression watch | — | Supported suites run as CI runs them; non-source artifacts classified; no source-caused regression hidden | `IMPLEMENTED / AWAITING REVIEW` | PR [#85](https://github.com/twKrash/kapisch/pull/85) open | Local supported suites pass; current PR head `1d86f83` has four successful checks, while the formal review still requests changes on `816abdb`. Root-level pytest and `.worktrees` artifacts are explained below. |
 
 ## Specification acceptance coverage
 
@@ -93,7 +95,7 @@ Coverage is independent of workstream status. Criteria are from specification §
 | AC4 | In-scope retries use fresh IDs, preserve failed work, reject stale checkpoints, never reset shared work | partial | Retry and checkpoint execution are explicitly outside this two-PR slice. The one-task core prevents replay of a claimed attempt; it does not implement retry or checkpoint compatibility. |
 | AC5 | Immutable review report; remediation alone does not release; new pass or separate exception does; prohibited exceptions block; gate only where a WorkOrder requires lenses | none | Advisory wording and a local report only; no gate |
 | AC6 | Ambiguous remote effects block until authoritative observation or explicit scoped authorization | none | Guidance only |
-| AC7 | Same WorkOrder yields equivalent logical status, authority, decisions, evidence, reports, Outcome via real and test adapters; missing capabilities block | partial | The aligned local real Pi worker smoke at `.kapisch/runs/task-first-real-worker-smoke-2026-11-02-workorder-1/` used the exact tracked WorkOrder/decision identity; all nine persisted artifacts matched byte-for-byte and fresh-process validation passed for both roots. Tracked tests cover deterministic comparison and required-capability blocking. This is not CI evidence; broader adapter behavior remains untested. |
+| AC7 | Same WorkOrder yields equivalent logical status, authority, decisions, evidence, reports, Outcome via real and test adapters; missing capabilities block | partial | The aligned local worker smoke used the exact tracked WorkOrder/decision identity and matched all nine artifacts, but is local/manual. The tracked integration test still synthesizes output and hard-codes supported capability; it does not exercise actual Pi start/collect or capability probes at that boundary. Finding 3 is deferred to a dedicated Pi harness-integration follow-up; do not mark AC7 complete until tracked same-WorkOrder adapter and capability-boundary coverage exists. |
 | AC8 | Fresh-session reconstruction without conversational or mutable derived authority | partial | A fresh Python controller process validated persisted WorkOrder, Decision, Attempt, report, and Outcome for both adapter roots. Reconstructing the next action after interruption and multi-task recovery remain untested. |
 | AC9 | Presentation styles preserve normalized facts, evidence, decisions, authority | none | No mechanism or test |
 | AC10 | Reviewer installation/invocation and new-format packaging verified before legacy removal | partial | Local Pi package install and one task-worker invocation succeeded in the smoke workspace. Reviewer installation/invocation, validator retention, and cutover acceptance remain unverified; nothing was removed. |
@@ -109,9 +111,9 @@ Current local verification for the task-first delta (2026-11-02):
 `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=core python3 -B -m unittest discover -s tests/core -q`
 — 535 tests passed; `cd harnesses/pi && bun test tests/*.test.ts` — 47 passed;
 `ruff check` and `ruff format --check` on the changed Python files — passed; `git diff
---check` — clean. These local checks are not CI. PR #85 implementation commit `490cc99` was pushed;
-four check runs were in progress at the latest read, and this tracker-only follow-up
-triggers fresh checks.
+--check` — clean. These local checks are not CI. The current PR #85 head `1d86f83` has
+four successful check runs. The formal review still requests changes on older head
+`816abdb`; the current finding disposition is recorded in the PR reassessment comment.
 
 CI-equivalent run in the clean feature worktree (2026-10-26):
 
@@ -210,24 +212,22 @@ host-native exception is already scoped and must not be widened.
 
 ## Next recommended vertical slice
 
-**Resolve PR #85 review findings, then expand beyond the bounded one-task slice.**
+**Keep the deferred Pi integration gap explicit, then expand beyond the bounded one-task slice.**
 
-1. Address the open review findings on one-shot dispatch after claim loss and advisory
-   review-status persistence without adding retry behavior; retries/checkpoints remain
-   out of scope for this plan.
-2. Keep the tracked test adapter and same-WorkOrder comparison; retain
-   `.kapisch/runs/task-first-real-worker-smoke-2026-11-02/` as manual evidence, not as a CI
-   claim.
-3. Follow-on work should add tracked direct-prompt producer coverage, interruption
-   recovery, and broader adapter/capability cases before claiming full AC7/AC8.
+1. Findings 1 and 2 are superseded by current code and regression tests; preserve the
+   explicit limitation that power-loss/storage rollback can still erase best-effort state.
+2. Defer Finding 3 to a dedicated Pi harness-integration follow-up. Keep AC7 partial and
+   do not claim completion until tracked tests use the same WorkOrder through actual Pi
+   capability probing and start/collect, then compare it with the deterministic adapter.
+3. Keep `.kapisch/runs/task-first-real-worker-smoke-2026-11-02/` as manual evidence, not CI.
+   Add tracked direct-prompt producer coverage, interruption recovery, and broader adapter
+   cases before claiming full AC7/AC8.
 
-Rationale: tracked tests cover one-task acceptance and deterministic comparison, and
-`task-first-real-worker-smoke-2026-11-02` retains inspectable actual-worker and test-adapter
-artifact chains for the same WorkOrder. PR #85 head `490cc99` had check runs in
-progress at the latest read; GitHub review requests changes on `816abdb`, and the manual
-smoke is not CI evidence. Broader
-decision-source, resume, and multi-task acceptance remain incomplete. WS-3 (optional review
-gate) follows; it is not a prerequisite for WS-4.
+Rationale: the current tracked test exercises decision capture and portable validation,
+not actual worker invocation. The aligned local smoke is useful but untracked. PR #85 head
+`1d86f83` has four successful checks; the formal review still requests changes on
+`816abdb`. The reassessment and deferral are documented in the PR comments. WS-3 (optional
+review gate) follows; it is not a prerequisite for WS-4.
 
 ## Evidence index
 
@@ -245,7 +245,8 @@ gate) follows; it is not a prerequisite for WS-4.
 | Earlier task-first real-worker smoke (`task-first-real-worker-smoke-2026-11-02`; retained, local, gitignored; different WorkOrder from the tracked fixture) | WorkOrder `w1`, Decision `d1`, Attempt `a1`; real and deterministic adapter artifacts matched within that run. This evidence used a different logical WorkOrder from the tracked integration test, so it does not establish the same-WorkOrder criterion. Full artifact chains remain under `.kapisch/runs/task-first-real-worker-smoke-2026-11-02/`. | |
 | Aligned task-first real-worker smoke (`task-first-real-worker-smoke-2026-11-02-workorder-1`; local, gitignored) | Actual Pi worker run `c4f57106-a9d5-4809-b8d5-2d8370647e1e` used the tracked fixture's `workorder-1` and decision `0e87d9f3-3df2-5466-b5bb-fe9e3c477658`. The worker wrote only the allocated output; all nine persisted artifacts matched the deterministic adapter byte-for-byte, and both Outcomes reconstructed in fresh Python processes. Aggregation was a fixed fixture; no LLM runtime was invoked. Output SHA-256: `c9f4f3308798ce36576aa54bac2d152e08ff38f70b43fbc4d07a24e1c4c80d41`. Local manual evidence, not CI; full evidence is under `.kapisch/runs/task-first-real-worker-smoke-2026-11-02-workorder-1/`. |
 | Synthetic direct-prompt coordinator preflight (2026-11-02; local, gitignored) | In the dummy project `.kapisch/runs/task-first-real-worker-smoke-2026-11-02-workorder-1/real-worker/`, Run `.kapisch/runs/direct-prompt-coordinator-smoke/run.json` bound WorkOrder `workorder-ab493f6f6ae3413b839bafedc73b152f` to one `direct_operator` decision `decision-37e7fd9dd22345a8ba0fb72f40791d0d`. Fresh-process `validate_dispatch` passed; exact synthetic prompt in question/answer; one decision JSON; decision digest `040c6a66bb4bed98de68c1a8993cfd1d1b60efc9078e50db047bbe3d1bd5e768`; current Git input digest `d94fd107d92d87184ed0f5dcb9d659711e5b94ab5eaaef77b3173f2dfe399375`; source tree clean. Run stayed ready; no claim or worker output. Synthetic/manual evidence, not user approval or CI. |
-| PR #85 state (GitHub read, 2026-11-02, before tracker-only follow-up) | Open, non-draft, remote head `490cc99b2ed5ea8b334eab496ada8f2de0521d5c`; four check runs in progress; latest formal review remains `CHANGES_REQUESTED` on `816abdb2827b166e609a03d9ed3a5a5b683a19fd`; recorded base `c259d28363d862976f9c980a71faaee8a14a3895`. |
+| PR #85 state (GitHub read, 2026-11-02) | Open, non-draft, remote head `1d86f83ef305f6cd4a16d7fb77d6838467ed28b7`; four check runs successful; latest formal review remains `CHANGES_REQUESTED` on `816abdb2827b166e609a03d9ed3a5a5b683a19fd`; recorded base `c259d28363d862976f9c980a71faaee8a14a3895`. |
+| Finding 3 deferral (operator decision, 2026-11-02) | Deferred to a dedicated Pi harness-integration follow-up; AC7 remains partial. [PR comment #6590593116](https://github.com/twKrash/kapisch/pull/85#issuecomment-6590593116). |
 | Existing product roadmap (not this tracker) | `plugins/kapisch/docs/roadmap.md` |
 
 ## Update rules
