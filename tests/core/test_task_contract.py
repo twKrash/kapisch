@@ -258,6 +258,42 @@ def fixture(tmp_path):
     return tmp_path, inputs
 
 
+def _rewrite_decision_answer(tmp_path, answer, *, valid_utf8, ensure_ascii=True):
+    def write_record(ref, record):
+        raw = json.dumps(record, ensure_ascii=ensure_ascii, sort_keys=True).encode(
+            "utf-8"
+        )
+        (tmp_path / ref).write_bytes(raw)
+        return hashlib.sha256(raw).hexdigest()
+
+    decision_ref = f"{RUN_DIR}/decisions/d1.json"
+    decision_path = tmp_path / decision_ref
+    decision = json.loads(decision_path.read_text())
+    decision["answer"] = answer
+    decision_digest = write_record(decision_ref, decision)
+
+    applicability_ref = f"{RUN_DIR}/applicability.json"
+    applicability_path = tmp_path / applicability_ref
+    applicability = json.loads(applicability_path.read_text())
+    applicability["decision_digest"] = decision_digest
+    applicability["answer_digest"] = (
+        hashlib.sha256(answer.encode("utf-8")).hexdigest() if valid_utf8 else "0" * 64
+    )
+    applicability_digest = write_record(applicability_ref, applicability)
+
+    workorder_ref = f"{RUN_DIR}/workorder.json"
+    workorder_path = tmp_path / workorder_ref
+    workorder = json.loads(workorder_path.read_text())
+    workorder["decision_digest"] = decision_digest
+    workorder["applicability_digest"] = applicability_digest
+    workorder_digest = write_record(workorder_ref, workorder)
+
+    run_path = tmp_path / RUN_REF
+    run = json.loads(run_path.read_text())
+    run["workorder_digest"] = workorder_digest
+    write_record(RUN_REF, run)
+
+
 def test_persisted_files_reconstruct_acceptance(tmp_path):
     fixture(tmp_path)
     records = validate_run(tmp_path, RUN_REF)
@@ -460,6 +496,124 @@ def test_non_applicable_or_ambiguous_answer_cannot_be_promoted(
     run["workorder_digest"] = hashlib.sha256(work_path.read_bytes()).hexdigest()
     run_path.write_text(json.dumps(run, sort_keys=True))
     with _raises(ContractError, match="applicability"):
+        validate_run(tmp_path, RUN_REF)
+
+
+@_params("answer", ["\ud800", "\udc00", "prefix\ud800suffix"])
+def test_non_utf8_decision_answer_is_a_contract_error(tmp_path, answer):
+    fixture(tmp_path)
+    _rewrite_decision_answer(tmp_path, answer, valid_utf8=False)
+    capabilities = {"write": {"status": "supported", "reason": "available"}}
+    validators = (
+        lambda: validate_run(tmp_path, RUN_REF),
+        lambda: task_contract.validate_dispatch(
+            tmp_path,
+            RUN_REF,
+            capabilities=capabilities,
+            canonical_implementer_available=False,
+        ),
+        lambda: task_contract.validate_acceptance(
+            tmp_path, RUN_REF, capabilities=capabilities
+        ),
+        lambda: task_contract.validate_outcome(
+            tmp_path, RUN_REF, capabilities=capabilities
+        ),
+    )
+    for validate in validators:
+        with _raises(ContractError, match="decision answer is not valid UTF-8"):
+            validate()
+
+    _reset_to_unclaimed(tmp_path)
+    run_path = tmp_path / RUN_REF
+    run_before = run_path.read_bytes()
+    with _raises(ContractError, match="decision answer is not valid UTF-8"):
+        task_contract.claim_dispatch(
+            tmp_path,
+            RUN_REF,
+            capabilities=capabilities,
+            canonical_implementer_available=False,
+        )
+    assert run_path.read_bytes() == run_before
+    assert not (tmp_path / f"{RUN_DIR}/dispatch-claim.json").exists()
+    assert not (tmp_path / f"{RUN_DIR}/attempts/a1.json").exists()
+    assert not (tmp_path / f"{RUN_DIR}/attempts/a1-output.json").exists()
+
+    script = """
+import sys
+from kapisch_core.task_contract import ContractError, validate_run
+try:
+    validate_run(sys.argv[1], sys.argv[2])
+except ContractError as exc:
+    print(type(exc).__name__ + ": " + str(exc))
+except Exception as exc:
+    print(type(exc).__name__)
+else:
+    raise SystemExit(1)
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(tmp_path), RUN_REF],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONPATH": "core"},
+    )
+    assert result.stdout.strip() == (
+        "ContractError: decision answer is not valid UTF-8"
+    )
+
+
+@_params(
+    ("answer", "ensure_ascii"),
+    [
+        ("café 東京", True),
+        ("😀", True),
+        ("Café 東京 😀", False),
+        ("  Café😀  ", True),
+    ],
+)
+def test_valid_unicode_decision_answer_uses_exact_utf8_digest(
+    tmp_path, answer, ensure_ascii
+):
+    fixture(tmp_path)
+    _reset_to_unclaimed(tmp_path)
+    _rewrite_decision_answer(
+        tmp_path, answer, valid_utf8=True, ensure_ascii=ensure_ascii
+    )
+
+    records = validate_run(tmp_path, RUN_REF)
+    expected_digest = hashlib.sha256(answer.encode("utf-8")).hexdigest()
+    assert records["decision"]["answer"] == answer
+    assert records["applicability"]["answer_digest"] == expected_digest
+    claim = task_contract.claim_dispatch(
+        tmp_path,
+        RUN_REF,
+        capabilities={"write": {"status": "supported", "reason": "available"}},
+        canonical_implementer_available=False,
+    )
+    assert claim["decision"]["answer"] == answer
+
+
+@_params("reason", [None, "", " \t"])
+def test_applicability_requires_nonempty_text_reason(tmp_path, reason):
+    fixture(tmp_path)
+    applicability_path = tmp_path / f"{RUN_DIR}/applicability.json"
+    applicability = json.loads(applicability_path.read_text())
+    applicability["reason"] = reason
+    applicability_path.write_text(json.dumps(applicability, sort_keys=True))
+
+    workorder_path = tmp_path / f"{RUN_DIR}/workorder.json"
+    workorder = json.loads(workorder_path.read_text())
+    workorder["applicability_digest"] = hashlib.sha256(
+        applicability_path.read_bytes()
+    ).hexdigest()
+    workorder_path.write_text(json.dumps(workorder, sort_keys=True))
+
+    run_path = tmp_path / RUN_REF
+    run = json.loads(run_path.read_text())
+    run["workorder_digest"] = hashlib.sha256(workorder_path.read_bytes()).hexdigest()
+    run_path.write_text(json.dumps(run, sort_keys=True))
+
+    with _raises(ContractError, match="decision applicability"):
         validate_run(tmp_path, RUN_REF)
 
 

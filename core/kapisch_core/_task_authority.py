@@ -34,19 +34,27 @@ def _validate_applicability(
     decision: dict[str, Any],
     decision_digest: str,
 ) -> None:
-    answer_digest = hashlib.sha256(decision["answer"].encode()).hexdigest()
-    if (
-        applicability.get("result") != "applicable"
-        or applicability.get("decision_id") != decision["decision_id"]
-        or applicability.get("decision_ref") != work["decision_ref"]
-        or applicability.get("decision_digest") != decision_digest
-        or applicability.get("answer_digest") != answer_digest
-        or applicability.get("subject") != work["subject"]
-        or applicability.get("scope") != work["scope"]
-        or applicability.get("governing_inputs") != work["governing_inputs"]
-        or not isinstance(applicability.get("reason"), str)
-        or not applicability["reason"].strip()
-    ):
+    try:
+        answer_bytes = decision["answer"].encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ContractError("decision answer is not valid UTF-8") from exc
+    answer_digest = hashlib.sha256(answer_bytes).hexdigest()
+    expected_values = (
+        ("result", "applicable"),
+        ("decision_id", decision["decision_id"]),
+        ("decision_ref", work["decision_ref"]),
+        ("decision_digest", decision_digest),
+        ("answer_digest", answer_digest),
+        ("subject", work["subject"]),
+        ("scope", work["scope"]),
+        ("governing_inputs", work["governing_inputs"]),
+    )
+    if any(applicability.get(key) != value for key, value in expected_values):
+        raise ContractError(
+            "decision applicability is missing, stale, or not applicable"
+        )
+    reason = applicability.get("reason")
+    if not isinstance(reason, str) or not reason.strip():
         raise ContractError(
             "decision applicability is missing, stale, or not applicable"
         )
