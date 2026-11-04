@@ -7,6 +7,7 @@ import json
 import math
 import os
 import re
+import stat
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -167,7 +168,13 @@ def _create_exclusive(root: Path, ref: str, record: dict[str, Any]) -> None:
 
 def _replace_json_atomically(root: Path, ref: str, record: dict[str, Any]) -> None:
     parent, target = _artifact_target(root, ref)
-    if target.is_symlink() or not target.is_file():
+    try:
+        mode = target.lstat().st_mode
+    except OSError as exc:
+        raise ContractError(
+            "mutable artifact is missing or cannot be inspected"
+        ) from exc
+    if not stat.S_ISREG(mode):
         raise ContractError("mutable artifact is missing or is a symlink")
 
     payload = _serialize_json(record, "could not persist dispatch boundary")

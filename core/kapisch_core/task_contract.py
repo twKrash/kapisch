@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import stat
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -22,7 +23,11 @@ def _reject_symlink_components(base: Path, ref: str) -> None:
     current = base
     for part in PurePosixPath(ref).parts:
         current = current / part
-        if current.is_symlink():
+        try:
+            is_symlink = current.is_symlink()
+        except OSError as exc:
+            raise ContractError("cannot inspect dispatch allocation path") from exc
+        if is_symlink:
             raise ContractError("dispatch allocation path contains a symlink")
 
 
@@ -140,6 +145,27 @@ def _validate_dispatch_readiness(
     return base
 
 
+def _allocation_path_exists(path: Path, label: str) -> bool:
+    try:
+        path.stat()
+    except FileNotFoundError:
+        return False
+    except OSError as exc:
+        raise ContractError(f"cannot inspect {label}") from exc
+    return True
+
+
+def _validate_allocation_directory(path: Path) -> None:
+    try:
+        mode = path.stat().st_mode
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise ContractError("cannot inspect allocation directory") from exc
+    if not stat.S_ISDIR(mode):
+        raise ContractError("allocation parent is not a directory")
+
+
 def _validate_dispatch_allocation_paths(
     base: Path, run_ref: str, run: dict[str, Any]
 ) -> dict[str, Any]:
@@ -150,13 +176,16 @@ def _validate_dispatch_allocation_paths(
     _reject_symlink_components(base, output_ref)
     attempt_ref = run_directory + "/attempts/" + attempt_id + ".json"
     _reject_symlink_components(base, attempt_ref)
+    _validate_allocation_directory(base / run_directory / "attempts")
     output_path = _resolve(base / output_ref, "allocated output")
     if not output_path.is_relative_to(base):
         raise ContractError("allocated output escapes project root")
     attempt_path = _resolve(base / attempt_ref, "allocated attempt")
     if not attempt_path.is_relative_to(base):
         raise ContractError("allocated attempt escapes project root")
-    if output_path.exists() or attempt_path.exists():
+    if _allocation_path_exists(
+        output_path, "allocated output"
+    ) or _allocation_path_exists(attempt_path, "allocated attempt"):
         raise ContractError("attempt allocation already exists")
     return allocation
 

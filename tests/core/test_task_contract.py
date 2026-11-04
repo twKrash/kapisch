@@ -1715,6 +1715,164 @@ def test_dispatch_rejects_parent_directory_alias(tmp_path):
     _assert_dispatch_alias_rejected(tmp_path, foreign_target)
 
 
+def test_dispatch_rejects_non_directory_attempts_parent(tmp_path):
+    fixture(tmp_path)
+    _reset_to_unclaimed(tmp_path)
+    attempts = tmp_path / f"{RUN_DIR}/attempts"
+    attempts.rmdir()
+    attempts.write_text("not a directory")
+    capabilities = {"write": {"status": "supported", "reason": "available"}}
+
+    with _raises(ContractError):
+        task_contract.validate_dispatch(
+            tmp_path,
+            RUN_REF,
+            capabilities=capabilities,
+            canonical_implementer_available=False,
+        )
+    with _raises(ContractError):
+        task_contract.claim_dispatch(
+            tmp_path,
+            RUN_REF,
+            capabilities=capabilities,
+            canonical_implementer_available=False,
+        )
+
+    run = json.loads((tmp_path / RUN_REF).read_text())
+    assert run["dispatch_state"] == "ready"
+    assert not (tmp_path / f"{RUN_DIR}/dispatch-claim.json").exists()
+    assert attempts.is_file()
+
+
+def test_dispatch_allows_missing_attempts_parent(tmp_path):
+    fixture(tmp_path)
+    _reset_to_unclaimed(tmp_path)
+    attempts = tmp_path / f"{RUN_DIR}/attempts"
+    attempts.rmdir()
+    capabilities = {"write": {"status": "supported", "reason": "available"}}
+
+    validated = task_contract.validate_dispatch(
+        tmp_path,
+        RUN_REF,
+        capabilities=capabilities,
+        canonical_implementer_available=False,
+    )
+    assert validated["attempt_allocation"]["attempt_id"] == "a1"
+
+    claimed = task_contract.claim_dispatch(
+        tmp_path,
+        RUN_REF,
+        capabilities=capabilities,
+        canonical_implementer_available=False,
+    )
+    assert claimed["run"]["dispatch_state"] == "claimed"
+    assert not attempts.exists()
+
+
+def test_dispatch_rejects_uninspectable_allocation_parent(tmp_path):
+    fixture(tmp_path)
+    _reset_to_unclaimed(tmp_path)
+    attempts = tmp_path / f"{RUN_DIR}/attempts"
+    original_stat = Path.stat
+
+    def denied_stat(path, *args, **kwargs):
+        if path == attempts:
+            raise PermissionError("allocation parent is unreadable")
+        return original_stat(path, *args, **kwargs)
+
+    capabilities = {"write": {"status": "supported", "reason": "available"}}
+    with mock.patch.object(Path, "stat", denied_stat):
+        with _raises(ContractError):
+            task_contract.validate_dispatch(
+                tmp_path,
+                RUN_REF,
+                capabilities=capabilities,
+                canonical_implementer_available=False,
+            )
+        with _raises(ContractError):
+            task_contract.claim_dispatch(
+                tmp_path,
+                RUN_REF,
+                capabilities=capabilities,
+                canonical_implementer_available=False,
+            )
+
+    run = json.loads((tmp_path / RUN_REF).read_text())
+    assert run["dispatch_state"] == "ready"
+    assert not (tmp_path / f"{RUN_DIR}/dispatch-claim.json").exists()
+
+
+def test_dispatch_rejects_uninspectable_existing_output(tmp_path):
+    fixture(tmp_path)
+    _reset_to_unclaimed(tmp_path)
+    output = tmp_path / f"{RUN_DIR}/attempts/a1-output.json"
+    output.write_text("existing output")
+    original_exists = Path.exists
+    original_stat = Path.stat
+
+    def denied_stat(path, *args, **kwargs):
+        if path == output:
+            raise PermissionError("cannot inspect allocated output")
+        return original_stat(path, *args, **kwargs)
+
+    def hidden_exists(path, *args, **kwargs):
+        if path == output:
+            return False
+        return original_exists(path, *args, **kwargs)
+
+    capabilities = {"write": {"status": "supported", "reason": "available"}}
+    with (
+        mock.patch.object(Path, "stat", denied_stat),
+        mock.patch.object(Path, "exists", hidden_exists),
+    ):
+        with _raises(ContractError):
+            task_contract.validate_dispatch(
+                tmp_path,
+                RUN_REF,
+                capabilities=capabilities,
+                canonical_implementer_available=False,
+            )
+        with _raises(ContractError):
+            task_contract.claim_dispatch(
+                tmp_path,
+                RUN_REF,
+                capabilities=capabilities,
+                canonical_implementer_available=False,
+            )
+
+    run = json.loads((tmp_path / RUN_REF).read_text())
+    assert run["dispatch_state"] == "ready"
+    assert not (tmp_path / f"{RUN_DIR}/dispatch-claim.json").exists()
+    assert output.read_text() == "existing output"
+
+
+def test_claim_keeps_blocking_claim_on_run_stat_error(tmp_path):
+    fixture(tmp_path)
+    _reset_to_unclaimed(tmp_path)
+    run_path = tmp_path / RUN_REF
+    original_run = run_path.read_bytes()
+    original_lstat = Path.lstat
+
+    def denied_lstat(path, *args, **kwargs):
+        if path == run_path:
+            raise PermissionError("cannot inspect Run before replacement")
+        return original_lstat(path, *args, **kwargs)
+
+    capabilities = {"write": {"status": "supported", "reason": "available"}}
+    with mock.patch.object(Path, "lstat", denied_lstat):
+        with _raises(ContractError):
+            task_contract.claim_dispatch(
+                tmp_path,
+                RUN_REF,
+                capabilities=capabilities,
+                canonical_implementer_available=False,
+            )
+
+    assert run_path.read_bytes() == original_run
+    assert json.loads(original_run)["dispatch_state"] == "ready"
+    assert (tmp_path / f"{RUN_DIR}/dispatch-claim.json").exists()
+
+
 def test_artifact_serialization_rejects_nonfinite_values(tmp_path):
     invalid_record = {"value": float("nan")}
     with _raises(ContractError):
