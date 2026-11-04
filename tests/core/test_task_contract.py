@@ -1582,6 +1582,152 @@ def test_concurrent_dispatch_claims_allow_only_one_process(tmp_path):
     assert sorted(results) == ["blocked", "claimed"]
 
 
+def test_artifact_loader_rejects_nonstandard_or_excessive_json(tmp_path):
+    run_path = tmp_path / RUN_REF
+    run_path.parent.mkdir(parents=True)
+    for payload in (
+        b'{"x":NaN}',
+        b'{"x":Infinity}',
+        b'{"x":-Infinity}',
+        b'{"x":1e999}',
+        b'{"x":' + b"9" * 5000 + b"}",
+    ):
+        run_path.write_bytes(payload)
+        with _raises(ContractError):
+            validate_run(tmp_path, RUN_REF)
+
+
+def test_json_loader_does_not_impose_a_nesting_limit(tmp_path):
+    artifact = tmp_path / "artifact.json"
+    payload = b'{"x":' + b"[" * 300 + b"0" + b"]" * 300 + b"}"
+    artifact.write_bytes(payload)
+
+    loaded = task_contract._load(tmp_path, "artifact.json", require_digest=False)
+    value = loaded["x"]
+    for _ in range(300):
+        value = value[0]
+    assert value == 0
+
+
+def test_json_loader_normalizes_parser_recursion_errors(tmp_path):
+    artifact = tmp_path / "artifact.json"
+    artifact.write_bytes(b"{}")
+    with mock.patch(
+        "kapisch_core._task_artifacts.json.loads",
+        side_effect=RecursionError("parser depth limit"),
+    ):
+        with _raises(ContractError):
+            task_contract._load(tmp_path, "artifact.json", require_digest=False)
+
+
+def test_path_resolution_failures_are_contract_errors(tmp_path):
+    artifact = tmp_path / "loop.json"
+    artifact.symlink_to(artifact)
+    with _raises(ContractError):
+        task_contract._load(tmp_path, "loop.json", require_digest=False)
+
+    root_loop = tmp_path / "root-loop"
+    root_loop.symlink_to(root_loop, target_is_directory=True)
+    with _raises(ContractError):
+        validate_run(root_loop, RUN_REF)
+
+    writer_loop = tmp_path / "writer-loop"
+    writer_loop.symlink_to(writer_loop, target_is_directory=True)
+    with _raises(ContractError):
+        task_contract._create_exclusive(tmp_path, "writer-loop/claim.json", {})
+    with _raises(ContractError):
+        task_contract._replace_json_atomically(tmp_path, "writer-loop/run.json", {})
+
+
+def test_decision_identity_scan_resolution_failures_are_contract_errors(tmp_path):
+    fixture(tmp_path)
+    duplicate = tmp_path / ".kapisch/runs/r2/decisions/d1.json"
+    duplicate.parent.mkdir(parents=True)
+    duplicate.symlink_to(duplicate)
+
+    with _raises(ContractError):
+        validate_run(tmp_path, RUN_REF)
+
+
+def test_governing_input_resolution_failures_are_contract_errors(tmp_path):
+    fixture(tmp_path)
+    source = tmp_path / "docs/spec.md"
+    source.unlink()
+    source.symlink_to(source)
+
+    with _raises(ContractError):
+        validate_run(tmp_path, RUN_REF)
+
+
+def _assert_dispatch_alias_rejected(tmp_path, foreign_target):
+    capabilities = {"write": {"status": "supported", "reason": "available"}}
+    with _raises(ContractError):
+        task_contract.validate_dispatch(
+            tmp_path,
+            RUN_REF,
+            capabilities=capabilities,
+            canonical_implementer_available=False,
+        )
+    with _raises(ContractError):
+        task_contract.claim_dispatch(
+            tmp_path,
+            RUN_REF,
+            capabilities=capabilities,
+            canonical_implementer_available=False,
+        )
+
+    run = json.loads((tmp_path / RUN_REF).read_text())
+    assert run["dispatch_state"] == "ready"
+    assert not (tmp_path / f"{RUN_DIR}/dispatch-claim.json").exists()
+    assert not foreign_target.exists()
+
+
+def test_dispatch_rejects_dangling_output_alias(tmp_path):
+    fixture(tmp_path)
+    _reset_to_unclaimed(tmp_path)
+    foreign_target = tmp_path / ".kapisch/runs/r2/attempts/a2-output.json"
+    foreign_target.parent.mkdir(parents=True)
+    (tmp_path / f"{RUN_DIR}/attempts/a1-output.json").symlink_to(foreign_target)
+
+    _assert_dispatch_alias_rejected(tmp_path, foreign_target)
+
+
+def test_dispatch_rejects_dangling_attempt_alias(tmp_path):
+    fixture(tmp_path)
+    _reset_to_unclaimed(tmp_path)
+    foreign_target = tmp_path / ".kapisch/runs/r2/attempts/a2.json"
+    foreign_target.parent.mkdir(parents=True)
+    (tmp_path / f"{RUN_DIR}/attempts/a1.json").symlink_to(foreign_target)
+
+    _assert_dispatch_alias_rejected(tmp_path, foreign_target)
+
+
+def test_dispatch_rejects_parent_directory_alias(tmp_path):
+    fixture(tmp_path)
+    _reset_to_unclaimed(tmp_path)
+    attempts = tmp_path / f"{RUN_DIR}/attempts"
+    attempts.rmdir()
+    foreign_attempts = tmp_path / ".kapisch/runs/r2/attempts"
+    foreign_attempts.mkdir(parents=True)
+    foreign_target = foreign_attempts / "a1-output.json"
+    attempts.symlink_to(foreign_attempts, target_is_directory=True)
+
+    _assert_dispatch_alias_rejected(tmp_path, foreign_target)
+
+
+def test_artifact_serialization_rejects_nonfinite_values(tmp_path):
+    invalid_record = {"value": float("nan")}
+    with _raises(ContractError):
+        task_contract._create_exclusive(tmp_path, "claim.json", invalid_record)
+    assert not (tmp_path / "claim.json").exists()
+
+    target = tmp_path / "run.json"
+    target.write_text("{}")
+    with _raises(ContractError):
+        task_contract._replace_json_atomically(tmp_path, "run.json", invalid_record)
+    assert target.read_text() == "{}"
+
+
 @_params(
     ("field", "first", "second"),
     [

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import tempfile
@@ -17,6 +18,13 @@ _REF = re.compile(
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 
 
+def _resolve(path: Path, label: str = "artifact") -> Path:
+    try:
+        return path.resolve()
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise ContractError(f"cannot resolve {label} path") from exc
+
+
 class ContractError(ValueError):
     """A durable task contract record is malformed or fails acceptance."""
 
@@ -28,7 +36,7 @@ def _read_bytes(root: Path, ref: Any, digest: Any) -> bytes:
         or any(part in {"", ".", ".."} for part in ref.split("/"))
     ):
         raise ContractError("malformed portable reference")
-    path = (root / ref).resolve()
+    path = _resolve(root / ref)
     if not path.is_relative_to(root):
         raise ContractError("portable reference escapes project root")
     try:
@@ -42,6 +50,30 @@ def _read_bytes(root: Path, ref: Any, digest: Any) -> bytes:
     ):
         raise ContractError(f"artifact digest mismatch: {ref}")
     return raw
+
+
+def _finite_float(value: str) -> float:
+    try:
+        number = float(value)
+    except ValueError as exc:
+        raise ContractError("invalid JSON number") from exc
+    if not math.isfinite(number):
+        raise ContractError("non-finite JSON number")
+    return number
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ContractError(f"invalid JSON constant: {value}")
+
+
+def _serialize_json(record: dict[str, Any], error_message: str) -> bytes:
+    try:
+        serialized = json.dumps(
+            record, sort_keys=True, separators=(",", ":"), allow_nan=False
+        )
+    except (TypeError, ValueError, RecursionError) as exc:
+        raise ContractError(error_message) from exc
+    return (serialized + "\n").encode("utf-8")
 
 
 def _object_without_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -64,8 +96,20 @@ def _load(
             if digest is not None
             else _read_bytes_without_digest(root, ref)
         )
-        value = json.loads(raw, object_pairs_hook=_object_without_duplicate_keys)
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        value = json.loads(
+            raw,
+            object_pairs_hook=_object_without_duplicate_keys,
+            parse_constant=_reject_json_constant,
+            parse_float=_finite_float,
+        )
+    except ContractError:
+        raise
+    except (
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        ValueError,
+        RecursionError,
+    ) as exc:
         raise ContractError(f"invalid JSON artifact: {ref}") from exc
     if not isinstance(value, dict):
         raise ContractError(f"artifact must be an object: {ref}")
@@ -79,7 +123,7 @@ def _read_bytes_without_digest(root: Path, ref: Any) -> bytes:
         or any(part in {"", ".", ".."} for part in ref.split("/"))
     ):
         raise ContractError("malformed portable reference")
-    path = (root / ref).resolve()
+    path = _resolve(root / ref)
     if not path.is_relative_to(root):
         raise ContractError("portable reference escapes project root")
     try:
@@ -88,17 +132,19 @@ def _read_bytes_without_digest(root: Path, ref: Any) -> bytes:
         raise ContractError(f"unreadable artifact: {ref}") from exc
 
 
-def _create_exclusive(root: Path, ref: str, record: dict[str, Any]) -> None:
+def _artifact_target(root: Path, ref: str) -> tuple[Path, Path]:
     if not isinstance(ref, str) or not _REF.fullmatch(ref) or ".." in ref.split("/"):
         raise ContractError("malformed portable reference")
     parts = ref.split("/")
-    parent = (root / Path(*parts[:-1])).resolve()
+    parent = _resolve(root / Path(*parts[:-1]), "artifact parent")
     if not parent.is_relative_to(root):
         raise ContractError("portable reference escapes project root")
-    target = parent / parts[-1]
-    payload = (
-        json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n"
-    ).encode()
+    return parent, parent / parts[-1]
+
+
+def _create_exclusive(root: Path, ref: str, record: dict[str, Any]) -> None:
+    parent, target = _artifact_target(root, ref)
+    payload = _serialize_json(record, "could not persist dispatch claim")
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
     try:
         descriptor = os.open(target, flags, 0o600)
@@ -120,19 +166,11 @@ def _create_exclusive(root: Path, ref: str, record: dict[str, Any]) -> None:
 
 
 def _replace_json_atomically(root: Path, ref: str, record: dict[str, Any]) -> None:
-    if not isinstance(ref, str) or not _REF.fullmatch(ref) or ".." in ref.split("/"):
-        raise ContractError("malformed portable reference")
-    parts = ref.split("/")
-    parent = (root / Path(*parts[:-1])).resolve()
-    if not parent.is_relative_to(root):
-        raise ContractError("portable reference escapes project root")
-    target = parent / parts[-1]
+    parent, target = _artifact_target(root, ref)
     if target.is_symlink() or not target.is_file():
         raise ContractError("mutable artifact is missing or is a symlink")
 
-    payload = (
-        json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n"
-    ).encode()
+    payload = _serialize_json(record, "could not persist dispatch boundary")
     temporary_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(

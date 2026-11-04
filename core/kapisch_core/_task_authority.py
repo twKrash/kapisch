@@ -7,7 +7,13 @@ import re
 from pathlib import Path
 from typing import Any
 
-from ._task_artifacts import ContractError, _load, _required_id, _required_text
+from ._task_artifacts import (
+    ContractError,
+    _load,
+    _required_id,
+    _required_text,
+    _resolve,
+)
 from ._task_governing_inputs import _validate_governing_inputs
 
 
@@ -20,7 +26,7 @@ def _validate_unique_decision_reference(
     for candidate in root.glob(".kapisch/runs/*/decisions/*.json"):
         if candidate.name != f"{decision_id}.json":
             continue
-        resolved = candidate.resolve()
+        resolved = _resolve(candidate, "decision")
         if not resolved.is_relative_to(root):
             raise ContractError("decision reference escapes project root")
         matches.append(candidate)

@@ -13,8 +13,17 @@ from ._task_artifacts import (
     _replace_json_atomically,
     _required_id,
     _required_text,
+    _resolve,
 )
 from ._task_authority import _validate_workorder
+
+
+def _reject_symlink_components(base: Path, ref: str) -> None:
+    current = base
+    for part in PurePosixPath(ref).parts:
+        current = current / part
+        if current.is_symlink():
+            raise ContractError("dispatch allocation path contains a symlink")
 
 
 def _run_directory(run: dict[str, Any], run_ref: str) -> str:
@@ -29,7 +38,7 @@ def validate_run(
     root: str | Path, run_ref: str, run_digest: str | None = None
 ) -> dict[str, Any]:
     """Load persisted Run, WorkOrder, and authority evidence from disk."""
-    base = Path(root).resolve()
+    base = _resolve(Path(root), "project root")
     run = _load(base, run_ref, run_digest, require_digest=False)
     dispatch_state = run.get("dispatch_state")
     if not isinstance(dispatch_state, str) or dispatch_state not in (
@@ -99,6 +108,59 @@ def _validate_dispatch_claim(
     return claim
 
 
+def _validate_dispatch_readiness(
+    root: str | Path, run_ref: str, run: dict[str, Any]
+) -> Path:
+    if run["dispatch_state"] != "ready":
+        raise ContractError(
+            "dispatch claim already exists or allocation was consumed; automatic redispatch is forbidden"
+        )
+    base = _resolve(Path(root), "project root")
+    claim_ref = _dispatch_claim_ref(run_ref)
+    claim_path = _resolve(base / claim_ref, "dispatch claim")
+    if not claim_path.is_relative_to(base):
+        raise ContractError("dispatch claim escapes project root")
+    candidate_claim = base / claim_ref
+    if candidate_claim.exists() or candidate_claim.is_symlink():
+        raise ContractError(
+            "dispatch claim already exists; automatic redispatch is forbidden"
+        )
+    if any(
+        key in run
+        for key in (
+            "attempt_ref",
+            "attempt_digest",
+            "aggregation_ref",
+            "aggregation_digest",
+            "outcome_ref",
+            "outcome_digest",
+        )
+    ):
+        raise ContractError("Run is not dispatchable after execution has started")
+    return base
+
+
+def _validate_dispatch_allocation_paths(
+    base: Path, run_ref: str, run: dict[str, Any]
+) -> dict[str, Any]:
+    allocation = _validate_attempt_allocation(run, run_ref)
+    attempt_id = allocation["attempt_id"]
+    output_ref = allocation["output_ref"]
+    run_directory = _run_directory(run, run_ref)
+    _reject_symlink_components(base, output_ref)
+    attempt_ref = run_directory + "/attempts/" + attempt_id + ".json"
+    _reject_symlink_components(base, attempt_ref)
+    output_path = _resolve(base / output_ref, "allocated output")
+    if not output_path.is_relative_to(base):
+        raise ContractError("allocated output escapes project root")
+    attempt_path = _resolve(base / attempt_ref, "allocated attempt")
+    if not attempt_path.is_relative_to(base):
+        raise ContractError("allocated attempt escapes project root")
+    if output_path.exists() or attempt_path.exists():
+        raise ContractError("attempt allocation already exists")
+    return allocation
+
+
 def validate_dispatch(
     root: str | Path,
     run_ref: str,
@@ -119,56 +181,8 @@ def validate_dispatch(
             "canonical implementer availability changed; reauthorize dispatch"
         )
     run = records["run"]
-    claim_ref = _dispatch_claim_ref(run_ref)
-    if run["dispatch_state"] != "ready":
-        raise ContractError(
-            "dispatch claim already exists or allocation was consumed; automatic redispatch is forbidden"
-        )
-    claim_path = (Path(root).resolve() / claim_ref).resolve()
-    if not claim_path.is_relative_to(Path(root).resolve()):
-        raise ContractError("dispatch claim escapes project root")
-    candidate_claim = Path(root).resolve() / claim_ref
-    if candidate_claim.exists() or candidate_claim.is_symlink():
-        raise ContractError(
-            "dispatch claim already exists; automatic redispatch is forbidden"
-        )
-    if any(
-        key in run
-        for key in (
-            "attempt_ref",
-            "attempt_digest",
-            "aggregation_ref",
-            "aggregation_digest",
-            "outcome_ref",
-            "outcome_digest",
-        )
-    ):
-        raise ContractError("Run is not dispatchable after execution has started")
-    allocation = run.get("attempt_allocation")
-    if not isinstance(allocation, dict):
-        raise ContractError("attempt allocation is missing before dispatch")
-    attempt_id = _required_id(allocation, "attempt_id", "allocated attempt identity")
-    output_ref = _required_text(allocation, "output_ref", "allocated output reference")
-    run_directory = "/".join(PurePosixPath(run_ref).parts[:3])
-    if output_ref != run_directory + "/attempts/" + attempt_id + "-output.json":
-        raise ContractError("allocated output reference mismatch")
-    output_path = (Path(root).resolve() / output_ref).resolve()
-    if not output_path.is_relative_to(Path(root).resolve()):
-        raise ContractError("allocated output escapes project root")
-    attempt_path = (
-        Path(root).resolve() / run_directory / "attempts" / (attempt_id + ".json")
-    ).resolve()
-    if not attempt_path.is_relative_to(Path(root).resolve()):
-        raise ContractError("allocated attempt escapes project root")
-    if output_path.exists() or attempt_path.exists():
-        raise ContractError("attempt allocation already exists")
-    if (
-        work["worker_route"] == "host_native_fallback"
-        and canonical_implementer_available
-    ):
-        raise ContractError(
-            "host-native fallback forbidden while canonical implementer is available"
-        )
+    base = _validate_dispatch_readiness(root, run_ref, run)
+    allocation = _validate_dispatch_allocation_paths(base, run_ref, run)
     return {**records, "attempt_allocation": allocation}
 
 
@@ -186,7 +200,7 @@ def claim_dispatch(
         capabilities=capabilities,
         canonical_implementer_available=canonical_implementer_available,
     )
-    base = Path(root).resolve()
+    base = _resolve(Path(root), "project root")
     claim = _dispatch_claim_record(run_ref, records)
     _create_exclusive(base, _dispatch_claim_ref(run_ref), claim)
     records["run"]["dispatch_state"] = "claimed"
@@ -371,7 +385,7 @@ def validate_acceptance(
     """Validate one attempt and report before returning coordinator Outcome data."""
     records = validate_run(root, run_ref)
     _validate_capabilities(records["workorder"], capabilities)
-    base = Path(root).resolve()
+    base = _resolve(Path(root), "project root")
     _validate_dispatch_claim(base, run_ref, records)
     run_directory = "/".join(PurePosixPath(run_ref).parts[:3])
     attempt, report, attempt_ref, _ = _load_attempt_and_report(
@@ -401,7 +415,7 @@ def validate_outcome(
 ) -> dict[str, Any]:
     """Reconstruct and compare the coordinator-persisted Outcome from artifacts."""
     expected = validate_acceptance(root, run_ref, capabilities=capabilities)
-    base = Path(root).resolve()
+    base = _resolve(Path(root), "project root")
     run = validate_run(base, run_ref)["run"]
     run_directory = "/".join(PurePosixPath(run_ref).parts[:3])
     outcome_ref = _required_text(run, "outcome_ref", "Outcome reference")
