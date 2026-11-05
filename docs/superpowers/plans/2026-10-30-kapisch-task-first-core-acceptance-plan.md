@@ -3,6 +3,7 @@
 **Status:** Planning artifact; no implementation is authorized by this document.
 **Scope:** Next two-PR slice only: WS-1.2 tracked acceptance plus WS-1.1 persisted-decision consumer integration.
 **Baseline:** `main` at `c259d28363d862976f9c980a71faaee8a14a3895`; PR #84 merged 2026-10-30.
+**Execution order:** This is a historical plan. The 2026-11-05 [execution-order amendment](2026-11-05-kapisch-execution-order-amendment.md) supersedes its "PR 2" Pi-integration follow-up as the next step and the "next item" in the execution record below; the portable-core, reviewer, and conformance phases now come before real Pi and Claude adapters.
 
 ## Recommendation and current state
 
@@ -99,5 +100,5 @@ This plan's two-PR slice is implemented in PR [#85](https://github.com/twKrash/k
 
 - **P2-008 — fixed:** Commit `2885a1e` adds error-aware dispatch-allocation inspection and normalizes Run-target inspection failures. Nine focused dispatch regressions passed on Python 3.11.15 and 3.14.4; the core suite passed 560 tests on Python 3.14.4.
 - **P2-009 — operator-accepted risk:** Decision-ID uniqueness is guaranteed only over complete enumeration of intact local artifact directories. It is not a security boundary against arbitrary local filesystem corruption or a subject able to modify authoritative artifacts; an unreadable directory omitted by the filesystem API can hide a duplicate. This scope is documented in `core/contracts/task-first.md` and [PR comment #6643639447](https://github.com/twKrash/kapisch/pull/85#issuecomment-6643639447). Decision enumeration was not changed.
-- **AC7 remains partial. Next recommended item:** after PR #85 merges, continue with the deferred Pi harness-integration follow-up: tracked tests should exercise actual capability probing and Pi start/collect for the same WorkOrder, then compare the normalized result with the deterministic adapter. Add tracked direct-prompt producer coverage, interruption recovery, and broader adapter cases before claiming full AC7/AC8.
-- **WS-2 remains TODO** and depends on WS-1.1 and WS-1.2. Start it after their acceptance prerequisites are satisfied; do not treat approval of this bounded PR as completion of broader decision-applicability coverage.
+- **AC7 remains partial. Next recommended item (superseded 2026-11-05 by the [amendment](2026-11-05-kapisch-execution-order-amendment.md); the Pi follow-up is now Phase 4, WS-11):** after PR #85 merges, continue with the deferred Pi harness-integration follow-up: tracked tests should exercise actual capability probing and Pi start/collect for the same WorkOrder, then compare the normalized result with the deterministic adapter. Add tracked direct-prompt producer coverage, interruption recovery, and broader adapter cases before claiming full AC7/AC8.
+- **WS-2 remains TODO** and, per the amendment, is now the next slice; it depends on WS-1.2 (not on Pi integration or WS-1.1). Start it after PR #85 merges; do not treat approval of this bounded PR as completion of broader decision-applicability coverage.
