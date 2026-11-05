@@ -4,6 +4,7 @@ Date: 2026-10-25
 Status: **Approved architecture direction**. This specification defines requirements but does not itself authorize implementation. PR [#84](https://github.com/twKrash/kapisch/pull/84) is a separately scoped first implementation slice; its delivery and remaining acceptance gaps are tracked in [the progress tracker](../product-realignment-tracker.md).
 Clarified 2026-10-26 by the owner: decision sources and operator-reported external decisions (§5.1, §8), and graph-free advisory/standalone review independence from the optional review gate (§5.2, §5.4, §8). No requirement was changed.
 Source plan: [Kapisch Product Realignment and Architecture Simplification Proposal](../plans/2026-10-25-kapisch-product-realignment-proposal.md)
+Execution order amended 2026-11-05 ([amendment](../plans/2026-11-05-kapisch-execution-order-amendment.md)): sequencing only; no requirement or acceptance criterion changed.
 
 ## 1. Intent
 

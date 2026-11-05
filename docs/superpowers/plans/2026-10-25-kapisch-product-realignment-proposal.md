@@ -210,6 +210,8 @@ This approved direction does not assume current code is useless. It reuses usefu
 
 This roadmap does not authorize production implementation, deletion, or migration. Those actions require a separately approved execution scope.
 
+**Execution-order amendment (2026-11-05):** the owner set the implementation order as harness-agnostic core, then portable reviewer contracts and lenses, then harness-neutral conformance, then real Pi and Claude adapters. This changes sequencing of the roadmap above, not requirements: real-adapter validation (steps 3 and 7 of the acceptance scenarios) is demonstrated in the last phase. See the [amendment](2026-11-05-kapisch-execution-order-amendment.md).
+
 ## 12. Open decisions and risks
 
 ### Owner escalation triggers
@@ -251,6 +253,6 @@ Architecture approval is complete. The first real adapter, validator/CLI retenti
 
 **Delegated engineering decisions:** Artifact boundaries and producers; representation of applicability status and scope assessment; exact checkpoint-selection mechanics; per-WorkOrder review-lens pass criteria; adapter operations/capabilities; CLI retention; first real adapter; and removal timing. These are not standing owner-approval gates; escalate only under §4.
 
-**Status update:** PR [#84](https://github.com/twKrash/kapisch/pull/84) delivers a separately scoped first implementation slice for Pi pending-request decision capture and direct authorization of one bounded WorkOrder. It does not complete the proposal's acceptance scenarios or authorize remaining product-realignment work. See the [progress tracker](../product-realignment-tracker.md) for verified delivery, the open K84-IND-001 review finding, remaining criteria, and the next recommended vertical slice.
+**Status update:** PR [#84](https://github.com/twKrash/kapisch/pull/84) delivers a separately scoped first implementation slice for Pi pending-request decision capture and direct authorization of one bounded WorkOrder. It does not complete the proposal's acceptance scenarios or authorize remaining product-realignment work. See the [progress tracker](../product-realignment-tracker.md) for verified delivery, review-finding dispositions, remaining criteria, and the next recommended vertical slice.
 
 **Next session should:** Read this proposal and its companion specification, then re-check current `main`/working-tree state. Treat the architecture direction as approved; do not reopen it absent an escalation trigger in §4. Obtain a separately approved execution scope before any further implementation, deletion, migration, or runtime changes. Verify reviewer packaging and real-host capability enforcement before any later removal of old paths. Do not migrate old data, resume paused Stage 5 work, or perform external actions without separate authorization.

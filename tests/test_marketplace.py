@@ -250,7 +250,7 @@ class MarketplaceTests(unittest.TestCase):
         manifests = [
             path
             for path in ROOT.rglob(".codex-plugin/plugin.json")
-            if ".git" not in path.parts
+            if ".git" not in path.parts and ".worktrees" not in path.parts
         ]
         self.assertEqual(manifests, [resolved / ".codex-plugin/plugin.json"])
 
