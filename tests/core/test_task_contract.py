@@ -115,7 +115,9 @@ def _reset_to_unclaimed(tmp_path):
     return run_path
 
 
-def fixture(tmp_path):
+def fixture(
+    tmp_path, *, decision_run="r1", source_kind="direct_operator", source_ref=None
+):
     (tmp_path / "docs").mkdir()
     (tmp_path / "docs/spec.md").write_text("approved requirements\n")
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
@@ -140,7 +142,7 @@ def fixture(tmp_path):
         artifact.write_bytes(raw)
         return name, hashlib.sha256(raw).hexdigest()
 
-    decision_ref = f"{RUN_DIR}/decisions/d1.json"
+    decision_ref = f".kapisch/runs/{decision_run}/decisions/d1.json"
     decision = {
         "decision_id": "d1",
         "question_id": "q1",
@@ -149,9 +151,11 @@ def fixture(tmp_path):
         "answer": "Approved",
         "subject": "implementation of t1",
         "scope": "src/",
-        "source_kind": "direct_operator",
+        "source_kind": source_kind,
         "governing_inputs": inputs,
     }
+    if source_ref is not None:
+        decision["source_ref"] = source_ref
     _, decision_digest = put(decision_ref, decision)
     applicability_ref = f"{RUN_DIR}/applicability.json"
     applicability = {
@@ -2149,3 +2153,1186 @@ def test_dispatch_boundary_does_not_require_filesystem_sync(tmp_path):
     assert claim["dispatch_claim"]["status"] == "claimed"
     assert (tmp_path / f"{RUN_DIR}/dispatch-claim.json").is_file()
     assert not fsync.called
+
+
+def _ws2_put(root, ref, record):
+    raw = json.dumps(record, sort_keys=True).encode()
+    path = root / ref
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(raw)
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _ws2_rebind(root, *, decision=None, applicability=None, work=None):
+    run = json.loads((root / RUN_REF).read_text())
+    if work is None:
+        work = json.loads((root / run["workorder_ref"]).read_text())
+    if decision is not None:
+        work["decision_digest"] = _ws2_put(root, work["decision_ref"], decision)
+    if applicability is None:
+        applicability = json.loads((root / work["applicability_ref"]).read_text())
+    applicability.update(
+        decision_ref=work["decision_ref"],
+        decision_id=work["decision_id"],
+        decision_digest=work["decision_digest"],
+    )
+    work["applicability_digest"] = _ws2_put(
+        root, work["applicability_ref"], applicability
+    )
+    run["workorder_digest"] = _ws2_put(root, run["workorder_ref"], work)
+    _ws2_put(root, RUN_REF, run)
+
+
+def _ws2_reassess(root):
+    records = validate_run(root, RUN_REF)
+    original = records["decision"]["governing_inputs"]
+    (root / "docs/spec.md").write_text("approved requirements, clarified\n")
+    subprocess.run(["git", "-C", str(root), "add", "docs/spec.md"], check=True)
+    subprocess.run(
+        ["git", "-C", str(root), "commit", "-qm", "clarify governing input"],
+        check=True,
+    )
+    assessed = [
+        {
+            "ref": "docs/spec.md",
+            "digest": hashlib.sha256((root / "docs/spec.md").read_bytes()).hexdigest(),
+        }
+    ]
+    app, work = records["applicability"], records["workorder"]
+    app.update(original_governing_inputs=original, governing_inputs=assessed)
+    work["governing_inputs"] = assessed
+    _ws2_rebind(root, applicability=app, work=work)
+    return original, assessed
+
+
+def test_ws2_reassessment_preserves_immutable_original(tmp_path):
+    fixture(tmp_path, decision_run="original")
+    _reset_to_unclaimed(tmp_path)
+    path = tmp_path / ".kapisch/runs/original/decisions/d1.json"
+    before = path.read_bytes()
+    original, assessed = _ws2_reassess(tmp_path)
+    records = validate_run(tmp_path, RUN_REF)
+    assert original != assessed
+    assert records["decision"]["governing_inputs"] == original
+    assert records["applicability"]["original_governing_inputs"] == original
+    assert records["applicability"]["governing_inputs"] == assessed
+    assert records["workorder"]["governing_inputs"] == assessed
+    assert (
+        task_contract.validate_dispatch(
+            tmp_path,
+            RUN_REF,
+            capabilities={"write": {"status": "supported", "reason": "reassessment"}},
+            canonical_implementer_available=False,
+        )["decision"]["governing_inputs"]
+        == original
+    )
+    assert path.read_bytes() == before
+
+
+@_params("variant", ["absent", "mismatch", "assessed_mismatch"])
+def test_ws2_reassessment_binding_failures(tmp_path, variant):
+    fixture(tmp_path)
+    _ws2_reassess(tmp_path)
+    work = json.loads((tmp_path / RUN_DIR / "workorder.json").read_text())
+    app = json.loads((tmp_path / work["applicability_ref"]).read_text())
+    if variant == "absent":
+        app.pop("original_governing_inputs")
+        message = "governing inputs require reassessment"
+    elif variant == "mismatch":
+        app["original_governing_inputs"] = app["governing_inputs"]
+        message = "original governing inputs mismatch"
+    else:
+        app["governing_inputs"] = app["original_governing_inputs"]
+        message = "decision applicability is missing, stale, or not applicable"
+    _ws2_rebind(tmp_path, applicability=app, work=work)
+    with _raises(ContractError, match="^" + re.escape(message) + "$"):
+        validate_run(tmp_path, RUN_REF)
+
+
+@_params(
+    ("snapshot", "message"),
+    [
+        (None, "invalid historical governing inputs"),
+        ([], "work order requires governing Git inputs"),
+        ({}, "invalid historical governing inputs"),
+        ([None], "malformed governing Git input"),
+        ([{"ref": "docs/spec.md"}], "malformed governing Git input"),
+        ([{"ref": "../spec.md", "digest": "0" * 64}], "malformed governing Git input"),
+        ([{"ref": "docs/spec.md", "digest": None}], "malformed governing Git input"),
+        (
+            [{"ref": "docs/spec.md", "digest": "A" * 64}],
+            "malformed governing Git input",
+        ),
+        (
+            [{"ref": "docs/spec.md", "digest": "0" * 64, "extra": 1}],
+            "malformed governing Git input",
+        ),
+        (
+            [{"ref": "docs/spec.md", "digest": "0" * 64}] * 2,
+            "duplicate governing Git input",
+        ),
+        ("__omit__", "invalid historical governing inputs"),
+    ],
+)
+def test_ws2_equal_malformed_historical_snapshots_rejected(tmp_path, snapshot, message):
+    fixture(tmp_path)
+    records = validate_run(tmp_path, RUN_REF)
+    decision, app = records["decision"], records["applicability"]
+    app["original_governing_inputs"] = snapshot
+    if snapshot == "__omit__":
+        decision.pop("governing_inputs")
+    else:
+        decision["governing_inputs"] = snapshot
+    _ws2_rebind(tmp_path, decision=decision, applicability=app)
+    with _raises(ContractError, match="^" + re.escape(message) + "$"):
+        validate_run(tmp_path, RUN_REF)
+
+
+@_params("snapshot", [None, {}, [None]])
+def test_ws2_present_invalid_original_is_not_absent(tmp_path, snapshot):
+    fixture(tmp_path)
+    app = validate_run(tmp_path, RUN_REF)["applicability"]
+    app["original_governing_inputs"] = snapshot
+    _ws2_rebind(tmp_path, applicability=app)
+    message = (
+        "malformed governing Git input"
+        if snapshot == [None]
+        else "invalid historical governing inputs"
+    )
+    with _raises(ContractError, match="^" + re.escape(message) + "$"):
+        validate_run(tmp_path, RUN_REF)
+
+
+@_params("field", ["subject", "scope"])
+def test_ws2_reassessment_cannot_change_authority(tmp_path, field):
+    fixture(tmp_path)
+    _ws2_reassess(tmp_path)
+    records = validate_run(tmp_path, RUN_REF)
+    app, work = records["applicability"], records["workorder"]
+    app[field] = work[field] = "wider authority"
+    _ws2_rebind(tmp_path, applicability=app, work=work)
+    with _raises(ContractError, match="^work order is not authorized$"):
+        validate_run(tmp_path, RUN_REF)
+
+
+@_params("original_present", [False, True])
+def test_ws2_empty_original_snapshot_presence_semantics(tmp_path, original_present):
+    from kapisch_core._task_authority import _validate_governing_binding
+
+    fixture(tmp_path)
+    work = validate_run(tmp_path, RUN_REF)["workorder"]
+    decision = {"governing_inputs": []}
+    app = {"original_governing_inputs": []} if original_present else {}
+    if original_present:
+        _validate_governing_binding(tmp_path, work, decision, app)
+    else:
+        with _raises(ContractError, match="^governing inputs require reassessment$"):
+            _validate_governing_binding(tmp_path, work, decision, app)
+
+
+def test_ws2_present_empty_original_mismatches_nonempty_snapshot(tmp_path):
+    fixture(tmp_path)
+    app = validate_run(tmp_path, RUN_REF)["applicability"]
+    app["original_governing_inputs"] = []
+    _ws2_rebind(tmp_path, applicability=app)
+    with _raises(ContractError, match="^original governing inputs mismatch$"):
+        validate_run(tmp_path, RUN_REF)
+
+
+def test_ws2_drift_without_reassessment_is_rejected(tmp_path):
+    fixture(tmp_path)
+    (tmp_path / "docs/spec.md").write_text("changed governing input\n")
+    with _raises(
+        ContractError,
+        match="^current governing inputs require reassessment$",
+    ):
+        validate_run(tmp_path, RUN_REF)
+
+
+def test_ws2_85_compatibility_without_original_snapshot(tmp_path):
+    fixture(tmp_path)
+    records = validate_run(tmp_path, RUN_REF)
+    assert "original_governing_inputs" not in records["applicability"]
+    assert (
+        records["workorder"]["governing_inputs"]
+        == records["decision"]["governing_inputs"]
+    )
+
+
+def test_ws2_cross_run_reuse_has_one_original(tmp_path):
+    fixture(tmp_path, decision_run="original")
+    original = tmp_path / ".kapisch/runs/original/decisions/d1.json"
+    before = original.read_bytes()
+    records = validate_run(tmp_path, RUN_REF)
+    assert records["workorder"]["decision_ref"] == (
+        ".kapisch/runs/original/decisions/d1.json"
+    )
+    assert list(tmp_path.glob(".kapisch/runs/*/decisions/*.json")) == [original]
+    assert original.read_bytes() == before
+
+
+@_params(
+    "ref",
+    [
+        "docs/d1.json",
+        ".kapisch/runs/r1/decisions/other.json",
+        ".kapisch/runs/r1/decisions/../decisions/d1.json",
+        ".kapisch/runs/r1/decisions/nested/d1.json",
+    ],
+)
+def test_ws2_decision_layout_rejected(tmp_path, ref):
+    fixture(tmp_path)
+    records = validate_run(tmp_path, RUN_REF)
+    work = records["workorder"]
+    work["decision_ref"] = ref
+    _ws2_put(tmp_path, ref, records["decision"])
+    _ws2_rebind(tmp_path, work=work)
+    expected = (
+        "decision identity is not unique or reference mismatches"
+        if ref.endswith("/other.json")
+        else "malformed decision reference"
+    )
+    with _raises(ContractError, match="^" + re.escape(expected) + "$"):
+        validate_run(tmp_path, RUN_REF)
+
+
+def test_ws2_duplicate_decision_identity(tmp_path):
+    fixture(tmp_path)
+    record = validate_run(tmp_path, RUN_REF)["decision"]
+    _ws2_put(tmp_path, ".kapisch/runs/other/decisions/d1.json", record)
+    with _raises(
+        ContractError,
+        match=("^decision identity is not unique or reference mismatches$"),
+    ):
+        validate_run(tmp_path, RUN_REF)
+
+
+@_params("target_kind", ["internal", "escaping", "loop"])
+@_params("component", ["file", "decisions", "run"])
+def test_ws2_decision_symlink_components(tmp_path, target_kind, component):
+    from kapisch_core._task_decisions import _load_decision
+
+    fixture(tmp_path)
+    record = validate_run(tmp_path, RUN_REF)["decision"]
+    target_ref = ".kapisch/runs/original/decisions/d1.json"
+    _ws2_put(tmp_path, target_ref, {**record, "decision_id": "d1"})
+    alias_ref = ".kapisch/runs/alias/decisions/d1.json"
+    suffix = {"file": "decisions/d1.json", "decisions": "decisions", "run": ""}
+    alias = tmp_path / ".kapisch/runs/alias" / suffix[component]
+    internal = tmp_path / ".kapisch/runs/original" / suffix[component]
+    alias.parent.mkdir(parents=True, exist_ok=True)
+    if target_kind == "internal":
+        target = internal
+    elif target_kind == "escaping":
+        target = tmp_path.parent / "outside-ws2-artifact"
+    else:
+        target = alias
+    alias.symlink_to(target, target_is_directory=component != "file")
+    with _raises(ContractError, match="^decision reference contains a symlink$"):
+        _load_decision(tmp_path, alias_ref, require_digest=False)
+
+
+def test_ws2_decision_digest_binding(tmp_path):
+    fixture(tmp_path, decision_run="original")
+    path = tmp_path / ".kapisch/runs/original/decisions/d1.json"
+    path.write_bytes(path.read_bytes() + b" ")
+    with _raises(
+        ContractError,
+        match=(
+            r"^artifact digest mismatch: \.kapisch/runs/original/decisions/d1\.json$"
+        ),
+    ):
+        validate_run(tmp_path, RUN_REF)
+
+
+@_params(
+    ("where", "value", "message"),
+    [
+        ("decision", "bad.id", "invalid decision identity"),
+        ("decision", "d2", "decision identity is not unique or reference mismatches"),
+        ("workorder", "d2", "decision reference mismatch"),
+    ],
+)
+def test_ws2_decision_identity_bindings(tmp_path, where, value, message):
+    fixture(tmp_path)
+    records = validate_run(tmp_path, RUN_REF)
+    if where == "decision":
+        decision = records["decision"]
+        decision["decision_id"] = value
+        _ws2_rebind(tmp_path, decision=decision)
+    else:
+        work = records["workorder"]
+        work["decision_id"] = value
+        _ws2_rebind(tmp_path, work=work)
+    with _raises(ContractError, match="^" + re.escape(message) + "$"):
+        validate_run(tmp_path, RUN_REF)
+
+
+@_params(
+    "decision_type",
+    ["answer", "correction", "risk_acceptance", "external_effect_authorization"],
+)
+def test_ws2_selected_nonapproval_cannot_authorize(tmp_path, decision_type):
+    fixture(tmp_path)
+    decision = validate_run(tmp_path, RUN_REF)["decision"]
+    decision["decision_type"] = decision_type
+    _ws2_rebind(tmp_path, decision=decision)
+    with _raises(ContractError, match="^work order is not authorized$"):
+        validate_run(tmp_path, RUN_REF)
+
+
+@_params(
+    ("result", "message"),
+    [
+        ("not_applicable", "decision applicability result is not_applicable"),
+        ("ambiguous", "decision applicability result is ambiguous"),
+        (
+            "reassessment_required",
+            "decision applicability result is reassessment_required",
+        ),
+        ("superseded", "invalid decision applicability result"),
+        ("unknown", "invalid decision applicability result"),
+        ("", "invalid decision applicability result"),
+        (None, "invalid decision applicability result"),
+        (1, "invalid decision applicability result"),
+        (True, "invalid decision applicability result"),
+        ([], "invalid decision applicability result"),
+        ({}, "invalid decision applicability result"),
+        ("__omit__", "invalid decision applicability result"),
+    ],
+)
+def test_ws2_result_diagnostics(tmp_path, result, message):
+    fixture(tmp_path)
+    app = validate_run(tmp_path, RUN_REF)["applicability"]
+    if result == "__omit__":
+        app.pop("result")
+    else:
+        app["result"] = result
+    _ws2_rebind(tmp_path, applicability=app)
+    with _raises(ContractError, match="^" + re.escape(message) + "$"):
+        validate_run(tmp_path, RUN_REF)
+
+
+@_params("reason", [None, "", "  ", 0, [], {}, "__omit__"])
+def test_ws2_invalid_reason_keeps_existing_diagnostic(tmp_path, reason):
+    fixture(tmp_path)
+    app = validate_run(tmp_path, RUN_REF)["applicability"]
+    if reason == "__omit__":
+        app.pop("reason")
+    else:
+        app["reason"] = reason
+    _ws2_rebind(tmp_path, applicability=app)
+    with _raises(
+        ContractError,
+        match=("^decision applicability is missing, stale, or not applicable$"),
+    ):
+        validate_run(tmp_path, RUN_REF)
+
+
+@_params("snapshot", [[], [{"ref": "external:opaque ref", "digest": "0" * 64}] * 2])
+def test_ws2_historical_reader_matches_producer_snapshot(tmp_path, snapshot):
+    from kapisch_core._task_decisions import _load_decision
+
+    fixture(tmp_path)
+    record = validate_run(tmp_path, RUN_REF)["decision"]
+    record["governing_inputs"] = snapshot
+    record["approving_party"] = "operator"
+    ref = ".kapisch/runs/history/decisions/d1.json"
+    # Use one original: put the fixture's identity under a distinct identity instead.
+    record["decision_id"] = "history"
+    ref = ".kapisch/runs/history/decisions/history.json"
+    digest = _ws2_put(tmp_path, ref, record)
+    assert _load_decision(tmp_path, ref, digest) == record
+
+
+@_params("original_present", [False, True])
+def test_ws2_empty_selected_inputs_cannot_authorize(tmp_path, original_present):
+    fixture(tmp_path)
+    records = validate_run(tmp_path, RUN_REF)
+    decision, app, work = (
+        records[key] for key in ("decision", "applicability", "workorder")
+    )
+    decision["governing_inputs"] = []
+    if original_present:
+        app["original_governing_inputs"] = []
+    _ws2_rebind(tmp_path, decision=decision, applicability=app, work=work)
+    with _raises(ContractError, match="^work order requires governing Git inputs$"):
+        validate_run(tmp_path, RUN_REF)
+
+
+def _ws2_edge(root, decision_id):
+    run = "r1" if decision_id == "d1" else "graph"
+    ref = f".kapisch/runs/{run}/decisions/{decision_id}.json"
+    return {
+        "decision_id": decision_id,
+        "decision_ref": ref,
+        "decision_digest": hashlib.sha256((root / ref).read_bytes()).hexdigest(),
+    }
+
+
+def _ws2_add_decision(root, decision_id, *, supersedes=None):
+    work = json.loads((root / RUN_DIR / "workorder.json").read_text())
+    record = json.loads((root / work["decision_ref"]).read_text())
+    record.pop("supersedes", None)
+    record.update(decision_id=decision_id, question_id="different-" + decision_id)
+    if supersedes is not None:
+        record["supersedes"] = supersedes
+    ref = f".kapisch/runs/graph/decisions/{decision_id}.json"
+    _ws2_put(root, ref, record)
+    return ref
+
+
+def _ws2_graph(root):
+    from kapisch_core._task_supersession import _validate_supersession_graph
+
+    return _validate_supersession_graph(root)
+
+
+def test_ws2_graph_transitive_different_question_non_revival(tmp_path):
+    fixture(tmp_path)
+    assert _ws2_graph(tmp_path) == frozenset()
+    _ws2_add_decision(tmp_path, "d2", supersedes=[_ws2_edge(tmp_path, "d1")])
+    assert _ws2_graph(tmp_path) == frozenset({"d1"})
+    _ws2_add_decision(tmp_path, "d3", supersedes=[_ws2_edge(tmp_path, "d2")])
+    assert _ws2_graph(tmp_path) == frozenset({"d1", "d2"})
+
+
+@_params(
+    ("value", "message"),
+    [
+        (None, "invalid decision supersedes"),
+        ([], "invalid decision supersedes"),
+        ({}, "invalid decision supersedes"),
+        ([None], "invalid supersedes entry"),
+        ([{}], "invalid supersedes entry"),
+        (
+            [
+                {
+                    "decision_id": "d1",
+                    "decision_ref": "docs/d1.json",
+                    "decision_digest": "0" * 64,
+                }
+            ],
+            "malformed decision reference",
+        ),
+        (
+            [
+                {
+                    "decision_id": [],
+                    "decision_ref": ".kapisch/runs/r1/decisions/d1.json",
+                    "decision_digest": "0" * 64,
+                }
+            ],
+            "invalid supersedes decision identity",
+        ),
+        (
+            [
+                {
+                    "decision_id": "d1",
+                    "decision_ref": ".kapisch/runs/r1/decisions/d1.json",
+                    "decision_digest": [],
+                }
+            ],
+            "invalid supersedes decision digest",
+        ),
+    ],
+)
+def test_ws2_graph_edge_schema(tmp_path, value, message):
+    fixture(tmp_path)
+    ref = _ws2_add_decision(tmp_path, "d2")
+    record = json.loads((tmp_path / ref).read_text())
+    record["supersedes"] = value
+    _ws2_put(tmp_path, ref, record)
+    with _raises(ContractError, match="^" + re.escape(message) + "$"):
+        _ws2_graph(tmp_path)
+
+
+@_params(
+    ("variant", "message"),
+    [
+        ("extra", "invalid supersedes entry"),
+        ("duplicate", "duplicate supersedes target"),
+        ("missing", "supersedes target is missing"),
+        ("identity", "supersedes target identity mismatch"),
+        ("digest", "artifact digest mismatch: .kapisch/runs/r1/decisions/d1.json"),
+    ],
+)
+def test_ws2_graph_invalid_target_binding(tmp_path, variant, message):
+    fixture(tmp_path)
+    edge = _ws2_edge(tmp_path, "d1")
+    edges = [edge]
+    if variant == "extra":
+        edge["extra"] = True
+    elif variant == "duplicate":
+        edges.append(dict(edge))
+    elif variant == "missing":
+        edge["decision_ref"] = ".kapisch/runs/absent/decisions/d1.json"
+    elif variant == "identity":
+        edge["decision_id"] = "other"
+    else:
+        edge["decision_digest"] = "0" * 64
+    _ws2_add_decision(tmp_path, "d2", supersedes=edges)
+    with _raises(ContractError, match="^" + re.escape(message) + "$"):
+        _ws2_graph(tmp_path)
+
+
+@_params("variant", ["self", "cycle"])
+def test_ws2_graph_cycles_before_digest_validation(tmp_path, variant):
+    fixture(tmp_path)
+    ref = f"{RUN_DIR}/decisions/d1.json"
+    record = json.loads((tmp_path / ref).read_text())
+    self_edge = {**_ws2_edge(tmp_path, "d1"), "decision_digest": "0" * 64}
+    if variant == "self":
+        record["supersedes"] = [self_edge]
+        message = "decision cannot supersede itself"
+    else:
+        _ws2_add_decision(tmp_path, "d2", supersedes=[self_edge])
+        record["supersedes"] = [
+            {**_ws2_edge(tmp_path, "d2"), "decision_digest": "0" * 64}
+        ]
+        message = "decision supersession cycle"
+    _ws2_put(tmp_path, ref, record)
+    with _raises(ContractError, match="^" + message + "$"):
+        _ws2_graph(tmp_path)
+
+
+@_params(
+    ("field", "value", "message"),
+    [
+        ("question", None, "invalid decision question"),
+        ("question_id", None, "invalid decision question identity"),
+        ("subject", [], "invalid decision subject"),
+        ("scope", "", "invalid decision scope"),
+        ("answer", "", "invalid decision answer"),
+        ("answer", "\ud800", "decision answer is not valid UTF-8"),
+        ("source_kind", [], "work order is not authorized"),
+        ("source_kind", "external_artifact", "work order is not authorized"),
+        ("decision_type", "other", "work order is not authorized"),
+        ("governing_inputs", None, "invalid historical governing inputs"),
+    ],
+)
+def test_ws2_graph_validates_unconnected_decision(tmp_path, field, value, message):
+    fixture(tmp_path)
+    ref = _ws2_add_decision(tmp_path, "d2")
+    record = json.loads((tmp_path / ref).read_text())
+    record[field] = value
+    _ws2_put(tmp_path, ref, record)
+    with _raises(ContractError, match="^" + re.escape(message) + "$"):
+        _ws2_graph(tmp_path)
+
+
+@_params(
+    ("raw", "message"),
+    [
+        (b"{", "invalid JSON artifact: .kapisch/runs/graph/decisions/d2.json"),
+        (
+            b'{"decision_id":"d2","decision_id":"d2"}',
+            "duplicate JSON object key: decision_id",
+        ),
+        (b"[]", "artifact must be an object: .kapisch/runs/graph/decisions/d2.json"),
+    ],
+)
+def test_ws2_graph_uses_strict_loader(tmp_path, raw, message):
+    fixture(tmp_path)
+    ref = _ws2_add_decision(tmp_path, "d2")
+    (tmp_path / ref).write_bytes(raw)
+    with _raises(ContractError, match="^" + re.escape(message) + "$"):
+        _ws2_graph(tmp_path)
+
+
+@_params("target_kind", ["internal", "escaping", "loop"])
+def test_ws2_graph_rejects_symlink_file(tmp_path, target_kind):
+    fixture(tmp_path)
+    path = tmp_path / RUN_DIR / "decisions/d2.json"
+    target = {
+        "internal": tmp_path / RUN_DIR / "decisions/d1.json",
+        "escaping": tmp_path.parent / "outside-ws2-artifact",
+        "loop": path,
+    }[target_kind]
+    path.symlink_to(target)
+    with _raises(ContractError, match="^decision reference contains a symlink$"):
+        _ws2_graph(tmp_path)
+
+
+def test_ws2_graph_rejects_duplicate_identity(tmp_path):
+    fixture(tmp_path)
+    record = json.loads((tmp_path / RUN_DIR / "decisions/d1.json").read_text())
+    _ws2_put(tmp_path, ".kapisch/runs/graph/decisions/d1.json", record)
+    with _raises(
+        ContractError,
+        match=("^decision identity is not unique or reference mismatches$"),
+    ):
+        _ws2_graph(tmp_path)
+
+
+@_params(
+    "decision_type",
+    ["answer", "correction", "risk_acceptance", "external_effect_authorization"],
+)
+def test_ws2_graph_accepts_nonapproval_human_decisions(tmp_path, decision_type):
+    fixture(tmp_path)
+    ref = _ws2_add_decision(tmp_path, "d2")
+    record = json.loads((tmp_path / ref).read_text())
+    record["decision_type"] = decision_type
+    _ws2_put(tmp_path, ref, record)
+    assert _ws2_graph(tmp_path) == frozenset()
+
+
+@_params("snapshot", [[], [{"ref": "external:opaque ref", "digest": "0" * 64}] * 2])
+def test_ws2_graph_accepts_producer_snapshot_and_empty_chain(tmp_path, snapshot):
+    fixture(tmp_path)
+    ref = _ws2_add_decision(tmp_path, "d2")
+    record = json.loads((tmp_path / ref).read_text())
+    record["governing_inputs"] = snapshot
+    _ws2_put(tmp_path, ref, record)
+    _ws2_add_decision(tmp_path, "d3", supersedes=[_ws2_edge(tmp_path, "d2")])
+    ref3 = ".kapisch/runs/graph/decisions/d3.json"
+    record3 = json.loads((tmp_path / ref3).read_text())
+    record3["governing_inputs"] = []
+    _ws2_put(tmp_path, ref3, record3)
+    assert _ws2_graph(tmp_path) == frozenset({"d2"})
+
+
+def test_ws2_graph_reads_each_file_once(tmp_path):
+    from collections import Counter
+    from pathlib import Path
+
+    fixture(tmp_path)
+    previous = "d1"
+    for number in range(2, 14):
+        identity = f"d{number}"
+        _ws2_add_decision(
+            tmp_path, identity, supersedes=[_ws2_edge(tmp_path, previous)]
+        )
+        previous = identity
+    expected = set(tmp_path.glob(".kapisch/runs/*/decisions/*.json"))
+    reads, globs = Counter(), []
+    read_bytes, glob = Path.read_bytes, Path.glob
+
+    def counted_read(path):
+        if path in expected:
+            reads[path] += 1
+        return read_bytes(path)
+
+    def counted_glob(path, pattern):
+        if pattern == ".kapisch/runs/*/decisions/*.json":
+            globs.append(pattern)
+        return glob(path, pattern)
+
+    with (
+        mock.patch.object(Path, "read_bytes", counted_read),
+        mock.patch.object(Path, "glob", counted_glob),
+    ):
+        assert _ws2_graph(tmp_path) == frozenset(f"d{i}" for i in range(1, 13))
+    assert reads == Counter({path: 1 for path in expected})
+    assert len(globs) == 1
+
+
+_WS2_CAPABILITIES = {"write": {"status": "supported", "reason": "test adapter"}}
+
+
+def _ws2_restart(root, operation, run_ref=RUN_REF):
+    script = """
+import json, sys
+from kapisch_core import task_contract
+kwargs = {"capabilities": {"write": {"status": "supported", "reason": "restart"}}}
+if sys.argv[3] in {"validate_dispatch", "claim_dispatch"}:
+    kwargs["canonical_implementer_available"] = False
+try:
+    result = getattr(task_contract, sys.argv[3])(sys.argv[1], sys.argv[2], **kwargs)
+except task_contract.ContractError as exc:
+    result = {"error": str(exc)}
+print(json.dumps(result, sort_keys=True))
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(root), run_ref, operation],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return json.loads(result.stdout)
+
+
+def _ws2_snapshot(root):
+    return {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in (root / ".kapisch").rglob("*")
+        if path.is_file()
+    }
+
+
+def _ws2_persist_outcome(root):
+    outcome = validate_acceptance(root, RUN_REF, capabilities=_WS2_CAPABILITIES)
+    outcome_ref = f"{RUN_DIR}/outcome.json"
+    digest = _ws2_put(root, outcome_ref, outcome)
+    run = json.loads((root / RUN_REF).read_text())
+    run.update(outcome_ref=outcome_ref, outcome_digest=digest)
+    _ws2_put(root, RUN_REF, run)
+    return outcome
+
+
+def _ws2_new_ready_consumer(root):
+    source_run = json.loads((root / RUN_REF).read_text())
+    work = json.loads((root / source_run["workorder_ref"]).read_text())
+    app = json.loads((root / work["applicability_ref"]).read_text())
+    directory = ".kapisch/runs/r2"
+    work.update(workorder_id="w2", applicability_ref=directory + "/applicability.json")
+    work["applicability_digest"] = _ws2_put(root, work["applicability_ref"], app)
+    work_ref = directory + "/workorder.json"
+    work_digest = _ws2_put(root, work_ref, work)
+    run_ref = directory + "/run.json"
+    _ws2_put(
+        root,
+        run_ref,
+        {
+            "run_id": "r2",
+            "dispatch_state": "ready",
+            "workorder_ref": work_ref,
+            "workorder_digest": work_digest,
+            "attempt_allocation": {
+                "attempt_id": "a2",
+                "output_ref": directory + "/attempts/a2-output.json",
+            },
+        },
+    )
+    return run_ref
+
+
+@_params("operation", ["validate_dispatch", "claim_dispatch"])
+@_params("transitive", [False, True])
+def test_ws2_dispatch_blocks_superseded_without_mutation(
+    tmp_path, operation, transitive
+):
+    fixture(tmp_path)
+    _reset_to_unclaimed(tmp_path)
+    _ws2_add_decision(tmp_path, "d2", supersedes=[_ws2_edge(tmp_path, "d1")])
+    if transitive:
+        _ws2_add_decision(tmp_path, "d3", supersedes=[_ws2_edge(tmp_path, "d2")])
+    before = _ws2_snapshot(tmp_path)
+    with _raises(ContractError, match="^decision is superseded: d1$"):
+        getattr(task_contract, operation)(
+            tmp_path,
+            RUN_REF,
+            capabilities=_WS2_CAPABILITIES,
+            canonical_implementer_available=False,
+        )
+    assert _ws2_restart(tmp_path, operation) == {"error": "decision is superseded: d1"}
+    assert _ws2_snapshot(tmp_path) == before
+    assert not (tmp_path / RUN_DIR / "dispatch-claim.json").exists()
+
+
+def test_ws2_dispatch_still_allows_original_and_new_superseder(tmp_path):
+    fixture(tmp_path)
+    _reset_to_unclaimed(tmp_path)
+    result = task_contract.validate_dispatch(
+        tmp_path,
+        RUN_REF,
+        capabilities=_WS2_CAPABILITIES,
+        canonical_implementer_available=False,
+    )
+    assert result["decision"]["decision_id"] == "d1"
+    ref = _ws2_add_decision(tmp_path, "d2", supersedes=[_ws2_edge(tmp_path, "d1")])
+    decision = json.loads((tmp_path / ref).read_text())
+    work = validate_run(tmp_path, RUN_REF)["workorder"]
+    work.update(
+        decision_id="d2",
+        decision_ref=ref,
+        decision_digest=hashlib.sha256((tmp_path / ref).read_bytes()).hexdigest(),
+    )
+    _ws2_rebind(tmp_path, work=work)
+    assert (
+        task_contract.claim_dispatch(
+            tmp_path,
+            RUN_REF,
+            capabilities=_WS2_CAPABILITIES,
+            canonical_implementer_available=False,
+        )["decision"]
+        == decision
+    )
+
+
+@_params(
+    ("later", "message"),
+    [
+        ("valid", "decision is superseded: d1"),
+        (
+            "invalid_json",
+            "invalid JSON artifact: .kapisch/runs/graph/decisions/d2.json",
+        ),
+        ("duplicate_keys", "duplicate JSON object key: decision_id"),
+        ("invalid_record", "invalid decision question identity"),
+        ("invalid_edges", "invalid decision supersedes"),
+    ],
+)
+def test_ws2_completed_outcome_ignores_later_graph_but_dispatch_fails_closed(
+    tmp_path, later, message
+):
+    fixture(tmp_path)
+    expected = _ws2_persist_outcome(tmp_path)
+    consumer = _ws2_new_ready_consumer(tmp_path)
+    before = _ws2_snapshot(tmp_path)
+    ref = _ws2_add_decision(tmp_path, "d2", supersedes=[_ws2_edge(tmp_path, "d1")])
+    if later == "invalid_json":
+        (tmp_path / ref).write_bytes(b"{")
+    elif later == "duplicate_keys":
+        (tmp_path / ref).write_bytes(b'{"decision_id":"d2","decision_id":"d2"}')
+    elif later == "invalid_record":
+        _ws2_put(tmp_path, ref, {"decision_id": "d2"})
+    elif later == "invalid_edges":
+        record = json.loads((tmp_path / ref).read_text())
+        record["supersedes"] = []
+        _ws2_put(tmp_path, ref, record)
+    assert (
+        validate_acceptance(tmp_path, RUN_REF, capabilities=_WS2_CAPABILITIES)
+        == expected
+    )
+    assert (
+        task_contract.validate_outcome(
+            tmp_path, RUN_REF, capabilities=_WS2_CAPABILITIES
+        )
+        == expected
+    )
+    assert _ws2_restart(tmp_path, "validate_outcome") == expected
+    for operation in ("validate_dispatch", "claim_dispatch"):
+        with _raises(ContractError, match="^" + re.escape(message) + "$"):
+            getattr(task_contract, operation)(
+                tmp_path,
+                consumer,
+                capabilities=_WS2_CAPABILITIES,
+                canonical_implementer_available=False,
+            )
+        assert _ws2_restart(tmp_path, operation, consumer) == {"error": message}
+    for ref, raw in before.items():
+        assert (tmp_path / ref).read_bytes() == raw
+
+
+@_params("source_kind", ["external_artifact", "operator_reported_external"])
+def test_ws2_external_cross_run_source_attribution(tmp_path, source_kind):
+    source = "records/operator-approval.md"
+    fixture(
+        tmp_path, decision_run="original", source_kind=source_kind, source_ref=source
+    )
+    original_ref = ".kapisch/runs/original/decisions/d1.json"
+    original = (tmp_path / original_ref).read_bytes()
+    expected = _ws2_persist_outcome(tmp_path)
+    assert expected["decision"]["ref"] == original_ref
+    assert expected["decision"]["decision_id"] == "d1"
+    assert expected["decision"]["source_kind"] == source_kind
+    assert "source_ref" not in expected["decision"]  # No Outcome schema expansion.
+    records = validate_run(tmp_path, RUN_REF)
+    assert records["decision"]["source_ref"] == source
+    assert (
+        json.loads((tmp_path / expected["decision"]["ref"]).read_text())["source_ref"]
+        == source
+    )
+    assert _ws2_restart(tmp_path, "validate_outcome") == expected
+    assert (tmp_path / original_ref).read_bytes() == original
+    assert not (tmp_path / RUN_DIR / "decisions/d1.json").exists()
+
+
+def test_ws2_dispatch_accepts_unrelated_empty_historical_inputs(tmp_path):
+    fixture(tmp_path)
+    _reset_to_unclaimed(tmp_path)
+    ref = _ws2_add_decision(tmp_path, "d2")
+    record = json.loads((tmp_path / ref).read_text())
+    record["governing_inputs"] = []
+    _ws2_put(tmp_path, ref, record)
+    assert (
+        task_contract.validate_dispatch(
+            tmp_path,
+            RUN_REF,
+            capabilities=_WS2_CAPABILITIES,
+            canonical_implementer_available=False,
+        )["decision"]["decision_id"]
+        == "d1"
+    )
+
+
+def test_ws2_dispatch_reads_each_decision_once_per_call(tmp_path):
+    from collections import Counter
+    from pathlib import Path
+
+    fixture(tmp_path)
+    _reset_to_unclaimed(tmp_path)
+    for number in range(2, 10):
+        _ws2_add_decision(tmp_path, f"d{number}")
+    expected = set(tmp_path.glob(".kapisch/runs/*/decisions/*.json"))
+    reads, globs = Counter(), []
+    read_bytes, glob = Path.read_bytes, Path.glob
+
+    def counted_read(path):
+        if path in expected:
+            reads[path] += 1
+        return read_bytes(path)
+
+    def counted_glob(path, pattern):
+        if pattern == ".kapisch/runs/*/decisions/*.json":
+            globs.append(pattern)
+        return glob(path, pattern)
+
+    with (
+        mock.patch.object(Path, "read_bytes", counted_read),
+        mock.patch.object(Path, "glob", counted_glob),
+    ):
+        for invocation in (1, 2):
+            task_contract.validate_dispatch(
+                tmp_path,
+                RUN_REF,
+                capabilities=_WS2_CAPABILITIES,
+                canonical_implementer_available=False,
+            )
+            assert reads == Counter({path: invocation for path in expected})
+            assert (
+                len(globs) == invocation
+            )  # No cross-call cache, including selected d1.
+
+
+@_params("supersedes", [False, True])
+def test_ws2_missing_retained_reference_fails_closed_after_restart(
+    tmp_path, supersedes
+):
+    fixture(tmp_path, decision_run="origin")
+    _reset_to_unclaimed(tmp_path)
+    records = validate_run(tmp_path, RUN_REF)
+    ref = records["workorder"]["decision_ref"]
+    if supersedes:
+        edge = {
+            "decision_id": "d1",
+            "decision_ref": ref,
+            "decision_digest": records["workorder"]["decision_digest"],
+        }
+        _ws2_add_decision(tmp_path, "d2", supersedes=[edge])
+        # Reference d2 as the selected authority, retaining its edge to d1.
+        d2_ref = ".kapisch/runs/graph/decisions/d2.json"
+        work, app = records["workorder"], records["applicability"]
+        digest = hashlib.sha256((tmp_path / d2_ref).read_bytes()).hexdigest()
+        for record in (work, app):
+            record.update(decision_id="d2", decision_ref=d2_ref, decision_digest=digest)
+        _ws2_rebind(tmp_path, work=work, applicability=app)
+    # Archive, never delete, the original file; consumers still reference its old path.
+    archive = tmp_path / "archived-decisions"
+    archive.mkdir()
+    (tmp_path / ref).rename(archive / "d1.json")
+    expected = (
+        "supersedes target is missing" if supersedes else "missing referenced decision"
+    )
+    assert _ws2_restart(tmp_path, "validate_dispatch")["error"] == expected
+
+
+@_params("case", ["first", "second", "zero", "mismatch"])
+def test_ws2_mut_unique_decision_reference_rejects_invalid_match_count(tmp_path, case):
+    from kapisch_core._task_decisions import _validate_unique_decision_reference
+
+    refs = [
+        ".kapisch/runs/r1/decisions/d1.json",
+        ".kapisch/runs/r2/decisions/d1.json",
+    ]
+    if case != "zero":
+        for ref in refs:
+            path = tmp_path / ref
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("{}")
+    decision_ref = {
+        "first": refs[0],
+        "second": refs[1],
+        "zero": refs[0],
+        "mismatch": ".kapisch/runs/r1/decisions/other.json",
+    }[case]
+    with _raises(
+        ContractError,
+        match="^decision identity is not unique or reference mismatches$",
+    ):
+        _validate_unique_decision_reference(tmp_path, "d1", decision_ref)
+
+
+def test_ws2_mut_historical_nonstring_ref_rejected(tmp_path):
+    from kapisch_core._task_decisions import _validated_historical_inputs
+
+    with _raises(ContractError, match="^malformed governing Git input$"):
+        _validated_historical_inputs([{"ref": 1, "digest": "0" * 64}])
+
+
+def test_ws2_mut_historical_whitespace_ref_rejected(tmp_path):
+    from kapisch_core._task_decisions import _validated_historical_inputs
+
+    with _raises(ContractError, match="^malformed governing Git input$"):
+        _validated_historical_inputs([{"ref": "  ", "digest": "0" * 64}])
+
+
+def test_ws2_mut_supersedes_duplicate_id_only_rejected(tmp_path):
+    from kapisch_core._task_supersession import _supersedes_entries
+
+    fixture(tmp_path)
+    with _raises(ContractError, match="^duplicate supersedes target$"):
+        _supersedes_entries(
+            tmp_path,
+            {
+                "supersedes": [
+                    {
+                        "decision_id": "d1",
+                        "decision_ref": ".kapisch/runs/a/decisions/a.json",
+                        "decision_digest": "0" * 64,
+                    },
+                    {
+                        "decision_id": "d1",
+                        "decision_ref": ".kapisch/runs/b/decisions/b.json",
+                        "decision_digest": "1" * 64,
+                    },
+                ]
+            },
+        )
+
+
+def test_ws2_mut_supersedes_duplicate_ref_only_rejected(tmp_path):
+    from kapisch_core._task_supersession import _supersedes_entries
+
+    fixture(tmp_path)
+    with _raises(ContractError, match="^duplicate supersedes target$"):
+        _supersedes_entries(
+            tmp_path,
+            {
+                "supersedes": [
+                    {
+                        "decision_id": "d1",
+                        "decision_ref": ".kapisch/runs/a/decisions/a.json",
+                        "decision_digest": "0" * 64,
+                    },
+                    {
+                        "decision_id": "d2",
+                        "decision_ref": ".kapisch/runs/a/decisions/a.json",
+                        "decision_digest": "1" * 64,
+                    },
+                ]
+            },
+        )
+
+
+def test_ws2_mut_decision_digest_defaults_fail_closed(tmp_path):
+    from kapisch_core._task_artifacts import _load_with_digest
+    from kapisch_core._task_decisions import _load_decision, _read_decision_record
+
+    fixture(tmp_path)
+    ref = ".kapisch/runs/r1/decisions/d1.json"
+    for operation in (
+        lambda: _load_with_digest(tmp_path, ref),
+        lambda: _read_decision_record(tmp_path, ref),
+        lambda: _load_decision(tmp_path, ref),
+    ):
+        with _raises(
+            ContractError,
+            match="^missing artifact digest: \\.kapisch/runs/r1/decisions/d1\\.json$",
+        ):
+            operation()
+
+
+def test_ws2_kernel_never_mutates_any_decision_file(tmp_path):
+    fixture(tmp_path)
+    _reset_to_unclaimed(tmp_path)
+    ref = _ws2_add_decision(tmp_path, "d2")
+    before = {
+        p: p.read_bytes() for p in tmp_path.glob(".kapisch/runs/*/decisions/*.json")
+    }
+    task_contract.validate_dispatch(
+        tmp_path,
+        RUN_REF,
+        capabilities=_WS2_CAPABILITIES,
+        canonical_implementer_available=False,
+    )
+    assert {p: p.read_bytes() for p in before} == before
+    record = json.loads((tmp_path / ref).read_text())
+    record["supersedes"] = [_ws2_edge(tmp_path, "d1")]
+    _ws2_put(tmp_path, ref, record)  # Human-boundary fixture, not a kernel mutation.
+    before = {p: p.read_bytes() for p in before}
+    with _raises(ContractError, match="^decision is superseded: d1$"):
+        task_contract.validate_dispatch(
+            tmp_path,
+            RUN_REF,
+            capabilities=_WS2_CAPABILITIES,
+            canonical_implementer_available=False,
+        )
+    assert {p: p.read_bytes() for p in before} == before
+
+
+@_params("entry", ["validate_run", "validate_dispatch"])
+def test_ws2_fix_decision_inspection_oserror_is_contract_error(tmp_path, entry):
+    import errno
+
+    fixture(tmp_path)
+    if entry == "validate_dispatch":
+        _reset_to_unclaimed(tmp_path)
+    original_exists = Path.exists
+    decision_path = tmp_path / f"{RUN_DIR}/decisions/d1.json"
+
+    def failing_exists(path):
+        if path == decision_path:
+            raise OSError(errno.EIO, "injected I/O error")
+        return original_exists(path)
+
+    with mock.patch.object(Path, "exists", failing_exists):
+        with _raises(ContractError, match="^cannot inspect decision reference$"):
+            if entry == "validate_run":
+                validate_run(tmp_path, RUN_REF)
+            else:
+                task_contract.validate_dispatch(
+                    tmp_path,
+                    RUN_REF,
+                    capabilities=_WS2_CAPABILITIES,
+                    canonical_implementer_available=False,
+                )
+
+
+def test_ws2_fix_missing_decision_retains_diagnostic(tmp_path):
+    fixture(tmp_path)
+    records = validate_run(tmp_path, RUN_REF)
+    (tmp_path / records["workorder"]["decision_ref"]).unlink()
+    with _raises(ContractError, match="^missing referenced decision$"):
+        validate_run(tmp_path, RUN_REF)
+
+
+@_params("invalidity", ["acceptance", "applicability_digest"])
+def test_ws2_fix_stale_governing_input_precedes_other_invalidity(tmp_path, invalidity):
+    fixture(tmp_path)
+    work_path = tmp_path / RUN_DIR / "workorder.json"
+    work = json.loads(work_path.read_text())
+    if invalidity == "acceptance":
+        work["acceptance_criteria"] = []
+        _ws2_rebind(tmp_path, work=work)
+    else:
+        work["applicability_digest"] = "0" * 64
+        run = json.loads((tmp_path / RUN_REF).read_text())
+        run["workorder_digest"] = _ws2_put(tmp_path, run["workorder_ref"], work)
+        _ws2_put(tmp_path, RUN_REF, run)
+    (tmp_path / "docs/spec.md").write_text("stale governing input\\n")
+    with _raises(
+        ContractError,
+        match="^current governing inputs require reassessment$",
+    ):
+        validate_run(tmp_path, RUN_REF)
+
+
+@_params(
+    ("invalidity", "message"),
+    [
+        ("extra_tasks", "work order must contain exactly one task"),
+        ("missing_task", "work order must contain one task"),
+        ("invalid_task_id", "invalid task identity"),
+        ("invalid_workorder_id", "invalid work order identity"),
+    ],
+)
+def test_ws2_fix_stale_input_follows_workorder_identity_checks(
+    tmp_path, invalidity, message
+):
+    fixture(tmp_path)
+    work = json.loads((tmp_path / RUN_DIR / "workorder.json").read_text())
+    if invalidity == "extra_tasks":
+        work["tasks"] = []
+    elif invalidity == "missing_task":
+        work["task"] = None
+    elif invalidity == "invalid_task_id":
+        work["task"]["task_id"] = "bad id"
+    else:
+        work["workorder_id"] = "bad id"
+    _ws2_rebind(tmp_path, work=work)
+    (tmp_path / "docs/spec.md").write_text("stale governing input\\n")
+    with _raises(ContractError, match="^" + re.escape(message) + "$"):
+        validate_run(tmp_path, RUN_REF)

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import re
 from pathlib import Path
 from typing import Any
 
@@ -12,26 +11,44 @@ from ._task_artifacts import (
     _load,
     _required_id,
     _required_text,
-    _resolve,
 )
-from ._task_governing_inputs import _validate_governing_inputs
+from ._task_decisions import (
+    _DecisionRecord,
+    _load_decision,
+    _validated_historical_inputs,
+)
+from ._task_governing_inputs import (
+    _validate_governing_inputs,
+    _validated_governing_inputs,
+)
 
-
-def _validate_unique_decision_reference(
-    root: Path, decision_id: str, decision_ref: str
-) -> None:
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", decision_id):
-        raise ContractError("invalid decision identity")
-    matches = []
-    for candidate in root.glob(".kapisch/runs/*/decisions/*.json"):
-        if candidate.name != f"{decision_id}.json":
-            continue
-        resolved = _resolve(candidate, "decision")
-        if not resolved.is_relative_to(root):
-            raise ContractError("decision reference escapes project root")
-        matches.append(candidate)
-    if len(matches) != 1 or matches[0].relative_to(root).as_posix() != decision_ref:
-        raise ContractError("decision identity is not unique or reference mismatches")
+_ORIGINAL_GOVERNING_INPUTS = "original_governing_inputs"
+_APPLICABILITY_CONTROL_FIELDS = ("result", "reason")
+_APPLICABILITY_RESULTS = frozenset(
+    {
+        "applicable",
+        "not_applicable",
+        "ambiguous",
+        "reassessment_required",
+    }
+)
+_APPLICABILITY_BINDING_FIELDS = (
+    "decision_id",
+    "decision_ref",
+    "decision_digest",
+    "answer_digest",
+    "subject",
+    "scope",
+    "governing_inputs",
+)
+_APPLICABILITY_DIAGNOSTICS = {
+    "invalid_result": "invalid decision applicability result",
+    **{
+        result: f"decision applicability result is {result}"
+        for result in _APPLICABILITY_RESULTS
+        if result != "applicable"
+    },
+}
 
 
 def _validate_applicability(
@@ -40,13 +57,18 @@ def _validate_applicability(
     decision: dict[str, Any],
     decision_digest: str,
 ) -> None:
+    result_field, reason_field = _APPLICABILITY_CONTROL_FIELDS
+    result = applicability.get(result_field)
+    if not isinstance(result, str) or result not in _APPLICABILITY_RESULTS:
+        raise ContractError(_APPLICABILITY_DIAGNOSTICS["invalid_result"])
+    if result != "applicable":
+        raise ContractError(_APPLICABILITY_DIAGNOSTICS[result])
     try:
         answer_bytes = decision["answer"].encode("utf-8")
     except UnicodeEncodeError as exc:
         raise ContractError("decision answer is not valid UTF-8") from exc
     answer_digest = hashlib.sha256(answer_bytes).hexdigest()
     expected_values = (
-        ("result", "applicable"),
         ("decision_id", decision["decision_id"]),
         ("decision_ref", work["decision_ref"]),
         ("decision_digest", decision_digest),
@@ -55,46 +77,55 @@ def _validate_applicability(
         ("scope", work["scope"]),
         ("governing_inputs", work["governing_inputs"]),
     )
-    if any(applicability.get(key) != value for key, value in expected_values):
+    expected = dict(expected_values)
+    if any(
+        applicability.get(key) != expected[key] for key in _APPLICABILITY_BINDING_FIELDS
+    ):
         raise ContractError(
             "decision applicability is missing, stale, or not applicable"
         )
-    reason = applicability.get("reason")
+    reason = applicability.get(reason_field)
     if not isinstance(reason, str) or not reason.strip():
         raise ContractError(
             "decision applicability is missing, stale, or not applicable"
         )
 
 
+def _validate_governing_binding(
+    base: Path,
+    work: dict[str, Any],
+    decision: dict[str, Any],
+    applicability: dict[str, Any],
+) -> None:
+    historical = decision["governing_inputs"]
+    if _ORIGINAL_GOVERNING_INPUTS in applicability:
+        original = applicability[_ORIGINAL_GOVERNING_INPUTS]
+        _validated_historical_inputs(original)
+        if original != historical:
+            raise ContractError("original governing inputs mismatch")
+    elif work.get("governing_inputs") != historical:
+        raise ContractError("governing inputs require reassessment")
+
+
 def _validate_workorder(
-    base: Path, run_directory: str, work: dict[str, Any]
+    base: Path,
+    run_directory: str,
+    work: dict[str, Any],
+    decision_records: dict[str, _DecisionRecord] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     decision_ref = _required_text(work, "decision_ref", "decision reference")
     decision_digest = _required_text(work, "decision_digest", "decision digest")
-    if not decision_ref.startswith(run_directory + "/decisions/"):
-        raise ContractError("decision reference is outside its Run")
-    decision = _load(base, decision_ref, decision_digest)
-    decision_id = _required_id(decision, "decision_id", "decision identity")
-    _validate_unique_decision_reference(base, decision_id, decision_ref)
+    decision = _load_decision(
+        base, decision_ref, decision_digest, records=decision_records
+    )
+    _validated_governing_inputs(decision["governing_inputs"])
+    decision_id = decision["decision_id"]
     if work.get("decision_id") != decision_id:
         raise ContractError("decision reference mismatch")
-    _required_text(decision, "question_id", "decision question identity")
-    _required_text(decision, "answer", "decision answer")
-    _required_text(decision, "question", "decision question")
-    source_kind = decision.get("source_kind")
-    external_source_missing = source_kind == "external_artifact" and (
-        not isinstance(decision.get("source_ref"), str)
-        or not decision["source_ref"].strip()
-    )
     if (
-        decision.get("decision_type") != "approval"
-        or not isinstance(source_kind, str)
-        or source_kind
-        not in {"direct_operator", "operator_reported_external", "external_artifact"}
-        or external_source_missing
-        or _required_text(decision, "subject", "decision subject")
-        != work.get("subject")
-        or _required_text(decision, "scope", "decision scope") != work.get("scope")
+        decision["decision_type"] != "approval"
+        or decision["subject"] != work.get("subject")
+        or decision["scope"] != work.get("scope")
     ):
         raise ContractError("work order is not authorized")
     if "tasks" in work:
@@ -104,10 +135,7 @@ def _validate_workorder(
         raise ContractError("work order must contain one task")
     _required_id(task, "task_id", "task identity")
     _required_id(work, "workorder_id", "work order identity")
-    governing = work.get("governing_inputs")
-    if decision.get("governing_inputs") != governing:
-        raise ContractError("governing inputs require reassessment")
-    _validate_governing_inputs(base, governing)
+    _validate_governing_inputs(base, work.get("governing_inputs"))
     acceptance = work.get("acceptance_criteria")
     if (
         not isinstance(acceptance, list)
@@ -128,6 +156,7 @@ def _validate_workorder(
     if applicability_ref != run_directory + "/applicability.json":
         raise ContractError("Applicability reference is outside its Run")
     applicability = _load(base, applicability_ref, applicability_digest)
+    _validate_governing_binding(base, work, decision, applicability)
     _validate_applicability(applicability, work, decision, decision_digest)
     route = _required_text(work, "worker_route", "worker route")
     role = _required_text(work, "worker_role", "worker role")

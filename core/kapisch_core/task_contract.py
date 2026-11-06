@@ -17,6 +17,8 @@ from ._task_artifacts import (
     _resolve,
 )
 from ._task_authority import _validate_workorder
+from ._task_decisions import _DecisionRecord
+from ._task_supersession import _scan_decisions, _validate_decision_eligibility
 
 
 def _reject_symlink_components(base: Path, ref: str) -> None:
@@ -42,6 +44,17 @@ def _run_directory(run: dict[str, Any], run_ref: str) -> str:
 def validate_run(
     root: str | Path, run_ref: str, run_digest: str | None = None
 ) -> dict[str, Any]:
+    """Validate local persisted authority without a global dispatch scan."""
+    return _validate_run(root, run_ref, run_digest)
+
+
+def _validate_run(
+    root: str | Path,
+    run_ref: str,
+    run_digest: str | None = None,
+    *,
+    decision_records: dict[str, _DecisionRecord] | None = None,
+) -> dict[str, Any]:
     """Load persisted Run, WorkOrder, and authority evidence from disk."""
     base = _resolve(Path(root), "project root")
     run = _load(base, run_ref, run_digest, require_digest=False)
@@ -56,7 +69,9 @@ def validate_run(
     if workorder_ref != run_directory + "/workorder.json":
         raise ContractError("WorkOrder reference is outside its canonical Run path")
     work = _load(base, workorder_ref, run.get("workorder_digest"))
-    decision, applicability = _validate_workorder(base, run_directory, work)
+    decision, applicability = _validate_workorder(
+        base, run_directory, work, decision_records
+    )
     return {
         "run": run,
         "workorder": work,
@@ -198,7 +213,9 @@ def validate_dispatch(
     canonical_implementer_available: bool,
 ) -> dict[str, Any]:
     """Validate durable authorization and actual adapter capabilities before start."""
-    records = validate_run(root, run_ref)
+    base = _resolve(Path(root), "project root")
+    decision_records = _scan_decisions(base)
+    records = _validate_run(base, run_ref, decision_records=decision_records)
     work = records["workorder"]
     _validate_capabilities(work, capabilities)
     if (
@@ -212,6 +229,9 @@ def validate_dispatch(
     run = records["run"]
     base = _validate_dispatch_readiness(root, run_ref, run)
     allocation = _validate_dispatch_allocation_paths(base, run_ref, run)
+    _validate_decision_eligibility(
+        base, records["decision"]["decision_id"], decision_records
+    )
     return {**records, "attempt_allocation": allocation}
 
 

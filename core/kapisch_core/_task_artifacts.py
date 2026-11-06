@@ -89,6 +89,13 @@ def _object_without_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, An
 def _load(
     root: Path, ref: Any, digest: Any = None, *, require_digest: bool = True
 ) -> dict[str, Any]:
+    value, _ = _load_with_digest(root, ref, digest, require_digest=require_digest)
+    return value
+
+
+def _load_with_digest(
+    root: Path, ref: Any, digest: Any = None, *, require_digest: bool = True
+) -> tuple[dict[str, Any], str]:
     if require_digest and digest is None:
         raise ContractError(f"missing artifact digest: {ref}")
     try:
@@ -114,7 +121,7 @@ def _load(
         raise ContractError(f"invalid JSON artifact: {ref}") from exc
     if not isinstance(value, dict):
         raise ContractError(f"artifact must be an object: {ref}")
-    return value
+    return value, hashlib.sha256(raw).hexdigest()
 
 
 def _read_bytes_without_digest(root: Path, ref: Any) -> bytes:

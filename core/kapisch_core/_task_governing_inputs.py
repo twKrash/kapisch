@@ -69,13 +69,21 @@ def _validate_current_input(root: Path, ref: str, digest: str) -> None:
         raise ContractError("current governing inputs require reassessment")
 
 
-def _validate_governing_inputs(root: Path, inputs: Any) -> None:
+def _validated_governing_inputs(inputs: Any) -> tuple[tuple[str, str], ...]:
+    """Validate snapshot shape without consulting current Git or file bytes."""
     if not isinstance(inputs, list) or not inputs:
         raise ContractError("work order requires governing Git inputs")
     seen_refs = set()
+    records = []
     for item in inputs:
         ref, digest = _validated_input_record(item)
         if ref in seen_refs:
             raise ContractError("duplicate governing Git input")
         seen_refs.add(ref)
+        records.append((ref, digest))
+    return tuple(records)
+
+
+def _validate_governing_inputs(root: Path, inputs: Any) -> None:
+    for ref, digest in _validated_governing_inputs(inputs):
         _validate_current_input(root, ref, digest)

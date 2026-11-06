@@ -26,27 +26,76 @@ not establish the canonical-implementer-unavailable condition for native-worker
 fallback, exercise Git-bound governing-input refs, resume from persisted state, or
 compare equivalent WorkOrders across adapters. Do not treat it as full acceptance.
 
-Last updated: GitHub state checked 2026-11-05 (point-in-time; re-check before relying on it). PR #85 is open and non-draft with `mergeable_state` clean at head `aea2d97948bb3314da58df41005986f88567d752`; all four check runs on that head succeeded. The latest formal review is `APPROVED`, recorded on implementation head `2885a1e16ae89dc84f021739d01f1be19f353ae5`; the later commit changed documentation only. PR #85 is not merged. Execution order was amended on 2026-11-05: see the [execution-order amendment](plans/2026-11-05-kapisch-execution-order-amendment.md) and [Execution order](#execution-order) below. The review reassessment is recorded in [PR comment #6590462154](https://github.com/twKrash/kapisch/pull/85#issuecomment-6590462154); Finding 3's deferral is recorded in [PR comment #6590593116](https://github.com/twKrash/kapisch/pull/85#issuecomment-6590593116). Findings 1 and 2 are superseded by current code, subject to the documented power-loss/storage-rollback limitation for finding 1. P2-008 is fixed in commit `2885a1e`; P2-009 is an operator-accepted filesystem-integrity limitation. See [PR comment #6643639447](https://github.com/twKrash/kapisch/pull/85#issuecomment-6643639447). Finding 3 remains open and is deferred to a dedicated Pi harness-integration follow-up; AC7 remains partial. An aligned local Pi worker smoke at `.kapisch/runs/task-first-real-worker-smoke-2026-11-02-workorder-1/` used the tracked integration fixture's exact WorkOrder and decision identity and matched all nine persisted artifacts byte-for-byte with the deterministic adapter, including fresh-process reconstruction. A separate synthetic direct-prompt coordinator preflight is recorded below; neither local smoke is CI or real-user approval. Update this file when a slice changes state; never infer state from it.
+Last updated: 2026-11-06; local state checked point-in-time. GitHub state last checked
+2026-11-06 via PR list: PR #85 merged at 2026-11-05T07:57:33Z (merge commit
+`93bc222`, "feat(core): task-first portable acceptance contract and bounded Pi integration
+(#85)"). Its last formal review was `APPROVED` on implementation head `2885a1e`; four
+CI checks succeeded. Execution order was amended on 2026-11-05: see the
+[execution-order amendment](plans/2026-11-05-kapisch-execution-order-amendment.md) and
+[Execution order](#execution-order) below. The review reassessment is recorded in [PR
+comment #6590462154](https://github.com/twKrash/kapisch/pull/85#issuecomment-6590462154);
+Finding 3's deferral is recorded in [PR comment
+#6590593116](https://github.com/twKrash/kapisch/pull/85#issuecomment-6590593116).
+Findings 1 and 2 are superseded by current code, subject to the documented power-loss/
+storage-rollback limitation for finding 1. P2-008 is fixed in commit `2885a1e`; P2-009
+is an operator-accepted filesystem-integrity limitation. See [PR comment
+#6643639447](https://github.com/twKrash/kapisch/pull/85#issuecomment-6643639447).
+Finding 3 remains open and is deferred to a dedicated Pi harness-integration follow-up;
+AC7 remains partial. An aligned local Pi worker smoke at
+`.kapisch/runs/task-first-real-worker-smoke-2026-11-02-workorder-1/` used the tracked
+integration fixture's exact WorkOrder and decision identity and matched all nine
+persisted artifacts byte-for-byte with the deterministic adapter, including fresh-process
+reconstruction. A separate synthetic direct-prompt coordinator preflight is recorded
+below; neither local smoke is CI or real-user approval. Update this file when a slice
+changes state; never infer state from it.
 
 ## At a glance
 
 - **Finished (implemented):** advisory and standalone review remain graph-free; the
   bounded one-task Pi-host execution contract and validation are locally implemented.
-- **Current slice:** Pi pending-request HumanDecision capture and one-task WorkOrder acceptance have tracked tests. The aligned local real-Pi worker smoke at `.kapisch/runs/task-first-real-worker-smoke-2026-11-02-workorder-1/` used the tracked fixture's exact `workorder-1` and decision identity, validated the Git-bound input and persisted claim, matched all nine persisted artifacts byte-for-byte with the deterministic adapter, and passed fresh-process reconstruction. A separate synthetic direct-prompt coordinator smoke persisted one exact-prompt `direct_operator` decision and bound WorkOrder, then passed fresh-process dispatch validation without starting a worker. Both are local manual evidence, not CI or real-user approval; broader source/applicability coverage, interrupted resume, and multi-task acceptance remain unverified. The extension remains the producer for pending-request answers, while the coordinator owns direct-prompt records.
-- **Submitted:** PR [#85](https://github.com/twKrash/kapisch/pull/85) is open and not draft; on 2026-11-05 its head `aea2d97` had four passing check runs and the latest formal review was `APPROVED` (recorded on implementation head `2885a1e`); the current reassessment is in [PR comment #6590462154](https://github.com/twKrash/kapisch/pull/85#issuecomment-6590462154). PR #84 is merged.
+- **Current slice:** WS-2 (decision applicability, reuse, reassessment, and supersession;
+  decision-level half of AC2) is implemented locally and uncommitted on
+  `feat/ws-2-decision-applicability`, based on `93bc222`. It is awaiting owner review of
+  the cumulative working-tree diff and merge. Task-level AC2 clauses remain with WS-4.
+  The aligned local real-Pi worker smoke and synthetic direct-prompt preflight described
+  above are manual evidence, not CI or real-user approval; interrupted resume and
+  multi-task acceptance remain unverified.
+- **Submitted:** PR [#85](https://github.com/twKrash/kapisch/pull/85) is merged
+  (`93bc222`); its last formal review was `APPROVED` and four CI checks succeeded.
+  PR #84 is merged.
 - **Historical verification:** one-task candidate path, local run, implementation-commit
   CI and test evidence at `8ed3f85`; superseded where it claimed Pi decision capture.
-- **Current status:** tracked one-task contract tests and the aligned local real-worker smoke exist. Oracle assessment finds review findings 1 and 2 superseded by current code, with the known storage-rollback qualification for finding 1. Finding 3 remains valid for tracked acceptance and is deferred to a dedicated Pi harness-integration follow-up (WS-11, Phase 4); AC7 remains partial. PR #85 is open, approved, and had passing checks as of 2026-11-05 (see above); merge is a human action. The direct-prompt synthetic preflight is manual evidence only. Interrupted resume, scope-change reassessment, broader source coverage, and multi-task behavior remain unverified.
+- **Current status:** tracked one-task contract tests and the aligned local real-worker
+  smoke exist. Oracle assessment finds review findings 1 and 2 superseded by current
+  code, with the known storage-rollback qualification for finding 1. Finding 3 remains
+  valid for tracked acceptance and is deferred to a dedicated Pi harness-integration
+  follow-up (WS-11, Phase 4); AC7 remains partial. PR #85 is merged (see above). WS-2 is
+  implemented locally and uncommitted, awaiting owner review and merge. The direct-prompt
+  synthetic preflight is manual evidence only. Interrupted resume, broader source
+  coverage, and multi-task behavior remain unverified.
 - **Remaining:** all 11 specification acceptance criteria are partial or unmet.
-- **Review history:** the earlier K84-010 WorkOrder-binding finding was fixed with a regression assertion. The requested bounded standalone review of this seven-file docs/test delta found one confirmed P3 (K84-WT-001): assertions rejected equivalent Markdown line wrapping. The tests now normalize whitespace and test wrapped prose while retaining decision-binding and before-dispatch checks. The reviewer found no other diff-causal findings; this earlier review was not rerun after the fix and was not formal GitHub review approval.
-- **Latest formal review:** The older P1 persisted-answer-consumption finding and K84-IND-001 (P2), raised against `1cbc5ac`, are fixed; both GitHub review threads are resolved. K84-IND-001 was fixed in PR head `c5c1457`, and the standalone reviewer re-reviewed that change with no new findings.
-- **Blocked:** interrupted resume and full product acceptance remain open. Finding 3 is intentionally deferred to Phase 4 real-harness integration (WS-11); the tracked test is synthetic, so AC7 remains partial. The earlier `CHANGES_REQUESTED` review on `816abdb` is superseded by the later `APPROVED` formal review. The local real-worker smoke is not a CI check.
-- **Next slice:** WS-2 (decision applicability, scope coverage, reuse, reassessment), the
-  next incomplete harness-agnostic core requirement, using deterministic adapters only,
-  after PR #85 is merged. Then WS-4, WS-5, and WS-6 (Phase 1). Portable reviewer
-  contracts and lenses (Phase 2), harness-neutral conformance (Phase 3), and real Pi and
-  Claude adapters, including deferred Finding 3 (Phase 4), follow in that order. See
-  [Next recommended vertical slice](#next-recommended-vertical-slice).
+- **Review history:** the earlier K84-010 WorkOrder-binding finding was fixed with a
+  regression assertion. The requested bounded standalone review of this seven-file
+docs/test delta found one confirmed P3 (K84-WT-001): assertions rejected equivalent
+  Markdown line wrapping. The tests now normalize whitespace and test wrapped prose while
+  retaining decision-binding and before-dispatch checks. The reviewer found no other
+diff-causal findings; this earlier review was not rerun after the fix and was not formal
+GitHub review approval.
+- **Latest formal review:** The older P1 persisted-answer-consumption finding and
+  K84-IND-001 (P2), raised against `1cbc5ac`, are fixed; both GitHub review threads are
+  resolved. K84-IND-001 was fixed in PR head `c5c1457`, and the standalone reviewer
+  re-reviewed that change with no new findings.
+- **Blocked:** interrupted resume and full product acceptance remain open. Finding 3 is
+  intentionally deferred to Phase 4 real-harness integration (WS-11); the tracked test
+  is synthetic, so AC7 remains partial. The earlier `CHANGES_REQUESTED` review on
+  `816abdb` is superseded by the later `APPROVED` formal review. The local real-worker
+  smoke is not a CI check.
+- **Next slice:** WS-2 is implemented locally and awaiting owner review and merge. WS-4
+  (DAG, dependencies, per-task authorization bindings) is next if the owner chooses to
+  build on unmerged WS-2; otherwise merge WS-2 first. Then WS-5 and WS-6 (Phase 1).
+  Portable reviewer contracts and lenses (Phase 2), harness-neutral conformance (Phase
+  3), and real Pi and Claude adapters, including deferred Finding 3 (Phase 4), follow in
+  that order. See [Next recommended vertical slice](#next-recommended-vertical-slice).
 - **Overall realignment: NOT complete.**
 
 ## Execution order
@@ -87,19 +136,19 @@ evidence. A WorkOrder `Outcome` marked complete covers its stated scope only.
 | ID | Objective | Depends on | Acceptance criteria | Status | Delivery | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
 | WS-0 | Advisory and standalone review stay first-class and graph-free | — | AC11: no WorkOrder, DAG, implementation authorization, or review gate; findings only | `IMPLEMENTED / AWAITING REVIEW` | Merged on `main`; preserved by PR #84 | `SKILL.md` advisory/review sections, `request-normalization.md`, `review.md`; no tracked test asserts the graph-free, no-gate property |
-| WS-1 | First bounded one-task Pi-host slice (`WO-2026-10-26-PI-01/T01`): direct decision → WorkOrder → attempt → aggregation → Outcome → handoff | — | Durable one-task records; retry uses fresh attempt IDs and preserves prior work; review is advisory findings-only; fresh-session reconstruction | `PARTIAL / IN PROGRESS` | PR [#85](https://github.com/twKrash/kapisch/pull/85) open | Tracked tests cover one-task authorization and Attempt/report/Outcome reconstruction. A local real Pi worker smoke used Git-bound inputs and the same WorkOrder/decision identity as the test fixture, matched the deterministic adapter Outcome, and validated it from a fresh process. Retry and interrupted resume remain outside this slice. PR #85 had four successful checks and an `APPROVED` formal review as of 2026-11-05 (see above). Finding 3 is deferred to Phase 4 real-harness integration (WS-11), so AC7 remains partial. The manual smoke itself is not CI evidence. K84-IND-001 was fixed in `c5c1457` and re-reviewed with no new findings. |
+| WS-1 | First bounded one-task Pi-host slice (`WO-2026-10-26-PI-01/T01`): direct decision → WorkOrder → attempt → aggregation → Outcome → handoff | — | Durable one-task records; retry uses fresh attempt IDs and preserves prior work; review is advisory findings-only; fresh-session reconstruction | `PARTIAL / IN PROGRESS` | Merged via PR #85 | Tracked tests cover one-task authorization and Attempt/report/Outcome reconstruction. A local real Pi worker smoke used Git-bound inputs and the same WorkOrder/decision identity as the test fixture, matched the deterministic adapter Outcome, and validated it from a fresh process. Retry and interrupted resume remain outside this slice. PR #85 had four successful checks and an `APPROVED` formal review as of 2026-11-05 (see above). Finding 3 is deferred to Phase 4 real-harness integration (WS-11), so AC7 remains partial. The manual smoke itself is not CI evidence. K84-IND-001 was fixed in `c5c1457` and re-reviewed with no new findings. |
 | WS-1.1 | Consume one real decision end to end, from any approved source | WS-1 | A decision is persisted and cited by aggregation and Outcome with its scope and attribution | `IN PROGRESS` (one direct path smoke-tested; broader source coverage remains) | PR #84 merged; continuation in [#85](https://github.com/twKrash/kapisch/pull/85) | The tracked integration test exercises pending-request capture and a same-WorkOrder test adapter. A separate local direct-operator worker smoke cited one decision through WorkOrder, Attempt, aggregation, and Outcome; broader source/applicability coverage remains. Remaining work splits by owner: portable source/applicability coverage is WS-1.3 and WS-2; Pi producer-path coverage (pending-request extension, direct-prompt coordinator) is WS-11. |
-| WS-1.2 | Track the acceptance harness in Git | WS-1 | Aggregation/Outcome/comparison validation runs from tracked code in CI | `IMPLEMENTED / AWAITING MERGE` | PR [#85](https://github.com/twKrash/kapisch/pull/85) open | Tracked `tests/core/test_task_contract.py` and `harnesses/pi/tests/task-first.integration.test.ts` cover validation and same-WorkOrder comparison; PR #85 had four successful checks and an approved review as of 2026-11-05. The tracked Pi integration test remains synthetic; Finding 3 is deferred to WS-11 (Phase 4) and is not a prerequisite for Phase 1. The old `.kapisch/runs/…` harness is historical, not the source of test authority. |
-| WS-1.3 | Decision source kinds: direct, operator-reported external, external artifact | WS-1 | Each source is captured with scope and attribution; ambiguous text and agent/reviewer output are never inferred as decisions | `IMPLEMENTED / AWAITING REVIEW` | PR #84 merged; current task-first continuation in [#85](https://github.com/twKrash/kapisch/pull/85) | Tracked tests cover pending-request source-kind fields; the earlier RPC smoke persisted an external-artifact decision with stable `source_ref`; a local task-first worker smoke used a synthetic `direct_operator` fixture. This verifies only those exercised paths, not all external-source applicability. Records omit host identity fields; no cryptographic or original-keystroke provenance is claimed or required. |
-| WS-2 | Phase 1. Decision applicability, scope coverage, decision reuse (duplicate-question prevention), and reassessment | WS-1.2 | AC2, including not re-requesting a decision reported from an external record | `TODO` | — | Guidance only (`resume.md`, Pi `SKILL.md`); no applicability field or test. Needs the portable single-task core (WS-1.2, after the PR #85 merge), not Pi integration; WS-1.1's remaining Pi producer coverage is WS-11. |
+| WS-1.2 | Track the acceptance harness in Git | WS-1 | Aggregation/Outcome/comparison validation runs from tracked code in CI | `DONE` | merged (PR #85, `93bc222`) | Tracked `tests/core/test_task_contract.py` and `harnesses/pi/tests/task-first.integration.test.ts` cover validation and same-WorkOrder comparison; PR #85 had four successful checks and an approved review as of 2026-11-05. The tracked Pi integration test remains synthetic; Finding 3 is deferred to WS-11 (Phase 4) and is not a prerequisite for Phase 1. The old `.kapisch/runs/…` harness is historical, not the source of test authority. |
+| WS-1.3 | Decision source kinds: direct, operator-reported external, external artifact | WS-1 | Each source is captured with scope and attribution; ambiguous text and agent/reviewer output are never inferred as decisions | `IMPLEMENTED / AWAITING REVIEW` | Merged via #85 | Tracked tests cover pending-request source-kind fields; the earlier RPC smoke persisted an external-artifact decision with stable `source_ref`; a local task-first worker smoke used a synthetic `direct_operator` fixture. This verifies only those exercised paths, not all external-source applicability. Records omit host identity fields; no cryptographic or original-keystroke provenance is claimed or required. |
+| WS-2 | Phase 1. Decision applicability, scope coverage, decision reuse (duplicate-question prevention), and reassessment | WS-1.2 | AC2 decision-level clauses: decision reuse, identity propagation, reassessment, and external-record no-reprompt. Task-level in-scope/out-of-scope rules and per-task authorization bindings are WS-4; AC2 remains partial until both halves are met | `IMPLEMENTED / AWAITING REVIEW` | local | Implemented locally and uncommitted on branch `feat/ws-2-decision-applicability` (base `93bc222`); awaiting owner review of the cumulative working-tree diff and merge. Cross-Run immutable decision reuse; applicability results and reassessment re-binding; explicit prospective, dispatch-only supersession. Python 3.14.4, not CI: core unittest 707 tests OK; conformance 18 OK; bundle `--check` OK (task-first.md is not a bundle input); Ruff check and format clean on changed files. Six plan tasks independently reviewed for spec compliance and quality with no Critical/Important findings open; dryer found no duplicates; CRAP gate: added functions below 10 with coverage after behavior-preserving splits, while pre-existing `_validate_workorder` (31→24, CRAP 28.6 at 80% coverage) and untouched `_validate_attempt_report` remain reported above threshold. Mutation testing on the changed lines (scratch copy): 77 killed, one equivalent survivor (`_task_supersession.py:101`), 8 uncovered sites explained below; Final independent review of the cumulative working-tree diff by the standalone `kapisch-reviewer` (model `openai/gpt-6.1-sol:high`, read-only, findings only) reported three findings. WS2-KR-001 (P2: raw `OSError` from the decision existence check on Python 3.11) and WS2-KR-003 (P3: governing-input error precedence changed versus the baseline) were fixed with regression tests and checked by a scoped re-review, not a second full `kapisch-reviewer` pass. WS2-KR-002 (P2, design gap: a superseding decision published after the dispatch scan but before the claim does not block that claim; the approved design is one call-local snapshot) is NOT fixed and needs an owner decision on the concurrency semantics. Follow-ups: current Git freshness is rechecked by acceptance/Outcome as pre-existing behavior; HumanDecision retention/GC policy; `supersedes` is authority-bearing and older validators ignore it (Pi producers wait for WS-11); incomplete enumeration under arbitrary local filesystem corruption remains outside duplicate/supersession guarantees (PR85-009). Owner decides retention; no decision records are deleted until future policy. |
 | WS-3.1 | Phase 2. Portable reviewer contracts: `kapisch-reviewer` role, ReviewReport semantics, and the eight reusable lenses (target/context, criteria, evidence, report semantics, escalation) | WS-0; Phase 1 exit (sequencing) | Planned deliverables and boundaries in the [amendment](plans/2026-11-05-kapisch-execution-order-amendment.md); reviewer remains advisory; findings never become human approval; standalone graph-free review preserved (AC11) | `TODO` | — | Not started. Existing `kapisch-reviewer` and `core/contracts/policy/review.md` are unchanged; reconciling `review.md`'s "authoritative approval" wording is part of this workstream. |
 | WS-3 | Phase 2. Optional review gate: immutable report, required-lens pass, permitted exception | WS-3.1, WS-2, WS-4 | AC5, applied only where a WorkOrder explicitly requires lenses; no gate for advisory or standalone review | `TODO` | — | `reviews.md` is a local advisory record; no gate and no exception binding |
-| WS-4 | Phase 1. Multi-task DAG: dependencies, parallel-ready scheduling, task/attempt identity, and aggregation barrier | WS-1.2 | AC3 on the portable core with deterministic adapters; independent of WS-3 and of any real adapter. Parity parts of AC7 are tracked in WS-10 and WS-11 | `TODO` | — | One task only; no scheduler, no terminal/interrupted handling |
+| WS-4 | Phase 1. Multi-task DAG: dependencies, parallel-ready scheduling, task/attempt identity, and aggregation barrier | WS-1.2, WS-2 | AC3 on the portable core with deterministic adapters; AC2 task-level authorization bindings: in-scope DAG tasks proceed without per-task approval and out-of-scope work blocks. AC7 parity parts are tracked in WS-10 and WS-11 | `TODO` | — | One task only; no scheduler, no terminal/interrupted handling. Depends on WS-2's decision-level records, implemented locally and unmerged. |
 | WS-5 | Phase 1. Local retry, checkpoint compatibility, interrupted attempts, and durable recovery | WS-1 | AC4: fresh attempt IDs; stale/incompatible checkpoints rejected; failed work preserved; shared work never reset | `TODO` | — | Retry/checkpoint execution remains outside the current one-task slice. The one-shot claim blocks replay, but retry and checkpoint compatibility are not implemented. Real-host interruption recovery is proven in WS-11, not here. |
-| WS-6 | Phase 1. Ambiguous external-effect handling and explicit authorization boundaries | WS-2 | AC6: retry blocked until an authoritative outcome query or explicit scoped human authorization; local retries do not invoke it | `TODO` | Guidance only | Pi `SKILL.md` requires an exact `AUTHORIZE` answer (host guidance, not core enforcement); no enforcement or blocking test |
+| WS-6 | Phase 1. Ambiguous external-effect handling and explicit authorization boundaries | WS-2 | AC6: retry blocked until an authoritative outcome query or explicit scoped human authorization; local retries do not invoke it | `TODO` | — | Guidance only |
 | WS-7 | Audience-neutral presentation invariance | — | AC9: an explicit style changes wording only; facts, evidence, decisions, authority identical | `TODO` | — | No style mechanism and no test. Not sequenced by the 2026-11-05 amendment; no Pi or Claude dependency. |
 | WS-8 | Phase 4 (after real-adapter acceptance). Packaging, install smoke test, validator retention, legacy cutover | WS-0, WS-3.1, WS-11 (and WS-12 for any Claude package claim) | AC10: reviewer install/invocation and new-format packaging verified before any legacy removal | `TODO` (removal correctly not started) | Pi package declares the extension | A fresh local Pi package install and one worker invocation succeeded in the smoke workspace. Reviewer installation/invocation, validator retention, and cutover acceptance remain unverified; `core/schemas/v3` and migrators are untouched. Starts only after the corresponding real-adapter acceptance; legacy removal still needs separate authorization. |
-| WS-9 | Test-harness health and regression watch | — | Supported suites run as CI runs them; non-source artifacts classified; no source-caused regression hidden | `IMPLEMENTED / AWAITING MERGE` | PR [#85](https://github.com/twKrash/kapisch/pull/85) open | Local supported suites pass; PR #85 had four successful checks and an approved review as of 2026-11-05. Root-level pytest and `.worktrees` artifacts are explained below. |
+| WS-9 | Test-harness health and regression watch | — | Supported suites run as CI runs them; non-source artifacts classified; no source-caused regression hidden | `DONE` | merged (PR #85, `93bc222`) | Local supported suites pass; PR #85 had four successful checks and an approved review as of 2026-11-05. Root-level pytest and `.worktrees` artifacts are explained below. |
 | WS-10 | Phase 3. Harness-neutral conformance: one reusable suite over the adapter protocol, run by deterministic and fake adapters | WS-2, WS-3, WS-3.1, WS-4, WS-5, WS-6 | Portable-core halves of AC1–AC6, AC8, and AC11, plus deterministic same-WorkOrder parity: orchestration invariants, unsupported/unknown capability blocking, failed/incomplete attempts, recovery, approval scope, dependency barriers, reviewer outcomes, fresh-process reconstruction. Does not complete AC7 or any real-host criterion | `TODO` | — | No suite exists. PR #85 tests are a single-task subset. |
 | WS-11 | Phase 4. Real Pi adapter and real-adapter acceptance, including deferred PR #85 Finding 3 | WS-10 | AC7 for Pi: the same WorkOrder through real capability probing and start/collect, compared with the deterministic adapter in tracked tests; unsupported/unknown/unproven capabilities block start; the Phase 3 suite passes against the adapter; tracked direct-prompt and pending-request producer coverage; real-host interruption recovery. Pi read-only review stays unsupported unless enforcement is proven | `TODO` | — | Existing local Pi smokes are manual, not CI. The tracked Pi integration test is synthetic and hard-codes capabilities. |
 | WS-12 | Phase 4. Real Claude adapter and real-adapter acceptance | WS-10 | The same portable contract and real-adapter requirements as WS-11 on a separate adapter; host capabilities verified, not assumed | `TODO` | — | Not implemented; no capability evidence. |
@@ -111,14 +160,14 @@ Coverage is independent of workstream status. Criteria are from specification §
 | AC | Requirement (abbreviated) | Coverage | Evidence or gap |
 | --- | --- | --- | --- |
 | AC1 | Single-task SDLC flow reaches a durable Outcome, respecting human decisions and deployment authorization | partial | Tracked tests cover one-task authorization through durable Outcome; a local real Pi worker smoke used Git-bound inputs and a fresh-process validator. Deployment authorization, interruption/resume, review, and broader lifecycle behavior remain outside this slice. |
-| AC2 | Decisions prevent duplicate questions; propagation preserves identity; substantive change reassesses; in-scope tasks need no per-task approval; out-of-scope blocks; external-record decisions are captured and not re-requested | partial | The package tests assert no redundant direct approval; a synthetic direct-prompt coordinator preflight persisted one exact-prompt decision and bound it to a WorkOrder, while the tracked extension tests cover pending-request capture. Propagation, scope-change reassessment, out-of-scope blocking, and external-record no-reprompt behavior remain unverified. |
+| AC2 | Decisions prevent duplicate questions; propagation preserves identity; substantive change reassesses; in-scope tasks need no per-task approval; out-of-scope blocks; external-record decisions are captured and not re-requested | partial | WS-2 now implements the decision-level half locally and uncommitted: cross-Run reuse, applicability and reassessment, and prospective dispatch-only supersession with regression coverage. Task-level in-scope/out-of-scope authorization is assigned to WS-4 and remains unimplemented; AC2 stays partial. |
 | AC3 | Aggregation barrier at completion or terminal condition; all required tasks accounted for; failure report is evidence but does not release dependents | partial | Single task, parent-LLM aggregation, no terminal/interrupted handling |
 | AC4 | In-scope retries use fresh IDs, preserve failed work, reject stale checkpoints, never reset shared work | partial | Retry and checkpoint execution are explicitly outside this two-PR slice. The one-task core prevents replay of a claimed attempt; it does not implement retry or checkpoint compatibility. |
 | AC5 | Immutable review report; remediation alone does not release; new pass or separate exception does; prohibited exceptions block; gate only where a WorkOrder requires lenses | none | Advisory wording and a local report only; no gate |
 | AC6 | Ambiguous remote effects block until authoritative observation or explicit scoped authorization | none | Guidance only |
 | AC7 | Same WorkOrder yields equivalent logical status, authority, decisions, evidence, reports, Outcome via real and test adapters; missing capabilities block | partial | The aligned local worker smoke used the exact tracked WorkOrder/decision identity and matched all nine artifacts, but is local/manual. The tracked integration test still synthesizes output and hard-codes supported capability; it does not exercise actual Pi start/collect or capability probes at that boundary. Finding 3 is deferred to Phase 4 (WS-11); do not mark AC7 complete until tracked same-WorkOrder adapter and capability-boundary coverage exists against a real adapter. Deterministic-adapter parity (WS-10) does not complete it. |
 | AC8 | Fresh-session reconstruction without conversational or mutable derived authority | partial | A fresh Python controller process validated persisted WorkOrder, Decision, Attempt, report, and Outcome for both adapter roots. Reconstructing the next action after interruption and multi-task recovery remain untested. |
-| AC9 | Presentation styles preserve normalized facts, evidence, decisions, authority | none | No mechanism or test |
+| AC9 | Presentation styles preserve normalized facts, evidence, decisions, authority | none | No style mechanism or test |
 | AC10 | Reviewer installation/invocation and new-format packaging verified before legacy removal | partial | Local Pi package install and one task-worker invocation succeeded in the smoke workspace. Reviewer installation/invocation, validator retention, and cutover acceptance remain unverified; nothing was removed. |
 | AC11 | Advisory and standalone review remain graph-free, need no DAG or implementation authorization, and do not depend on the optional review gate | partial | Contract text merged and preserved; no dedicated test of the graph-free/no-gate property |
 
@@ -128,14 +177,23 @@ The repository's supported harness is the CI sequence in
 `.github/workflows/quality.yml` — `unittest`, run from the directory each job selects.
 Root-level `pytest` is not that harness.
 
-Current local verification for the task-first code delta (2026-11-04; not rerun for this documentation-only update):
-`PYTHONPATH=core PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/core`
-— 560 tests passed on Python 3.14.4; nine focused dispatch/filesystem regressions passed
-on Python 3.11.15 and 3.14.4. Ruff check/format, `code-gates quick`, and `git diff
---check` passed. `code-gates run` (dryer, crapper, mutator) passed on two staged
-production files. These local checks are not CI. On 2026-11-05 PR #85 head `aea2d97`
-(documentation-only after `2885a1e`) had four successful check runs; re-check before
-relying on it.
+Current local verification for WS-2 (2026-11-06; Python 3.14.4, not CI):
+`PYTHONPATH=core python -m unittest discover -s tests/core` — 707 tests OK;
+conformance suite — 18 OK; `python tooling/build/build_bundle.py --check` OK (no bundle
+regeneration needed: `task-first.md` is not a bundle input); `ruff check` and
+`ruff format --check` clean on all changed files. Six plan tasks received independent
+spec-compliance and quality reviews with no Critical/Important findings open. Dryer
+found no duplicates; added functions are below CRAP 10 with coverage after
+behavior-preserving splits; pre-existing `_validate_workorder` (complexity 31→24, CRAP
+28.6 at 80% coverage) and untouched `_validate_attempt_report` remain above 10 and are
+reported, not fixed. Mutation testing (run directly in a scratch copy, because the `mutator` step of
+`code-gates run` executed zero tests from the `core/` directory): 77 mutants killed on
+the changed lines after a tests-only round; one survivor, `_task_supersession.py:101`
+(`or`→`and`), is equivalent for valid inputs because earlier checks bind each decision
+identity to its file name and reject duplicate identities; 8 sites stay uncovered (four
+`require_digest=True` defaults in multi-line signatures, for which the coverage tool
+records no lines, and four lines of pre-existing code that was only reformatted). Final independent review of the cumulative working-tree diff by the standalone `kapisch-reviewer` (model `openai/gpt-6.1-sol:high`, read-only, findings only) reported three findings. WS2-KR-001 (P2: raw `OSError` from the decision existence check on Python 3.11) and WS2-KR-003 (P3: governing-input error precedence changed versus the baseline) were fixed with regression tests and checked by a scoped re-review, not a second full `kapisch-reviewer` pass. WS2-KR-002 (P2, design gap: a superseding decision published after the dispatch scan but before the claim does not block that claim; the approved design is one call-local snapshot) is NOT fixed and needs an owner decision on the concurrency semantics. Not run: Python 3.11, Bun/Pi tests, other CI jobs,
+Windows, live producers.
 
 CI-equivalent run in the clean feature worktree (2026-10-26):
 
@@ -176,9 +234,9 @@ it is not a blocker for this realignment.
    `.kapisch/runs/task-first-real-worker-smoke-2026-11-02/` also matched a real Pi worker
    Outcome to the deterministic adapter and passed fresh-process validation. The
    `490cc99` check state and the `816abdb` change request cited in earlier updates are
-   historical; see the 2026-11-05 PR state above. Broader decision-source coverage,
-   interruption recovery, multi-task work, and product acceptance remain open (core
-   work in Phase 1; real-host proof in Phase 4).
+   historical; see the PR state above. Broader decision-source coverage, interruption
+   recovery, multi-task work, and product acceptance remain open (core work in Phase 1;
+   real-host proof in Phase 4).
 
 **Limitations (not blockers; block only the work that requires the guarantee)**
 
@@ -201,13 +259,23 @@ it is not a blocker for this realignment.
   those tests resolve paths relative to `plugins/kapisch`; the supported suites pass,
   and no green full-suite claim is made.
 
+- **WS-2 local limitations and follow-ups:** acceptance/Outcome validation still
+  re-checks current Git inputs (pre-existing freshness behavior, unchanged); HumanDecision
+  retention/GC policy is owner-decided; `supersedes` is authority-bearing and older
+  validators ignore it, while Pi producers do not emit it until WS-11. Incomplete
+directory enumeration under arbitrary local filesystem corruption remains outside the
+duplicate/supersession guarantee (PR85-009). Open owner decision (final review WS2-KR-002): a superseding decision published after
+the dispatch scan but before the claim is created does not block that claim, because eligibility
+is taken from one call-local snapshot; options are to document it as a limitation or to re-scan
+immediately before claim creation within the existing claim path.
+
 **Unknowns**
 
 - The bounded one-task schemas, validation, and producer order are tracked in
   `core/contracts/task-first.md` and `core/kapisch_core/task_contract.py`. Extending
   those records to multi-task execution or interruption recovery remains a separate
   design and implementation decision.
-- A synthetic direct-prompt coordinator preflight now exercises persisted decision
+- A synthetic direct-prompt coordinator preflight exercises persisted decision
   creation, WorkOrder binding, and fresh-process validation. It is local/manual, not a
   real-user approval or worker run; no automated runtime fixture covers this path or its
   post-restart lookup. This remains a test-coverage gap, not an input-authenticity
@@ -234,15 +302,16 @@ host-native exception is already scoped and must not be widened.
 
 ## Next recommended vertical slice
 
-**After PR #85 is merged, take WS-2 (decision applicability, scope coverage, reuse, and
-reassessment): the next incomplete harness-agnostic core requirement.**
+**WS-2 is implemented locally and awaiting owner review and merge. WS-4 (DAG,
+dependencies, and per-task authorization bindings) is the next item to START only if the
+owner chooses to build on unmerged WS-2; otherwise merge WS-2 first.**
 
-1. Phase 1, in this order: WS-2, then WS-4 (DAG, dependencies, parallel-ready scheduling,
-   aggregation barrier), WS-5 (retry, checkpoints, interrupted attempts, recovery), and
-   WS-6 (ambiguous external effects, authorization boundaries). Use deterministic/test
-   adapters only; put no Pi-, Claude-, Codex-, or session-specific identifiers in core
-   authority records. Only the dependencies in the workstream table are hard; this order
-   is a recommendation.
+1. Phase 1 recommendation: WS-4, then WS-5 (retry, checkpoints, interrupted attempts,
+   recovery), and WS-6 (ambiguous external effects, authorization boundaries). Use
+deterministic/test adapters only; put no Pi-, Claude-, Codex-, or session-specific
+identifiers in core authority records. WS-4 depends on WS-1.2 and WS-2's decision-level
+records; only the dependencies in the workstream table are hard. This sequencing is not
+an owner decision.
 2. Then Phase 2 (WS-3.1 reviewer contracts and lenses, WS-3 review gate), Phase 3 (WS-10
    harness-neutral conformance), and Phase 4 (WS-11 Pi including deferred Finding 3,
    WS-12 Claude, then WS-8 packaging and cutover).
@@ -250,11 +319,9 @@ reassessment): the next incomplete harness-agnostic core requirement.**
    tests. Keep local worker smokes as manual evidence, not CI.
 
 Rationale: the owner reordered the work so the portable core and reviewer semantics are
-complete before any host-specific execution. WS-2 is the first unfinished Phase 1 item,
-is needed by the scope and authorization checks in WS-4 to WS-6, and does not depend on
-Pi integration. WS-3 (optional review gate) is not a prerequisite for WS-4. PR #85 is
-open and approved as of 2026-11-05; merge is a human action, and WS-2 should not be
-treated as started until it merges.
+complete before any host-specific execution. WS-2 supplies decision-level records needed
+by WS-4 to WS-6, but the owner has not chosen whether to start WS-4 before WS-2 merges.
+WS-3 (optional review gate) is not a prerequisite for WS-4.
 
 ## Evidence index
 
@@ -272,10 +339,12 @@ treated as started until it merges.
 | Earlier task-first real-worker smoke (`task-first-real-worker-smoke-2026-11-02`; retained, local, gitignored; different WorkOrder from the tracked fixture) | WorkOrder `w1`, Decision `d1`, Attempt `a1`; real and deterministic adapter artifacts matched within that run. This evidence used a different logical WorkOrder from the tracked integration test, so it does not establish the same-WorkOrder criterion. Full artifact chains remain under `.kapisch/runs/task-first-real-worker-smoke-2026-11-02/`. | |
 | Aligned task-first real-worker smoke (`task-first-real-worker-smoke-2026-11-02-workorder-1`; local, gitignored) | Actual Pi worker run `c4f57106-a9d5-4809-b8d5-2d8370647e1e` used the tracked fixture's `workorder-1` and decision `0e87d9f3-3df2-5466-b5bb-fe9e3c477658`. The worker wrote only the allocated output; all nine persisted artifacts matched the deterministic adapter byte-for-byte, and both Outcomes reconstructed in fresh Python processes. Aggregation was a fixed fixture; no LLM runtime was invoked. Output SHA-256: `c9f4f3308798ce36576aa54bac2d152e08ff38f70b43fbc4d07a24e1c4c80d41`. Local manual evidence, not CI; full evidence is under `.kapisch/runs/task-first-real-worker-smoke-2026-11-02-workorder-1/`. |
 | Synthetic direct-prompt coordinator preflight (2026-11-02; local, gitignored) | In the dummy project `.kapisch/runs/task-first-real-worker-smoke-2026-11-02-workorder-1/real-worker/`, Run `.kapisch/runs/direct-prompt-coordinator-smoke/run.json` bound WorkOrder `workorder-ab493f6f6ae3413b839bafedc73b152f` to one `direct_operator` decision `decision-37e7fd9dd22345a8ba0fb72f40791d0d`. Fresh-process `validate_dispatch` passed; exact synthetic prompt in question/answer; one decision JSON; decision digest `040c6a66bb4bed98de68c1a8993cfd1d1b60efc9078e50db047bbe3d1bd5e768`; current Git input digest `d94fd107d92d87184ed0f5dcb9d659711e5b94ab5eaaef77b3173f2dfe399375`; source tree clean. Run stayed ready; no claim or worker output. Synthetic/manual evidence, not user approval or CI. |
-| PR #85 state (GitHub read, 2026-11-05; point-in-time) | Open, non-draft, `mergeable_state` clean; head `aea2d97948bb3314da58df41005986f88567d752` (documentation-only after `2885a1e`); four check runs successful; latest formal review `APPROVED`, recorded on `2885a1e16ae89dc84f021739d01f1be19f353ae5`; base `c259d28363d862976f9c980a71faaee8a14a3895`. Re-check before relying on it. |
+| PR #85 state (GitHub read, 2026-11-06; point-in-time) | Merged 2026-11-05T07:57:33Z as `93bc222` ("feat(core): task-first portable acceptance contract and bounded Pi integration (#85)"); last formal review `APPROVED` on implementation head `2885a1e`; four CI checks succeeded. |
 | Finding 3 deferral (operator decision, 2026-11-02) | Deferred to a dedicated Pi harness-integration follow-up; AC7 remains partial. [PR comment #6590593116](https://github.com/twKrash/kapisch/pull/85#issuecomment-6590593116). The 2026-11-05 amendment schedules that follow-up as WS-11 in Phase 4. |
 | Execution-order amendment (owner decision, 2026-11-05) | Core, then reviewer contracts/lenses, then harness-neutral conformance, then real Pi and Claude adapters; sequencing only. [Amendment](plans/2026-11-05-kapisch-execution-order-amendment.md). |
 | PR85 review dispositions (operator decision, 2026-11-04) | P2-008 fixed in commit `2885a1e`; P2-009 accepted as a local filesystem-integrity limitation; [PR comment #6643639447](https://github.com/twKrash/kapisch/pull/85#issuecomment-6643639447) and `core/contracts/task-first.md`. |
+| WS-2 design addendum (approved 2026-11-06) | [Design addendum](specs/2026-11-05-ws-2-decision-applicability-design.md); owner-authorized implementation remains local and uncommitted. |
+| WS-2 implementation plan (approved 2026-11-06) | [Implementation plan](plans/2026-11-05-ws-2-decision-applicability-implementation-plan.md); uncommitted working-tree implementation evidence is recorded in WS-2 above. |
 | Existing product roadmap (not this tracker) | `plugins/kapisch/docs/roadmap.md` |
 
 ## Update rules
