@@ -9,7 +9,7 @@ import { test } from "node:test";
 import registerHumanDecisions from "../extensions/human-decisions.ts";
 
 const projectRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "../../..");
-const runId = "shared-run";
+const runId = "a0000000-0000-4000-8000-000000000001";
 const runDir = ".kapisch/runs/" + runId;
 const runRef = runDir + "/run.json";
 const answer = "I authorize the bounded staging change.";
@@ -26,8 +26,8 @@ const request = {
 const digest = (value: Uint8Array | string) => createHash("sha256").update(value).digest("hex");
 const fence = String.fromCharCode(96).repeat(3);
 
-function python(root: string, body: string) {
-  return execFileSync("python3", ["-c", body, root, runRef], {
+function python(root: string, body: string, sourceRoot = root) {
+  return execFileSync("python3", ["-c", body, root, runRef, sourceRoot], {
     encoding: "utf8",
     env: { ...process.env, PYTHONPATH: resolve(projectRoot, "core") },
   }).trim();
@@ -61,7 +61,12 @@ async function save(root: string, ref: string, record: unknown): Promise<string>
   return digest(bytes);
 }
 
-async function acceptWithAdapter(root: string, decision: Record<string, any>) {
+async function acceptWithAdapter(
+  root: string,
+  decision: Record<string, any>,
+  sourceRoot = root,
+  removeSourceWorktree?: string,
+) {
   const decisionRef = runDir + "/decisions/" + decision.decision_id + ".json";
   const decisionPath = join(root, decisionRef);
   let decisionDigest: string;
@@ -119,8 +124,9 @@ async function acceptWithAdapter(root: string, decision: Record<string, any>) {
   const dispatch = JSON.parse(python(root,
     "import sys; from kapisch_core.task_contract import claim_dispatch; " +
     "print(__import__('json').dumps(claim_dispatch(sys.argv[1], sys.argv[2], " +
-    "capabilities={'write': {'status': 'supported', 'reason': 'available'}}, " +
-    "canonical_implementer_available=False)['attempt_allocation']))"));
+    "source_root=sys.argv[3], capabilities={'write': {'status': 'supported', 'reason': 'available'}}, " +
+    "canonical_implementer_available=False)['attempt_allocation']))",
+    sourceRoot));
   assert.equal(dispatch.attempt_id, attemptId);
   const persistedRun = JSON.parse(await readFile(join(root, runRef), "utf8"));
   assert.equal(persistedRun.dispatch_state, "claimed");
@@ -172,15 +178,21 @@ async function acceptWithAdapter(root: string, decision: Record<string, any>) {
   const accepted = JSON.parse(python(root,
     "import json, sys; from kapisch_core.task_contract import validate_acceptance; " +
     "print(json.dumps(validate_acceptance(sys.argv[1], sys.argv[2], " +
-    "capabilities={'write': {'status': 'supported', 'reason': 'available'}}), sort_keys=True))"));
+    "source_root=sys.argv[3], capabilities={'write': {'status': 'supported', 'reason': 'available'}}), sort_keys=True))",
+    sourceRoot));
   const outcomeRef = runDir + "/outcome.json";
   const outcomeDigest = await save(root, outcomeRef, accepted);
   Object.assign(run, { outcome_ref: outcomeRef, outcome_digest: outcomeDigest });
   await save(root, runRef, run);
+  if (removeSourceWorktree) {
+    execFileSync("git", ["-C", root, "worktree", "remove", "--force", removeSourceWorktree]);
+  }
+  const outcomeSourceRoot = removeSourceWorktree ? root : sourceRoot;
   return JSON.parse(python(root,
     "import json, sys; from kapisch_core.task_contract import validate_outcome; " +
     "print(json.dumps(validate_outcome(sys.argv[1], sys.argv[2], " +
-    "capabilities={'write': {'status': 'supported', 'reason': 'fresh process'}}), sort_keys=True))"));
+    "source_root=sys.argv[3], capabilities={'write': {'status': 'supported', 'reason': 'fresh process'}}), sort_keys=True))",
+    outcomeSourceRoot));
 }
 
 test("Pi decision capture and the deterministic adapter accept the same portable WorkOrder", async () => {
@@ -189,6 +201,10 @@ test("Pi decision capture and the deterministic adapter accept the same portable
     await gitProject(root);
     request.governing_inputs[0].digest = digest(await readFile(join(root, "docs/spec.md")));
     const payload = JSON.stringify(request);
+    const worktree = join(root, "feature-worktree");
+    execFileSync("git", ["-C", root, "worktree", "add", "--detach", worktree, "HEAD"]);
+    // The coordinator creates the Run folder before it asks for a decision.
+    await mkdir(join(root, runDir), { recursive: true });
     const raw = fence + "kapisch-decision\n" + payload + "\n" + fence;
     const branch: any[] = [{
       type: "message",
@@ -203,7 +219,7 @@ test("Pi decision capture and the deterministic adapter accept the same portable
       sendMessage() {},
     } as never, async () => [{ type: "code", lang: "kapisch-decision", text: payload, raw }]);
     const result = await inputHandler({ text: answer }, {
-      cwd: root,
+      cwd: worktree,
       mode: "tui",
       hasUI: true,
       ui: { notify() {} },
@@ -211,9 +227,12 @@ test("Pi decision capture and the deterministic adapter accept the same portable
     });
     assert.deepEqual(result, { action: "continue" });
     const decisionDirectory = join(root, runDir, "decisions");
+    assert.deepEqual(await readdir(join(worktree, ".kapisch")).catch(() => []), []);
     const [filename] = await readdir(decisionDirectory);
     const piDecision = JSON.parse(await readFile(join(decisionDirectory, filename), "utf8"));
-    const piOutcome = await acceptWithAdapter(root, piDecision);
+    assert.equal(piDecision.run_id, runId);
+    const piOutcome = await acceptWithAdapter(root, piDecision, worktree, worktree);
+    assert.deepEqual(await readdir(worktree).catch(() => []), []);
 
     const testRoot = join(root, "test-adapter");
     await mkdir(testRoot);
@@ -222,6 +241,7 @@ test("Pi decision capture and the deterministic adapter accept the same portable
     assert.equal(piDecision.decision_id, derivedId);
     const testDecision = {
       decision_id: derivedId,
+      run_id: runId,
       question_id: request.question_id,
       question: request.question,
       governing_inputs: request.governing_inputs,
