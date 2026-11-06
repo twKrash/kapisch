@@ -1,3 +1,5 @@
+> **SUPERSEDED IN PART (2026-11-06).** The cross-Run decision reuse, project-wide `decision_id` uniqueness and project-wide supersession scan described below were replaced by the Run-local model in [the Run-local realignment plan](2026-11-06-ws-2-run-local-realignment-implementation-plan.md) (spec Revision 3). Kept as historical record of the Revision 2 work shipped in 13aa9df; do not follow its cross-Run instructions.
+
 # WS-2 Decision Applicability Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use **superpowers:subagent-driven-development** to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

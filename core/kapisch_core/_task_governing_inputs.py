@@ -3,11 +3,19 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import subprocess
 from pathlib import Path
 from typing import Any
 
 from ._task_artifacts import _DIGEST, _REF, ContractError, _resolve
+
+
+def _git_environment() -> dict[str, str]:
+    """Drop inherited GIT_* overrides so Git resolves only the explicit root."""
+    return {
+        key: value for key, value in os.environ.items() if not key.startswith("GIT_")
+    }
 
 
 def _git(root: Path, *args: str) -> str:
@@ -17,6 +25,7 @@ def _git(root: Path, *args: str) -> str:
             check=True,
             capture_output=True,
             text=True,
+            env=_git_environment(),
         )
     except (OSError, subprocess.CalledProcessError) as exc:
         raise ContractError("cannot validate current Git inputs") from exc
@@ -29,6 +38,7 @@ def _git_bytes(root: Path, *args: str) -> bytes:
             ["git", "-C", str(root), *args],
             check=True,
             capture_output=True,
+            env=_git_environment(),
         )
     except (OSError, subprocess.CalledProcessError) as exc:
         raise ContractError("cannot validate current Git inputs") from exc
@@ -84,6 +94,6 @@ def _validated_governing_inputs(inputs: Any) -> tuple[tuple[str, str], ...]:
     return tuple(records)
 
 
-def _validate_governing_inputs(root: Path, inputs: Any) -> None:
+def _validate_governing_inputs(source_root: Path, inputs: Any) -> None:
     for ref, digest in _validated_governing_inputs(inputs):
-        _validate_current_input(root, ref, digest)
+        _validate_current_input(source_root, ref, digest)

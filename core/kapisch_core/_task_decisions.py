@@ -16,6 +16,8 @@ from ._task_artifacts import (
 )
 
 _MISSING_DECISION = "missing referenced decision"
+_DECISION_OUTSIDE_RUN = "decision reference is outside its Run"
+_DECISION_RUN_MISMATCH = "decision run mismatch"
 
 
 @dataclass(frozen=True)
@@ -31,9 +33,17 @@ _DECISION_REF = re.compile(
 )
 
 
-def _validate_decision_path(root: Path, ref: Any) -> None:
+def _validate_decision_path(
+    root: Path,
+    run_directory: str,
+    ref: Any,
+    *,
+    outside_run_message: str = _DECISION_OUTSIDE_RUN,
+) -> None:
     if not isinstance(ref, str) or not _DECISION_REF.fullmatch(ref):
         raise ContractError("malformed decision reference")
+    if not ref.startswith(run_directory + "/decisions/"):
+        raise ContractError(outside_run_message)
     current = root
     for part in ref.split("/"):
         current = current / part
@@ -46,14 +56,14 @@ def _validate_decision_path(root: Path, ref: Any) -> None:
 
 
 def _validate_unique_decision_reference(
-    root: Path, decision_id: str, decision_ref: str
+    root: Path, run_directory: str, decision_id: str, decision_ref: str
 ) -> None:
     matches = []
-    for candidate in sorted(root.glob(".kapisch/runs/*/decisions/*.json")):
+    for candidate in sorted((root / run_directory / "decisions").glob("*.json")):
         if candidate.name != f"{decision_id}.json":
             continue
         ref = candidate.relative_to(root).as_posix()
-        _validate_decision_path(root, ref)
+        _validate_decision_path(root, run_directory, ref)
         matches.append(ref)
     if len(matches) != 1 or matches[0] != decision_ref:
         raise ContractError("decision identity is not unique or reference mismatches")
@@ -103,9 +113,14 @@ def _validate_decision_authorization(decision: dict[str, Any]) -> None:
 
 
 def _read_decision_record(
-    root: Path, ref: str, digest: str | None = None, *, require_digest: bool = True
+    root: Path,
+    run_directory: str,
+    ref: str,
+    digest: str | None = None,
+    *,
+    require_digest: bool = True,
 ) -> _DecisionRecord:
-    _validate_decision_path(root, ref)
+    _validate_decision_path(root, run_directory, ref)
     try:
         exists = (root / ref).exists()
     except OSError as exc:
@@ -118,6 +133,8 @@ def _read_decision_record(
     decision_id = _required_id(decision, "decision_id", "decision identity")
     if Path(ref).name != f"{decision_id}.json":
         raise ContractError("decision identity is not unique or reference mismatches")
+    if decision.get("run_id") != Path(run_directory).name:
+        raise ContractError(_DECISION_RUN_MISMATCH)
     _required_text(decision, "question_id", "decision question identity")
     _required_text(decision, "question", "decision question")
     answer = _required_text(decision, "answer", "decision answer")
@@ -137,16 +154,21 @@ def _read_decision_record(
 
 def _load_decision(
     root: Path,
+    run_directory: str,
     ref: str,
     digest: str | None = None,
     *,
     require_digest: bool = True,
     records: dict[str, _DecisionRecord] | None = None,
 ) -> dict[str, Any]:
-    _validate_decision_path(root, ref)
+    _validate_decision_path(root, run_directory, ref)
     if records is None:
-        record = _read_decision_record(root, ref, digest, require_digest=require_digest)
-        _validate_unique_decision_reference(root, record.decision["decision_id"], ref)
+        record = _read_decision_record(
+            root, run_directory, ref, digest, require_digest=require_digest
+        )
+        _validate_unique_decision_reference(
+            root, run_directory, record.decision["decision_id"], ref
+        )
     else:
         if require_digest and digest is None:
             raise ContractError(f"missing artifact digest: {ref}")

@@ -17,6 +17,9 @@ _REF = re.compile(
 )
 
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
+_RUN_ID = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+)
 
 
 def _resolve(path: Path, label: str = "artifact") -> Path:

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import stat
+import uuid
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from ._task_artifacts import (
+    _RUN_ID,
     ContractError,
     _create_exclusive,
     _load,
@@ -18,7 +20,11 @@ from ._task_artifacts import (
 )
 from ._task_authority import _validate_workorder
 from ._task_decisions import _DecisionRecord
+from ._task_outcomes import _make_outcome
+from ._task_roots import _validated_roots
 from ._task_supersession import _scan_decisions, _validate_decision_eligibility
+
+_INVALID_RUN_IDENTITY = "invalid Run identity"
 
 
 def _reject_symlink_components(base: Path, ref: str) -> None:
@@ -34,29 +40,59 @@ def _reject_symlink_components(base: Path, ref: str) -> None:
 
 
 def _run_directory(run: dict[str, Any], run_ref: str) -> str:
-    run_id = _required_id(run, "run_id", "Run identity")
+    run_id = run.get("run_id")
     parts = PurePosixPath(run_ref).parts
+    if (
+        len(parts) >= 3
+        and parts[:2] == (".kapisch", "runs")
+        and not _RUN_ID.fullmatch(parts[2])
+    ):
+        raise ContractError(_INVALID_RUN_IDENTITY)
+    if not isinstance(run_id, str) or not _RUN_ID.fullmatch(run_id):
+        raise ContractError(_INVALID_RUN_IDENTITY)
     if parts != (".kapisch", "runs", run_id, "run.json"):
         raise ContractError("Run identity and portable reference mismatch")
     return "/".join(parts[:3])
 
 
+def create_run(state_root: str | Path) -> str:
+    """Mint a canonical Run id by exclusively creating its directory in state_root."""
+    state, _ = _validated_roots(state_root, state_root)
+    runs = state / ".kapisch" / "runs"
+    try:
+        for directory in (runs.parent, runs):
+            directory.mkdir(mode=0o700, exist_ok=True)
+            if directory.is_symlink() or directory.resolve(strict=True) != directory:
+                raise ContractError("Run directory escapes project root")
+        run_id = str(uuid.uuid4())
+        (runs / run_id).mkdir(mode=0o700)
+    except OSError as exc:
+        raise ContractError("cannot create Run directory") from exc
+    return run_id
+
+
 def validate_run(
-    root: str | Path, run_ref: str, run_digest: str | None = None
+    state_root: str | Path,
+    run_ref: str,
+    run_digest: str | None = None,
+    *,
+    source_root: str | Path,
 ) -> dict[str, Any]:
-    """Validate local persisted authority without a global dispatch scan."""
-    return _validate_run(root, run_ref, run_digest)
+    """Validate Run authority stored in state_root against source_root Git inputs."""
+    state, source = _validated_roots(state_root, source_root)
+    return _validate_run(state, source, run_ref, run_digest)
 
 
 def _validate_run(
-    root: str | Path,
+    state_root: Path,
+    source_root: Path,
     run_ref: str,
     run_digest: str | None = None,
     *,
     decision_records: dict[str, _DecisionRecord] | None = None,
 ) -> dict[str, Any]:
     """Load persisted Run, WorkOrder, and authority evidence from disk."""
-    base = _resolve(Path(root), "project root")
+    base = state_root
     run = _load(base, run_ref, run_digest, require_digest=False)
     dispatch_state = run.get("dispatch_state")
     if not isinstance(dispatch_state, str) or dispatch_state not in (
@@ -70,7 +106,7 @@ def _validate_run(
         raise ContractError("WorkOrder reference is outside its canonical Run path")
     work = _load(base, workorder_ref, run.get("workorder_digest"))
     decision, applicability = _validate_workorder(
-        base, run_directory, work, decision_records
+        base, source_root, run_directory, work, decision_records
     )
     return {
         "run": run,
@@ -206,16 +242,19 @@ def _validate_dispatch_allocation_paths(
 
 
 def validate_dispatch(
-    root: str | Path,
+    state_root: str | Path,
     run_ref: str,
     *,
+    source_root: str | Path,
     capabilities: dict[str, dict[str, str]],
     canonical_implementer_available: bool,
 ) -> dict[str, Any]:
     """Validate durable authorization and actual adapter capabilities before start."""
-    base = _resolve(Path(root), "project root")
-    decision_records = _scan_decisions(base)
-    records = _validate_run(base, run_ref, decision_records=decision_records)
+    base, source = _validated_roots(state_root, source_root)
+    run = _load(base, run_ref, require_digest=False)
+    run_directory = _run_directory(run, run_ref)
+    decision_records = _scan_decisions(base, run_directory)
+    records = _validate_run(base, source, run_ref, decision_records=decision_records)
     work = records["workorder"]
     _validate_capabilities(work, capabilities)
     if (
@@ -227,33 +266,46 @@ def validate_dispatch(
             "canonical implementer availability changed; reauthorize dispatch"
         )
     run = records["run"]
-    base = _validate_dispatch_readiness(root, run_ref, run)
+    base = _validate_dispatch_readiness(base, run_ref, run)
     allocation = _validate_dispatch_allocation_paths(base, run_ref, run)
     _validate_decision_eligibility(
-        base, records["decision"]["decision_id"], decision_records
+        base,
+        _run_directory(run, run_ref),
+        records["decision"]["decision_id"],
+        decision_records,
     )
     return {**records, "attempt_allocation": allocation}
 
 
 def claim_dispatch(
-    root: str | Path,
+    state_root: str | Path,
     run_ref: str,
     *,
+    source_root: str | Path,
     capabilities: dict[str, dict[str, str]],
     canonical_implementer_available: bool,
 ) -> dict[str, Any]:
     """Exclusively claim the sole attempt before invoking the host adapter."""
     records = validate_dispatch(
-        root,
+        state_root,
         run_ref,
+        source_root=source_root,
         capabilities=capabilities,
         canonical_implementer_available=canonical_implementer_available,
     )
-    base = _resolve(Path(root), "project root")
+    base = _resolve(Path(state_root), "project root")
     claim = _dispatch_claim_record(run_ref, records)
     _create_exclusive(base, _dispatch_claim_ref(run_ref), claim)
     records["run"]["dispatch_state"] = "claimed"
     _replace_json_atomically(base, run_ref, records["run"])
+    # A superseder published before the claim existed must still stop the host start.
+    run_directory = _run_directory(records["run"], run_ref)
+    _validate_decision_eligibility(
+        base,
+        run_directory,
+        records["decision"]["decision_id"],
+        _scan_decisions(base, run_directory),
+    )
     return {**records, "dispatch_claim": claim}
 
 
@@ -343,98 +395,27 @@ def _validate_attempt_report(
     return attempt_id, output_ref
 
 
-def _advisory_review_outcome(run: dict[str, Any], attempt_id: str) -> dict[str, str]:
-    review = run.get("advisory_review", {"status": "not_run"})
-    if not isinstance(review, dict):
-        raise ContractError("invalid advisory review metadata")
-    if review == {"status": "not_run"}:
-        return {"status": "not_run"}
-    if review.get("status") != "performed":
-        raise ContractError("invalid advisory review metadata")
-    expected = {
-        "status": "performed",
-        "workorder_ref": run["workorder_ref"],
-        "workorder_digest": run["workorder_digest"],
-        "attempt_ref": run["attempt_ref"],
-        "attempt_id": attempt_id,
-        "attempt_digest": run["attempt_digest"],
-    }
-    if review != expected:
-        raise ContractError(
-            "advisory review is not bound to this WorkOrder and Attempt"
-        )
-    return expected
-
-
-def _make_outcome(
-    run_ref: str,
-    records: dict[str, Any],
-    attempt: dict[str, Any],
-    report: dict[str, Any],
-    attempt_id: str,
-    output_ref: str,
-) -> dict[str, Any]:
-    run, work, decision = records["run"], records["workorder"], records["decision"]
-    return {
-        "status": "complete",
-        "run_ref": run_ref,
-        "workorder_id": work["workorder_id"],
-        "workorder_digest": run["workorder_digest"],
-        "decision_id": decision["decision_id"],
-        "decision_digest": work["decision_digest"],
-        "authority": {
-            "decision_type": decision["decision_type"],
-            "decision_id": decision["decision_id"],
-            "subject": work["subject"],
-            "scope": work["scope"],
-        },
-        "decision": {
-            "ref": work["decision_ref"],
-            "decision_id": decision["decision_id"],
-            "source_kind": decision["source_kind"],
-            "subject": decision["subject"],
-            "scope": decision["scope"],
-            "applicability": {
-                "status": "applicable",
-                "ref": work["applicability_ref"],
-                "digest": work["applicability_digest"],
-                "reason": records["applicability"]["reason"],
-            },
-        },
-        "workorder_ref": run["workorder_ref"],
-        "attempt": {
-            "ref": run["attempt_ref"],
-            "id": attempt_id,
-            "status": attempt["status"],
-        },
-        "evidence_refs": [
-            {
-                "kind": "attempt_output",
-                "ref": output_ref,
-                "digest": attempt["output_digest"],
-            }
-        ],
-        "aggregation_report": {
-            "ref": run["aggregation_ref"],
-            "digest": run["aggregation_digest"],
-            "result": report["result"],
-            "coverage": report["coverage"],
-            "acceptance_criteria": report["acceptance_criteria"],
-        },
-        "advisory_review": _advisory_review_outcome(run, attempt_id),
-    }
-
-
 def validate_acceptance(
-    root: str | Path,
+    state_root: str | Path,
     run_ref: str,
     *,
+    source_root: str | Path,
     capabilities: dict[str, dict[str, str]],
 ) -> dict[str, Any]:
     """Validate one attempt and report before returning coordinator Outcome data."""
-    records = validate_run(root, run_ref)
+    state, source = _validated_roots(state_root, source_root)
+    return _validate_acceptance(state, source, run_ref, capabilities)
+
+
+def _validate_acceptance(
+    state_root: Path,
+    source_root: Path,
+    run_ref: str,
+    capabilities: dict[str, dict[str, str]],
+) -> dict[str, Any]:
+    records = _validate_run(state_root, source_root, run_ref)
     _validate_capabilities(records["workorder"], capabilities)
-    base = _resolve(Path(root), "project root")
+    base = state_root
     _validate_dispatch_claim(base, run_ref, records)
     run_directory = "/".join(PurePosixPath(run_ref).parts[:3])
     attempt, report, attempt_ref, _ = _load_attempt_and_report(
@@ -457,20 +438,21 @@ def validate_acceptance(
 
 
 def validate_outcome(
-    root: str | Path,
+    state_root: str | Path,
     run_ref: str,
     *,
+    source_root: str | Path,
     capabilities: dict[str, dict[str, str]],
 ) -> dict[str, Any]:
     """Reconstruct and compare the coordinator-persisted Outcome from artifacts."""
-    expected = validate_acceptance(root, run_ref, capabilities=capabilities)
-    base = _resolve(Path(root), "project root")
-    run = validate_run(base, run_ref)["run"]
+    state, source = _validated_roots(state_root, source_root)
+    expected = _validate_acceptance(state, source, run_ref, capabilities)
+    run = _validate_run(state, source, run_ref)["run"]
     run_directory = "/".join(PurePosixPath(run_ref).parts[:3])
     outcome_ref = _required_text(run, "outcome_ref", "Outcome reference")
     if outcome_ref != run_directory + "/outcome.json":
         raise ContractError("Outcome reference is outside its Run")
-    persisted = _load(base, outcome_ref, run.get("outcome_digest"))
+    persisted = _load(state, outcome_ref, run.get("outcome_digest"))
     if persisted != expected:
         raise ContractError("persisted Outcome does not match validated artifacts")
     return persisted

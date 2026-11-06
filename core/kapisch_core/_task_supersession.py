@@ -14,16 +14,22 @@ from ._task_decisions import (
 )
 
 _SUPERSEDES_FIELDS = frozenset({"decision_id", "decision_ref", "decision_digest"})
+_SUPERSEDES_OUTSIDE_RUN = "supersedes target is outside its Run"
 
 
 def _validate_supersedes_entry(
-    root: Path, entry: Any, ids: set[str], refs: set[str]
+    root: Path, run_directory: str, entry: Any, ids: set[str], refs: set[str]
 ) -> None:
     if not isinstance(entry, dict) or set(entry) != _SUPERSEDES_FIELDS:
         raise ContractError("invalid supersedes entry")
     identity = _required_id(entry, "decision_id", "supersedes decision identity")
     ref = entry["decision_ref"]
-    _validate_decision_path(root, ref)
+    _validate_decision_path(
+        root,
+        run_directory,
+        ref,
+        outside_run_message=_SUPERSEDES_OUTSIDE_RUN,
+    )
     digest = entry["decision_digest"]
     if not isinstance(digest, str) or not _DIGEST.fullmatch(digest):
         raise ContractError("invalid supersedes decision digest")
@@ -33,7 +39,9 @@ def _validate_supersedes_entry(
     refs.add(ref)
 
 
-def _supersedes_entries(root: Path, decision: dict[str, Any]) -> list[dict[str, str]]:
+def _supersedes_entries(
+    root: Path, run_directory: str, decision: dict[str, Any]
+) -> list[dict[str, str]]:
     if "supersedes" not in decision:
         return []
     entries = decision["supersedes"]
@@ -41,7 +49,7 @@ def _supersedes_entries(root: Path, decision: dict[str, Any]) -> list[dict[str, 
         raise ContractError("invalid decision supersedes")
     ids, refs = set(), set()
     for entry in entries:
-        _validate_supersedes_entry(root, entry, ids, refs)
+        _validate_supersedes_entry(root, run_directory, entry, ids, refs)
     return entries
 
 
@@ -70,13 +78,13 @@ _SUPERSESSION_DIAGNOSTICS = {
 }
 
 
-def _scan_decisions(root: Path) -> dict[str, _DecisionRecord]:
+def _scan_decisions(root: Path, run_directory: str) -> dict[str, _DecisionRecord]:
     """One invocation-local byte/parse snapshot, never persisted or cached."""
     records = {}
     identities = {}
-    for path in sorted(root.glob(".kapisch/runs/*/decisions/*.json")):
+    for path in sorted((root / run_directory / "decisions").glob("*.json")):
         ref = path.relative_to(root).as_posix()
-        record = _read_decision_record(root, ref, require_digest=False)
+        record = _read_decision_record(root, run_directory, ref, require_digest=False)
         identity = record.decision["decision_id"]
         if identity in identities:
             raise ContractError(
@@ -89,13 +97,14 @@ def _scan_decisions(root: Path) -> dict[str, _DecisionRecord]:
 
 def _validate_supersession_edges(
     root: Path,
+    run_directory: str,
     identities: dict[str, _DecisionRecord],
     records: dict[str, _DecisionRecord],
 ) -> tuple[dict[str, list[str]], list[tuple[dict[str, str], _DecisionRecord]]]:
     edges = {identity: [] for identity in identities}
     bindings = []
     for identity, record in identities.items():
-        for entry in _supersedes_entries(root, record.decision):
+        for entry in _supersedes_entries(root, run_directory, record.decision):
             target_id = entry["decision_id"]
             target_ref = entry["decision_ref"]
             if target_id == identity or target_ref == record.ref:
@@ -120,13 +129,16 @@ def _validate_supersession_digests(
 
 def _validate_supersession_graph(
     root: Path,
+    run_directory: str,
     records: dict[str, _DecisionRecord] | None = None,
 ) -> frozenset[str]:
     """Validate structure and cycles before exact-byte edge digests."""
     if records is None:
-        records = _scan_decisions(root)
+        records = _scan_decisions(root, run_directory)
     identities = {r.decision["decision_id"]: r for r in records.values()}
-    edges, bindings = _validate_supersession_edges(root, identities, records)
+    edges, bindings = _validate_supersession_edges(
+        root, run_directory, identities, records
+    )
     _validate_acyclic(edges)
     _validate_supersession_digests(bindings)
     return frozenset(target for targets in edges.values() for target in targets)
@@ -134,8 +146,9 @@ def _validate_supersession_graph(
 
 def _validate_decision_eligibility(
     root: Path,
+    run_directory: str,
     decision_id: str,
     records: dict[str, _DecisionRecord] | None = None,
 ) -> None:
-    if decision_id in _validate_supersession_graph(root, records):
+    if decision_id in _validate_supersession_graph(root, run_directory, records):
         raise ContractError(f"{_SUPERSESSION_DIAGNOSTICS['superseded']}: {decision_id}")

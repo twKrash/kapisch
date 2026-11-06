@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
@@ -21,9 +22,48 @@ from threading import Event, current_thread
 from unittest import mock
 
 from kapisch_core import task_contract
-from kapisch_core.task_contract import ContractError, validate_acceptance, validate_run
+from kapisch_core.task_contract import ContractError
 
-RUN_DIR = ".kapisch/runs/r1"
+_public_validate_run = task_contract.validate_run
+_public_validate_dispatch = task_contract.validate_dispatch
+_public_claim_dispatch = task_contract.claim_dispatch
+_public_validate_acceptance = task_contract.validate_acceptance
+_public_validate_outcome = task_contract.validate_outcome
+
+
+def validate_run(state_root, *args, source_root=None, **kwargs):
+    return _public_validate_run(
+        state_root, *args, source_root=source_root or state_root, **kwargs
+    )
+
+
+def validate_acceptance(state_root, *args, source_root=None, **kwargs):
+    return _public_validate_acceptance(
+        state_root, *args, source_root=source_root or state_root, **kwargs
+    )
+
+
+def _validate_dispatch(state_root, *args, source_root=None, **kwargs):
+    return _public_validate_dispatch(
+        state_root, *args, source_root=source_root or state_root, **kwargs
+    )
+
+
+def _claim_dispatch(state_root, *args, source_root=None, **kwargs):
+    return _public_claim_dispatch(
+        state_root, *args, source_root=source_root or state_root, **kwargs
+    )
+
+
+def _validate_outcome(state_root, *args, source_root=None, **kwargs):
+    return _public_validate_outcome(
+        state_root, *args, source_root=source_root or state_root, **kwargs
+    )
+
+
+RUN_ID = "a0000000-0000-4000-8000-000000000001"
+OTHER_RUN_ID = "b0000000-0000-4000-8000-000000000002"
+RUN_DIR = f".kapisch/runs/{RUN_ID}"
 RUN_REF = f"{RUN_DIR}/run.json"
 
 
@@ -116,7 +156,7 @@ def _reset_to_unclaimed(tmp_path):
 
 
 def fixture(
-    tmp_path, *, decision_run="r1", source_kind="direct_operator", source_ref=None
+    tmp_path, *, decision_run=RUN_ID, source_kind="direct_operator", source_ref=None
 ):
     (tmp_path / "docs").mkdir()
     (tmp_path / "docs/spec.md").write_text("approved requirements\n")
@@ -152,6 +192,7 @@ def fixture(
         "subject": "implementation of t1",
         "scope": "src/",
         "source_kind": source_kind,
+        "run_id": decision_run,
         "governing_inputs": inputs,
     }
     if source_ref is not None:
@@ -192,7 +233,7 @@ def fixture(
     }
     _, work_digest = put(work_ref, work)
     run = {
-        "run_id": "r1",
+        "run_id": RUN_ID,
         "workorder_ref": work_ref,
         "workorder_digest": work_digest,
         "dispatch_state": "ready",
@@ -203,7 +244,7 @@ def fixture(
         },
     }
     put(RUN_REF, run)
-    task_contract.claim_dispatch(
+    _claim_dispatch(
         tmp_path,
         RUN_REF,
         capabilities={"write": {"status": "supported", "reason": "available"}},
@@ -260,6 +301,140 @@ def fixture(
     )
     put(RUN_REF, run)
     return tmp_path, inputs
+
+
+def _add_linked_worktree(primary, path):
+    subprocess.run(
+        ["git", "-C", str(primary), "worktree", "add", "--detach", str(path), "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return path
+
+
+def test_ws2_rl_roots_same_directory_ok(tmp_path):
+    fixture(tmp_path)
+    records = task_contract.validate_run(tmp_path, RUN_REF, source_root=tmp_path)
+    assert records["run"]["run_id"] == RUN_ID
+
+
+def test_ws2_rl_state_in_primary_inputs_validated_against_feature_worktree(tmp_path):
+    fixture(tmp_path)
+    records = validate_run(tmp_path, RUN_REF, source_root=tmp_path)
+    worktree = _add_linked_worktree(tmp_path, tmp_path / "feature-worktree")
+    changed = worktree / "docs/spec.md"
+    changed.write_text("feature-specific approved requirements\n")
+    subprocess.run(["git", "-C", str(worktree), "add", "docs/spec.md"], check=True)
+    subprocess.run(
+        ["git", "-C", str(worktree), "commit", "-qm", "feature governing input"],
+        check=True,
+    )
+    old_inputs = records["decision"]["governing_inputs"]
+    new_inputs = [
+        {
+            "ref": "docs/spec.md",
+            "digest": hashlib.sha256(changed.read_bytes()).hexdigest(),
+        }
+    ]
+    applicability, work = records["applicability"], records["workorder"]
+    applicability.update(
+        original_governing_inputs=old_inputs, governing_inputs=new_inputs
+    )
+    work["governing_inputs"] = new_inputs
+    _ws2_rebind(tmp_path, applicability=applicability, work=work)
+    assert (
+        validate_run(tmp_path, RUN_REF, source_root=worktree)["workorder"][
+            "governing_inputs"
+        ]
+        == new_inputs
+    )
+    with _raises(
+        ContractError, match="^current governing inputs require reassessment$"
+    ):
+        validate_run(tmp_path, RUN_REF, source_root=tmp_path)
+
+
+def test_ws2_rl_run_validates_after_worktree_removed(tmp_path):
+    fixture(tmp_path)
+    worktree = _add_linked_worktree(tmp_path, tmp_path / "removed-worktree")
+    run_path = tmp_path / RUN_REF
+    state_before = run_path.read_bytes()
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "worktree", "remove", "--force", str(worktree)],
+        check=True,
+    )
+    assert (
+        validate_run(tmp_path, RUN_REF, source_root=tmp_path)["run"]["run_id"] == RUN_ID
+    )
+    assert run_path.read_bytes() == state_before
+    with _raises(ContractError, match="^invalid state_root/source_root mapping$"):
+        validate_run(tmp_path, RUN_REF, source_root=worktree)
+
+
+def test_ws2_rl_mapping_fails_closed(tmp_path):
+    fixture(tmp_path)
+    worktree = _add_linked_worktree(tmp_path, tmp_path / "linked-worktree")
+    other_repo = tmp_path.parent / f"{tmp_path.name}-other-repo"
+    other_repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(other_repo)], check=True)
+    plain = tmp_path.parent / f"{tmp_path.name}-plain"
+    plain.mkdir()
+    bare = tmp_path.parent / f"{tmp_path.name}-bare.git"
+    subprocess.run(["git", "init", "--bare", "-q", str(bare)], check=True)
+    missing = tmp_path.parent / f"{tmp_path.name}-missing"
+    cases = (
+        (missing, tmp_path),
+        (tmp_path, missing),
+        (tmp_path, tmp_path / "docs"),
+        (tmp_path, plain),
+        (tmp_path, other_repo),
+        (worktree, tmp_path),
+        (bare, bare),
+        (tmp_path / "docs/spec.md", tmp_path),
+    )
+    with (
+        mock.patch.dict(os.environ, {"GIT_DIR": str(tmp_path / ".git")}),
+        _raises(ContractError, match="^invalid state_root/source_root mapping$"),
+    ):
+        task_contract.validate_run(tmp_path, RUN_REF, source_root=plain)
+    for state_root, source_root in cases:
+        with _raises(ContractError, match="^invalid state_root/source_root mapping$"):
+            task_contract.validate_run(state_root, RUN_REF, source_root=source_root)
+        with _raises(ContractError, match="^invalid state_root/source_root mapping$"):
+            task_contract.claim_dispatch(
+                state_root,
+                RUN_REF,
+                source_root=source_root,
+                capabilities={"write": {"status": "supported", "reason": "available"}},
+                canonical_implementer_available=False,
+            )
+
+
+def test_ws2_rl_state_files_never_written_under_source_root(tmp_path):
+    fixture(tmp_path)
+    _reset_to_unclaimed(tmp_path)
+    worktree = _add_linked_worktree(tmp_path, tmp_path / "claim-worktree")
+    claim_ref = f"{RUN_DIR}/dispatch-claim.json"
+    assert not (worktree / claim_ref).exists()
+    claim = task_contract.claim_dispatch(
+        tmp_path,
+        RUN_REF,
+        source_root=worktree,
+        capabilities={"write": {"status": "supported", "reason": "available"}},
+        canonical_implementer_available=False,
+    )
+    assert claim["dispatch_claim"]["run_id"] == RUN_ID
+    assert (tmp_path / claim_ref).is_file()
+    assert not (worktree / claim_ref).exists()
+    assert (tmp_path / ".kapisch").is_dir()
+    assert not (worktree / ".kapisch").exists()
+
+
+def test_ws2_rl_source_root_keyword_required(tmp_path):
+    fixture(tmp_path)
+    with _raises(TypeError):
+        task_contract.validate_run(tmp_path, RUN_REF)
 
 
 def _rewrite_decision_answer(tmp_path, answer, *, valid_utf8, ensure_ascii=True):
@@ -436,7 +611,7 @@ def test_missing_attempt_output_cannot_complete(tmp_path):
     (tmp_path / f"{RUN_DIR}/attempts/a1-output.json").unlink()
     with _raises(
         ContractError,
-        match="unreadable artifact: .kapisch/runs/r1/attempts/a1-output.json",
+        match=re.escape(f"unreadable artifact: {RUN_DIR}/attempts/a1-output.json"),
     ):
         validate_acceptance(
             tmp_path,
@@ -510,18 +685,14 @@ def test_non_utf8_decision_answer_is_a_contract_error(tmp_path, answer):
     capabilities = {"write": {"status": "supported", "reason": "available"}}
     validators = (
         lambda: validate_run(tmp_path, RUN_REF),
-        lambda: task_contract.validate_dispatch(
+        lambda: _validate_dispatch(
             tmp_path,
             RUN_REF,
             capabilities=capabilities,
             canonical_implementer_available=False,
         ),
-        lambda: task_contract.validate_acceptance(
-            tmp_path, RUN_REF, capabilities=capabilities
-        ),
-        lambda: task_contract.validate_outcome(
-            tmp_path, RUN_REF, capabilities=capabilities
-        ),
+        lambda: validate_acceptance(tmp_path, RUN_REF, capabilities=capabilities),
+        lambda: _validate_outcome(tmp_path, RUN_REF, capabilities=capabilities),
     )
     for validate in validators:
         with _raises(ContractError, match="decision answer is not valid UTF-8"):
@@ -531,7 +702,7 @@ def test_non_utf8_decision_answer_is_a_contract_error(tmp_path, answer):
     run_path = tmp_path / RUN_REF
     run_before = run_path.read_bytes()
     with _raises(ContractError, match="decision answer is not valid UTF-8"):
-        task_contract.claim_dispatch(
+        _claim_dispatch(
             tmp_path,
             RUN_REF,
             capabilities=capabilities,
@@ -546,7 +717,7 @@ def test_non_utf8_decision_answer_is_a_contract_error(tmp_path, answer):
 import sys
 from kapisch_core.task_contract import ContractError, validate_run
 try:
-    validate_run(sys.argv[1], sys.argv[2])
+    validate_run(sys.argv[1], sys.argv[2], source_root=sys.argv[1])
 except ContractError as exc:
     print(type(exc).__name__ + ": " + str(exc))
 except Exception as exc:
@@ -588,7 +759,7 @@ def test_valid_unicode_decision_answer_uses_exact_utf8_digest(
     expected_digest = hashlib.sha256(answer.encode("utf-8")).hexdigest()
     assert records["decision"]["answer"] == answer
     assert records["applicability"]["answer_digest"] == expected_digest
-    claim = task_contract.claim_dispatch(
+    claim = _claim_dispatch(
         tmp_path,
         RUN_REF,
         capabilities={"write": {"status": "supported", "reason": "available"}},
@@ -633,6 +804,7 @@ def test_attempt_cannot_be_reused_after_workorder_identity_changes(tmp_path):
         "subject": "replacement task",
         "scope": "other/",
         "source_kind": "direct_operator",
+        "run_id": RUN_ID,
         "governing_inputs": [
             {
                 "ref": "docs/spec.md",
@@ -690,13 +862,13 @@ def test_attempt_cannot_be_reused_after_workorder_identity_changes(tmp_path):
 
 def test_duplicate_canonical_decision_identity_blocks_resume(tmp_path):
     fixture(tmp_path)
-    duplicate = tmp_path / ".kapisch/runs/other/decisions/d1.json"
+    duplicate = tmp_path / f".kapisch/runs/{OTHER_RUN_ID}/decisions/d1.json"
     duplicate.parent.mkdir(parents=True)
     decision = json.loads((tmp_path / f"{RUN_DIR}/decisions/d1.json").read_text())
+    decision["run_id"] = OTHER_RUN_ID
     decision["scope"] = "conflicting/"
     duplicate.write_text(json.dumps(decision, sort_keys=True))
-    with _raises(ContractError, match="decision identity is not unique"):
-        validate_run(tmp_path, RUN_REF)
+    assert validate_run(tmp_path, RUN_REF)["decision"]["decision_id"] == "d1"
 
 
 @_params("status", ["unsupported", "unknown", "unproven"])
@@ -718,7 +890,7 @@ def test_capability_gaps_block_before_attempt_creation(tmp_path, status):
     (tmp_path / f"{RUN_DIR}/attempts/a1-output.json").unlink()
     (tmp_path / f"{RUN_DIR}/dispatch-claim.json").unlink()
     with _raises(ContractError, match="required capability"):
-        task_contract.validate_dispatch(
+        _validate_dispatch(
             tmp_path,
             RUN_REF,
             capabilities={"write": {"status": status, "reason": "probe result"}},
@@ -743,13 +915,13 @@ def test_authorized_host_fallback_requires_canonical_implementer_unavailable(tmp
     run_path.write_text(json.dumps(run, sort_keys=True))
     (tmp_path / RUN_DIR / "dispatch-claim.json").unlink()
     with _raises(ContractError, match="canonical implementer"):
-        task_contract.validate_dispatch(
+        _validate_dispatch(
             tmp_path,
             RUN_REF,
             capabilities={"write": {"status": "supported", "reason": "available"}},
             canonical_implementer_available=True,
         )
-    work = task_contract.validate_dispatch(
+    work = _validate_dispatch(
         tmp_path,
         RUN_REF,
         capabilities={"write": {"status": "supported", "reason": "available"}},
@@ -842,7 +1014,7 @@ def test_outcome_is_persisted_and_reconstructed_in_a_fresh_process(tmp_path):
     run_path.write_text(json.dumps(run, sort_keys=True))
     script = (
         "import json, sys; from kapisch_core.task_contract import validate_outcome; "
-        "print(json.dumps(validate_outcome(sys.argv[1], sys.argv[2], "
+        "print(json.dumps(validate_outcome(sys.argv[1], sys.argv[2], source_root=sys.argv[1], "
         "capabilities={'write': {'status': 'supported', 'reason': 'restart probe'}}), sort_keys=True))"
     )
     result = subprocess.run(
@@ -884,7 +1056,7 @@ def test_performed_advisory_review_is_persisted_and_reconstructed(tmp_path):
 
     script = (
         "import json, sys; from kapisch_core.task_contract import validate_outcome; "
-        "print(json.dumps(validate_outcome(sys.argv[1], sys.argv[2], "
+        "print(json.dumps(validate_outcome(sys.argv[1], sys.argv[2], source_root=sys.argv[1], "
         "capabilities={'write': {'status': 'supported', 'reason': 'restart'}}), sort_keys=True))"
     )
     result = subprocess.run(
@@ -957,7 +1129,7 @@ def test_persisted_outcome_rejects_rebound_advisory_review(tmp_path):
     run_path.write_text(json.dumps(run, sort_keys=True))
 
     with _raises(ContractError, match="persisted Outcome does not match"):
-        task_contract.validate_outcome(
+        _validate_outcome(
             tmp_path,
             RUN_REF,
             capabilities={"write": {"status": "supported", "reason": "fresh process"}},
@@ -988,7 +1160,7 @@ def test_host_native_fallback_requires_persisted_explicit_authorization(tmp_path
         run.pop(key)
     run_path.write_text(json.dumps(run, sort_keys=True))
     with _raises(ContractError, match="fallback is not authorized"):
-        task_contract.validate_dispatch(
+        _validate_dispatch(
             tmp_path,
             RUN_REF,
             capabilities={"write": {"status": "supported", "reason": "available"}},
@@ -1044,7 +1216,7 @@ def test_dispatch_rejects_preexisting_attempt_allocation(tmp_path):
     (tmp_path / RUN_DIR / "dispatch-claim.json").unlink()
     (tmp_path / f"{RUN_DIR}/attempts/a1-output.json").unlink()
     with _raises(ContractError, match="attempt allocation already exists"):
-        task_contract.validate_dispatch(
+        _validate_dispatch(
             tmp_path,
             RUN_REF,
             capabilities={"write": {"status": "supported", "reason": "available"}},
@@ -1140,7 +1312,7 @@ def test_dispatch_rejects_redispatch_after_persisted_completion_even_if_artifact
     for ref in ("attempts/a1.json", "attempts/a1-output.json", "aggregation.json"):
         (tmp_path / RUN_DIR / ref).unlink()
     with _raises(ContractError, match="dispatch claim"):
-        task_contract.validate_dispatch(
+        _validate_dispatch(
             tmp_path,
             RUN_REF,
             capabilities={"write": {"status": "supported", "reason": "available"}},
@@ -1209,7 +1381,7 @@ def test_validate_outcome_rejects_rebound_attempt_when_report_is_unchanged(tmp_p
     run["attempt_digest"] = hashlib.sha256(attempt_path.read_bytes()).hexdigest()
     run_path.write_text(json.dumps(run, sort_keys=True))
     with _raises(ContractError, match="report is not bound"):
-        task_contract.validate_outcome(
+        _validate_outcome(
             tmp_path,
             RUN_REF,
             capabilities={"write": {"status": "supported", "reason": "fresh process"}},
@@ -1244,7 +1416,7 @@ def test_dispatch_rejects_malformed_or_unsupported_capability_status(tmp_path, s
     if status != "missing":
         capability["status"] = status
     with _raises(ContractError, match="required capability not supported"):
-        task_contract.claim_dispatch(
+        _claim_dispatch(
             tmp_path,
             RUN_REF,
             capabilities={"write": capability},
@@ -1288,7 +1460,7 @@ def test_dispatch_claim_blocks_restart_before_collection(tmp_path):
     ):
         (tmp_path / RUN_DIR / ref).unlink(missing_ok=True)
 
-    claim = task_contract.claim_dispatch(
+    claim = _claim_dispatch(
         tmp_path,
         RUN_REF,
         capabilities={"write": {"status": "supported", "reason": "available"}},
@@ -1303,7 +1475,7 @@ def test_dispatch_claim_blocks_restart_before_collection(tmp_path):
 import sys
 from kapisch_core.task_contract import ContractError, validate_dispatch
 try:
-    validate_dispatch(sys.argv[1], sys.argv[2], capabilities={"write": {"status": "supported", "reason": "restart"}}, canonical_implementer_available=False)
+    validate_dispatch(sys.argv[1], sys.argv[2], source_root=sys.argv[1], capabilities={"write": {"status": "supported", "reason": "restart"}}, canonical_implementer_available=False)
 except ContractError as exc:
     print(type(exc).__name__ + ": " + str(exc))
 else:
@@ -1319,7 +1491,7 @@ else:
     assert "dispatch claim" in result.stdout
 
     with _raises(ContractError, match="dispatch claim"):
-        task_contract.claim_dispatch(
+        _claim_dispatch(
             tmp_path,
             RUN_REF,
             capabilities={"write": {"status": "supported", "reason": "available"}},
@@ -1330,7 +1502,7 @@ else:
 def test_lost_dispatch_claim_does_not_reenable_allocation_after_restart(tmp_path):
     fixture(tmp_path)
     _reset_to_unclaimed(tmp_path)
-    task_contract.claim_dispatch(
+    _claim_dispatch(
         tmp_path,
         RUN_REF,
         capabilities={"write": {"status": "supported", "reason": "available"}},
@@ -1347,7 +1519,7 @@ def test_lost_dispatch_claim_does_not_reenable_allocation_after_restart(tmp_path
 import sys
 from kapisch_core.task_contract import ContractError, validate_dispatch
 try:
-    validate_dispatch(sys.argv[1], sys.argv[2], capabilities={"write":{"status":"supported","reason":"restart"}}, canonical_implementer_available=False)
+    validate_dispatch(sys.argv[1], sys.argv[2], source_root=sys.argv[1], capabilities={"write":{"status":"supported","reason":"restart"}}, canonical_implementer_available=False)
 except ContractError as exc:
     print(type(exc).__name__ + ": " + str(exc))
 else:
@@ -1371,7 +1543,7 @@ def test_dispatch_state_write_failure_keeps_claim_and_blocks_restart(tmp_path):
         side_effect=OSError("injected Run replacement failure"),
     ):
         with _raises(ContractError, match="could not persist dispatch boundary"):
-            task_contract.claim_dispatch(
+            _claim_dispatch(
                 tmp_path,
                 RUN_REF,
                 capabilities={"write": {"status": "supported", "reason": "available"}},
@@ -1382,7 +1554,7 @@ def test_dispatch_state_write_failure_keeps_claim_and_blocks_restart(tmp_path):
     assert run["dispatch_state"] == "ready"
     assert (tmp_path / RUN_DIR / "dispatch-claim.json").is_file()
     with _raises(ContractError, match="dispatch claim already exists"):
-        task_contract.validate_dispatch(
+        _validate_dispatch(
             tmp_path,
             RUN_REF,
             capabilities={"write": {"status": "supported", "reason": "restart"}},
@@ -1399,7 +1571,7 @@ def test_malformed_dispatch_state_fails_closed(tmp_path, dispatch_state):
     run_path.write_text(json.dumps(run, sort_keys=True))
 
     with _raises(ContractError, match="invalid persisted dispatch state"):
-        task_contract.validate_dispatch(
+        _validate_dispatch(
             tmp_path,
             RUN_REF,
             capabilities={"write": {"status": "supported", "reason": "restart"}},
@@ -1415,7 +1587,7 @@ def test_missing_dispatch_state_fails_closed(tmp_path):
     run_path.write_text(json.dumps(run, sort_keys=True))
 
     with _raises(ContractError, match="invalid persisted dispatch state"):
-        task_contract.validate_dispatch(
+        _validate_dispatch(
             tmp_path,
             RUN_REF,
             capabilities={"write": {"status": "supported", "reason": "restart"}},
@@ -1431,7 +1603,7 @@ def test_claim_creation_failure_does_not_consume_allocation(tmp_path):
         side_effect=ContractError("injected claim write failure"),
     ):
         with _raises(ContractError, match="injected claim write failure"):
-            task_contract.claim_dispatch(
+            _claim_dispatch(
                 tmp_path,
                 RUN_REF,
                 capabilities={"write": {"status": "supported", "reason": "available"}},
@@ -1441,7 +1613,7 @@ def test_claim_creation_failure_does_not_consume_allocation(tmp_path):
     run = json.loads((tmp_path / RUN_REF).read_text())
     assert run["dispatch_state"] == "ready"
     assert not (tmp_path / RUN_DIR / "dispatch-claim.json").exists()
-    claim = task_contract.claim_dispatch(
+    claim = _claim_dispatch(
         tmp_path,
         RUN_REF,
         capabilities={"write": {"status": "supported", "reason": "available"}},
@@ -1479,12 +1651,13 @@ def test_losing_claimant_cannot_overwrite_published_outcome(tmp_path):
                 task_contract.claim_dispatch,
                 tmp_path,
                 RUN_REF,
+                source_root=tmp_path,
                 capabilities={"write": {"status": "supported", "reason": "available"}},
                 canonical_implementer_available=False,
             )
             try:
                 assert preflight_complete.wait(timeout=5)
-                task_contract.claim_dispatch(
+                _claim_dispatch(
                     tmp_path,
                     RUN_REF,
                     capabilities={
@@ -1533,7 +1706,7 @@ def test_losing_claimant_cannot_overwrite_published_outcome(tmp_path):
     assert run_path.read_bytes() == published_run
     script = (
         "import json, sys; from kapisch_core.task_contract import validate_outcome; "
-        "print(json.dumps(validate_outcome(sys.argv[1], sys.argv[2], "
+        "print(json.dumps(validate_outcome(sys.argv[1], sys.argv[2], source_root=sys.argv[1], "
         "capabilities={'write': {'status': 'supported', 'reason': 'restart'}}), sort_keys=True))"
     )
     result = subprocess.run(
@@ -1571,7 +1744,7 @@ def test_concurrent_dispatch_claims_allow_only_one_process(tmp_path):
 
     def claim():
         try:
-            task_contract.claim_dispatch(
+            _claim_dispatch(
                 tmp_path,
                 RUN_REF,
                 capabilities={"write": {"status": "supported", "reason": "available"}},
@@ -1645,12 +1818,10 @@ def test_path_resolution_failures_are_contract_errors(tmp_path):
 
 def test_decision_identity_scan_resolution_failures_are_contract_errors(tmp_path):
     fixture(tmp_path)
-    duplicate = tmp_path / ".kapisch/runs/r2/decisions/d1.json"
+    duplicate = tmp_path / f".kapisch/runs/{OTHER_RUN_ID}/decisions/d1.json"
     duplicate.parent.mkdir(parents=True)
     duplicate.symlink_to(duplicate)
-
-    with _raises(ContractError):
-        validate_run(tmp_path, RUN_REF)
+    assert validate_run(tmp_path, RUN_REF)["decision"]["decision_id"] == "d1"
 
 
 def test_governing_input_resolution_failures_are_contract_errors(tmp_path):
@@ -1666,14 +1837,14 @@ def test_governing_input_resolution_failures_are_contract_errors(tmp_path):
 def _assert_dispatch_alias_rejected(tmp_path, foreign_target):
     capabilities = {"write": {"status": "supported", "reason": "available"}}
     with _raises(ContractError):
-        task_contract.validate_dispatch(
+        _validate_dispatch(
             tmp_path,
             RUN_REF,
             capabilities=capabilities,
             canonical_implementer_available=False,
         )
     with _raises(ContractError):
-        task_contract.claim_dispatch(
+        _claim_dispatch(
             tmp_path,
             RUN_REF,
             capabilities=capabilities,
@@ -1728,14 +1899,14 @@ def test_dispatch_rejects_non_directory_attempts_parent(tmp_path):
     capabilities = {"write": {"status": "supported", "reason": "available"}}
 
     with _raises(ContractError):
-        task_contract.validate_dispatch(
+        _validate_dispatch(
             tmp_path,
             RUN_REF,
             capabilities=capabilities,
             canonical_implementer_available=False,
         )
     with _raises(ContractError):
-        task_contract.claim_dispatch(
+        _claim_dispatch(
             tmp_path,
             RUN_REF,
             capabilities=capabilities,
@@ -1755,7 +1926,7 @@ def test_dispatch_allows_missing_attempts_parent(tmp_path):
     attempts.rmdir()
     capabilities = {"write": {"status": "supported", "reason": "available"}}
 
-    validated = task_contract.validate_dispatch(
+    validated = _validate_dispatch(
         tmp_path,
         RUN_REF,
         capabilities=capabilities,
@@ -1763,7 +1934,7 @@ def test_dispatch_allows_missing_attempts_parent(tmp_path):
     )
     assert validated["attempt_allocation"]["attempt_id"] == "a1"
 
-    claimed = task_contract.claim_dispatch(
+    claimed = _claim_dispatch(
         tmp_path,
         RUN_REF,
         capabilities=capabilities,
@@ -1787,14 +1958,14 @@ def test_dispatch_rejects_uninspectable_allocation_parent(tmp_path):
     capabilities = {"write": {"status": "supported", "reason": "available"}}
     with mock.patch.object(Path, "stat", denied_stat):
         with _raises(ContractError):
-            task_contract.validate_dispatch(
+            _validate_dispatch(
                 tmp_path,
                 RUN_REF,
                 capabilities=capabilities,
                 canonical_implementer_available=False,
             )
         with _raises(ContractError):
-            task_contract.claim_dispatch(
+            _claim_dispatch(
                 tmp_path,
                 RUN_REF,
                 capabilities=capabilities,
@@ -1830,14 +2001,14 @@ def test_dispatch_rejects_uninspectable_existing_output(tmp_path):
         mock.patch.object(Path, "exists", hidden_exists),
     ):
         with _raises(ContractError):
-            task_contract.validate_dispatch(
+            _validate_dispatch(
                 tmp_path,
                 RUN_REF,
                 capabilities=capabilities,
                 canonical_implementer_available=False,
             )
         with _raises(ContractError):
-            task_contract.claim_dispatch(
+            _claim_dispatch(
                 tmp_path,
                 RUN_REF,
                 capabilities=capabilities,
@@ -1865,7 +2036,7 @@ def test_claim_keeps_blocking_claim_on_run_stat_error(tmp_path):
     capabilities = {"write": {"status": "supported", "reason": "available"}}
     with mock.patch.object(Path, "lstat", denied_lstat):
         with _raises(ContractError):
-            task_contract.claim_dispatch(
+            _claim_dispatch(
                 tmp_path,
                 RUN_REF,
                 capabilities=capabilities,
@@ -1896,9 +2067,9 @@ def test_artifact_serialization_rejects_nonfinite_values(tmp_path):
         ("result", "not_applicable", "applicable"),
         ("decision_id", "other", "d1"),
         ("scope", "src/", "src"),
-        ("decision_ref", "other.json", ".kapisch/runs/r1/decisions/d1.json"),
+        ("decision_ref", "other.json", f"{RUN_DIR}/decisions/d1.json"),
         ("workorder_digest", "0" * 64, "1" * 64),
-        ("output_ref", "other.json", ".kapisch/runs/r1/attempts/a1-output.json"),
+        ("output_ref", "other.json", f"{RUN_DIR}/attempts/a1-output.json"),
     ],
 )
 @_params("reverse", [False, True])
@@ -1969,7 +2140,7 @@ def test_dispatch_rejects_duplicate_applicability_result_before_claim(
     run_path.write_text(json.dumps(run, sort_keys=True))
 
     with _raises(ContractError, match="duplicate JSON object key: result"):
-        task_contract.claim_dispatch(
+        _claim_dispatch(
             tmp_path,
             RUN_REF,
             capabilities={"write": {"status": "supported", "reason": "available"}},
@@ -2014,7 +2185,7 @@ def test_fresh_process_rejects_duplicate_authority_during_outcome_reconstruction
 import sys
 from kapisch_core.task_contract import ContractError, validate_outcome
 try:
-    validate_outcome(sys.argv[1], sys.argv[2], capabilities={"write": {"status": "supported", "reason": "restart"}})
+    validate_outcome(sys.argv[1], sys.argv[2], source_root=sys.argv[1], capabilities={"write": {"status": "supported", "reason": "restart"}})
 except ContractError as exc:
     print(type(exc).__name__ + ": " + str(exc))
 else:
@@ -2048,7 +2219,7 @@ def test_malformed_allocation_has_contract_error_in_fresh_process(tmp_path, allo
 import sys
 from kapisch_core.task_contract import ContractError, validate_outcome
 try:
-    validate_outcome(sys.argv[1], sys.argv[2], capabilities={"write": {"status": "supported", "reason": "restart"}})
+    validate_outcome(sys.argv[1], sys.argv[2], source_root=sys.argv[1], capabilities={"write": {"status": "supported", "reason": "restart"}})
 except ContractError as exc:
     print(type(exc).__name__ + ": " + str(exc))
 else:
@@ -2077,7 +2248,7 @@ def test_malformed_capability_container_has_contract_error_in_fresh_process(
 import sys
 from kapisch_core.task_contract import ContractError, validate_outcome
 try:
-    validate_outcome(sys.argv[1], sys.argv[2], capabilities=None)
+    validate_outcome(sys.argv[1], sys.argv[2], source_root=sys.argv[1], capabilities=None)
 except ContractError as exc:
     print(type(exc).__name__ + ": " + str(exc))
 else:
@@ -2144,7 +2315,7 @@ def test_dispatch_boundary_does_not_require_filesystem_sync(tmp_path):
     fixture(tmp_path)
     _reset_to_unclaimed(tmp_path)
     with mock.patch("os.fsync", side_effect=OSError(22, "Invalid argument")) as fsync:
-        claim = task_contract.claim_dispatch(
+        claim = _claim_dispatch(
             tmp_path,
             RUN_REF,
             capabilities={"write": {"status": "supported", "reason": "available"}},
@@ -2206,9 +2377,9 @@ def _ws2_reassess(root):
 
 
 def test_ws2_reassessment_preserves_immutable_original(tmp_path):
-    fixture(tmp_path, decision_run="original")
+    fixture(tmp_path)
     _reset_to_unclaimed(tmp_path)
-    path = tmp_path / ".kapisch/runs/original/decisions/d1.json"
+    path = tmp_path / f"{RUN_DIR}/decisions/d1.json"
     before = path.read_bytes()
     original, assessed = _ws2_reassess(tmp_path)
     records = validate_run(tmp_path, RUN_REF)
@@ -2218,7 +2389,7 @@ def test_ws2_reassessment_preserves_immutable_original(tmp_path):
     assert records["applicability"]["governing_inputs"] == assessed
     assert records["workorder"]["governing_inputs"] == assessed
     assert (
-        task_contract.validate_dispatch(
+        _validate_dispatch(
             tmp_path,
             RUN_REF,
             capabilities={"write": {"status": "supported", "reason": "reassessment"}},
@@ -2359,25 +2530,187 @@ def test_ws2_85_compatibility_without_original_snapshot(tmp_path):
     )
 
 
-def test_ws2_cross_run_reuse_has_one_original(tmp_path):
-    fixture(tmp_path, decision_run="original")
-    original = tmp_path / ".kapisch/runs/original/decisions/d1.json"
-    before = original.read_bytes()
-    records = validate_run(tmp_path, RUN_REF)
-    assert records["workorder"]["decision_ref"] == (
-        ".kapisch/runs/original/decisions/d1.json"
+def test_ws2_rl_run_id_must_be_uuid4(tmp_path):
+    from kapisch_core.task_contract import _run_directory
+
+    fixture(tmp_path)
+    valid = {"run_id": RUN_ID}
+    assert _run_directory(valid, RUN_REF) == RUN_DIR
+    invalid_ids = (
+        RUN_ID.upper(),
+        "00000000-0000-1000-8000-000000000001",
+        "00000000-0000-4000-7000-000000000001",
+        "short",
     )
-    assert list(tmp_path.glob(".kapisch/runs/*/decisions/*.json")) == [original]
-    assert original.read_bytes() == before
+    for invalid in invalid_ids:
+        with _raises(ContractError, match="^invalid Run identity$"):
+            _run_directory({"run_id": invalid}, f".kapisch/runs/{invalid}/run.json")
+    with _raises(ContractError, match="^invalid Run identity$"):
+        _run_directory({}, RUN_REF)
+    for malformed_ref in (
+        ".kapisch/runs/not-a-uuid/run.json",
+        f".kapisch/runs/{RUN_ID.upper()}/run.json",
+    ):
+        with _raises(ContractError, match="^invalid Run identity$"):
+            _run_directory(valid, malformed_ref)
+    with _raises(ContractError, match="^Run identity and portable reference mismatch$"):
+        _run_directory(valid, f".kapisch/runs/{OTHER_RUN_ID}/run.json")
+
+
+def test_ws2_rl_decision_run_id_required_and_must_match(tmp_path):
+    fixture(tmp_path)
+    record = validate_run(tmp_path, RUN_REF)["decision"]
+    for value in (None, OTHER_RUN_ID, 7):
+        changed = dict(record)
+        if value is None:
+            changed.pop("run_id")
+        else:
+            changed["run_id"] = value
+        _ws2_rebind(tmp_path, decision=changed)
+        with _raises(ContractError, match="^decision run mismatch$"):
+            validate_run(tmp_path, RUN_REF)
+        _ws2_rebind(tmp_path, decision=record)
+
+
+def test_ws2_rl_cross_run_decision_ref_rejected(tmp_path):
+    fixture(tmp_path)
+    records = validate_run(tmp_path, RUN_REF)
+    foreign = f".kapisch/runs/{OTHER_RUN_ID}/decisions/d1.json"
+    digest = _ws2_put(tmp_path, foreign, records["decision"])
+    work = records["workorder"]
+    work.update(decision_ref=foreign, decision_digest=digest)
+    _ws2_rebind(tmp_path, work=work)
+    with _raises(ContractError, match="^decision reference is outside its Run$"):
+        validate_run(tmp_path, RUN_REF)
+
+
+def test_ws2_rl_other_run_malformed_decision_ignored(tmp_path):
+    fixture(tmp_path)
+    _reset_to_unclaimed(tmp_path)
+    foreign = tmp_path / f".kapisch/runs/{OTHER_RUN_ID}/decisions/bad.json"
+    foreign.parent.mkdir(parents=True)
+    foreign.write_text("not json")
+    assert (
+        _validate_dispatch(
+            tmp_path,
+            RUN_REF,
+            capabilities=_WS2_CAPABILITIES,
+            canonical_implementer_available=False,
+        )["decision"]["run_id"]
+        == RUN_ID
+    )
+
+
+def test_ws2_rl_two_runs_independent_decisions(tmp_path):
+    fixture(tmp_path)
+    _reset_to_unclaimed(tmp_path)
+    run_b = _ws2_new_ready_run(tmp_path)
+    result_a = _validate_dispatch(
+        tmp_path,
+        RUN_REF,
+        capabilities=_WS2_CAPABILITIES,
+        canonical_implementer_available=False,
+    )
+    result_b = _validate_dispatch(
+        tmp_path,
+        run_b,
+        capabilities=_WS2_CAPABILITIES,
+        canonical_implementer_available=False,
+    )
+    assert result_a["decision"]["run_id"] == RUN_ID
+    assert result_b["decision"]["run_id"] == OTHER_RUN_ID
+    assert result_a["decision"]["decision_id"] == result_b["decision"]["decision_id"]
+
+
+def test_ws2_rl_same_decision_id_allowed_in_different_runs(tmp_path):
+    fixture(tmp_path)
+    _reset_to_unclaimed(tmp_path)
+    run_b = _ws2_new_ready_run(tmp_path)
+    assert validate_run(tmp_path, RUN_REF)["decision"]["decision_id"] == "d1"
+    assert validate_run(tmp_path, run_b)["decision"]["decision_id"] == "d1"
+
+
+def test_ws2_rl_cross_run_supersedes_target_rejected(tmp_path):
+    from kapisch_core._task_supersession import _validate_supersession_graph
+
+    fixture(tmp_path)
+    _ws2_new_ready_run(tmp_path)
+    foreign_ref = f".kapisch/runs/{OTHER_RUN_ID}/decisions/d1.json"
+    entry = {
+        "decision_id": "d1",
+        "decision_ref": foreign_ref,
+        "decision_digest": hashlib.sha256(
+            (tmp_path / foreign_ref).read_bytes()
+        ).hexdigest(),
+    }
+    _ws2_add_decision(tmp_path, "d2", supersedes=[entry])
+    with _raises(ContractError, match="^supersedes target is outside its Run$"):
+        _validate_supersession_graph(tmp_path, RUN_DIR)
+
+
+def test_ws2_rl_supersession_in_run_a_does_not_affect_run_b(tmp_path):
+    fixture(tmp_path)
+    _reset_to_unclaimed(tmp_path)
+    run_b = _ws2_new_ready_run(tmp_path)
+    _ws2_add_decision(tmp_path, "d2", supersedes=[_ws2_edge(tmp_path, "d1")])
+    with _raises(ContractError, match="^decision is superseded: d1$"):
+        _validate_dispatch(
+            tmp_path,
+            RUN_REF,
+            capabilities=_WS2_CAPABILITIES,
+            canonical_implementer_available=False,
+        )
+    result_b = _validate_dispatch(
+        tmp_path,
+        run_b,
+        capabilities=_WS2_CAPABILITIES,
+        canonical_implementer_available=False,
+    )
+    assert result_b["decision"]["run_id"] == OTHER_RUN_ID
+
+
+def test_ws2_rl_completed_outcome_unaffected_by_later_supersession(tmp_path):
+    fixture(tmp_path)
+    expected = _ws2_persist_outcome(tmp_path)
+    _ws2_add_decision(tmp_path, "d2", supersedes=[_ws2_edge(tmp_path, "d1")])
+    assert (
+        _validate_outcome(tmp_path, RUN_REF, capabilities=_WS2_CAPABILITIES) == expected
+    )
+    assert _ws2_restart(tmp_path, "validate_outcome") == expected
+
+
+def test_ws2_rl_cold_process_reconstruction(tmp_path):
+    fixture(tmp_path)
+    script = "from kapisch_core.task_contract import validate_run; import sys; validate_run(sys.argv[1], sys.argv[2], source_root=sys.argv[1])"
+    env = {
+        **os.environ,
+        "PYTHONPATH": str(Path(__file__).resolve().parents[2] / "core"),
+    }
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(tmp_path), RUN_REF],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 @_params(
     "ref",
     [
         "docs/d1.json",
-        ".kapisch/runs/r1/decisions/other.json",
-        ".kapisch/runs/r1/decisions/../decisions/d1.json",
-        ".kapisch/runs/r1/decisions/nested/d1.json",
+        f"{RUN_DIR}/decisions/other.json",
+        f"{RUN_DIR}/decisions/../decisions/d1.json",
+        f"{RUN_DIR}/decisions/nested/d1.json",
+    ],
+)
+@_params(
+    "ref",
+    [
+        "docs/d1.json",
+        f"{RUN_DIR}/decisions/other.json",
+        f"{RUN_DIR}/decisions/../decisions/d1.json",
+        f"{RUN_DIR}/decisions/nested/d1.json",
     ],
 )
 def test_ws2_decision_layout_rejected(tmp_path, ref):
@@ -2399,12 +2732,12 @@ def test_ws2_decision_layout_rejected(tmp_path, ref):
 def test_ws2_duplicate_decision_identity(tmp_path):
     fixture(tmp_path)
     record = validate_run(tmp_path, RUN_REF)["decision"]
-    _ws2_put(tmp_path, ".kapisch/runs/other/decisions/d1.json", record)
-    with _raises(
-        ContractError,
-        match=("^decision identity is not unique or reference mismatches$"),
-    ):
-        validate_run(tmp_path, RUN_REF)
+    _ws2_put(
+        tmp_path,
+        f".kapisch/runs/{OTHER_RUN_ID}/decisions/d1.json",
+        {**record, "run_id": OTHER_RUN_ID},
+    )
+    assert validate_run(tmp_path, RUN_REF)["decision"]["decision_id"] == "d1"
 
 
 @_params("target_kind", ["internal", "escaping", "loop"])
@@ -2413,33 +2746,47 @@ def test_ws2_decision_symlink_components(tmp_path, target_kind, component):
     from kapisch_core._task_decisions import _load_decision
 
     fixture(tmp_path)
-    record = validate_run(tmp_path, RUN_REF)["decision"]
-    target_ref = ".kapisch/runs/original/decisions/d1.json"
-    _ws2_put(tmp_path, target_ref, {**record, "decision_id": "d1"})
-    alias_ref = ".kapisch/runs/alias/decisions/d1.json"
-    suffix = {"file": "decisions/d1.json", "decisions": "decisions", "run": ""}
-    alias = tmp_path / ".kapisch/runs/alias" / suffix[component]
-    internal = tmp_path / ".kapisch/runs/original" / suffix[component]
-    alias.parent.mkdir(parents=True, exist_ok=True)
+    # A decision reference within this Run traverses the symlinked component.
+    if component == "file":
+        link_path = tmp_path / RUN_DIR / "decisions" / "d1.json"
+        outside_target = tmp_path / "docs" / "target.json"
+    elif component == "decisions":
+        decisions = tmp_path / RUN_DIR / "decisions"
+        moved = tmp_path / RUN_DIR / "saved-decisions"
+        decisions.rename(moved)
+        link_path = decisions
+        outside_target = moved
+    else:
+        run_path = tmp_path / RUN_DIR
+        moved = tmp_path / ".kapisch" / "saved-run"
+        run_path.rename(moved)
+        link_path = run_path
+        outside_target = moved
+    if component == "file":
+        link_path.unlink()
     if target_kind == "internal":
-        target = internal
+        target = outside_target
     elif target_kind == "escaping":
         target = tmp_path.parent / "outside-ws2-artifact"
     else:
-        target = alias
-    alias.symlink_to(target, target_is_directory=component != "file")
+        target = link_path
+    link_path.symlink_to(target, target_is_directory=component != "file")
     with _raises(ContractError, match="^decision reference contains a symlink$"):
-        _load_decision(tmp_path, alias_ref, require_digest=False)
+        _load_decision(
+            tmp_path, RUN_DIR, f"{RUN_DIR}/decisions/d1.json", require_digest=False
+        )
 
 
 def test_ws2_decision_digest_binding(tmp_path):
-    fixture(tmp_path, decision_run="original")
-    path = tmp_path / ".kapisch/runs/original/decisions/d1.json"
+    fixture(tmp_path)
+    path = tmp_path / f"{RUN_DIR}/decisions/d1.json"
     path.write_bytes(path.read_bytes() + b" ")
     with _raises(
         ContractError,
         match=(
-            r"^artifact digest mismatch: \.kapisch/runs/original/decisions/d1\.json$"
+            "^"
+            + re.escape(f"artifact digest mismatch: {RUN_DIR}/decisions/d1.json")
+            + "$"
         ),
     ):
         validate_run(tmp_path, RUN_REF)
@@ -2537,12 +2884,12 @@ def test_ws2_historical_reader_matches_producer_snapshot(tmp_path, snapshot):
     record = validate_run(tmp_path, RUN_REF)["decision"]
     record["governing_inputs"] = snapshot
     record["approving_party"] = "operator"
-    ref = ".kapisch/runs/history/decisions/d1.json"
+    ref = f"{RUN_DIR}/decisions/d1.json"
     # Use one original: put the fixture's identity under a distinct identity instead.
     record["decision_id"] = "history"
-    ref = ".kapisch/runs/history/decisions/history.json"
+    ref = f"{RUN_DIR}/decisions/history.json"
     digest = _ws2_put(tmp_path, ref, record)
-    assert _load_decision(tmp_path, ref, digest) == record
+    assert _load_decision(tmp_path, RUN_DIR, ref, digest) == record
 
 
 @_params("original_present", [False, True])
@@ -2561,7 +2908,7 @@ def test_ws2_empty_selected_inputs_cannot_authorize(tmp_path, original_present):
 
 
 def _ws2_edge(root, decision_id):
-    run = "r1" if decision_id == "d1" else "graph"
+    run = RUN_ID
     ref = f".kapisch/runs/{run}/decisions/{decision_id}.json"
     return {
         "decision_id": decision_id,
@@ -2577,7 +2924,7 @@ def _ws2_add_decision(root, decision_id, *, supersedes=None):
     record.update(decision_id=decision_id, question_id="different-" + decision_id)
     if supersedes is not None:
         record["supersedes"] = supersedes
-    ref = f".kapisch/runs/graph/decisions/{decision_id}.json"
+    ref = f"{RUN_DIR}/decisions/{decision_id}.json"
     _ws2_put(root, ref, record)
     return ref
 
@@ -2585,7 +2932,7 @@ def _ws2_add_decision(root, decision_id, *, supersedes=None):
 def _ws2_graph(root):
     from kapisch_core._task_supersession import _validate_supersession_graph
 
-    return _validate_supersession_graph(root)
+    return _validate_supersession_graph(root, RUN_DIR)
 
 
 def test_ws2_graph_transitive_different_question_non_revival(tmp_path):
@@ -2619,7 +2966,7 @@ def test_ws2_graph_transitive_different_question_non_revival(tmp_path):
             [
                 {
                     "decision_id": [],
-                    "decision_ref": ".kapisch/runs/r1/decisions/d1.json",
+                    "decision_ref": f"{RUN_DIR}/decisions/d1.json",
                     "decision_digest": "0" * 64,
                 }
             ],
@@ -2629,7 +2976,7 @@ def test_ws2_graph_transitive_different_question_non_revival(tmp_path):
             [
                 {
                     "decision_id": "d1",
-                    "decision_ref": ".kapisch/runs/r1/decisions/d1.json",
+                    "decision_ref": f"{RUN_DIR}/decisions/d1.json",
                     "decision_digest": [],
                 }
             ],
@@ -2654,7 +3001,7 @@ def test_ws2_graph_edge_schema(tmp_path, value, message):
         ("duplicate", "duplicate supersedes target"),
         ("missing", "supersedes target is missing"),
         ("identity", "supersedes target identity mismatch"),
-        ("digest", "artifact digest mismatch: .kapisch/runs/r1/decisions/d1.json"),
+        ("digest", f"artifact digest mismatch: {RUN_DIR}/decisions/d1.json"),
     ],
 )
 def test_ws2_graph_invalid_target_binding(tmp_path, variant, message):
@@ -2666,7 +3013,7 @@ def test_ws2_graph_invalid_target_binding(tmp_path, variant, message):
     elif variant == "duplicate":
         edges.append(dict(edge))
     elif variant == "missing":
-        edge["decision_ref"] = ".kapisch/runs/absent/decisions/d1.json"
+        edge["decision_ref"] = f"{RUN_DIR}/decisions/absent.json"
     elif variant == "identity":
         edge["decision_id"] = "other"
     else:
@@ -2724,12 +3071,12 @@ def test_ws2_graph_validates_unconnected_decision(tmp_path, field, value, messag
 @_params(
     ("raw", "message"),
     [
-        (b"{", "invalid JSON artifact: .kapisch/runs/graph/decisions/d2.json"),
+        (b"{", f"invalid JSON artifact: {RUN_DIR}/decisions/d2.json"),
         (
             b'{"decision_id":"d2","decision_id":"d2"}',
             "duplicate JSON object key: decision_id",
         ),
-        (b"[]", "artifact must be an object: .kapisch/runs/graph/decisions/d2.json"),
+        (b"[]", f"artifact must be an object: {RUN_DIR}/decisions/d2.json"),
     ],
 )
 def test_ws2_graph_uses_strict_loader(tmp_path, raw, message):
@@ -2757,7 +3104,7 @@ def test_ws2_graph_rejects_symlink_file(tmp_path, target_kind):
 def test_ws2_graph_rejects_duplicate_identity(tmp_path):
     fixture(tmp_path)
     record = json.loads((tmp_path / RUN_DIR / "decisions/d1.json").read_text())
-    _ws2_put(tmp_path, ".kapisch/runs/graph/decisions/d1.json", record)
+    _ws2_put(tmp_path, f"{RUN_DIR}/decisions/d1-copy.json", record)
     with _raises(
         ContractError,
         match=("^decision identity is not unique or reference mismatches$"),
@@ -2786,7 +3133,7 @@ def test_ws2_graph_accepts_producer_snapshot_and_empty_chain(tmp_path, snapshot)
     record["governing_inputs"] = snapshot
     _ws2_put(tmp_path, ref, record)
     _ws2_add_decision(tmp_path, "d3", supersedes=[_ws2_edge(tmp_path, "d2")])
-    ref3 = ".kapisch/runs/graph/decisions/d3.json"
+    ref3 = f"{RUN_DIR}/decisions/d3.json"
     record3 = json.loads((tmp_path / ref3).read_text())
     record3["governing_inputs"] = []
     _ws2_put(tmp_path, ref3, record3)
@@ -2805,7 +3152,7 @@ def test_ws2_graph_reads_each_file_once(tmp_path):
             tmp_path, identity, supersedes=[_ws2_edge(tmp_path, previous)]
         )
         previous = identity
-    expected = set(tmp_path.glob(".kapisch/runs/*/decisions/*.json"))
+    expected = set((tmp_path / RUN_DIR / "decisions").glob("*.json"))
     reads, globs = Counter(), []
     read_bytes, glob = Path.read_bytes, Path.glob
 
@@ -2815,7 +3162,7 @@ def test_ws2_graph_reads_each_file_once(tmp_path):
         return read_bytes(path)
 
     def counted_glob(path, pattern):
-        if pattern == ".kapisch/runs/*/decisions/*.json":
+        if path == tmp_path / RUN_DIR / "decisions" and pattern == "*.json":
             globs.append(pattern)
         return glob(path, pattern)
 
@@ -2835,7 +3182,7 @@ def _ws2_restart(root, operation, run_ref=RUN_REF):
     script = """
 import json, sys
 from kapisch_core import task_contract
-kwargs = {"capabilities": {"write": {"status": "supported", "reason": "restart"}}}
+kwargs = {"source_root": sys.argv[1], "capabilities": {"write": {"status": "supported", "reason": "restart"}}}
 if sys.argv[3] in {"validate_dispatch", "claim_dispatch"}:
     kwargs["canonical_implementer_available"] = False
 try:
@@ -2871,30 +3218,60 @@ def _ws2_persist_outcome(root):
     return outcome
 
 
-def _ws2_new_ready_consumer(root):
-    source_run = json.loads((root / RUN_REF).read_text())
-    work = json.loads((root / source_run["workorder_ref"]).read_text())
-    app = json.loads((root / work["applicability_ref"]).read_text())
-    directory = ".kapisch/runs/r2"
-    work.update(workorder_id="w2", applicability_ref=directory + "/applicability.json")
-    work["applicability_digest"] = _ws2_put(root, work["applicability_ref"], app)
-    work_ref = directory + "/workorder.json"
+def _ws2_new_ready_run(root, run_id=OTHER_RUN_ID, decision_id="d1"):
+    source_records = validate_run(root, RUN_REF)
+    directory = f".kapisch/runs/{run_id}"
+    decision_ref = f"{directory}/decisions/{decision_id}.json"
+    decision = {
+        **source_records["decision"],
+        "run_id": run_id,
+        "decision_id": decision_id,
+    }
+    decision_digest = _ws2_put(root, decision_ref, decision)
+
+    applicability = {
+        **source_records["applicability"],
+        "decision_id": decision_id,
+        "decision_ref": decision_ref,
+        "decision_digest": decision_digest,
+    }
+    applicability_ref = f"{directory}/applicability.json"
+    applicability_digest = _ws2_put(root, applicability_ref, applicability)
+
+    work = {
+        **source_records["workorder"],
+        "workorder_id": f"w-{run_id[-4:]}",
+        "decision_id": decision_id,
+        "decision_ref": decision_ref,
+        "decision_digest": decision_digest,
+        "applicability_ref": applicability_ref,
+        "applicability_digest": applicability_digest,
+    }
+    work_ref = f"{directory}/workorder.json"
     work_digest = _ws2_put(root, work_ref, work)
-    run_ref = directory + "/run.json"
-    _ws2_put(
-        root,
-        run_ref,
-        {
-            "run_id": "r2",
-            "dispatch_state": "ready",
-            "workorder_ref": work_ref,
-            "workorder_digest": work_digest,
-            "attempt_allocation": {
-                "attempt_id": "a2",
-                "output_ref": directory + "/attempts/a2-output.json",
-            },
+
+    run = {
+        **source_records["run"],
+        "run_id": run_id,
+        "dispatch_state": "ready",
+        "workorder_ref": work_ref,
+        "workorder_digest": work_digest,
+        "attempt_allocation": {
+            "attempt_id": f"a-{run_id[-4:]}",
+            "output_ref": f"{directory}/attempts/a-{run_id[-4:]}-output.json",
         },
-    )
+    }
+    for field in (
+        "attempt_ref",
+        "attempt_digest",
+        "aggregation_ref",
+        "aggregation_digest",
+        "outcome_ref",
+        "outcome_digest",
+    ):
+        run.pop(field, None)
+    run_ref = f"{directory}/run.json"
+    _ws2_put(root, run_ref, run)
     return run_ref
 
 
@@ -2913,6 +3290,7 @@ def test_ws2_dispatch_blocks_superseded_without_mutation(
         getattr(task_contract, operation)(
             tmp_path,
             RUN_REF,
+            source_root=tmp_path,
             capabilities=_WS2_CAPABILITIES,
             canonical_implementer_available=False,
         )
@@ -2924,7 +3302,7 @@ def test_ws2_dispatch_blocks_superseded_without_mutation(
 def test_ws2_dispatch_still_allows_original_and_new_superseder(tmp_path):
     fixture(tmp_path)
     _reset_to_unclaimed(tmp_path)
-    result = task_contract.validate_dispatch(
+    result = _validate_dispatch(
         tmp_path,
         RUN_REF,
         capabilities=_WS2_CAPABILITIES,
@@ -2941,7 +3319,7 @@ def test_ws2_dispatch_still_allows_original_and_new_superseder(tmp_path):
     )
     _ws2_rebind(tmp_path, work=work)
     assert (
-        task_contract.claim_dispatch(
+        _claim_dispatch(
             tmp_path,
             RUN_REF,
             capabilities=_WS2_CAPABILITIES,
@@ -2957,20 +3335,19 @@ def test_ws2_dispatch_still_allows_original_and_new_superseder(tmp_path):
         ("valid", "decision is superseded: d1"),
         (
             "invalid_json",
-            "invalid JSON artifact: .kapisch/runs/graph/decisions/d2.json",
+            f"invalid JSON artifact: {RUN_DIR}/decisions/d2.json",
         ),
         ("duplicate_keys", "duplicate JSON object key: decision_id"),
         ("invalid_record", "invalid decision question identity"),
         ("invalid_edges", "invalid decision supersedes"),
     ],
 )
-def test_ws2_completed_outcome_ignores_later_graph_but_dispatch_fails_closed(
+def test_ws2_rl_completed_outcome_ignores_later_graph_but_dispatch_fails_closed(
     tmp_path, later, message
 ):
     fixture(tmp_path)
     expected = _ws2_persist_outcome(tmp_path)
-    consumer = _ws2_new_ready_consumer(tmp_path)
-    before = _ws2_snapshot(tmp_path)
+    run_b = _ws2_new_ready_run(tmp_path)
     ref = _ws2_add_decision(tmp_path, "d2", supersedes=[_ws2_edge(tmp_path, "d1")])
     if later == "invalid_json":
         (tmp_path / ref).write_bytes(b"{")
@@ -2987,32 +3364,26 @@ def test_ws2_completed_outcome_ignores_later_graph_but_dispatch_fails_closed(
         == expected
     )
     assert (
-        task_contract.validate_outcome(
-            tmp_path, RUN_REF, capabilities=_WS2_CAPABILITIES
-        )
-        == expected
+        _validate_outcome(tmp_path, RUN_REF, capabilities=_WS2_CAPABILITIES) == expected
     )
     assert _ws2_restart(tmp_path, "validate_outcome") == expected
-    for operation in ("validate_dispatch", "claim_dispatch"):
-        with _raises(ContractError, match="^" + re.escape(message) + "$"):
-            getattr(task_contract, operation)(
-                tmp_path,
-                consumer,
-                capabilities=_WS2_CAPABILITIES,
-                canonical_implementer_available=False,
-            )
-        assert _ws2_restart(tmp_path, operation, consumer) == {"error": message}
-    for ref, raw in before.items():
-        assert (tmp_path / ref).read_bytes() == raw
+    # Run B is isolated: later invalid authority in Run A cannot poison its dispatch.
+    assert (
+        _validate_dispatch(
+            tmp_path,
+            run_b,
+            capabilities=_WS2_CAPABILITIES,
+            canonical_implementer_available=False,
+        )["decision"]["run_id"]
+        == OTHER_RUN_ID
+    )
 
 
 @_params("source_kind", ["external_artifact", "operator_reported_external"])
-def test_ws2_external_cross_run_source_attribution(tmp_path, source_kind):
+def test_ws2_external_run_local_source_attribution(tmp_path, source_kind):
     source = "records/operator-approval.md"
-    fixture(
-        tmp_path, decision_run="original", source_kind=source_kind, source_ref=source
-    )
-    original_ref = ".kapisch/runs/original/decisions/d1.json"
+    fixture(tmp_path, source_kind=source_kind, source_ref=source)
+    original_ref = f"{RUN_DIR}/decisions/d1.json"
     original = (tmp_path / original_ref).read_bytes()
     expected = _ws2_persist_outcome(tmp_path)
     assert expected["decision"]["ref"] == original_ref
@@ -3027,7 +3398,7 @@ def test_ws2_external_cross_run_source_attribution(tmp_path, source_kind):
     )
     assert _ws2_restart(tmp_path, "validate_outcome") == expected
     assert (tmp_path / original_ref).read_bytes() == original
-    assert not (tmp_path / RUN_DIR / "decisions/d1.json").exists()
+    assert (tmp_path / RUN_DIR / "decisions/d1.json").exists()
 
 
 def test_ws2_dispatch_accepts_unrelated_empty_historical_inputs(tmp_path):
@@ -3038,7 +3409,7 @@ def test_ws2_dispatch_accepts_unrelated_empty_historical_inputs(tmp_path):
     record["governing_inputs"] = []
     _ws2_put(tmp_path, ref, record)
     assert (
-        task_contract.validate_dispatch(
+        _validate_dispatch(
             tmp_path,
             RUN_REF,
             capabilities=_WS2_CAPABILITIES,
@@ -3056,7 +3427,7 @@ def test_ws2_dispatch_reads_each_decision_once_per_call(tmp_path):
     _reset_to_unclaimed(tmp_path)
     for number in range(2, 10):
         _ws2_add_decision(tmp_path, f"d{number}")
-    expected = set(tmp_path.glob(".kapisch/runs/*/decisions/*.json"))
+    expected = set((tmp_path / RUN_DIR / "decisions").glob("*.json"))
     reads, globs = Counter(), []
     read_bytes, glob = Path.read_bytes, Path.glob
 
@@ -3066,7 +3437,7 @@ def test_ws2_dispatch_reads_each_decision_once_per_call(tmp_path):
         return read_bytes(path)
 
     def counted_glob(path, pattern):
-        if pattern == ".kapisch/runs/*/decisions/*.json":
+        if path == tmp_path / RUN_DIR / "decisions" and pattern == "*.json":
             globs.append(pattern)
         return glob(path, pattern)
 
@@ -3075,7 +3446,7 @@ def test_ws2_dispatch_reads_each_decision_once_per_call(tmp_path):
         mock.patch.object(Path, "glob", counted_glob),
     ):
         for invocation in (1, 2):
-            task_contract.validate_dispatch(
+            _validate_dispatch(
                 tmp_path,
                 RUN_REF,
                 capabilities=_WS2_CAPABILITIES,
@@ -3091,7 +3462,7 @@ def test_ws2_dispatch_reads_each_decision_once_per_call(tmp_path):
 def test_ws2_missing_retained_reference_fails_closed_after_restart(
     tmp_path, supersedes
 ):
-    fixture(tmp_path, decision_run="origin")
+    fixture(tmp_path)
     _reset_to_unclaimed(tmp_path)
     records = validate_run(tmp_path, RUN_REF)
     ref = records["workorder"]["decision_ref"]
@@ -3103,7 +3474,7 @@ def test_ws2_missing_retained_reference_fails_closed_after_restart(
         }
         _ws2_add_decision(tmp_path, "d2", supersedes=[edge])
         # Reference d2 as the selected authority, retaining its edge to d1.
-        d2_ref = ".kapisch/runs/graph/decisions/d2.json"
+        d2_ref = f"{RUN_DIR}/decisions/d2.json"
         work, app = records["workorder"], records["applicability"]
         digest = hashlib.sha256((tmp_path / d2_ref).read_bytes()).hexdigest()
         for record in (work, app):
@@ -3123,26 +3494,25 @@ def test_ws2_missing_retained_reference_fails_closed_after_restart(
 def test_ws2_mut_unique_decision_reference_rejects_invalid_match_count(tmp_path, case):
     from kapisch_core._task_decisions import _validate_unique_decision_reference
 
-    refs = [
-        ".kapisch/runs/r1/decisions/d1.json",
-        ".kapisch/runs/r2/decisions/d1.json",
-    ]
+    local = f"{RUN_DIR}/decisions/d1.json"
+    foreign = f".kapisch/runs/{OTHER_RUN_ID}/decisions/d1.json"
     if case != "zero":
-        for ref in refs:
-            path = tmp_path / ref
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text("{}")
-    decision_ref = {
-        "first": refs[0],
-        "second": refs[1],
-        "zero": refs[0],
-        "mismatch": ".kapisch/runs/r1/decisions/other.json",
-    }[case]
-    with _raises(
-        ContractError,
-        match="^decision identity is not unique or reference mismatches$",
-    ):
-        _validate_unique_decision_reference(tmp_path, "d1", decision_ref)
+        path = tmp_path / local
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}")
+    if case == "second":
+        path = tmp_path / foreign
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}")
+    if case in {"first", "second"}:
+        _validate_unique_decision_reference(tmp_path, RUN_DIR, "d1", local)
+    else:
+        mismatched_ref = local if case == "zero" else f"{RUN_DIR}/decisions/other.json"
+        with _raises(
+            ContractError,
+            match="^decision identity is not unique or reference mismatches$",
+        ):
+            _validate_unique_decision_reference(tmp_path, RUN_DIR, "d1", mismatched_ref)
 
 
 def test_ws2_mut_historical_nonstring_ref_rejected(tmp_path):
@@ -3166,16 +3536,17 @@ def test_ws2_mut_supersedes_duplicate_id_only_rejected(tmp_path):
     with _raises(ContractError, match="^duplicate supersedes target$"):
         _supersedes_entries(
             tmp_path,
+            RUN_DIR,
             {
                 "supersedes": [
                     {
                         "decision_id": "d1",
-                        "decision_ref": ".kapisch/runs/a/decisions/a.json",
+                        "decision_ref": f"{RUN_DIR}/decisions/a.json",
                         "decision_digest": "0" * 64,
                     },
                     {
                         "decision_id": "d1",
-                        "decision_ref": ".kapisch/runs/b/decisions/b.json",
+                        "decision_ref": f"{RUN_DIR}/decisions/b.json",
                         "decision_digest": "1" * 64,
                     },
                 ]
@@ -3190,16 +3561,17 @@ def test_ws2_mut_supersedes_duplicate_ref_only_rejected(tmp_path):
     with _raises(ContractError, match="^duplicate supersedes target$"):
         _supersedes_entries(
             tmp_path,
+            RUN_DIR,
             {
                 "supersedes": [
                     {
                         "decision_id": "d1",
-                        "decision_ref": ".kapisch/runs/a/decisions/a.json",
+                        "decision_ref": f"{RUN_DIR}/decisions/a.json",
                         "decision_digest": "0" * 64,
                     },
                     {
                         "decision_id": "d2",
-                        "decision_ref": ".kapisch/runs/a/decisions/a.json",
+                        "decision_ref": f"{RUN_DIR}/decisions/a.json",
                         "decision_digest": "1" * 64,
                     },
                 ]
@@ -3212,15 +3584,17 @@ def test_ws2_mut_decision_digest_defaults_fail_closed(tmp_path):
     from kapisch_core._task_decisions import _load_decision, _read_decision_record
 
     fixture(tmp_path)
-    ref = ".kapisch/runs/r1/decisions/d1.json"
+    ref = f"{RUN_DIR}/decisions/d1.json"
     for operation in (
         lambda: _load_with_digest(tmp_path, ref),
-        lambda: _read_decision_record(tmp_path, ref),
-        lambda: _load_decision(tmp_path, ref),
+        lambda: _read_decision_record(tmp_path, RUN_DIR, ref),
+        lambda: _load_decision(tmp_path, RUN_DIR, ref),
     ):
         with _raises(
             ContractError,
-            match="^missing artifact digest: \\.kapisch/runs/r1/decisions/d1\\.json$",
+            match="^missing artifact digest: "
+            + re.escape(f"{RUN_DIR}/decisions/d1.json")
+            + "$",
         ):
             operation()
 
@@ -3232,7 +3606,7 @@ def test_ws2_kernel_never_mutates_any_decision_file(tmp_path):
     before = {
         p: p.read_bytes() for p in tmp_path.glob(".kapisch/runs/*/decisions/*.json")
     }
-    task_contract.validate_dispatch(
+    _validate_dispatch(
         tmp_path,
         RUN_REF,
         capabilities=_WS2_CAPABILITIES,
@@ -3244,7 +3618,7 @@ def test_ws2_kernel_never_mutates_any_decision_file(tmp_path):
     _ws2_put(tmp_path, ref, record)  # Human-boundary fixture, not a kernel mutation.
     before = {p: p.read_bytes() for p in before}
     with _raises(ContractError, match="^decision is superseded: d1$"):
-        task_contract.validate_dispatch(
+        _validate_dispatch(
             tmp_path,
             RUN_REF,
             capabilities=_WS2_CAPABILITIES,
@@ -3273,7 +3647,7 @@ def test_ws2_fix_decision_inspection_oserror_is_contract_error(tmp_path, entry):
             if entry == "validate_run":
                 validate_run(tmp_path, RUN_REF)
             else:
-                task_contract.validate_dispatch(
+                _validate_dispatch(
                     tmp_path,
                     RUN_REF,
                     capabilities=_WS2_CAPABILITIES,
@@ -3336,3 +3710,58 @@ def test_ws2_fix_stale_input_follows_workorder_identity_checks(
     (tmp_path / "docs/spec.md").write_text("stale governing input\\n")
     with _raises(ContractError, match="^" + re.escape(message) + "$"):
         validate_run(tmp_path, RUN_REF)
+
+
+def test_ws2_rl_create_run_mints_exclusive_run_directory(tmp_path):
+    fixture(tmp_path)
+    run_ids = [task_contract.create_run(tmp_path) for _ in range(2)]
+    assert run_ids[0] != run_ids[1]
+    for run_id in run_ids:
+        assert re.fullmatch(
+            r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            run_id,
+        )
+        assert list((tmp_path / ".kapisch/runs" / run_id).iterdir()) == []
+    with (
+        mock.patch.object(uuid, "uuid4", return_value=uuid.UUID(run_ids[0])),
+        _raises(ContractError, match="^cannot create Run directory$"),
+    ):
+        task_contract.create_run(tmp_path)
+
+
+def test_ws2_rl_create_run_fails_closed(tmp_path):
+    fixture(tmp_path)
+    worktree = _add_linked_worktree(tmp_path, tmp_path / "create-run-worktree")
+    with _raises(ContractError, match="^invalid state_root/source_root mapping$"):
+        task_contract.create_run(worktree)
+    repo = tmp_path.parent / f"{tmp_path.name}-symlinked-state"
+    outside = tmp_path.parent / f"{tmp_path.name}-outside-state"
+    outside.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    (repo / ".kapisch").symlink_to(outside, target_is_directory=True)
+    with _raises(ContractError, match="^Run directory escapes project root$"):
+        task_contract.create_run(repo)
+    assert list(outside.iterdir()) == []
+
+
+def test_ws2_rl_claim_rechecks_supersession_after_claim(tmp_path):
+    fixture(tmp_path)
+    _reset_to_unclaimed(tmp_path)
+    create_exclusive = task_contract._create_exclusive
+
+    def publish_superseder_first(*args, **kwargs):
+        _ws2_add_decision(tmp_path, "d2", supersedes=[_ws2_edge(tmp_path, "d1")])
+        return create_exclusive(*args, **kwargs)
+
+    with (
+        mock.patch.object(task_contract, "_create_exclusive", publish_superseder_first),
+        _raises(ContractError, match="^decision is superseded: d1$"),
+    ):
+        _claim_dispatch(
+            tmp_path,
+            RUN_REF,
+            capabilities=_WS2_CAPABILITIES,
+            canonical_implementer_available=False,
+        )
+    assert (tmp_path / RUN_DIR / "dispatch-claim.json").is_file()
+    assert json.loads((tmp_path / RUN_REF).read_text())["dispatch_state"] == "claimed"

@@ -92,7 +92,7 @@ def _validate_applicability(
 
 
 def _validate_governing_binding(
-    base: Path,
+    _state_root: Path,
     work: dict[str, Any],
     decision: dict[str, Any],
     applicability: dict[str, Any],
@@ -108,7 +108,8 @@ def _validate_governing_binding(
 
 
 def _validate_workorder(
-    base: Path,
+    state_root: Path,
+    source_root: Path,
     run_directory: str,
     work: dict[str, Any],
     decision_records: dict[str, _DecisionRecord] | None = None,
@@ -116,7 +117,11 @@ def _validate_workorder(
     decision_ref = _required_text(work, "decision_ref", "decision reference")
     decision_digest = _required_text(work, "decision_digest", "decision digest")
     decision = _load_decision(
-        base, decision_ref, decision_digest, records=decision_records
+        state_root,
+        run_directory,
+        decision_ref,
+        decision_digest,
+        records=decision_records,
     )
     _validated_governing_inputs(decision["governing_inputs"])
     decision_id = decision["decision_id"]
@@ -135,7 +140,7 @@ def _validate_workorder(
         raise ContractError("work order must contain one task")
     _required_id(task, "task_id", "task identity")
     _required_id(work, "workorder_id", "work order identity")
-    _validate_governing_inputs(base, work.get("governing_inputs"))
+    _validate_governing_inputs(source_root, work.get("governing_inputs"))
     acceptance = work.get("acceptance_criteria")
     if (
         not isinstance(acceptance, list)
@@ -155,8 +160,8 @@ def _validate_workorder(
     )
     if applicability_ref != run_directory + "/applicability.json":
         raise ContractError("Applicability reference is outside its Run")
-    applicability = _load(base, applicability_ref, applicability_digest)
-    _validate_governing_binding(base, work, decision, applicability)
+    applicability = _load(state_root, applicability_ref, applicability_digest)
+    _validate_governing_binding(state_root, work, decision, applicability)
     _validate_applicability(applicability, work, decision, decision_digest)
     route = _required_text(work, "worker_route", "worker route")
     role = _required_text(work, "worker_role", "worker role")
