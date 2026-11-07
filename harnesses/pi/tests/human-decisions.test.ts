@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -608,6 +608,35 @@ test("portable Run decisions do not require a persistent host session", async ()
   assert.deepEqual(await f.input({ text: "I approve." }, f.context), { action: "continue" });
   assert.equal((await readdir(join(cwd, ".kapisch", "runs", runId, "decisions"))).length, 1);
 }));
+
+// Each alias resolves inside the project, so only a symlink check (not a project-root check) can reject it.
+const aliasCases: Array<[string, (cwd: string) => Promise<{ runId: string; realRun: string }>]> = [
+  ["Run directory", async (cwd) => {
+    const runs = join(cwd, ".kapisch", "runs");
+    const runId = runIdFor(9);
+    await symlink(RUN_ID, join(runs, runId), "dir");
+    return { runId, realRun: join(runs, RUN_ID) };
+  }],
+  ["runs directory", async (cwd) => {
+    await rename(join(cwd, ".kapisch", "runs"), join(cwd, "moved-runs"));
+    await symlink("../moved-runs", join(cwd, ".kapisch", "runs"), "dir");
+    return { runId: RUN_ID, realRun: join(cwd, "moved-runs", RUN_ID) };
+  }],
+  [".kapisch directory", async (cwd) => {
+    await rename(join(cwd, ".kapisch"), join(cwd, "moved-kapisch"));
+    await symlink("moved-kapisch", join(cwd, ".kapisch"), "dir");
+    return { runId: RUN_ID, realRun: join(cwd, "moved-kapisch", "runs", RUN_ID) };
+  }],
+];
+for (const [name, alias] of aliasCases) {
+  test(`an aliased ${name} blocks input and writes no decision`, async () => temp(async (cwd) => {
+    const { runId, realRun } = await alias(cwd);
+    const f = fixture([assistant({ ...request, run_id: runId })], { cwd, sessionFile: join(cwd, "session-alias.jsonl") });
+    assert.deepEqual(await f.input({ text: "I approve." }, f.context), { action: "handled" });
+    assert.match(f.notices[0], /could not be read or safely written/);
+    assert.deepEqual(await readdir(realRun), []);
+  }));
+}
 
 test("a symlinked portable Run directory cannot write outside the project", async () => temp(async (cwd) => {
   const outside = await mkdtemp(join(tmpdir(), "human-decision-outside-"));

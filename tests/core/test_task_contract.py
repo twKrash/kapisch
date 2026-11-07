@@ -2572,6 +2572,34 @@ def test_ws2_rl_decision_run_id_required_and_must_match(tmp_path):
         _ws2_rebind(tmp_path, decision=record)
 
 
+# The fields the canonical skill tells the coordinator to write for a direct-prompt approval.
+DIRECT_PROMPT_DECISION_FIELDS = (
+    "decision_id",
+    "run_id",
+    "question_id",
+    "question",
+    "answer",
+    "governing_inputs",
+    "subject",
+    "scope",
+    "decision_type",
+    "source_kind",
+)
+
+
+def test_ws2_direct_prompt_decision_record_is_valid_only_with_owning_run_id(tmp_path):
+    fixture(tmp_path)
+    full = validate_run(tmp_path, RUN_REF)["decision"]
+    record = {key: full[key] for key in DIRECT_PROMPT_DECISION_FIELDS}
+    record.update(decision_type="approval", source_kind="direct_operator")
+    _ws2_rebind(tmp_path, decision=record)
+    assert validate_run(tmp_path, RUN_REF)["decision"] == record
+    del record["run_id"]
+    _ws2_rebind(tmp_path, decision=record)
+    with _raises(ContractError, match="^decision run mismatch$"):
+        validate_run(tmp_path, RUN_REF)
+
+
 def test_ws2_rl_cross_run_decision_ref_rejected(tmp_path):
     fixture(tmp_path)
     records = validate_run(tmp_path, RUN_REF)

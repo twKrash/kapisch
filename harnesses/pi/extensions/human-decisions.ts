@@ -209,9 +209,18 @@ class RunNotOpenError extends Error {}
 
 async function decisionDirectory(cwd: string, runId: string): Promise<string> {
   const root = await primaryCheckout(cwd);
+  const runPath = join(root, ".kapisch", "runs", runId);
+  // realpath() would follow an in-project alias into another Run's folder, so reject symlinks first.
+  for (const path of [join(root, ".kapisch"), join(root, ".kapisch", "runs"), runPath]) {
+    const entry = await lstat(path).catch((error) => {
+      if (isRecord(error) && error.code === "ENOENT") throw new RunNotOpenError();
+      throw error;
+    });
+    if (entry.isSymbolicLink()) throw new Error("Run path contains a symlink");
+  }
   let run: string;
   try {
-    run = await realpath(join(root, ".kapisch", "runs", runId));
+    run = await realpath(runPath);
   } catch (error) {
     if (isRecord(error) && error.code === "ENOENT") throw new RunNotOpenError();
     throw error;
