@@ -147,13 +147,16 @@ test("Pi adapter trusts effective user input and exposes durable decisions downs
   assert.match(adapter, /effective user-role input received from Pi/i);
   assert.match(adapter, /TUI[\s\S]*RPC[\s\S]*JSON[\s\S]*print/i);
   assert.match(adapter, /direct_operator[\s\S]*operator_reported_external[\s\S]*external_artifact/);
-  assert.match(adapter, /run_id[\s\S]*\.kapisch\/runs\/<run_id>\/decisions/);
+  for (const text of [adapter, readme]) {
+    assert.ok(text.includes("`<state_root>/.kapisch/runs/<run_id>/decisions/<decision_id>.json`"));
+    assert.ok(text.includes("`source_root`"));
+  }
+  assert.doesNotMatch(adapter, /Requests without `run_id` remain in the adapter-local session path/i);
   assert.match(adapter, /ordinary direct prompts are not auto-captured[\s\S]*coordinator owns direct-prompt records/i);
   assert.match(adapter, /ambiguous answers remain raw evidence and are not interpreted as approval/i);
   assert.doesNotMatch(adapter, /coordinator must persist exactly one immutable `HumanDecision`/i);
   assert.doesNotMatch(adapter, /immutable original-input provenance|capture is unavailable/i);
   assert.match(readme, /canonical KAPISCH skill owns direct-prompt authorization/i);
-  assert.match(readme, /opaque portable `run_id`[\s\S]*Pi session ID out of portable references/i);
   assert.match(canonical, /portable single-task record contract and core validator[\s\S]*task-first\.md[\s\S]*task_contract\.py/i);
   assert.match(taskContract, /any change requires reassessment/i);
   assert.match(readme, /Pi session and child handles adapter-owned[\s\S]*supported, unsupported, or unknown/i);

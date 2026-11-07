@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import registerHumanDecisions from "../extensions/human-decisions.ts";
 
-const request = { question_id: "Q-1", question: "May I proceed?", governing_inputs: [{ ref: "context:C0", digest: "a".repeat(64) }], subject: "release", scope: "staging", decision_type: "approval", source_kind: "direct_operator" };
+const RUN_ID = "a0000000-0000-4000-8000-000000000001";
+const request = { run_id: RUN_ID, question_id: "Q-1", question: "May I proceed?", governing_inputs: [{ ref: "context:C0", digest: "a".repeat(64) }], subject: "release", scope: "staging", decision_type: "approval", source_kind: "direct_operator" };
 function codeToken(text: string, lang = "kapisch-decision") {
   return { type: "code", lang, text, raw: "```" + lang + "\n" + text + "\n```" };
 }
@@ -19,6 +21,7 @@ function assistantText(text: string, id = "assistant-text", testTokens: unknown[
 }
 type PortableDecision = {
   decision_id: string;
+  run_id: string;
   question_id: string;
   question: string;
   governing_inputs: Array<{ ref: string; digest: string }>;
@@ -49,7 +52,7 @@ async function testAdapterDecision(directory: string, facts: Omit<PortableDecisi
 }
 
 function portableDecisionFacts(decision: Record<string, unknown>) {
-  const keys = ["question_id", "question", "governing_inputs", "subject", "scope", "answer", "decision_type", "source_kind", "source_ref", "approving_party"];
+  const keys = ["run_id", "question_id", "question", "governing_inputs", "subject", "scope", "answer", "decision_type", "source_kind", "source_ref", "approving_party"];
   return Object.fromEntries(keys.filter((key) => key in decision).map((key) => [key, decision[key]]));
 }
 
@@ -78,13 +81,33 @@ function fixture(branch: unknown[], options: { cwd?: string; mode?: "tui" | "rpc
   };
   return { input: handlers[0], commands, context, sent, notices, promptCalls: () => promptCalls };
 }
+async function gitProject(root: string) {
+  await writeFile(join(root, "fixture.md"), "test repository\n");
+  execFileSync("git", ["init", "-q", root]);
+  execFileSync("git", ["-C", root, "config", "user.email", "test@example.invalid"]);
+  execFileSync("git", ["-C", root, "config", "user.name", "Test"]);
+  execFileSync("git", ["-C", root, "add", "fixture.md"]);
+  execFileSync("git", ["-C", root, "commit", "-qm", "fixture"]);
+}
+
+function runIdFor(index: number): string {
+  return `a0000000-0000-4000-8000-${String(index).padStart(12, "0")}`;
+}
+
 async function temp(run: (cwd: string) => Promise<void>) {
   const cwd = await mkdtemp(join(tmpdir(), "human-decision-"));
-  try { await run(cwd); } finally { await rm(cwd, { recursive: true, force: true }); }
+  try { await gitProject(cwd); await openRun(cwd); await run(cwd); } finally { await rm(cwd, { recursive: true, force: true }); }
+}
+
+async function openRun(root: string, runId = RUN_ID) {
+  await mkdir(join(root, ".kapisch", "runs", runId), { recursive: true });
 }
 
 async function assertNoDecisionFiles(cwd: string) {
-  assert.deepEqual(await readdir(join(cwd, ".kapisch")).catch(() => []), []);
+  const runs = join(cwd, ".kapisch", "runs");
+  for (const run of await readdir(runs).catch(() => [])) {
+    assert.deepEqual(await readdir(join(runs, run, "decisions")).catch(() => []), []);
+  }
 }
 
 test("ordinary Pi input continues without a pending marker, including busy, blank, and image input", async () => {
@@ -114,7 +137,7 @@ test("local token selection accepts only top-level exact-language code requests"
     cwd, sessionFile: join(cwd, "session-token.jsonl"),
   });
   assert.deepEqual(await f.input({ text: "I approve." }, f.context), { action: "continue" });
-  const directory = join(cwd, ".kapisch", "runs", "session-token", "decisions");
+  const directory = join(cwd, ".kapisch", "runs", RUN_ID, "decisions");
   const [filename] = await readdir(directory);
   assert.equal(JSON.parse(await readFile(join(directory, filename), "utf8")).question_id, "Q-top-level");
 }));
@@ -162,7 +185,7 @@ test("local token selection fails closed for invalid and duplicate top-level req
     assert.deepEqual(await f.input({ text: "must not persist" }, f.context), { action: "handled" });
     await f.commands.get("kapisch-decision-repair")!("", f.context);
     assert.equal(f.sent[0]?.message.customType, "kapisch-decision-repair");
-    assert.deepEqual(await readdir(join(cwd, ".kapisch", "runs", `invalid-${index}`, "decisions")).catch(() => []), []);
+    assert.deepEqual(await readdir(join(cwd, ".kapisch", "runs")), [RUN_ID]);
   }
 }));
 
@@ -185,11 +208,91 @@ test("pending request captures normal user input and leaves blank or image-only 
   assert.deepEqual(await f.input({ text: "The reviewer recommends proceeding; I need to check." }, f.context), { action: "continue" });
   assert.equal(f.promptCalls(), 0);
   assert.equal(f.sent.length, 0);
-  const directory = join(cwd, ".kapisch", "runs", "session-1", "decisions");
+  const directory = join(cwd, ".kapisch", "runs", RUN_ID, "decisions");
   const [filename] = await readdir(directory);
   const decision = JSON.parse(await readFile(join(directory, filename), "utf8"));
   assert.equal(decision.answer, "The reviewer recommends proceeding; I need to check.");
   assert.equal("authorization_granted" in decision, false);
+}));
+
+test("HumanDecision writes under the primary checkout from a linked worktree", async () => temp(async (primary) => {
+  const worktree = join(primary, "feature-worktree");
+  execFileSync("git", ["-C", primary, "worktree", "add", "--detach", worktree, "HEAD"]);
+  const f = fixture([assistant()], { cwd: worktree, sessionFile: join(worktree, "host-session.jsonl") });
+  assert.deepEqual(await f.input({ text: "I approve." }, f.context), { action: "continue" });
+  const directory = join(primary, ".kapisch", "runs", RUN_ID, "decisions");
+  const [filename] = await readdir(directory);
+  const decision = JSON.parse(await readFile(join(directory, filename), "utf8"));
+  assert.equal(decision.run_id, RUN_ID);
+  assert.deepEqual(await readdir(join(worktree, ".kapisch")).catch(() => []), []);
+}));
+
+test("HumanDecision refuses a non-Git cwd without writing", async () => temp(async () => {
+  const nonGit = await mkdtemp(join(tmpdir(), "human-decision-non-git-"));
+  try {
+    const f = fixture([assistant()], { cwd: nonGit, sessionFile: join(nonGit, "valid-session.jsonl") });
+    assert.deepEqual(await f.input({ text: "I approve." }, f.context), { action: "handled" });
+    assert.match(f.notices[0], /could not be read or safely written/i);
+    await assertNoDecisionFiles(nonGit);
+  } finally {
+    await rm(nonGit, { recursive: true, force: true });
+  }
+}));
+
+test("HumanDecision ignores inherited GIT_DIR for a non-Git cwd", async () => temp(async (cwd) => {
+  const nonGit = await mkdtemp(join(tmpdir(), "human-decision-git-dir-"));
+  const previous = process.env.GIT_DIR;
+  process.env.GIT_DIR = join(cwd, ".git");
+  try {
+    const f = fixture([assistant()], { cwd: nonGit, sessionFile: join(nonGit, "valid-session.jsonl") });
+    assert.deepEqual(await f.input({ text: "I approve." }, f.context), { action: "handled" });
+    await assertNoDecisionFiles(cwd);
+    await assertNoDecisionFiles(nonGit);
+  } finally {
+    if (previous === undefined) delete process.env.GIT_DIR;
+    else process.env.GIT_DIR = previous;
+    await rm(nonGit, { recursive: true, force: true });
+  }
+}));
+
+test("an unknown Run id blocks input and warns about a possibly wrong Run id", async () => temp(async (cwd) => {
+  const unknown = "c0000000-0000-4000-8000-000000000009";
+  const f = fixture([assistant({ ...request, run_id: unknown })], { cwd, sessionFile: join(cwd, "valid-session.jsonl") });
+  assert.deepEqual(await f.input({ text: "I approve." }, f.context), { action: "handled" });
+  assert.match(f.notices[0], /wrong Run id/);
+  assert.deepEqual(await readdir(join(cwd, ".kapisch", "runs")), [RUN_ID]);
+  await f.commands.get("kapisch-decision-repair")!("", f.context);
+  assert.equal(f.sent.length, 1);
+  assert.equal(f.sent[0].message.display, false);
+  assert.equal(f.sent[0].options.triggerTurn, true);
+  assert.match(f.sent[0].message.content, /regenerate.*decision request/i);
+  assert.match(f.sent[0].message.content, /grants no decision or authorization/i);
+  await assertNoDecisionFiles(cwd);
+}));
+
+test("a dispatched Run takes no new decisions", async () => temp(async (cwd) => {
+  const runDirectory = join(cwd, ".kapisch", "runs", RUN_ID);
+  await writeFile(join(runDirectory, "dispatch-claim.json"), "{}\n");
+  const f = fixture([assistant()], { cwd, sessionFile: join(cwd, "valid-session.jsonl") });
+  assert.deepEqual(await f.input({ text: "I approve." }, f.context), { action: "handled" });
+  assert.match(f.notices[0], /already dispatched/);
+  assert.deepEqual(await readdir(runDirectory), ["dispatch-claim.json"]);
+  await f.commands.get("kapisch-decision-repair")!("", f.context);
+  assert.equal(f.sent.length, 1);
+  assert.equal(f.sent[0].message.display, false);
+  assert.equal(f.sent[0].options.triggerTurn, true);
+  assert.match(f.sent[0].message.content, /regenerate.*decision request/i);
+  assert.match(f.sent[0].message.content, /grants no decision or authorization/i);
+  assert.deepEqual(await readdir(runDirectory), ["dispatch-claim.json"]);
+  await assertNoDecisionFiles(cwd);
+}));
+
+test("repair does not regenerate a valid request for an open Run", async () => temp(async (cwd) => {
+  const f = fixture([assistant()], { cwd, sessionFile: join(cwd, "valid-session.jsonl") });
+  await f.commands.get("kapisch-decision-repair")!("", f.context);
+  assert.equal(f.sent.length, 0);
+  assert.match(f.notices[0], /No invalid or unavailable decision request needs repair/);
+  await assertNoDecisionFiles(cwd);
 }));
 
 test("a persisted decision consumes its request after a session restart", async () => temp(async (cwd) => {
@@ -197,7 +300,7 @@ test("a persisted decision consumes its request after a session restart", async 
   const sessionFile = join(cwd, "session-1.jsonl");
   const first = fixture(branch, { cwd, sessionFile });
   assert.deepEqual(await first.input({ text: "I approve." }, first.context), { action: "continue" });
-  const directory = join(cwd, ".kapisch", "runs", "session-1", "decisions");
+  const directory = join(cwd, ".kapisch", "runs", RUN_ID, "decisions");
   const [filename] = await readdir(directory);
   const original = await readFile(join(directory, filename), "utf8");
 
@@ -207,8 +310,8 @@ test("a persisted decision consumes its request after a session restart", async 
   assert.equal(await readFile(join(directory, filename), "utf8"), original);
 }));
 
-test("canonical legacy HumanDecision files consume requests without mutation", async () => temp(async (cwd) => {
-  const directory = join(cwd, ".kapisch", "runs", "session-1", "decisions");
+test("canonical persisted HumanDecision files consume requests without mutation", async () => temp(async (cwd) => {
+  const directory = join(cwd, ".kapisch", "runs", RUN_ID, "decisions");
   await mkdir(directory, { recursive: true });
   const decision = { decision_id: "123e4567-e89b-42d3-a456-426614174000", ...request, answer: "I approve." };
   const path = join(directory, `${decision.decision_id}.json`);
@@ -222,7 +325,7 @@ test("canonical legacy HumanDecision files consume requests without mutation", a
 }));
 
 test("noncanonical decision filenames fail closed without replacing the request", async () => temp(async (cwd) => {
-  const directory = join(cwd, ".kapisch", "runs", "session-1", "decisions");
+  const directory = join(cwd, ".kapisch", "runs", RUN_ID, "decisions");
   await mkdir(directory, { recursive: true });
   const decision = { decision_id: "123e4567-e89b-42d3-a456-426614174000", ...request, answer: "I approve." };
   const path = join(directory, "unrelated-name.json");
@@ -236,8 +339,6 @@ test("noncanonical decision filenames fail closed without replacing the request"
 }));
 
 test("conflicting or invalid persisted decisions fail closed in either file order", async () => temp(async (cwd) => {
-  const directory = join(cwd, ".kapisch", "runs", "session-1", "decisions");
-  await mkdir(directory, { recursive: true });
   const id1 = "123e4567-e89b-42d3-a456-426614174001";
   const id2 = "123e4567-e89b-42d3-a456-426614174002";
   const cases = [
@@ -246,8 +347,10 @@ test("conflicting or invalid persisted decisions fail closed in either file orde
     [{ decision_id: id1, ...request, answer: "I approve." }, { decision_id: id2, ...request, scope: "production", answer: "I approve." }],
   ];
   for (const [index, records] of cases.entries()) {
-    const session = `session-${index + 1}`;
-    const caseDirectory = join(cwd, ".kapisch", "runs", session, "decisions");
+    const caseRunId = runIdFor(index + 1);
+    await openRun(cwd, caseRunId);
+    const caseDirectory = join(cwd, ".kapisch", "runs", caseRunId, "decisions");
+    for (const record of records) record.run_id = caseRunId;
     await mkdir(caseDirectory, { recursive: true });
     const originals = await Promise.all(records.map(async (record) => {
       const path = join(caseDirectory, `${record.decision_id}.json`);
@@ -255,7 +358,7 @@ test("conflicting or invalid persisted decisions fail closed in either file orde
       await writeFile(path, text, { flag: "wx" });
       return [path, text] as const;
     }));
-    const f = fixture([assistant()], { cwd, sessionFile: join(cwd, `${session}.jsonl`) });
+    const f = fixture([assistant({ ...request, run_id: caseRunId })], { cwd, sessionFile: join(cwd, `session-${index + 1}.jsonl`) });
     assert.deepEqual(await f.input({ text: "Show me the status" }, f.context), { action: "handled" });
     assert.deepEqual(await Promise.all(originals.map(([path]) => readFile(path, "utf8"))), originals.map(([, text]) => text));
     assert.deepEqual((await readdir(caseDirectory)).sort(), records.map((record) => `${record.decision_id}.json`).sort());
@@ -270,7 +373,7 @@ test("repeated and concurrent delivery creates one immutable decision per reques
     f.input({ text: "Answer two" }, f.context),
   ]);
   assert.deepEqual(results, [{ action: "continue" }, { action: "continue" }]);
-  const directory = join(cwd, ".kapisch", "runs", "session-1", "decisions");
+  const directory = join(cwd, ".kapisch", "runs", RUN_ID, "decisions");
   const [filename] = await readdir(directory);
   const original = await readFile(join(directory, filename), "utf8");
   assert.deepEqual(await f.input({ text: "Repeated answer" }, f.context), { action: "continue" });
@@ -283,8 +386,9 @@ test("repeated and concurrent delivery creates one immutable decision per reques
   assert.equal(await readFile(join(directory, filename), "utf8"), original);
 }));
 
-test("portable Run IDs own decision paths without entering decision identity", async () => temp(async (cwd) => {
-  const runId = "run-portable-01";
+test("Run IDs own decision paths and are recorded as decision identity", async () => temp(async (cwd) => {
+  const runId = "a0000000-0000-4000-8000-000000000002";
+  await openRun(cwd, runId);
   const f = fixture([assistant({ ...request, run_id: runId })], {
     cwd,
     sessionFile: join(cwd, "host-session-should-stay-adapter-only.jsonl"),
@@ -293,22 +397,22 @@ test("portable Run IDs own decision paths without entering decision identity", a
   const directory = join(cwd, ".kapisch", "runs", runId, "decisions");
   const [filename] = await readdir(directory);
   const decision = JSON.parse(await readFile(join(directory, filename), "utf8"));
-  assert.equal(decision.run_id, undefined);
+  assert.equal(decision.run_id, runId);
   assert.equal(decision.decision_id, portableDecisionId(runId, request.question_id));
-  assert.deepEqual(await readdir(join(cwd, ".kapisch", "runs")), [runId]);
+  assert.deepEqual((await readdir(join(cwd, ".kapisch", "runs"))).sort(), [RUN_ID, runId].sort());
 }));
 
-test("decision IDs stay unique across sessions for the same question ID", async () => temp(async (cwd) => {
+test("decision identity is stable across Pi sessions for the same Run", async () => temp(async (cwd) => {
   for (const session of ["session-1", "session-2"]) {
     const f = fixture([assistant()], { cwd, sessionFile: join(cwd, `${session}.jsonl`) });
     assert.deepEqual(await f.input({ text: "I approve." }, f.context), { action: "continue" });
   }
-  const files = await Promise.all(["session-1", "session-2"].map(async (session) => {
-    const directory = join(cwd, ".kapisch", "runs", session, "decisions");
-    const [filename] = await readdir(directory);
-    return JSON.parse(await readFile(join(directory, filename), "utf8"));
-  }));
-  assert.notEqual(files[0].decision_id, files[1].decision_id);
+  const directory = join(cwd, ".kapisch", "runs", RUN_ID, "decisions");
+  const [filename] = await readdir(directory);
+  const decision = JSON.parse(await readFile(join(directory, filename), "utf8"));
+  assert.equal(decision.run_id, RUN_ID);
+  assert.equal(decision.decision_id, portableDecisionId(RUN_ID, request.question_id));
+  assert.deepEqual(await readdir(join(cwd, ".kapisch", "runs")), [RUN_ID]);
 }));
 
 test("invalid pending request stays blocked and repair remains non-authorizing", async () => temp(async (cwd) => {
@@ -318,6 +422,8 @@ test("invalid pending request stays blocked and repair remains non-authorizing",
   await f.commands.get("kapisch-decision-repair")!("", f.context);
   assert.equal(f.sent.length, 1);
   assert.equal(f.sent[0].message.customType, "kapisch-decision-repair");
+  assert.equal(f.sent[0].message.display, false);
+  assert.equal(f.sent[0].options.triggerTurn, true);
   assert.match(f.sent[0].message.content, /grants no decision or authorization/);
   assert.equal(f.promptCalls(), 0);
   await assertNoDecisionFiles(cwd);
@@ -333,22 +439,36 @@ test("malformed and interrupted markers remain blocked and can only request repa
   }
 });
 
-test("a pending decision stays blocked when the Pi session is not persistent", async () => temp(async (cwd) => {
+test("a valid Run request records without a persistent Pi session", async () => temp(async (cwd) => {
   const f = fixture([assistant()], { cwd, mode: "rpc", sessionFile: undefined });
-  assert.deepEqual(await f.input({ text: "I approve." }, f.context), { action: "handled" });
-  assert.match(f.notices[0], /persistent Pi session/i);
-  await assertNoDecisionFiles(cwd);
+  assert.deepEqual(await f.input({ text: "I approve." }, f.context), { action: "continue" });
+  const directory = join(cwd, ".kapisch", "runs", RUN_ID, "decisions");
+  const [filename] = await readdir(directory);
+  assert.equal(JSON.parse(await readFile(join(directory, filename), "utf8")).run_id, RUN_ID);
 }));
 
-test("invalid Pi session IDs cannot escape the run decision directory", async () => temp(async (cwd) => {
-  const f = fixture([assistant()], { cwd, sessionFile: join(cwd, "bad$id.jsonl") });
-  assert.deepEqual(await f.input({ text: "I approve." }, f.context), { action: "handled" });
-  assert.match(f.notices[0], /could not identify the Pi session/i);
-  await assertNoDecisionFiles(cwd);
+test("missing or malformed Run IDs block input without using the Pi session ID", async () => temp(async (cwd) => {
+  const { run_id: _runId, ...withoutRunId } = request;
+  const invalidRequests = [
+    withoutRunId,
+    { ...request, run_id: "../escape" },
+    { ...request, run_id: "A0000000-0000-4000-8000-000000000001" },
+    { ...request, run_id: "a0000000-0000-1000-8000-000000000001" },
+    { ...request, run_id: "a0000000-0000-4000-7000-000000000001" },
+  ];
+  for (const [index, invalidRequest] of invalidRequests.entries()) {
+    const f = fixture([assistant(invalidRequest)], {
+      cwd,
+      sessionFile: join(cwd, `valid-session-${index}.jsonl`),
+    });
+    assert.deepEqual(await f.input({ text: "I approve." }, f.context), { action: "handled" });
+    assert.match(f.notices.at(-1) ?? "", /request is invalid/i);
+    await assertNoDecisionFiles(cwd);
+  }
 }));
 
 test("persistence failures do not forward a pending decision answer", async () => temp(async (cwd) => {
-  const runDirectory = join(cwd, ".kapisch", "runs", "session-1");
+  const runDirectory = join(cwd, ".kapisch", "runs", RUN_ID);
   await mkdir(runDirectory, { recursive: true });
   await writeFile(join(runDirectory, "decisions"), "blocks the decisions directory");
   const f = fixture([assistant()], { cwd, sessionFile: join(cwd, "session-1.jsonl") });
@@ -361,8 +481,11 @@ test("persistence failures do not forward a pending decision answer", async () =
 }));
 
 test("Pi and host-independent test adapters preserve the same portable decision facts", async () => temp(async (cwd) => {
+  const runId = "a0000000-0000-4000-8000-000000000003";
+  await openRun(cwd, runId);
   const facts = {
     ...request,
+    run_id: runId,
     subject: "staging deployment",
     scope: "staging only",
     answer: "The release board approved staging in meeting M-42.",
@@ -371,7 +494,6 @@ test("Pi and host-independent test adapters preserve the same portable decision 
     source_ref: "wiki:release-decisions/M-42",
     approving_party: "Release Board",
   };
-  const runId = "shared-portable-run";
   const directory = join(cwd, ".kapisch", "runs", runId, "decisions");
   const { answer, ...decisionRequest } = facts;
   const f = fixture([assistant({ ...decisionRequest, run_id: runId })], { cwd });
@@ -434,12 +556,14 @@ test("captures effective user input across supported Pi modes and preserves deci
     const { mode, answer, source_kind, source_ref, approving_party } = item;
     const decisionMetadata = { source_kind, ...(source_ref ? { source_ref } : {}), ...(approving_party ? { approving_party } : {}) };
     const sessionFile = join(cwd, `session-${index}.jsonl`);
-    const f = fixture([assistant({ ...request, ...decisionMetadata })], {
+    const caseRunId = runIdFor(index + 1);
+    await openRun(cwd, caseRunId);
+    const f = fixture([assistant({ ...request, ...decisionMetadata, run_id: caseRunId })], {
       cwd, mode, sessionFile, hasUI: mode !== "json",
     });
     assert.deepEqual(await f.input({ text: answer }, f.context), { action: "continue" });
 
-    const directory = join(cwd, ".kapisch", "runs", `session-${index}`, "decisions");
+    const directory = join(cwd, ".kapisch", "runs", runIdFor(index + 1), "decisions");
     const [filename] = await readdir(directory);
     const decision = JSON.parse(await readFile(join(directory, filename), "utf8"));
     assert.match(decision.decision_id, /^[0-9a-f-]{36}$/);
@@ -458,35 +582,79 @@ test("captures effective user input across supported Pi modes and preserves deci
 }));
 
 
-test("portable decision lookup and write use the same Run directory", async () => temp(async (cwd) => {
-  const runId = "portable-run-lookup";
+test("Pi session basename does not redirect a decision away from its Run", async () => temp(async (cwd) => {
+  const runId = "a0000000-0000-4000-8000-000000000004";
+  await openRun(cwd, runId);
   const session = "session-legacy";
-  const legacyDirectory = join(cwd, ".kapisch", "runs", session, "decisions");
-  await mkdir(legacyDirectory, { recursive: true });
-  await writeFile(join(legacyDirectory, "00000000-0000-4000-8000-000000000001.json"), JSON.stringify({ decision_id: "00000000-0000-4000-8000-000000000001", ...request, answer: "I approve." }));
   const f = fixture([assistant({ ...request, run_id: runId })], { cwd, sessionFile: join(cwd, session + ".jsonl") });
   assert.deepEqual(await f.input({ text: "I approve." }, f.context), { action: "continue" });
-  const portable = join(cwd, ".kapisch", "runs", runId, "decisions");
-  assert.equal((await readdir(portable)).length, 1);
+  const runDirectory = join(cwd, ".kapisch", "runs");
+  assert.deepEqual((await readdir(runDirectory)).sort(), [RUN_ID, runId].sort());
+  const decisionDirectory = join(runDirectory, runId, "decisions");
+  assert.equal((await readdir(decisionDirectory)).length, 1);
 }));
 
 test("a portable repeated blank delivery uses the persisted portable decision", async () => temp(async (cwd) => {
-  const f = fixture([assistant({ ...request, run_id: "portable-blank" })], { cwd, sessionFile: join(cwd, "session-blank.jsonl") });
+  await openRun(cwd, "a0000000-0000-4000-8000-000000000005");
+  const f = fixture([assistant({ ...request, run_id: "a0000000-0000-4000-8000-000000000005" })], { cwd, sessionFile: join(cwd, "session-blank.jsonl") });
   assert.deepEqual(await f.input({ text: "I approve." }, f.context), { action: "continue" });
   assert.deepEqual(await f.input({ text: "" }, f.context), { action: "continue" });
 }));
 
-test("portable decisions do not require a persistent host session", async () => temp(async (cwd) => {
-  const runId = "portable-no-session";
+test("portable Run decisions do not require a persistent host session", async () => temp(async (cwd) => {
+  const runId = "a0000000-0000-4000-8000-000000000006";
+  await openRun(cwd, runId);
   const f = fixture([assistant({ ...request, run_id: runId })], { cwd, sessionFile: undefined });
   assert.deepEqual(await f.input({ text: "I approve." }, f.context), { action: "continue" });
   assert.equal((await readdir(join(cwd, ".kapisch", "runs", runId, "decisions"))).length, 1);
 }));
 
+// Each alias resolves inside the project, so only a symlink check (not a project-root check) can reject it.
+const aliasCases: Array<[string, (cwd: string) => Promise<{ runId: string; realRun: string }>]> = [
+  ["Run directory", async (cwd) => {
+    const runs = join(cwd, ".kapisch", "runs");
+    const runId = runIdFor(9);
+    await symlink(RUN_ID, join(runs, runId), "dir");
+    return { runId, realRun: join(runs, RUN_ID) };
+  }],
+  ["runs directory", async (cwd) => {
+    await rename(join(cwd, ".kapisch", "runs"), join(cwd, "moved-runs"));
+    await symlink("../moved-runs", join(cwd, ".kapisch", "runs"), "dir");
+    return { runId: RUN_ID, realRun: join(cwd, "moved-runs", RUN_ID) };
+  }],
+  [".kapisch directory", async (cwd) => {
+    await rename(join(cwd, ".kapisch"), join(cwd, "moved-kapisch"));
+    await symlink("moved-kapisch", join(cwd, ".kapisch"), "dir");
+    return { runId: RUN_ID, realRun: join(cwd, "moved-kapisch", "runs", RUN_ID) };
+  }],
+];
+for (const [name, alias] of aliasCases) {
+  test(`an aliased ${name} blocks input and writes no decision`, async () => temp(async (cwd) => {
+    const { runId, realRun } = await alias(cwd);
+    const f = fixture([assistant({ ...request, run_id: runId })], { cwd, sessionFile: join(cwd, "session-alias.jsonl") });
+    assert.deepEqual(await f.input({ text: "I approve." }, f.context), { action: "handled" });
+    assert.match(f.notices[0], /could not be read or safely written/);
+    assert.deepEqual(await readdir(realRun), []);
+  }));
+}
+
+// root bypasses directory permissions, so the unreadable-directory setup cannot fail there.
+test("an unreadable runs directory is a storage failure, not a wrong Run id", { skip: process.getuid?.() === 0 }, async () => temp(async (cwd) => {
+  const runs = join(cwd, ".kapisch", "runs");
+  await chmod(runs, 0o000);
+  try {
+    const f = fixture([assistant()], { cwd, sessionFile: join(cwd, "session-unreadable.jsonl") });
+    assert.deepEqual(await f.input({ text: "I approve." }, f.context), { action: "handled" });
+    assert.match(f.notices[0], /could not be read or safely written/);
+  } finally {
+    await chmod(runs, 0o700);
+  }
+}));
+
 test("a symlinked portable Run directory cannot write outside the project", async () => temp(async (cwd) => {
   const outside = await mkdtemp(join(tmpdir(), "human-decision-outside-"));
   try {
-    const runId = "portable-symlink";
+    const runId = "a0000000-0000-4000-8000-000000000007";
     const runs = join(cwd, ".kapisch", "runs");
     await mkdir(runs, { recursive: true });
     await (await import("node:fs/promises")).symlink(outside, join(runs, runId), "dir");
