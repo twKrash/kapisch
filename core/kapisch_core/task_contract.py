@@ -62,7 +62,7 @@ def create_run(state_root: str | Path) -> str:
     try:
         for directory in (runs.parent, runs):
             directory.mkdir(mode=0o700, exist_ok=True)
-            if directory.is_symlink() or directory.resolve(strict=True) != directory:
+            if directory.resolve() != directory:
                 raise ContractError("Run directory escapes project root")
         run_id = str(uuid.uuid4())
         (runs / run_id).mkdir(mode=0o700)

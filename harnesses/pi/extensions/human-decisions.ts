@@ -218,20 +218,14 @@ async function decisionDirectory(cwd: string, runId: string): Promise<string> {
     });
     if (entry.isSymbolicLink()) throw new Error("Run path contains a symlink");
   }
-  let run: string;
-  try {
-    run = await realpath(runPath);
-  } catch (error) {
-    if (isRecord(error) && error.code === "ENOENT") throw new RunNotOpenError();
-    throw error;
-  }
+  const run = await realpath(runPath);
   if (!isWithin(root, run)) throw new Error("decision directory escapes project root");
   return join(run, "decisions");
 }
 
 async function ensureRunOpen(directory: string): Promise<void> {
-  const claimed = await lstat(join(dirname(directory), "dispatch-claim.json")).then(() => true, (error) => {
-    if (isRecord(error) && error.code === "ENOENT") return false;
+  const claimed = await lstat(join(dirname(directory), "dispatch-claim.json")).then(() => true, (error: { code?: string }) => {
+    if (error.code === "ENOENT") return false;
     throw error;
   });
   if (claimed) throw new RunNotOpenError();
@@ -239,8 +233,8 @@ async function ensureRunOpen(directory: string): Promise<void> {
 
 async function openDecisionDirectory(directory: string): Promise<void> {
   await ensureRunOpen(directory);
-  await mkdir(directory, { mode: 0o700 }).catch((error) => {
-    if (!isRecord(error) || error.code !== "EEXIST") throw error;
+  await mkdir(directory, { mode: 0o700 }).catch((error: { code?: string }) => {
+    if (error.code !== "EEXIST") throw error;
   });
   if (await realpath(directory) !== directory) throw new Error("decision directory escapes project root");
 }

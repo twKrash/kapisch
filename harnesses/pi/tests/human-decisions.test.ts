@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -637,6 +637,19 @@ for (const [name, alias] of aliasCases) {
     assert.deepEqual(await readdir(realRun), []);
   }));
 }
+
+// root bypasses directory permissions, so the unreadable-directory setup cannot fail there.
+test("an unreadable runs directory is a storage failure, not a wrong Run id", { skip: process.getuid?.() === 0 }, async () => temp(async (cwd) => {
+  const runs = join(cwd, ".kapisch", "runs");
+  await chmod(runs, 0o000);
+  try {
+    const f = fixture([assistant()], { cwd, sessionFile: join(cwd, "session-unreadable.jsonl") });
+    assert.deepEqual(await f.input({ text: "I approve." }, f.context), { action: "handled" });
+    assert.match(f.notices[0], /could not be read or safely written/);
+  } finally {
+    await chmod(runs, 0o700);
+  }
+}));
 
 test("a symlinked portable Run directory cannot write outside the project", async () => temp(async (cwd) => {
   const outside = await mkdtemp(join(tmpdir(), "human-decision-outside-"));
