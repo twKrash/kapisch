@@ -28,7 +28,7 @@ The [product realignment spec](2026-10-25-kapisch-product-realignment-design.md)
 | §2.1 cross-Run lookup | No cross-Run authority lookup | A selected evidence import may read only named evidence artifacts and persists a consumer-owned result; it never imports authority. |
 | §2.2 open-Run discovery and §3 Run creation | Legacy discovery/recovery behavior unchanged | Expanded continuation requires the harness-persisted explicit Run reference; the harness produces and the kernel validates it. Missing/invalid continuation reference prompts for Run ID or explicit search permission; no guessing, scanning, or replacement Run. Unrelated workflow without reference starts fresh. Production harness support is WS-11. Legacy discovery/recovery remains unchanged; every legacy reader/input producer must reject expanded state before shared deployment. |
 | State-root resolution and Run storage location | Current API `state_root` means the primary Git checkout; `create_run` validates it as a Git checkout, then appends `.kapisch/runs`. | Unchanged for this slice: keep `state_root` as the primary checkout and store Runs at `<state_root>/.kapisch/runs/<run_id>`. External Run-store overrides, migration, root discovery, and platform-specific permission handling are deferred to a separate design only if a concrete need arises. Cold restart uses the explicit Run reference and current location; a missing requested Run prompts or fails stably, with no scan or replacement.
-| Expanded HumanDecision admission (format-specific) | Legacy input producer remains restricted to the existing undispatched-Run rule, including `dispatch-claim.json` check | Expanded Run accepts decisions from the human-input producer only while valid/open, through the serialized final Outcome publication boundary. Malformed/forked history or malformed Outcome state fails closed, never interpreted as open. The durable authorization decision commit (the point at which the kernel publishes the task's authorized claim/attempt decision) marks that task started for source admission: a genuinely new source for that task after this point requires HumanDecision; before it, selection may occur within approved scope. |
+| Expanded HumanDecision admission (format-specific) | Legacy input producer remains restricted to the existing undispatched-Run rule, including `dispatch-claim.json` check | Expanded Run accepts decisions from the human-input producer only while valid/open, through the serialized final Outcome publication boundary. Malformed/forked history or malformed Outcome state fails closed, never interpreted as open. The durable authorization decision commit (the point at which the kernel publishes the task's authorized claim/attempt decision) marks that task started for source admission: a genuinely new source for that task after this point requires HumanDecision; before it, selection may occur within approved scope. A provisional attempt-ID reservation is allocation only; it neither closes admission nor authorizes use or execution. The claim request freezes selected source/evidence refs; changing them requires a new request and full admission recheck. |
 | Expanded supplemental operation approvals | Legacy HumanDecision shapes/decision types unchanged | Human-input producer owns `operation_authorizations[]` on supplemental approvals using existing decision types. Entries bind operation, basis WorkOrder revision digest, target tasks and operands; kernel validates Run, operation, basis, target and consumer. Supplements are distinct from selected base approval and cannot widen or implicitly supersede it. |
 | §2.5 applicability reference and freshness | Existing `<run>/applicability.json`; per-call `source_root` behavior unchanged | Revisioned applicability; each WorkOrder revision binds `baseline_workspace_id` and exact baseline-observation reference/digest. The adapter must resolve that binding; no session-cwd or `source_root` fallback. Task subsets are checked in assigned execution workspaces; top-level union at baseline. |
 | §2.6 retention | Run history is retained; no implicit deletion | Retain Run history and selected Run-local evidence needed for continuation or to explain accepted work. Human/skill chooses canonical project artifacts and their long-term storage; Kapisch does not pin Git objects or archive those artifacts. D9 permits cleanup of unreferenced scratch copies, rebuildable indexes/caches, and the non-authoritative resume note after Outcome is sealed. |
@@ -140,7 +140,16 @@ change legacy WS-2 per-call `source_root` behavior. Each task declares a non-emp
 union equals the top-level set, plus `write_targets[]` for intended final outputs; transient writes are not monitored.
 For each fresh task workspace, validate the task's governing-input subset against the baseline before applying any
 handoff. A `repository_state` handoff's destination is in the dependent task's declared `write_targets[]`; an
-evidence-only handoff has no workspace destination. Before claim authorization, the dependent harness assesses the exact selected predecessor bytes. Any harness-owned
+evidence-only handoff has no workspace destination.
+
+Before attempt-ID reservation or authorization, the kernel validates the selected repository-state destination set as a
+whole. It applies each declared mapping to every selected file or deletion entry, normalizes the resulting safe relative
+paths, and rejects duplicate targets (even when contents match) and any target that is a path-component ancestor of
+another file/deletion target; common directory prefixes are allowed. Evidence-only handoffs have no destination and do
+not enter this check. A conflict produces a deterministic refusal with no reservation, attempt, setup write, or worker;
+there is no coalescing, last-writer-wins behavior, or implicit merge.
+
+Before claim authorization, the dependent harness assesses the exact selected predecessor bytes. Any harness-owned
 review must finish with `allow` before authorization; `block`, missing, or pending assessment refuses the claim with
 no attempt or setup writes. The authorization binds that assessment. After authorization, materialize only selected,
 digest-verified manifest entries and record the same assessment in the handoff observation; then record the post-setup
@@ -215,7 +224,7 @@ identity/version or acquisition selector. WS-4 has no restart operation; stop-an
 authors these fields; the coordinator cannot attach them to a generic answer. The kernel validates owning Run,
 operation, basis revision, target and consuming revision/request. For a harness-authorized `capture_exception`, operands are exactly the kernel-produced output-capture request
 reference/digest and attempt ID; the immutable request binds the harness identity, effective security-policy reference
-and digest, disposition/rule findings, and complete sorted output selector/path/byte-digest set. One approval authorizes that entire request only. A
+and digest, disposition/rule findings, and complete sorted output selector/path/kind set and file-byte digests; deletion entries have no byte digest. One approval authorizes that entire request only. A
 supplemental approval is not the selected base approval and is not forced through base subject/scope equality; it
 cannot replace, widen, or implicitly supersede
 base authority or retroactively authorize a claim. `source_ref` remains provenance and is not repurposed. Only
@@ -236,6 +245,7 @@ status. Proposed Run-local records are:
   decisions/<decision_id>.json
   revision-assessments/<revision_seq>.json  # per-task scope/carry-forward entries
   tasks/<task_id>/claim-requests/<request_id>.json  # references frozen handoff_id and realized accepted bindings
+  tasks/<task_id>/attempt-reservations/<request_id>.json  # kernel-owned attempt ID/output-location reservation; not execution authority
   tasks/<task_id>/claims/<claim_seq>.json   # append-only per-task chain
   tasks/<task_id>/claim-decisions/<request_id>.json  # kernel start/refusal result
   tasks/<task_id>/context-amendments/<amendment_id>.json  # proposed/delivered/acknowledged/assessed linkage
@@ -289,15 +299,26 @@ disposition exists.
   resubmitted under the same admission checks because no setup writer existed. Retry of an authorized failed/interrupted
   attempt, fresh attempt IDs, and checkpoint compatibility belong to WS-5, which must prove the prior writer stopped
   and define how partial state is handled. No automatic retry.
-- **Attempt lifecycle:** validate scope, authority, capabilities, workspace availability, and selected predecessor
-  evidence; persist the request and exclusively authorize a real attempt or refuse it. Authorization allocates an
-  attempt ID and unique output location, binding the existing task contract, handoff selectors, selected predecessor
-  evidence, and approved context—not future setup observations. A provisional slot with no decision is finalized on
-  restart as an immutable refusal because the adapter was forbidden to start. Once authorized, the adapter performs
-  declared setup/materialization and verifies it; only successful setup invokes the worker. Setup failure is an
-  ordinary failed attempt with `worker_invoked: false`. Unknown setup/worker status retains occupancy under D8(A), with no
+- **Attempt lifecycle:** persist the coordinator-owned claim request, then preflight task scope, authority,
+  capabilities, selected predecessor evidence, and conflict-free handoff destinations before reservation. A persisted
+  request without a reservation or decision is preauthorization intent; on cold restart, rerun preflight against its
+  immutable refs and current authority/gate. A preflight refusal, including on restart, has no reservation or attempt ID.
+  Before requesting an execution-workspace binding, the kernel publishes one immutable
+  `tasks/<task_id>/attempt-reservations/<request_id>.json` record. It assigns a Run-unique opaque `attempt_id` and
+  logical output location and binds the exact request reference/digest. Its fixed request-keyed path and no-replace
+  publication allow at most one reservation per request. This reservation is allocation only: it is not an attempt
+  result, authorization, setup permission, or worker start. The adapter then publishes `execution_workspace_binding`
+  for that reservation, binding its reserved attempt ID to the logical execution `workspace_id` and repository
+  identity; the binding performs no setup, materialization, or workspace writes. Under the serialized kernel boundary,
+  recheck occupancy, current authority/gate, reservation, binding, selected evidence, and workspace availability, then
+  publish one immutable authorization or refusal. Authorization is the commit point and marks the task started. A
+  refusal after reservation references it, creates no `attempts/<attempt_id>.json`, and never frees or reuses that ID.
+  On cold restart, a reservation without a final decision becomes an immutable refusal because the adapter was not
+  authorized. Resubmission uses a new request ID and repeats admission. Only after authorized commit does the adapter perform
+  declared setup/materialization and verify it; only successful setup invokes the worker. Setup failure is an ordinary
+  failed attempt with `worker_invoked: false`. Unknown setup/worker status retains occupancy under D8(A), with no
   relaunch or inferred completion. After the adapter reports the attempt complete, ordinary attempt evidence captures
-  the declared final outputs and required status evidence before workspace release. WS-4 never relaunches an
+  declared final outputs and required status evidence before workspace release. WS-4 never relaunches an
   interrupted/unknown attempt or assigns one task's workspace to another task. This contract does not observe transient
   writes or claim that a restored file was never modified.
 - The existing local kernel lock/publication boundary covers only short authority/publication operations, never
@@ -334,9 +355,13 @@ dependency and acceptance policy and chooses transitions. A kernel structural pa
 release a dependent task.
 
 Handoff dataflow is sealed predecessor attempt/output → aggregation report → coordinator eligibility gate →
-dependent context manifest → authorized dependent attempt. Aggregation, semantic acceptance, dependency release and
-historical verification consume only immutable attempt/output/validation records and digests captured after writer
-stop and before workspace release; none reads a released execution checkout to reconstruct an earlier result.
+dependent context manifest → authorized dependent attempt. Status accounting in an aggregation report may consume
+validated durable WorkOrder, claim/decision, and attempt records plus its persisted trigger; the coordinator owns any
+explicit status snapshot included in that trigger. A missing or unavailable expected record is incomplete status
+evidence, and absence alone is not terminal. Any completed-output fields in a report, semantic acceptance, dependency
+release, and historical verification consume only immutable attempt/output/validation records and digests captured
+after writer stop and before workspace release. None reads a released execution checkout to reconstruct an earlier
+result.
 The WorkOrder freezes each predecessor/output selector in task `handoffs[]`; the claim request identifies its
 `handoff_id` and realizes the accepted predecessor attempt/output-manifest/gate bindings. The kernel verifies those
 bindings against the report, gate and accepted eligibility, then validates/publishes the dependent context manifest
@@ -389,6 +414,22 @@ block; no implicit merge.
 An incomplete report is valid evidence, not acceptance. Under selected D2(A), the Run-wide sequence may cross
 WorkOrder revisions only through explicit revision references and carry-forward assessments; it preserves full
 Run-wide task/claim accounting.
+
+An aggregation request may follow a durable claim decision, terminal attempt result, output-capture/validation result,
+or an explicit status snapshot. The coordinator persists the exact claim set and either a trigger reference/digest to a
+durable record or an explicit status snapshot containing expected source references and observed statuses; the
+aggregator consumes the request and publishes the report. Snapshots are accounting evidence only: they cannot stand in
+for a durable terminal claim/attempt result or sealed output. A missing expected record is `missing`/`unavailable`
+incomplete status evidence; absence alone is not terminal evidence.
+
+Each report separates claim/attempt status from output sealing. A preauthorization refusal is a terminal claim decision
+but has no attempt. An authorized attempt without terminal adapter evidence is `unknown` and retains occupancy. A
+terminal attempt result may be reported while required output capture or validation is pending, blocked, or unavailable.
+For a mutating task, output is sealed only by the kernel-published canonical manifest and attempt-validation record;
+terminal status or an empty output list alone is not acceptance. Unknown activity or unsealed required output prevents acceptance of that task and release of dependents that
+require it; a complete Outcome is also blocked while any task in its declared completion scope remains unknown or has
+unsealed required output. The coordinator gate may release a
+dependent only after validating required predecessor acceptance and sealed output references.
 
 ## 6. Workspace use and operator pause
 
@@ -452,8 +493,9 @@ case-fold-unique, path-safe `input_id`, role, source/producer identity, and one 
   that harness policy explicitly permits human review; otherwise it remains blocked. The core cannot override a
   harness `block`. The attempt-keyed request contains deterministic `capture_id` (`cap-` plus SHA-256 of canonical
   request fields excluding the ID), attempt-result reference/digest, exact harness/profile and policy identity, the
-  assessment, and the complete sorted output selector/path/byte-digest set. A matching HumanDecision authorizes only
-  that request. On restart, no approval means re-prompt; an approval means re-hash and continue idempotently. For external evidence, continuation copies, and resume notes, a `human_review` disposition remains blocked until the
+  assessment, and the complete sorted output selector/path/kind set and file-byte digests; deletion entries have no byte digest. A matching HumanDecision authorizes only
+  that request. On restart, no approval means re-prompt; an approval revalidates file-entry digests and tombstone
+baseline/final state before idempotent continuation. For external evidence, continuation copies, and resume notes, a `human_review` disposition remains blocked until the
   harness completes its own review and returns `allow`; the core creates no separate exception request for these
   copies. The request does not contain output bytes.
   Capture only explicitly selected outputs/paths or patches needed for a dependency or selected evidence, never the
@@ -482,19 +524,19 @@ Different bytes under the same logical `input_id` produce a different manifest-a
 needed for the task; indexes may locate relevant passages without copying or loading the whole corpus.
 
 After the terminal attempt result is published, the kernel validates the harness assessment against the complete
-declared output set and its exact digests. A `block`, missing/ambiguous assessment, or structural/containment failure
+declared output-entry inventory: selector/path/kind and file-byte digests, with no byte digest for a deletion tombstone. A `block`, missing/ambiguous assessment, or structural/containment failure
 captures no output and writes one failed `tasks/<task_id>/validation/<attempt_id>.json`; the task blocks dependents
 and the Run remains open under D8(A). An `allow` proceeds directly. A `human_review` result can proceed only when
 that harness policy permits human review; the kernel then
 writes one immutable `tasks/<task_id>/output-capture-requests/<attempt_id>.json` for the attempt. The request
 contains a deterministic `capture_id` (`cap-` plus SHA-256 of canonical fields excluding the ID), attempt-result
-reference/digest, exact harness/profile and policy identity, assessment, and the complete sorted output selector/path/
-byte-digest set. The attempt-keyed path and no-replace publication enforce at most one request per attempt; a conflicting
+reference/digest, exact harness/profile and policy identity, assessment, and the complete sorted output selector/path/kind
+inventory with file-byte digests; deletion tombstones have no byte digest, as defined in §8. The attempt-keyed path and no-replace publication enforce at most one request per attempt; a conflicting
 existing request fails closed. No output bytes are stored in the request. The coordinator asks the human to approve
 that exact request or leave it pending. `capture_exception` binds the exact request reference/digest and attempt ID and
-is accepted only when the harness disposition permits human review. On restart, no matching approval means re-prompt;
-a matching approval means the kernel rechecks workspace identity and every digest before continuing. Changed or
-missing bytes fail closed. A post-completion revision requires a separate authorized WS-5 attempt, not an in-place
+is accepted only when the harness disposition permits human review. On restart, no matching approval means re-prompt; a matching approval means the kernel rechecks workspace identity,
+re-hashes each file entry, and confirms each deletion tombstone's path existed in the persisted post-setup baseline and
+remains absent from the final workspace. Changed or missing file bytes, or a changed tombstone state, fail closed. A post-completion revision requires a separate authorized WS-5 attempt, not an in-place
 edit. The task and Run remain open under D8(A), the workspace remains occupied, and no dependent is released until
 capture, manifest, and validation succeed; WS-4 defines no decline or incomplete-Outcome closure.
 
@@ -563,6 +605,24 @@ evidence, never the released checkout.
   final changes against the post-setup worker baseline before workspace release. A declared output may overlap a
   governing input when explicitly in scope. Transient write/restore activity is not observed or represented; only
   captured outputs can be delivered, and unchanged handoff entries remain referenced from their producer manifest (§6).
+- **Output-entry and file-metadata semantics:** the canonical output manifest contains one deterministically sorted
+  entry per selected changed path. A `file` entry records a normalized safe relative path and SHA-256 of exact bytes; a
+  `deletion` entry is an explicit tombstone allowed only when that path existed in the post-setup worker baseline and
+  is absent at final capture. A path absent in both states, or outside selection, has no entry; omission never means
+  deletion. The manifest digest covers both entry kinds, while the content-addressed package contains bytes only for
+  `file` entries. A successful capture with no changes publishes a canonical empty manifest.
+
+  Only regular-file bytes and paths are supported. Mode/executable bits, timestamps, ownership, ACLs, extended
+  attributes, hard-link identity, and empty-directory state are not captured, compared, copied, or verified;
+  metadata-only changes produce no output. Symlinks and special files in selected output paths fail capture closed. A
+  task that requires unsupported metadata preservation is outside this proposal and cannot be treated as an accepted
+  output.
+
+  The harness assessment binds the complete sorted selector/path/kind set and file-byte digests; deletion entries have
+  no byte digest. A selected `repository_state` tombstone deletes only its exact mapped path within declared
+  `write_targets[]`; `evidence_only` handoffs never mutate a workspace. Materialization copies file bytes only, not source
+  metadata. Historical verification validates the canonical manifest and file-entry bytes/digests and accepts deletions
+  only from explicit tombstones; it never infers deletion from a missing blob or rereads a released workspace.
 - **Historical Outcome verification:** verify persisted Run, revision assessments, claims, typed adapter/native
   observations, authorized-attempt validations, output manifests, coordinator gates, aggregation lineage, and
   evidence/import receipts. Do not reread the current execution checkout. Missing/tampered records produce a
@@ -581,8 +641,9 @@ core registry.
 ## 9. Cold restart and producer ownership
 
 At cold restart, the kernel reconstructs format, revision heads, selected Run-local authority, task assessments,
-claim/attempt results, typed observations, ordinary attempt validations, output-capture requests, coordinator gates,
-report lineage, evidence receipts, and Outcome solely from persisted records. The harness supplies the explicit Run
+claim requests, attempt reservations, claim decisions, attempt results, typed observations, ordinary attempt validations,
+output-capture requests, coordinator gates, report lineage, evidence receipts, and Outcome solely from persisted records.
+A reservation without a final decision becomes an immutable refusal; its attempt ID is never reassigned. The harness supplies the explicit Run
 reference and screens a persisted `resume.md` under its own current security policy before exposing it to the coordinator;
 the coordinator checks note references and treats it as advisory context only. The note cannot supply authority. The persisted harness Run reference is a continuation pointer, not execution
 authority. Missing or malformed authority fails closed.
@@ -611,20 +672,21 @@ re-read semantics remain unchanged.
 | Explicit continuation reference | Harness persists Run ID in existing durable session/handoff metadata; kernel validates the referenced Run. |
 | Decisions, applicability, WorkOrders, revision assessments, gates | Their existing semantic owners; kernel validates ownership, references, sequence, and digests before immutable publication. |
 | Claim request and claim slot | Coordinator owns request intent; the adapter supplies a harness security assessment for selected repository-state handoff bytes, bound to their exact manifest entries and effective policy identity. The request persists that assessment; the kernel checks the binding before authorization and exclusively allocates the next slot. |
-| `tasks/<task_id>/claim-decisions/<request_id>.json` | Kernel-owned authorization/refusal decision; request ID is coordinator-produced in the earlier claim request. The authorization record binds exact execution `workspace_id` and adapter-binding reference/digest. Occupancy reconstruction/check, current authority/gate recheck, and authorization publication are one serialized short-lock transition. Durable authorization publication is the commit point: after it, crash/unknown activity retains occupancy; a definitely unauthorized provisional slot may be refused on recovery. No lock spans execution. First consumer is cold-restart occupancy reconstruction and claim admission. |
+| `tasks/<task_id>/attempt-reservations/<request_id>.json` | Kernel-owned immutable allocation record, zero or one per claim request (created only after preflight succeeds). Its fixed request-keyed path and no-replace publication allow at most one reservation per request. It binds the request reference/digest to one Run-unique `attempt_id` and logical output location before the adapter produces an execution-workspace binding. It is not authorization, an attempt result, or permission to start. The adapter binding and final kernel decision consume its reference/digest; restart turns an unresolved reservation into refusal. The kernel never reuses a reserved ID. |
+| `tasks/<task_id>/claim-decisions/<request_id>.json` | Kernel-owned immutable final authorization/refusal decision; request ID is coordinator-produced in the earlier claim request. Authorization binds the reservation reference/digest and exact execution `workspace_id` plus adapter-binding reference/digest. A refusal after reservation binds that reservation; a pre-reservation refusal has no attempt ID. Occupancy reconstruction/check, current authority/gate recheck, and final-decision publication are one serialized short-lock transition. Durable authorization publication is the commit point: after it, crash/unknown activity retains occupancy. No lock spans execution. First consumer is cold-restart occupancy reconstruction and claim admission. |
 | `tasks/<task_id>/context-manifests/<context_id>.json` | Coordinator semantically selects context; kernel validates and publishes canonical manifest. Context ID is coordinator-produced in the earlier claim request; inputs include selected evidence/gate bindings; first consumer is authorization decision. |
 | `tasks/<task_id>/resume.md` | Coordinator owns the compact, optional, non-authoritative note and checks references. It contains status, references, and bounded summaries, not raw payload excerpts or transcripts. The active harness assesses note bytes before exposure or replacement; the kernel atomically publishes a replacement only with an assessment bound to the exact note digest. A blocked/ambiguous note is not exposed or published; the last permitted note, if any, remains nonauthoritative. On restart, canonical records and current workspace evidence win; the note is replaceable, not reconstructible, and may require a human prompt. It never authorizes work. Cleanup is operator-controlled and only after Outcome is sealed. |
 | `validation/final/<gate_sequence>.json` | Kernel-owned final structural validation; gate sequence is coordinator-produced in the earlier final gate; inputs include final report/gate and referenced evidence; first consumer is Outcome publication. |
 | `evidence-capture-requests/<capture_id>.json` | Coordinator-produced intent for importing selected external evidence; capture ID binds consumer Run/source selection/version/mode. The harness assessment is bound to exact source bytes and policy identity; the kernel consumes the request and assessment to perform capture. The core does not reinterpret content-security findings. |
-| Authorized attempt result and `tasks/<task_id>/validation/<attempt_id>.json` | Adapter reports completion and supplies the active harness assessment bound to the exact declared output paths/digests, harness/profile, and effective policy identity. The kernel publishes the immutable terminal attempt result first. `allow` captures the declared set; `block`/missing assessment produces no package and one failed validation; `human_review` creates one request only when permitted by that harness policy. After an exact matching HumanDecision, the kernel re-hashes bytes, publishes the content-addressed package and sole fixed-path manifest, then the sole validation. A confirmed interruption uses adapter-owned `worker_interruption` evidence, produces no output package, and preserves the task/workspace association; unknown activity has no terminal result and retains active occupancy under D8(A). Temporary Git object IDs are not durable artifact identities or retention locators. Setup failure is an ordinary failed attempt with `worker_invoked: false`. |
-| `tasks/<task_id>/output-capture-requests/<attempt_id>.json` | Kernel-produced immutable pending-output record for a harness-authorized human review; at most one per attempt, enforced by fixed path and no-replace publication. Its body contains deterministic `capture_id`, attempt-result reference/digest, harness/profile and policy identity, assessment, and complete sorted output selector/path/byte-digest set. The coordinator's first consumer is the review prompt; recovery consumes the record and any matching HumanDecision. It contains no output bytes and cannot override a harness `block`. |
-| `outputs/<attempt_id>/<manifest_digest>/` and `outputs/<attempt_id>/manifest.json` | Kernel-owned output package and sole manifest. Package files are published without replacement from verified, fsynced staging files outside the package inventory (§7). Kernel-owned `.publication-staging/` is non-authoritative scratch, never a recovery input; residue is retained without automatic cleanup. Recovery verifies canonical files and fills missing expected files from authorized, rechecked sources, rejecting mismatched/extra package bytes. The fixed manifest path is published only after package verification; SHA-256 of canonical manifest bytes determines `manifest_digest`, which the manifest body omits to avoid a digest cycle. |
+| Authorized attempt result and `tasks/<task_id>/validation/<attempt_id>.json` | Adapter reports completion and supplies the active harness assessment bound to the exact declared output-entry selector/path/kind inventory and file-entry byte digests; deletion tombstones have no byte digest. It also binds harness/profile and effective policy identity. The kernel publishes the immutable terminal attempt result first. `allow` captures the declared set; `block`/missing assessment produces no package and one failed validation; `human_review` creates one request only when permitted by that harness policy. After an exact matching HumanDecision, the kernel revalidates file-entry digests and tombstone baseline/final state, publishes the content-addressed package and sole fixed-path manifest, then the sole validation. A confirmed interruption uses adapter-owned `worker_interruption` evidence, produces no output package, and preserves the task/workspace association; unknown activity has no terminal result and retains active occupancy under D8(A). Temporary Git object IDs are not durable artifact identities or retention locators. Setup failure is an ordinary failed attempt with `worker_invoked: false`. |
+| `tasks/<task_id>/output-capture-requests/<attempt_id>.json` | Kernel-produced immutable pending-output record for a harness-authorized human review; at most one per attempt, enforced by fixed path and no-replace publication. Its body contains deterministic `capture_id`, attempt-result reference/digest, harness/profile and policy identity, assessment, and complete sorted output selector/path/kind set and file-byte digests; deletion entries have no byte digest. The coordinator's first consumer is the review prompt; recovery consumes the record and any matching HumanDecision. It contains no output bytes and cannot override a harness `block`. |
+| `outputs/<attempt_id>/<manifest_digest>/` and `outputs/<attempt_id>/manifest.json` | Kernel-owned output package and sole manifest; §8 defines file entries and explicit deletion tombstones, while the package directory stores bytes only for file entries. Package files are published without replacement from verified, fsynced staging files outside the package inventory (§7). Kernel-owned `.publication-staging/` is non-authoritative scratch, never a recovery input; residue is retained without automatic cleanup. Recovery verifies canonical files and fills missing expected files from authorized, rechecked sources, rejecting mismatched/extra package bytes. The fixed manifest path is published only after package verification; SHA-256 of canonical manifest bytes determines `manifest_digest`, which the manifest body omits to avoid a digest cycle. |
 | `tasks/<task_id>/observations/<observation_id>.json` | Adapter-owned typed evidence. `kind=repository_handoff` binds request, source artifact ref/digest, target logical workspace, harness security assessment reference/digest, and verification result/digest. `kind=worker_interruption` binds attempt/workspace IDs and adapter evidence that the worker stopped; the kernel uses it to publish a terminal interrupted attempt result without output capture. `kind=amendment_transport` binds amendment and attempt IDs plus delivery/acknowledgment facts. Fields not applicable to the declared kind are absent. These records are evidence, not authority. |
-| `workspace-observations/<observation_id>.json` | Adapter-owned typed identity evidence. `kind=baseline_workspace_binding` binds WorkOrder revision, `baseline_workspace_id`, repository identity, and adapter-owned durable workspace reference. `kind=execution_workspace_binding` binds request/claim slot/attempt ID, execution `workspace_id`, and repository identity. Host paths/handles remain adapter metadata. Setup/worker baseline observations belong to ordinary attempt evidence, not authorization. |
+| `workspace-observations/<observation_id>.json` | Adapter-owned typed identity evidence. `kind=baseline_workspace_binding` binds WorkOrder revision, `baseline_workspace_id`, repository identity, and adapter-owned durable workspace reference. `kind=execution_workspace_binding` binds the exact kernel reservation reference/digest, its reserved attempt ID, logical execution `workspace_id`, and repository identity; it is produced after reservation and before authorization and proves binding only, not execution or permission to write. Host paths/handles remain adapter metadata. Setup/worker baseline observations belong to ordinary attempt evidence, not authorization. |
 | Context amendment and delivery/acknowledgment facts | Coordinator owns amendment; adapter owns `amendment_transport` observations with the fields defined above; coordinator gate owns semantic assessment. |
 | Human-selected canonical artifact reference | The human selects the durable artifact and destination, optionally with skill advice; the coordinator records the exact final source/version, selector, digest, and approval/publication provenance in the WorkOrder or selected evidence. The harness resolves availability; the kernel validates the reference. No automatic pinning or archiving. |
 | Evidence packages and import receipts | Kernel capture/import boundary owns Run-local receipts; `store_bundle()` is reused only for its supported verified format. |
-| Aggregation request/report and Outcome | Coordinator/aggregator own semantic payloads; kernel validates and immutably publishes canonical records. |
+| Aggregation request/report and Outcome | Coordinator owns the persisted request, trigger/status snapshot, and gate assessment; aggregator owns report payloads; the kernel validates and immutably publishes canonical records. |
 | Same-Run occupancy and physical ownership | Derived from named Run admission/attempt evidence; physical cross-Run safety remains host responsibility. |
 
 No actor writes another actor's canonical record. Hashes detect mismatches but do not protect against an actor able
@@ -648,15 +710,23 @@ validated completion closes admission. The v1 `dispatch-claim.json` behavior is 
   issues apply. Unrelated report-head advance alone permits admission. Acceptance withdrawal, changed selected
   artifacts, or newly applicable issues block it. Coordinator explicitly assesses issue/withdrawal effects on
   already-authorized descendants under D3(A); ambiguous affected sets cannot mean “affects nobody.”
+- Handoff destination preflight rejects duplicate normalized file/deletion targets and file-versus-descendant conflicts
+  before reservation or authorization, even for equal bytes; common directory prefixes and distinct declared targets
+  remain explicit selections, never an implicit merge.
 - Mutating tasks declare final `write_targets[]`; capture records changes from the post-setup worker baseline,
   including additions, replacements, and deletions. Validate original governing inputs before applying handoffs.
   Unselected workspace residue is not packaged or passed to dependents. A repository-state handoff destination is
   within the dependent task's `write_targets[]`; evidence-only handoffs have no destination. Test predecessor output
   approved by the harness and handed off: unchanged bytes are consumed by reference without recapture, while changed
-  bytes receive a new dependent-harness assessment.
-- Before authorization, refusal has no attempt, no preparation writes, and no worker. After authorization, setup
-  failure is an ordinary failed attempt with `worker_invoked: false`; unknown setup/worker status retains occupancy under D8(A),
-  without relaunch or inferred stop. Authorization binds existing plan/authority/handoff and selected predecessor
+  bytes receive a new dependent-harness assessment. Tests also distinguish a changed file from a deletion tombstone,
+  preserve omission as no change, reject unsupported file types, verify that metadata-only changes are outside the
+  contract, validate tombstone handoff and cold-restart verification, and revalidate file digests plus tombstone
+  baseline/final state during human-review recovery.
+- Before authorization, refusal has no attempt, setup writes, or worker. A request without reservation/decision
+  re-runs exact preflight after restart; an unresolved reservation recovers as refusal. A refusal after reservation keeps
+  its reserved ID but creates no attempt result; no reserved ID is reused. After
+  authorization, setup failure is an ordinary failed attempt with `worker_invoked: false`; unknown setup/worker status
+  retains occupancy under D8(A), without relaunch or inferred stop. Authorization binds existing plan/authority/handoff and selected predecessor
   evidence, never future setup snapshots. Required final outputs are captured after the adapter reports task completion
   and before workspace release; unknown status blocks capture and retains active occupancy. A confirmed interruption
 has no partial-output capture and retains its task/workspace association; WS-4 starts no replacement attempt.
@@ -680,7 +750,12 @@ has no partial-output capture and retains its task/workspace association; WS-4 s
 - Reports cover all tasks/claims across revisions; no abandoned state or duplicate pre-start outcomes. Retained
   observation records explicitly type the observation and define only applicable fields. Tests verify producer
   ownership, cold restart, immutable evidence, capture-before-release, unknown/interrupted-status retention without
-  relaunch, D2 linear reports, and D8(A) open incomplete Runs. Resume-note tests cover harness assessment/omission,
+  relaunch, D2 linear reports, and D8(A) open incomplete Runs. Aggregation tests cover terminal and explicit persisted status-snapshot
+  triggers, missing/unavailable results, and terminal attempts whose required outputs are not sealed; a snapshot
+  cannot substitute for terminal attempt evidence or sealed output, and none may release unknown occupancy, blocked
+  dependents, or complete Outcomes. An independent-branch case with accepted, sealed-output task A, unknown/unsealed task
+  B, and task C depending only on A verifies C remains eligible, B's dependents remain blocked, and the Run stays
+  incomplete. Resume-note tests cover harness assessment/omission,
   material findings, task/handoff boundaries, restart after compaction/crash, stale references, and human steering.
   Verify that a stopped attempt cannot start a new attempt or release its workspace in WS-4; recovery is WS-5.
   Preserve the accepted power-loss/storage-rollback limitation.
@@ -753,12 +828,13 @@ semantics still require design approval before implementation.
     that disposition and enforces exact task scope, containment, symlink safety, and digest integrity; it does not scan,
     classify, redact, or override harness content decisions. A `block` or missing assessment means no capture. A
     `human_review` result permits one immutable request at `tasks/<task_id>/output-capture-requests/<attempt_id>.json`
-    only if the harness policy permits human review. Its deterministic `capture_id` binds the exact attempt, assessment,
-    policy identity, selectors, paths, and byte digests. A matching HumanDecision with `operation=capture_exception` and exact operands
+    only if the harness policy permits human review. Its deterministic `capture_id` binds the exact attempt, assessment, policy identity, selectors, paths, kinds, and
+    file-byte digests; deletion tombstones have no byte digest. A matching HumanDecision with `operation=capture_exception` and exact operands
     `{capture_request_ref, capture_request_digest, attempt_id}` approves only that request, and is accepted only when
     permitted by the harness. Without approval, the request remains pending, the task blocks
     dependents, and the Run stays open under D8(A); WS-4 has no decline or incomplete-Outcome closure. Recovery
-    re-prompts if no decision exists, otherwise re-hashes bytes and resumes the same package/manifest publication.
+    re-prompts if no decision exists; otherwise it re-hashes file entries, revalidates each tombstone against persisted
+    post-setup baseline presence and final-state absence, and resumes the same package/manifest publication.
     Once captured, the exact immutable package may be referenced or materialized byte-for-byte into a dependent's fresh
     workspace without another Run-local capture. The dependent harness decides whether it may use the package;
     unchanged handoff bytes are not recaptured against the post-setup baseline, while changed/new bytes receive a new
