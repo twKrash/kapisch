@@ -11,6 +11,21 @@ report. Passing tests, an architect plan, implementer summary, or earlier
 approval are not proof. Inspect the actual state in fresh context and do not
 modify implementation files.
 
+## Target binding and working-tree inventory
+
+A standalone documentation-only or cross-document target is the specified artifact
+collection and its directly relevant governing evidence; it does not require a Git
+diff or base/head range. Identify each artifact's stable identity or version,
+status, audience, and authority. Do not invent a change range for a general document
+review.
+
+For a requested revision target, resolve the requested base/head and stop with a
+scope blocker if either is unavailable or mismatches the request. For a working-tree
+target, inspect the aggregate tracked diff, staged changes, and unstaged changes;
+list in-scope untracked files with `git ls-files --others --exclude-standard`, read
+each in-scope file, and record any exclusions or unreadable files as coverage gaps.
+A status listing or `git diff` alone does not cover untracked files.
+
 ## Review scopes
 
 An **iteration review** is bound to `iteration_base...iteration_head`: one
@@ -38,7 +53,9 @@ below and is the only review that can approve the branch for final readiness.
 Any implementation change after its approval makes that approval stale.
 
 The **standalone graph-free review** uses `workflow=review` for a review-only
-request. It binds the requested diff or working-tree scope, dispatches one fresh
+request. It binds the requested target, including a diff, working-tree scope, or
+document collection; a Git diff is not required for a general documentation-only
+or cross-document review. It dispatches one fresh
 read-only reviewer, and returns findings only, with evidence (severity,
 confidence, location, impact, and suggested remediation), to the
 parent/orchestrator. The reviewer does not approve, reject, or declare ready; the
@@ -73,11 +90,14 @@ whole-branch review and final readiness, not for every bounded iteration.
 
 ## Diff-causal finding scope
 
-The bound diff defines review scope; changed and unchanged repository material
-may supply evidence. Every blocking finding must state how the bound diff
+For change targets, the bound diff defines review scope; changed and unchanged
+repository material may supply evidence. Every blocking finding must state how the bound diff
 `introduced`, `exposed`, made `newly reachable`, or `made unsafe` the reported
 behavior. Its trigger and evidence identify the changed hunk, symbol, contract,
-state transition, or dependency edge that creates that relationship.
+state transition, or dependency edge that creates that relationship. For a
+non-diff document target, the specified artifacts and their governing sources
+define scope; findings cite the reviewed claim and source evidence without
+inventing an introduced-by-diff relationship.
 
 Unchanged repository material may prove a finding. It cannot independently make
 an unrelated pre-existing defect blocking. A pre-existing defect is in scope
@@ -99,13 +119,16 @@ multiple files or review passes.
 
 ### Mandatory discovery
 
-Before narrowing retrieval, bind the exact scope and working-tree state; inspect
-diff statistics and every changed hunk; inventory changed files and symbols;
-identify changed entry points, public contracts, state transitions, permissions,
+Before narrowing retrieval, bind the exact target and working-tree state where
+applicable. For revision or working-tree change targets, inspect diff statistics
+and every changed hunk in scope; inventory changed files and symbols; identify
+changed entry points, public contracts, state transitions, permissions,
 persistence/recovery, migrations, configuration, and external effects; perform
-the initial caller/consumer and changed-test impact search required by the
-review scope; and resolve or confirm risk, depth, and active lenses. This is
-impact discovery, not unrelated repository browsing.
+the initial caller/consumer and changed-test impact search required by the review
+scope. For document-only targets, inventory the requested artifacts and trace
+relevant governing claims, dependencies, and evidence instead. Resolve or confirm
+risk, depth, and active lenses. This is impact discovery, not unrelated repository
+browsing.
 
 ### Question-driven retrieval
 

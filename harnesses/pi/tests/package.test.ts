@@ -128,14 +128,16 @@ test("standalone reviewer returns findings without weakening durable review", ()
 
   assert.match(reviewer, /review_mode=standalone/);
   assert.match(reviewer, /standalone review mode[\s\S]*?findings only[\s\S]*?parent\/orchestrator/i);
-  assert.match(reviewer, /skip steps 8 and 9/i);
-  assert.match(reviewer, /do(?:es not| not) create[^.]*durable[^.]*artifacts/i);
-  assert.match(reviewer, /If a revision is unresolvable[\s\S]*?standalone[\s\S]*?findings-only scope blocker/i);
-  assert.match(reviewer, /durable workflow mode[\s\S]*?full review contract/i);
-  assert.match(reviewer, /In durable workflow mode[\s\S]*?bounded v4 transport limits apply[\s\S]*?In standalone mode[\s\S]*?Do not return a v4 payload/i);
-  assert.match(reviewer, /For a working-tree target[\s\S]*?staged[\s\S]*?unstaged[\s\S]*?untracked files[\s\S]*?inspect the contents/i);
-  assert.match(reviewer, /Always report requested scope[\s\S]*?verification performed\/omitted[\s\S]*?coverage gaps even when findings exist/i);
-  assert.match(reviewer, /Return approve only/);
+  assert.match(reviewer, /do not return a V4 payload/i);
+  const reviewPolicy = readFileSync(new URL("../../../plugins/kapisch/skills/kapisch/references/review.md", import.meta.url), "utf8");
+  assert.match(reviewPolicy, /## Durable integrated review/);
+  assert.match(reviewer, /or create durable workflow artifacts/i);
+  const baseline = readFileSync(new URL("../../../plugins/kapisch/skills/kapisch/references/reviewer-baseline.md", import.meta.url), "utf8");
+  assert.match(baseline, /general documentation-only or cross-document review works without requiring a Git diff/i);
+  assert.match(baseline, /Always state scope, verification performed\/omitted, coverage gaps, and limitations/i);
+  assert.match(reviewPolicy, /The \*\*standalone graph-free review\*\*[\s\S]*?returns findings only/i);
+  assert.match(reviewPolicy, /creates no durable graph,[\s\S]*?review result artifact/i);
+  assert.match(reviewer, /never claim approval or readiness/i);
 });
 
 test("Pi adapter trusts effective user input and exposes durable decisions downstream", () => {
@@ -173,7 +175,9 @@ test("canonical contract path resolves relative to the loaded Pi skill", () => {
   const expected = new URL("../../../plugins/kapisch/skills/kapisch/SKILL.md", import.meta.url);
   assert.equal(fileURLToPath(resolved), fileURLToPath(expected));
   assert.match(skill, /before any workflow selection or dispatch[\s\S]*use Pi's `read` tool[\s\S]*complete current canonical `SKILL\.md`[\s\S]*do not use `grep`/i);
-  assert.match(readFileSync(resolved, "utf8"), /^---\nname: kapisch\n/);
+  const canonical = readFileSync(resolved, "utf8");
+  assert.match(canonical, /^---\nname: kapisch\n/);
+  assert.match(canonical, /workflow=review[\s\S]*?references\/reviewer-baseline\.md[\s\S]*?General documentation or[\s\S]*?does not require a Git diff/i);
 });
 
 test("skill activation stays explicitly opt-in", () => {

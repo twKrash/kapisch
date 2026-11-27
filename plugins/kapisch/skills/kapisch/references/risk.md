@@ -24,10 +24,10 @@ discovery reveals a trigger, recompute derived lenses from all discovered
 triggers whenever `focus=auto` is enabled, even when risk and depth remain
 unchanged; union them with controller-supplied active lenses and any explicit
 additions, never reuse stale active-lens state, and record the resolved lens set.
-With explicit-only focus, preserve exactly named lenses and do not add derived
-lenses; manual focus still cannot suppress obvious P0/P1 issues. The existing
-rule for
-lowering automatic risk still applies. Depth changes breadth, not severity or
+With explicit-only focus, preserve exactly named optional lenses and do not add
+unrelated derived optional lenses. However, mandatory method triggers still apply
+regardless of focus, and manual focus cannot suppress material findings or obvious
+P0/P1 issues. The existing rule for lowering automatic risk still applies. Depth changes breadth, not severity or
 approval correctness: every depth blocks a discovered P0/P1 defect.
 
 ## Depth execution

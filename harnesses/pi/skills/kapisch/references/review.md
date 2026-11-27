@@ -1,0 +1,447 @@
+# Independent review and final readiness
+
+This reference is the normative owner of review and final evidence semantics,
+including the two review passes, evidence checklist and matrix, decisions,
+revision freshness, and output shape. [handoffs.md](handoffs.md) separately owns
+where that evidence and its invocation envelope are stored.
+
+The reviewer records the exact target, base revision, reviewed head revision,
+working-tree state, risk, depth, active lenses, and review scope in the returned
+report. Passing tests, an architect plan, implementer summary, or earlier
+approval are not proof. Inspect the actual state in fresh context and do not
+modify implementation files.
+
+## Target binding and working-tree inventory
+
+A standalone documentation-only or cross-document target is the specified artifact
+collection and its directly relevant governing evidence; it does not require a Git
+diff or base/head range. Identify each artifact's stable identity or version,
+status, audience, and authority. Do not invent a change range for a general document
+review.
+
+For a requested revision target, resolve the requested base/head and stop with a
+scope blocker if either is unavailable or mismatches the request. For a working-tree
+target, inspect the aggregate tracked diff, staged changes, and unstaged changes;
+list in-scope untracked files with `git ls-files --others --exclude-standard`, read
+each in-scope file, and record any exclusions or unreadable files as coverage gaps.
+A status listing or `git diff` alone does not cover untracked files.
+
+## Review scopes
+
+An **iteration review** is bound to `iteration_base...iteration_head`: one
+completed milestone node, bounded implementation task, remediation finding,
+approved fix round, or small documentation-contract adjustment. It inspects
+only that delta, its acceptance criteria and focused verification, directly
+affected callers/contracts/invariants, approved-scope compliance, and obvious
+local regressions. It approves only the iteration delta.
+
+An iteration review does not require complete PR-diff review, repository-wide
+caller reconstruction, a whole-branch invariant evidence matrix, final-readiness
+assessment, or repetition of previously approved unrelated work. Out-of-delta
+findings may be observations and must not silently expand scope. A pre-existing
+defect is in scope when the bound diff invokes it, broadens its inputs, changes
+its preconditions, depends on its incorrect result, or makes its effects newly
+observable; classify it under the causal policy below, and it is not
+automatically `material-scope-expansion`. Use `material-scope-expansion` only
+when safety cannot be determined without examining or changing a materially
+larger product area outside approved scope and a user decision is required.
+
+A **whole-branch review** is bound to `merge_base...final_head` and runs after
+all approved iterations or at an explicit integration or delivery/final-readiness
+boundary. It inspects the accumulated branch using the complete review contract
+below and is the only review that can approve the branch for final readiness.
+Any implementation change after its approval makes that approval stale.
+
+The **standalone graph-free review** uses `workflow=review` for a review-only
+request. It binds the requested target, including a diff, working-tree scope, or
+document collection; a Git diff is not required for a general documentation-only
+or cross-document review. It dispatches one fresh
+read-only reviewer, and returns findings only, with evidence (severity,
+confidence, location, impact, and suggested remediation), to the
+parent/orchestrator. The reviewer does not approve, reject, or declare ready; the
+parent/orchestrator judges the findings. This path creates no durable graph,
+manifest, invocation artifact, or review result artifact. It does not replace
+iteration or whole-branch review within a task or milestone, whose canonical
+evidence and approval rules remain unchanged. For the explicitly approved
+one-task host-native path defined in the canonical skill, reviewer dispatch is
+optional. If dispatched, at most one independent `kapisch-reviewer` returns
+findings-only evidence that may be persisted under `.kapisch/runs/<run-id>` as
+advisory only. No canonical invocation or approval artifacts are required for
+this path, and the report cannot claim `approve` or `ready`. The parent records
+whether review ran and evaluates any findings in Outcome. This exception takes
+precedence only over conflicting task-review and invocation-artifact wording
+for this one-task path; ordinary task and milestone review behavior remains
+unchanged.
+
+For an ordinary one-step task, `task_base...task_head` is the entire task diff,
+so its task review may be the whole-branch review; do not require two identical
+reviews. For milestone work, review each completed node as its own iteration,
+then run one integrated whole-branch review. A bounded fix receives an
+iteration review of its new base-to-head delta and the original finding; after
+all fixes, run or rerun the whole-branch review once.
+
+Within one bounded remediation or milestone session, iteration reviews may reuse
+the same independent read-only reviewer thread. Every iteration result still
+binds to its exact `iteration_base` and `iteration_head`; approval of one
+iteration never approves a later one, and the reviewer must not edit files. A
+whole-branch review, including a final whole-branch re-review after fixes, must
+use a fresh independent reviewer context. Fresh context is mandatory for
+whole-branch review and final readiness, not for every bounded iteration.
+
+## Diff-causal finding scope
+
+For change targets, the bound diff defines review scope; changed and unchanged
+repository material may supply evidence. Every blocking finding must state how the bound diff
+`introduced`, `exposed`, made `newly reachable`, or `made unsafe` the reported
+behavior. Its trigger and evidence identify the changed hunk, symbol, contract,
+state transition, or dependency edge that creates that relationship. For a
+non-diff document target, the specified artifacts and their governing sources
+define scope; findings cite the reviewed claim and source evidence without
+inventing an introduced-by-diff relationship.
+
+Unchanged repository material may prove a finding. It cannot independently make
+an unrelated pre-existing defect blocking. A pre-existing defect is in scope
+when the diff invokes it, broadens its inputs, changes its preconditions, depends
+on its incorrect result, or makes its effects newly observable; classify the
+causal relationship. Such a finding is not automatically `material-scope-expansion`.
+
+An unrelated pre-existing defect is an observation. It does not affect the
+current `approve` or `ready` decision and does not authorize remediation in the
+current review. Use `material-scope-expansion` only when safety of changed
+behavior cannot be determined without examining or changing a materially larger
+product area outside approved scope and a user decision is required. It is not
+a substitute for causal evidence.
+
+One finding still represents one root cause. Merge same-cause symptoms found in
+multiple files or review passes.
+
+## Discovery and retrieval
+
+### Mandatory discovery
+
+Before narrowing retrieval, bind the exact target and working-tree state where
+applicable. For revision or working-tree change targets, inspect diff statistics
+and every changed hunk in scope; inventory changed files and symbols; identify
+changed entry points, public contracts, state transitions, permissions,
+persistence/recovery, migrations, configuration, and external effects; perform
+the initial caller/consumer and changed-test impact search required by the review
+scope. For document-only targets, inventory the requested artifacts and trace
+relevant governing claims, dependencies, and evidence instead. Resolve or confirm
+risk, depth, and active lenses. This is impact discovery, not unrelated repository
+browsing.
+
+### Question-driven retrieval
+
+After mandatory discovery, every additional lookup answers a material review question
+that can affect scope binding, risk/depth/lenses, a required trace or
+matrix row, regression coverage, finding classification, or the decision.
+Typical questions ask which consumers rely on a changed contract; whether a path
+reaches a different identity, permission, state, or side effect; what survives
+failure, cancellation, retry, or resume; whether regression coverage fails
+without the change; whether a schema, migration, API, configuration, or
+compatibility boundary contradicts the change; whether a suspected finding is
+supported; or what evidence completes a required matrix row.
+
+The reviewer need not persist a query ledger or narrate each lookup. Retrieval
+and index summaries remain leads; findings cite current source, tests, commands,
+or repository policy. Stop tracing a material changed behavior when it is
+sufficiently verified, represented by one concrete causal finding, or recorded
+as a material trace or coverage gap that determines the decision. Do not trace
+to eliminate non-material uncertainty. Do not apply hard file, reference, tool-call, or token caps; correctness and safety still win.
+
+## Semantic bundles
+
+Semantic bundles are optional reviewer-internal organization for a cognitively
+broad diff. They are not graph nodes, invocations, review scopes, approval
+units, lifecycle states, or retry boundaries. No automatic threshold is
+normative until measurement establishes one.
+
+When used, create initial bundles from these deterministic signals in order:
+changed producer/consumer or import/dependency edges; changed source with its
+changed tests; participation in one changed public contract, schema, migration,
+persistence path, or state machine; module/directory adjacency; then lexical repository path as tie-breaker. Each changed file belongs to exactly one primary bundle,
+so all its hunks have one inspection owner. Other bundles may reference
+the file as supporting evidence without duplicate ownership.
+
+Merge initial bundles only when observed repository evidence establishes a
+stronger dependency, and record that dependency reason in the change inventory.
+Then perform one global cross-bundle pass over changed public contracts,
+permissions, identity, state, persistence, schemas, migrations, recovery,
+external effects, and compatibility where applicable. Merge duplicate symptoms
+into one root-cause finding. Required Behavioral branch and Invariant evidence
+matrices still cover the complete applicable review scope.
+
+Bundles produce one reviewer invocation, one globally ordered report, and one
+decision. Transport limits apply after global deduplication. Retry, resume,
+remediation, approval, and final readiness remain review-wide. Any relevant
+revision or working-tree change stales the complete review. When bundles are
+used, record membership and merge reasons in the existing change inventory. No separate artifact or schema is created.
+
+## Automatic policy
+
+| Work or boundary | Independent review | Separate final readiness |
+| --- | --- | --- |
+| Mechanical task, `review=auto` | No | No, unless a delivery boundary applies |
+| Mechanical task, `review=always` | Fresh review | Only at a delivery boundary |
+| Behavioral task | Fresh review, standard or deep by risk | Only at a delivery boundary |
+| High-risk task | Deep review with derived lenses | Only at a delivery boundary |
+| Versioned project-understanding or architecture-documentation output | Fresh review of evidence fidelity, scope, clarity, and repository consistency | Only at a delivery boundary |
+| Milestone | Integrated deep review | Always |
+
+The versioned project-understanding row takes precedence over a mechanical or
+documentation-only classification under `review=auto`. It includes architecture
+maps, documentation-drift corrections, onboarding documents, and decision
+records. The reviewer approves or rejects the written delta; it does not choose
+or approve the underlying architecture or product decision.
+
+Final readiness is required for commit preparation, PR preparation, merge,
+release, deployment handoff, and an explicit
+ready-to-commit/merge/release/final request. “Review my current branch before I
+open a PR” requests review, not final. “Check whether this is ready to open a
+PR” requests a separate final readiness decision and requires a current
+approving review. Publication and Git side effects still require explicit
+authority.
+
+Final is never the first behavioural review. An ordinary reviewed local task may
+end after independent review when no delivery boundary applies. High risk alone
+does not require final; it strengthens review depth and lenses. `review=always`
+also strengthens review and does not create a final boundary.
+
+## Whole-branch review passes
+
+Whole-branch reviews perform both passes:
+
+1. **Independent impact review**: inspect the full diff; inventory changed files
+   and symbols; identify entry points; search callers/consumers; identify state,
+   side effects, compatibility boundaries, and user-visible outcomes; reconstruct
+   behaviour from code/tests; and list plausible failures.
+2. **Contract and adversarial review**: compare user request, approved plan,
+   acceptance criteria, invariants, and repository policy. For every changed
+   behaviour trace `entry point -> validation -> identity and permission checks ->
+   state transition -> persistence -> audit or external effect -> returned or
+   delivered result`. An untraced public caller, observable branch, or state
+   transition is a blocking review gap.
+
+### Behavioral branch matrix and scope
+
+When the reviewed delta changes observable behavior, both iteration and
+whole-branch reviews require a Behavioral branch matrix. Enumerate every
+observable branch, including invalid-input and pause/resume paths. Use these
+same 10 columns in this order:
+
+1. entry point;
+2. trigger;
+3. state before the transition;
+4. pending or persisted state;
+5. reconstructed state after resume (include resumed inputs and explicitly
+   identify what is restored, reused, recalculated, normalized, or lost);
+6. authorization and policy context;
+7. side effect or persistence result;
+8. final public result/status;
+9. regression coverage; and
+10. status: pass, finding, or unverified.
+
+For an iteration review, the matrix covers changed behavioral entry points in
+the bounded delta and their directly affected callers, contracts, state
+transitions, and public outcomes. For a whole-branch review, it covers every
+changed behavioral entry point across `merge_base...final_head`; a delta-only
+matrix is insufficient.
+For documentation-only work with no changed observable behavior, do not create
+an artificial empty matrix; record why the matrix is not applicable in the
+review evidence. Any missing required changed branch is a blocking review gap.
+
+## Review evidence
+
+Every iteration review records its iteration base/head, target, working-tree
+state, acceptance criteria, focused verification and omissions, directly
+affected callers/contracts/invariants, scope-compliance result, coverage gaps,
+residual risk, reviewer provenance, and decision. Missing, mismatched, or
+unrecorded required evidence means `do-not-approve` for that iteration. The LLM
+interprets written findings and recommendations. Python provides structural
+evidence only and does not authoritatively establish review scope, dependency
+coverage, reviewer identity, or approval.
+
+Every blocking finding also records one diff-causal relationship and the changed
+evidence edge that establishes it; missing causal evidence makes the semantic
+review evidence incomplete and requires `do-not-approve`.
+
+Every whole-branch review and final-readiness decision records this complete
+checklist:
+
+- target, base revision, reviewed revision, and working-tree state;
+- `review_role: reviewer`, `reviewer_profile`, and matching completed canonical
+  invocation evidence for an approved dispatch mode that records the configured
+  independent-review process;
+- a change inventory and caller/consumer search;
+- verification performed and explicit omissions; and
+- coverage gaps and residual risk.
+
+A missing, mismatched, or unrecorded checklist item means `do-not-approve` for
+a whole-branch review and `not-ready` for final.
+An implementer, architect, or generic subagent may provide advisory analysis,
+but advisory generic subagent analysis cannot approve a review or final result.
+Recorded role, profile, and invocation fields do not by themselves prove runtime
+reviewer identity or read-only execution.
+
+## Configured reviewer invocation
+
+An approving decision requires a completed canonical invocation for the named
+repository reviewer, fresh target-state evidence, a matching result digest, and
+unchanged repository state as an operational process requirement. The
+LLM/controller selects iteration or whole-branch scope, and the independent
+reviewer inspects the actual Git range and repository state and records the
+exact base and head. Current Python does not authoritatively enforce semantic
+review scope, dependency coverage, reviewer identity, or final approval.
+[handoffs.md](handoffs.md) is the normative owner of
+the invocation paths, supported dispatch modes, envelope fields, provenance
+levels, lifecycle, and failure conditions. Copied role fields, self-review,
+generic analysis, or an invocation from another mode remain advisory.
+
+## Controller approval-reporting check
+
+A standalone `workflow=review` response is complete when findings are returned.
+It creates no review record and is not an approval or final-readiness result.
+The following evidence checks govern durable task/milestone review and all
+approval, ready, or final-readiness claims; they do not gate a completed
+standalone findings-only response.
+
+Before reporting a durable workflow as approved, ready, or successfully reviewed,
+the controller must inspect current workspace evidence and determine:
+
+1. whether independent review or final readiness was required;
+2. whether the configured reviewer was invoked;
+3. whether the canonical invocation artifact was created before dispatch;
+4. whether the exact returned result was persisted afterward;
+5. whether the result applies to the current reviewed revision and working-tree
+   state; and
+6. whether the returned review contains all evidence required for its applicable
+   scope, including caller/consumer coverage, verification and explicit
+   omissions, coverage gaps, residual risk, complete changed-file ownership and
+   global cross-bundle checks when bundles were used, and any required Invariant
+   evidence matrix; and
+7. whether the returned decision is `approve` or `ready`, as applicable.
+
+If any required answer is no, unknown, unavailable, stale, or unsupported by
+current workspace evidence, the controller must not report approval or
+readiness. It reports the result as advisory, blocked, incomplete, or stale.
+
+## Invariant evidence matrix
+
+Use an **Invariant evidence matrix** for every applicable high-risk or
+state, recovery, concurrency, permissions, migration, or workflow-policy
+whole-branch review. Each applicable row records: source claim; schema or
+example; normal transition; failure or cancellation; resume; consumers or
+policy; negative scenario; fallback or bootstrap; evidence; and status (`pass`,
+`finding`, or `N/A`). Every `N/A` must include its reason. The matrix is part of
+whole-branch review evidence, not a substitute for the two passes or checklist.
+
+## Output order
+
+1. Decision: `approve` or `do-not-approve`
+2. Findings by severity
+3. Change inventory
+4. Trace evidence
+5. Verification evidence
+6. Coverage gaps and unverified areas
+7. Reviewed revision and working-tree state
+8. Residual risk
+
+Each finding has stable ID, severity, confidence, location, trigger, causal
+relationship, impact, evidence, required fix, and required regression coverage.
+See
+[severity.md](severity.md).
+
+## User-visible review status
+
+The controller must distinguish advisory analysis from approving review in its
+user-visible response.
+
+When canonical approving evidence exists, report the decision together with the
+reviewed revision and canonical artifact location.
+
+When canonical approving evidence does not exist, explicitly call the result
+advisory and state that it does not approve the task, branch, or final
+readiness.
+
+Do not use phrases such as “the reviewer approved”, “the workflow review
+passed”, “ready”, or equivalent wording for generic subagent analysis,
+chat-only review, missing invocation evidence, stale evidence, or an
+unpersisted result.
+Approving example:
+
+> Configured independent review approved revision `<sha>`. Canonical invocation
+> and result evidence are stored under `<path>`.
+
+Advisory example:
+
+> Independent advisory analysis found no blocking issues, but this is not an
+> approving task-workflow review because canonical review evidence was not
+> persisted.
+
+## Durable integrated review
+
+After all durable-execution nodes complete, independently review the complete
+diff against its merge base using `behavior,data,recovery,compatibility,tests`;
+add `security,permissions,privacy,tenant-isolation` when routing affects those
+boundaries.
+Inspect manifest semantics, transitions, recovery/Git reconciliation, scheduling,
+node artifacts, knowledge authority/lifecycle, handoff compatibility,
+natural-language routing, stale approvals, bounded fixes, docs, and pressure
+scenarios. Specifically challenge duplicate resumes, skipped/dependency-violating
+nodes, stale state trusted over Git, completed-node reruns, evidence-free reports,
+candidate knowledge injection, advisory override of binding rules, parallel or
+mechanic/model-tier dispatch, cyclic fixing, stale final approval, and delegated-step
+selection, authority, data exposure, results, fallback, and recovery.
+
+For dispatch-compatible changes, search the full diff and durable examples for
+mechanic misrouting, detail-based risk downgrade, unsafe force-standard or tier
+override, missing assignment/attempt/escalation evidence, completed-node
+reclassification, running-node reassignment, lost batch member identity,
+partial-batch unlocking, stale binding/advisory context use, model IDs in graphs,
+unsupported operational parallel fields, reviewer tier/independence downgrade,
+and unsupported cost/cache claims. Review the dogfood fixture as documentation
+only: it must not dispatch agents or schedule work.
+
+An integrated finding may use one eligible `fix_policy=blocking` round only when
+the existing bounded-fix rules permit it. Review that fix as a new iteration
+against the original finding. After all fixes, rerun the whole-branch review
+before final readiness; creating a fix node or artifact never adds a graph cycle.
+
+## Delegated capability review
+
+When the delta uses ecosystem capabilities, review covers selection, authority,
+data exposure, results, fallback, and recovery: the recorded selection reason
+and `selection_mode`; the exact effect class and `authority_mode` with a valid
+in-context `authority_ref` for external-write or destructive steps; the focused
+context package and what data crossed the repository boundary; the observed
+results against the parent acceptance criteria; disclosed fallback and blocking
+behavior; and the route/context/evidence digests. Delegated review stays
+advisory: specialist review skills and tools may provide advisory evidence or a
+review lens, but only a fresh canonical `reviewer` invocation may approve or
+declare final readiness, and a review/final node's decision remains bound to its
+canonical invocation and result artifact. See
+[ecosystem-routing.md](ecosystem-routing.md).
+
+## Revision-bound final
+
+Final readiness is decided by a fresh independent reviewer inspecting the actual
+merge-base-to-current-head Git range and repository state. Validator exit 0 is
+necessary structural evidence only. The reviewer compares the recorded base,
+reviewed head, and working-tree state with current state. Any relevant
+production, test, migration, configuration, API, or behavioural delta makes
+approval stale: return `not-ready` and require a fresh whole-branch review at
+the new final head. Final also verifies blocking fixes, checks for unreviewed
+behaviour, records exact checks and omissions, inspects tracked, staged,
+unstaged, and relevant untracked files, checks secrets/generated/local/
+machine-specific/planning artifacts, confirms docs and migrations match, and
+returns `ready` or `not-ready` with current and approved revisions, issues,
+verification, gaps, residual risk, and a suggested commit message.
+
+The fresh independent reviewer returns `not-ready` when the configured review
+process or reviewer identity cannot be established, the required evidence
+checklist is incomplete, an applicable Invariant evidence matrix is incomplete,
+or a matrix row is stale for the current revision or working-tree state.
+Advisory generic subagent analysis, metrics, and prior invocations cannot replace
+that review. Validator errors are blocking, but absence of validator findings
+never creates approval. Final returns `not-ready` whenever semantic coverage
+cannot be demonstrated, even if the validator exits 0.

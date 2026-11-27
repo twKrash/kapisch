@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
   canonicalAgents,
+  expectedReviewerResources,
   generateAgentMarkdown,
 } from "../scripts/generate-agents.ts";
 
@@ -79,4 +80,43 @@ test("all six canonical profiles use the specified GPT-6 routing", async () => {
     );
     assert.ok(output.includes(`thinking: ${effort}`));
   }
+});
+
+test("Pi packages shared reviewer methods as retrievable resources, not prompt duplication", async () => {
+  const resources = await expectedReviewerResources(root);
+  assert.ok(resources.has("reviewer-baseline.md"));
+  assert.ok(resources.has("review.md"));
+  assert.ok(resources.has("risk.md"));
+  assert.ok(resources.has("severity.md"));
+  assert.ok(resources.has("reviewer-methodologies/mutation-and-side-effect-justification.md"));
+  assert.ok(resources.has("reviewer-methodologies/semantic-consistency.md"));
+  assert.ok(resources.has("reviewer-methodologies/dependencies-and-traceability.md"));
+  assert.ok(resources.has("reviewer-methodologies/authority-and-ownership.md"));
+  assert.ok(resources.has("reviewer-methodologies/temporal-and-lifecycle-consistency.md"));
+  assert.ok(resources.has("reviewer-methodologies/proof-obligations-and-evidence-quality.md"));
+  assert.ok(resources.has("reviewer-methodologies/executability-feasibility-and-simplicity.md"));
+  for (const [relative, expected] of resources) {
+    const source = new URL(`../../../plugins/kapisch/skills/kapisch/references/${relative}`, import.meta.url);
+    const generatedResource = new URL(`../skills/kapisch/references/${relative}`, import.meta.url);
+    assert.equal(readFileSync(generatedResource, "utf8"), expected);
+    assert.equal(readFileSync(source, "utf8"), expected);
+  }
+  const reviewer = readFileSync(new URL("../agents/kapisch-reviewer.md", import.meta.url), "utf8");
+  assert.match(reviewer, /reviewer-baseline\.md/);
+  assert.match(reviewer, /durable workflow mode/);
+  assert.match(reviewer, /plugins\/kapisch\/roles\/reviewer\.md/);
+  assert.match(reviewer, /Version-4 transport return/);
+  const standaloneMode = reviewer.indexOf("review_mode=standalone");
+  const baselineReference = reviewer.indexOf("reviewer-baseline.md");
+  const durableMode = reviewer.indexOf("durable workflow mode");
+  assert.ok(standaloneMode >= 0 && standaloneMode < baselineReference);
+  assert.ok(baselineReference < durableMode);
+  assert.match(reviewer.slice(durableMode), /do not require.*external.*methodology/i);
+  const reviewContract = resources.get("review.md");
+  assert.ok(reviewContract);
+  assert.match(reviewContract, /working-tree\s+target/);
+  assert.match(reviewContract, /git ls-files --others --exclude-standard/);
+  assert.match(reviewContract, /mismatches the request/);
+  assert.doesNotMatch(reviewer, /### Behavioral branch matrix and scope/);
+  assert.doesNotMatch(reviewer, /# Mutation and Side-effect Justification/);
 });

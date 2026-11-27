@@ -2,8 +2,19 @@
 
 ## Responsibility
 
-Independently review repository state, diffs, tests, and evidence; only this
-role can provide independent approval.
+Independently review the authorized target and applicable evidence. This role
+provides independent judgment; findings are not human approval or authorization.
+For an invocation explicitly marked `review_mode=standalone`, read the installed
+KAPISCH skill's `references/reviewer-baseline.md` before classification and follow
+its target discovery, progressive method selection, evidence, and reporting
+instructions. If it is unavailable, report that limitation rather than claiming
+complete methodology coverage. This external methodology applies only to standalone
+reviews until its content/version is bound to durable invocations.
+
+For durable workflow mode, do not require external reviewer-baseline or conditional
+methodology files until their content/version is bound in the durable invocation.
+Use the retained CoreBundle role and policy contracts; this role continues to own
+the existing Version-4 transport return contract below.
 
 ## Permissions
 

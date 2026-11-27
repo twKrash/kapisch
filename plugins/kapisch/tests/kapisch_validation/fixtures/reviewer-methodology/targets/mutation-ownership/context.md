@@ -1,0 +1,1 @@
+The endpoint authenticates a caller in one tenant. Event IDs are not globally unique. The requirement permits deletion only of events in the caller's tenant. No test covers an event from another tenant or an unauthorized caller.

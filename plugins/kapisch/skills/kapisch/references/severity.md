@@ -12,5 +12,12 @@
 - **P3** — non-blocking maintainability, clarity, or cleanup. It does not block
   unless repository policy requires it.
 
+Severity classifies the supported risk of behavior in the reviewed target, not
+whether its consequence has already occurred. For a proposal or unimplemented
+change, state the consequence conditionally and keep target status explicit. Do
+not lower severity solely because the proposed effect has not executed; apply
+P0 only when the supplied trigger and scope support an immediate or highly
+credible catastrophic impact, otherwise use the best-fitting lower tier.
+
 Confidence is `confirmed`, `likely`, or `question`. Do not call a speculative
 concern a confirmed blocking defect.

@@ -1,6 +1,6 @@
 # KAPISCH Pi package
 
-Local Pi package exposing the thin KAPISCH skill, six canonical roles through pi-subagents, and an adapter that captures explicit HumanDecision answers from Pi's effective user input.
+Local Pi package exposing the thin KAPISCH skill, six canonical roles through pi-subagents, shared reviewer methodology resources, and an adapter that captures explicit HumanDecision answers from Pi's effective user input.
 
 ## Install and update
 
@@ -39,6 +39,6 @@ bun run --cwd harnesses/pi check:generated
 bun test harnesses/pi/tests/*.test.ts
 ```
 
-Generation updates committed `agents/*.md`; the check command only compares expected output and never writes. CI runs the check and tests. Package version is lockstep with canonical KAPISCH release metadata (`plugins/kapisch/.codex-plugin/plugin.json` and `plugins/kapisch/pyproject.toml`); version drift fails tests.
+Generation updates committed `agents/*.md` and `skills/kapisch/references/`; the reviewer references are copied from the canonical Codex-skill Markdown sources, and the check command only compares expected output and never writes. CI runs the check and tests. Package version is lockstep with canonical KAPISCH release metadata (`plugins/kapisch/.codex-plugin/plugin.json` and `plugins/kapisch/pyproject.toml`); version drift fails tests.
 
 The bounded one-task path follows the portable record contract in `core/contracts/task-first.md`. Keep Pi session and child handles adapter-owned; report each required capability as supported, unsupported, or unknown with a reason, and block when a required capability is not proven supported.

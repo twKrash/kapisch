@@ -25,47 +25,125 @@ REQUIRED_MANIFEST_KEYS = {
 }
 
 
+REQUIRED_REVIEWER_REFERENCES = (
+    "reviewer-baseline.md",
+    "review.md",
+    "risk.md",
+    "severity.md",
+    "reviewer-methodologies/mutation-and-side-effect-justification.md",
+    "reviewer-methodologies/semantic-consistency.md",
+    "reviewer-methodologies/dependencies-and-traceability.md",
+    "reviewer-methodologies/authority-and-ownership.md",
+    "reviewer-methodologies/temporal-and-lifecycle-consistency.md",
+    "reviewer-methodologies/proof-obligations-and-evidence-quality.md",
+    "reviewer-methodologies/executability-feasibility-and-simplicity.md",
+)
+
+
+def copy_portable_package(installed: Path) -> None:
+    shutil.copytree(
+        ROOT,
+        installed,
+        ignore=shutil.ignore_patterns(
+            ".git", ".kapisch", ".codex", "__pycache__", ".venv"
+        ),
+    )
+
+
+def validate_manifest(manifest: Path) -> bool:
+    try:
+        payload = json.loads(manifest.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        print("portable package has an invalid plugin manifest")
+        return False
+    if (
+        not isinstance(payload, dict)
+        or not REQUIRED_MANIFEST_KEYS <= payload.keys()
+        or payload.get("name") != "kapisch"
+        or payload.get("skills") != "./skills/"
+        or not isinstance(payload.get("interface"), dict)
+    ):
+        print("portable package has an incompatible plugin manifest")
+        return False
+    return True
+
+
+def required_package_assets_present(installed: Path) -> bool:
+    manifest = installed / ".codex-plugin" / "plugin.json"
+    skill = installed / "skills" / "kapisch" / "SKILL.md"
+    themes = installed / "skills" / "kapisch" / "themes"
+    if (
+        not manifest.is_file()
+        or not skill.is_file()
+        or "name: kapisch" not in skill.read_text(encoding="utf-8")
+        or not (themes / "default.toml").is_file()
+        or not (themes / "foundry.toml").is_file()
+    ):
+        print(
+            "portable package is missing the KAPISCH manifest, primary skill, "
+            "or bundled themes"
+        )
+        return False
+    return True
+
+
+def reviewer_methodology_assets_present(references: Path) -> bool:
+    missing = [
+        relative
+        for relative in REQUIRED_REVIEWER_REFERENCES
+        if not (references / relative).is_file()
+    ]
+    if missing:
+        print(
+            "portable package is missing reviewer methodology resources: "
+            + ", ".join(missing)
+        )
+        return False
+    return True
+
+
+def validate_package(installed: Path) -> bool:
+    manifest = installed / ".codex-plugin" / "plugin.json"
+    references = installed / "skills" / "kapisch" / "references"
+    if not required_package_assets_present(installed):
+        return False
+    if not reviewer_methodology_assets_present(references):
+        return False
+    if not validate_manifest(manifest):
+        return False
+    if (installed / ".codex" / "agents").exists():
+        print("portable package isolation retained an installed Codex profile")
+        return False
+    return True
+
+
+def run_validator_fixtures(installed: Path, consumer: Path) -> int:
+    fixtures = (
+        ("valid-sequential-v2", "dogfood"),
+        ("valid-v3-durable", "durable-v3"),
+    )
+    validator = installed / "scripts/validate_kapisch.py"
+    for fixture, run_name in fixtures:
+        run = consumer / ".kapisch" / "runs" / run_name
+        shutil.copytree(
+            installed / "tests/kapisch_validation/fixtures" / fixture,
+            run,
+        )
+        result = subprocess.run(
+            [sys.executable, str(validator), "--task-dir", str(run)],
+            cwd=consumer,
+            text=True,
+        )
+        if result.returncode:
+            return result.returncode
+    return 0
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory(prefix="kapisch-portable-package-") as tmp:
         installed = Path(tmp) / "kapisch"
-        shutil.copytree(
-            ROOT,
-            installed,
-            ignore=shutil.ignore_patterns(
-                ".git", ".kapisch", ".codex", "__pycache__", ".venv"
-            ),
-        )
-        manifest = installed / ".codex-plugin" / "plugin.json"
-        skill = installed / "skills" / "kapisch" / "SKILL.md"
-        themes = installed / "skills" / "kapisch" / "themes"
-        if (
-            not manifest.is_file()
-            or not skill.is_file()
-            or "name: kapisch" not in skill.read_text(encoding="utf-8")
-            or not (themes / "default.toml").is_file()
-            or not (themes / "foundry.toml").is_file()
-        ):
-            print(
-                "portable package is missing the KAPISCH manifest, primary skill, "
-                "or bundled themes"
-            )
-            return 1
-        try:
-            payload = json.loads(manifest.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            print("portable package has an invalid plugin manifest")
-            return 1
-        if (
-            not isinstance(payload, dict)
-            or not REQUIRED_MANIFEST_KEYS <= payload.keys()
-            or payload.get("name") != "kapisch"
-            or payload.get("skills") != "./skills/"
-            or not isinstance(payload.get("interface"), dict)
-        ):
-            print("portable package has an incompatible plugin manifest")
-            return 1
-        if (installed / ".codex" / "agents").exists():
-            print("portable package isolation retained an installed Codex profile")
+        copy_portable_package(installed)
+        if not validate_package(installed):
             return 1
         result = subprocess.run(
             [
@@ -81,40 +159,9 @@ def main() -> int:
         )
         if result.returncode:
             return result.returncode
-        consumer = Path(tmp) / "consumer"
-        run = consumer / ".kapisch" / "runs" / "dogfood"
-        shutil.copytree(
-            installed / "tests/kapisch_validation/fixtures/valid-sequential-v2", run
-        )
-        result = subprocess.run(
-            [
-                sys.executable,
-                str(installed / "scripts/validate_kapisch.py"),
-                "--task-dir",
-                str(run),
-            ],
-            cwd=consumer,
-            text=True,
-        )
-        if result.returncode:
-            return result.returncode
-        durable = consumer / ".kapisch" / "runs" / "durable-v3"
-        shutil.copytree(
-            installed / "tests/kapisch_validation/fixtures/valid-v3-durable",
-            durable,
-        )
-        result = subprocess.run(
-            [
-                sys.executable,
-                str(installed / "scripts/validate_kapisch.py"),
-                "--task-dir",
-                str(durable),
-            ],
-            cwd=consumer,
-            text=True,
-        )
-        if result.returncode:
-            return result.returncode
+        result = run_validator_fixtures(installed, Path(tmp) / "consumer")
+        if result:
+            return result
     print("portable-package=passed")
     return 0
 
