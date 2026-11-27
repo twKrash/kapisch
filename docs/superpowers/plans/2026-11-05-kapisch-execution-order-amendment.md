@@ -1,7 +1,7 @@
 # Kapisch Execution-Order Amendment
 
 **Status:** Approved roadmap sequencing decision (owner, 2026-11-05). Planning artifact; no implementation is authorized by this document.
-**Scope:** Implementation order only. The approved [proposal](2026-10-25-kapisch-product-realignment-proposal.md) and [design specification](../specs/2026-10-25-kapisch-product-realignment-design.md) remain authoritative for product requirements, acceptance criteria AC1–AC11, the security model, and human authority. Nothing here changes them.
+**Scope:** Implementation order only. The approved [proposal](2026-10-25-kapisch-product-realignment-proposal.md) and [design specification](../specs/2026-10-25-kapisch-product-realignment-design.md) remain authoritative for product requirements, product behavior scenarios, existing acceptance criteria AC1–AC11, the security model, and human authority. This additive sequencing note does not change AC1–AC11 or the approved Phase 0–4 order.
 **Supersedes (order only):** the implicit order in proposal §11 (real-plus-test adapter validation interleaved with the core slice) and the "next item" in the [2026-10-30 plan](2026-10-30-kapisch-task-first-core-acceptance-plan.md) execution record (Pi integration first). Those documents stay as historical records.
 **Progress and status:** the [tracker](../product-realignment-tracker.md) holds workstream status and dependencies. This file defines the phases, deliverables, and acceptance boundaries.
 
@@ -57,7 +57,7 @@ Planned deliverables (none is created by this amendment; file locations are an i
 
 - A portable `kapisch-reviewer` role contract that preserves the existing reviewer and its advisory authority.
 - Portable ReviewReport semantics: immutable report with findings, original verdict, evidence, confidence, unresolved issues, recommendation, escalation, and reviewer provenance. A later review is a new report; a human exception never rewrites a verdict.
-- Eight reusable lenses, each with required target and context, evaluation criteria, expected evidence, report semantics, and escalation conditions: requirements and intent completeness; research and documentation quality; architecture, ADRs, API/event contracts, and NFRs; decision readiness before human approval; code quality and maintainability; security, permissions, privacy, and isolation; test strategy, coverage, and verification; operations, audit, recovery, and deployment readiness.
+- Preserve the eight reusable lens families, each with required target and context, evaluation criteria, expected evidence, report semantics, and escalation conditions. Extend WS-3.1 to general documentation review and cross-document consistency review, including document collections and relationships to implementation, tests, and observed behavior. Add the six conditional analytical methods specified in product spec §5.14 without creating an overlapping lens taxonomy.
 - Optional WorkOrder review-gate semantics (WS-3), applied only where a WorkOrder requires lenses: a required non-pass blocks dependent tasks; a human fix direction authorizes remediation only; pending, interrupted, or still-failing remediation stays blocked; release needs a new passing report or a separately authorized, permitted HumanDecision exception that references the verdict; normative and security restrictions cannot be excepted; no autonomous review/fix loop and no separate review-approval subsystem.
 - Reconcile `core/contracts/policy/review.md` ("authoritative approval or readiness") with the target semantics. Reviewer findings and passes are evidence, never human approval.
 - Standalone graph-free `workflow=advisory` and `workflow=review` stay first-class and gate-free (AC11).
@@ -89,9 +89,25 @@ Only after Phases 1–3 exit. Pi and Claude are separate adapters implementing t
 - Each adapter passes the Phase 3 suite and then demonstrates real-adapter acceptance. AC7 stays partial until at least one real adapter shows same-WorkOrder parity with the deterministic adapter; claims about a specific host apply only to that host.
 - **WS-8** (packaging, installation verification, validator retention, legacy cutover) follows the corresponding real-adapter acceptance. Removing legacy paths still needs separate authorization.
 
+## Sequencing of the owner-confirmed product workstreams (2026-11-27)
+
+The product spec and proposal add WS-13 (Project Context) and WS-14 (Adaptive Workflows, Modular Skills and Collaborative Context), and extend WS-3.1. Detailed scope and acceptance are owned by the spec and proposal; this section only records sequencing and dependencies.
+
+- The approved Phase 0–4 table, starts-after rules, and recommended Phase 1 order (WS-2, WS-4, WS-5, WS-6) remain unchanged. The expanded WS-3.1 documentation-review requirements stay in existing Phase 2 after Phase 1 exit.
+- WS-13 and WS-14 are a non-gating, cross-cutting product track, not a new prerequisite phase. They may proceed when their individual hard dependencies are available; they do not block WS-4 or any already-approved slice.
+- Basic Project Context discovery can use existing project instructions and harness tools without WS-4. A WS-13 path that imports or retains durable Run evidence consumes WS-4 only when that primitive is available.
+- WS-14 lightweight direct execution, research-only work, standalone review, and canonical Markdown methodology do not require WS-4. Complex multi-task workflows use WS-4; applicable recovery uses WS-5; external artifact effects retain WS-6 boundaries. These consumers do not change WS-4 scope.
+- Native discovery and packaging acceptance for a particular harness uses its existing WS-11/12 capability and WS-8 installation/cutover path. Authoring canonical Markdown behavior does not wait for every harness package.
+- WS-10 remains deterministic portable-contract conformance. It does not certify Coordinator methodology quality, user-facing deliverable usefulness, or harness-native Skill discovery. Those are product behavior and per-harness acceptance, respectively.
+
+- WS-0 graph-free advisory/review, WS-2 Run-local decision authority, WS-5 narrow recovery, and WS-6 external-effect safeguards remain unchanged. Shareable project knowledge does not transfer a prior Run's authority; publishing an external handoff requires the existing authorization. WS-7 presentation invariance remains unchanged.
+- WS-8 aligns installation verification, canonical instruction consolidation, and legacy cutover with the Skills actually shipped by supported harnesses. WS-11/12 verify native loading only for their respective supported harnesses.
+
+This is a sequencing clarification only. It creates no Kernel, runtime, schema, installation, or implementation authorization and does not alter the WS-4 proposal's current approval status.
+
 ## Non-goals of this amendment
 
-- No product requirement, acceptance criterion, security model, or human-authority change.
+- No change to the owner-approved Phase 0–4 order, existing AC1–AC11, security model, or human-authority semantics. Product requirements and scenarios are owned by the design specification, not introduced by this sequencing amendment.
 - No implementation, adapter code, reviewer or lens files, tests, or schema changes.
 - No new infrastructure: database, event sourcing, distributed transactions, or a generic recovery framework.
 - No claim that PR #85 or any fake-adapter evidence satisfies Phase 2, 3, or 4 criteria.
