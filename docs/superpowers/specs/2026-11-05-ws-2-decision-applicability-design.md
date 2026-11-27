@@ -1,11 +1,13 @@
 # WS-2 Design Addendum — Decision Applicability, Reassessment, Supersession, Run-Local Authority
 
-Status: **Revision 3** (owner correction 2026-11-06, requested during PR #86 review; implementation authorized, changes stay uncommitted until separately authorized). Scope: tracker WS-2 (Phase 1), decision-level half of AC2.
+Status: **Revision 3** (owner correction 2026-11-06, requested during PR #86 review; implemented and merged in PR #86, commit `1a054d1`). Scope: tracker WS-2 (Phase 1), decision-level half of AC2.
 Authority: [product realignment design](2026-10-25-kapisch-product-realignment-design.md) §5.1 and §8 AC2;
 [execution-order amendment](../plans/2026-11-05-kapisch-execution-order-amendment.md) Phase 1;
 PR #85 owner comment (2026-11-05, issuecomment-6652819982): judgment stays declarative and LLM-driven;
 the deterministic kernel enforces authority, artifact integrity, dependency eligibility, lifecycle
 transitions and acceptance boundaries; no separate agent runtime, no Python duplication of LLM reasoning.
+
+**Expanded-format scope note (informational, not normative):** the [WS-4 expanded-format proposal](2026-11-10-ws-4-multi-task-evidence-design-proposal.md) preserves the current §2.3 Run location for its first slice: `<state_root>/.kapisch/runs/<run_id>`. External Run-store configuration and location supersession are deferred. The proposal adds post-setup final-state output capture, compact task-resume context, and harness-owned content-security decisions; stop-and-restart recovery remains WS-5. It does not change this revision's historical normative body or grant runtime authority. All legacy WS-2 rules remain normative.
 
 **Foundational principle (Revision 3): Runs are isolated execution contexts; project knowledge is durable and
 shared.** Independent Runs share durable project knowledge but never share execution authority, and canonical
