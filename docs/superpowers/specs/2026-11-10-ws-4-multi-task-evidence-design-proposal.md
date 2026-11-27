@@ -1,17 +1,18 @@
 # WS-4 Multi-task WorkOrders and Evidence Handoffs — Design Proposal
 
 Date: 2026-11-10
-Status: **Draft for owner review; final-state outputs, resume context, harness-owned security decisions, handoff recovery, and Run layout approved; no runtime implementation authorization.**
+Status: **Owner-approved WS-4 design (2026-11-27), merged into `main` in PR #87 (current main `7ae4ef0`); runtime implementation remains TODO and is not authorized by this design approval.**
 
-This proposal records the owner-approved WS-4 evidence-handoff scope, final-state output validation, compact task-resume
-context, harness-owned content-security decisions, and the existing Run location. Other expanded-format semantics remain
-proposed and are not canonical.
-It does not authorize runtime implementation or behavior. It adds no global lifecycle cursor, automatic successor
-selection, unique-successor rule, or cross-Run authorization.
+This document is the owner-approved WS-4 design, including evidence-only handoffs, final-state output validation,
+compact task-resume context, harness-owned content-security decisions, the existing Run location, and all other
+expanded-format semantics specified here. PR #87 merged the design into `main`, currently at `7ae4ef0`. Design
+approval does not authorize runtime implementation or behavior: WS-4 implementation remains TODO until separately
+authorized, implemented, and verified. The design adds no global lifecycle cursor, automatic successor selection,
+unique-successor rule, or cross-Run authorization.
 
 ## 1. Governing material and boundary
 
-The [product realignment spec](2026-10-25-kapisch-product-realignment-design.md) remains governing. This is the WS-4 expanded-format design. The first slice preserves the current `state_root` meaning and `<state_root>/.kapisch/runs/<run_id>` location. External Run-store configuration, relocation, and platform-specific permission machinery are deferred; they do not improve task delivery or compaction recovery. The WS-2 normative body and legacy semantics remain unchanged. Other expanded-format differences remain subject to complete design approval. Relevant sources:
+The [product realignment spec](2026-10-25-kapisch-product-realignment-design.md) remains governing. This is the WS-4 expanded-format design. The first slice preserves the current `state_root` meaning and `<state_root>/.kapisch/runs/<run_id>` location. External Run-store configuration, relocation, and platform-specific permission machinery are deferred; they do not improve task delivery or compaction recovery. The WS-2 normative body and legacy semantics remain unchanged. The owner-approved expanded-format design in this document is the accepted WS-4 target; runtime remains governed by the task-first contract until separately authorized implementation is complete and verified. Relevant sources:
 
 - Product spec, especially §§5.1–5.7 and §6.
 - [WS-2 decision applicability design](2026-11-05-ws-2-decision-applicability-design.md), especially §§2.1–2.9 and §7.
@@ -22,7 +23,7 @@ The [product realignment spec](2026-10-25-kapisch-product-realignment-design.md)
 
 ### WS-2 compatibility and retained Run location
 
-| WS-2 rule | Legacy single-task format | Expanded-format proposal |
+| WS-2 rule | Legacy single-task format | Owner-approved expanded-format design |
 | --- | --- | --- |
 | Run-local decision/applicability authority and one coordinator | Unchanged | Unchanged; revisions remain in the same Run and use its authority unless a new HumanDecision is required. |
 | §2.1 cross-Run lookup | No cross-Run authority lookup | A selected evidence import may read only named evidence artifacts and persists a consumer-owned result; it never imports authority. |
@@ -34,12 +35,13 @@ The [product realignment spec](2026-10-25-kapisch-product-realignment-design.md)
 | §2.6 retention | Run history is retained; no implicit deletion | Retain Run history and selected Run-local evidence needed for continuation or to explain accepted work. Human/skill chooses canonical project artifacts and their long-term storage; Kapisch does not pin Git objects or archive those artifacts. D9 permits cleanup of unreferenced scratch copies, rebuildable indexes/caches, and the non-authoritative resume note after Outcome is sealed. |
 | §2.7 single-writer and post-claim re-read | Legacy single-writer/post-claim decision re-read unchanged | Expanded format uses the existing local kernel lock/publication boundary for short serialized authority publications; task admission rechecks current eligibility and selected bindings. No lock is held across setup or worker execution. |
 
-This table describes proposed expanded-format differences only; it does not supersede WS-2's normative Run location or requirements. The WS-2 document gains only an informational note, and all legacy WS-2 rules remain normative. The current runtime remains governed by the task-first contract until implementation is separately authorized. Other expanded-format behavior remains subject to complete design approval. Every legacy reader and input producer must reject unsupported expanded state before shared-state deployment; isolated test roots do not establish that guarantee.
+This table describes the owner-approved expanded-format design only; it does not supersede WS-2's normative Run location or requirements. The WS-2 document gains only an informational note, and all legacy WS-2 rules remain normative. The current runtime remains governed by the task-first contract until WS-4 implementation is separately authorized, implemented, and verified. Expanded-format behavior in this document is a design target, not a runtime contract before then. Every legacy reader and input producer must reject unsupported expanded state before shared-state deployment; isolated test roots do not establish that guarantee.
 
 ### Owner-confirmed scope and governing requirements
 
-- The owner approved evidence-only handoffs in WS-4; imported evidence never grants or reuses authorization. This
-  draft records that scope approval; canonical runtime changes still require approval.
+- Owner approval covers the complete WS-4 design recorded here; evidence-only handoffs never grant or reuse
+  authorization. The approved design is not runtime authorization; implementation remains TODO and requires separate
+  authorization, implementation, and verification.
 - Product spec §5.1(5–6) and WS-2 §2.9 require reassessment and demonstrably in-scope task additions without
   duplicate approval.
 - Each Run retains its own decision and applicability. The coordinator judges semantic scope; the kernel validates
@@ -47,9 +49,9 @@ This table describes proposed expanded-format differences only; it does not supe
 - Phase 1 remains deterministic/test adapters only; production Pi support remains WS-11.
 - Durable facts must be reconstructible after restart from persisted records with explicit producers.
 
-### Owner choices recorded; overall design approval pending
+### Owner decisions recorded; complete design approved (2026-11-27)
 
-The owner replaces the earlier D1(A) actual-write prohibition with final-state output validation: declared task outputs are compared with the post-setup worker baseline, while transient writes that do not appear in delivered output are not tracked. The owner approves a compact task-resume note and delegates content-security decisions to the active harness policy; the kernel does not impose a cross-harness secret-pattern scanner. The kernel still enforces scope, containment, symlink safety, exact byte identity, and durable decision bindings. D2(A) through D8(A) remain selected; D9 records context-efficient retrieval and post-Outcome cleanup. Actual stop-and-restart execution is deferred to WS-5; WS-4 records interrupted/unknown state and keeps the Run blocked. Other expanded-format semantics remain proposed pending complete design approval. WorkOrder revisions remain immutable; each claim keeps its initial revision binding, while later human-authorized context amendments are appended to the active attempt rather than rewriting that claim.
+The owner replaces the earlier D1(A) actual-write prohibition with final-state output validation: declared task outputs are compared with the post-setup worker baseline, while transient writes that do not appear in delivered output are not tracked. The owner approves a compact task-resume note and delegates content-security decisions to the active harness policy; the kernel does not impose a cross-harness secret-pattern scanner. The kernel still enforces scope, containment, symlink safety, exact byte identity, and durable decision bindings. D2(A) through D8(A) remain selected; D9 records context-efficient retrieval and post-Outcome cleanup. Actual stop-and-restart execution is deferred to WS-5; WS-4 records interrupted/unknown state and keeps the Run blocked. The owner approved the complete expanded-format design recorded here on 2026-11-27; runtime implementation remains TODO and requires separate authorization, implementation, and verification. WorkOrder revisions remain immutable; each claim keeps its initial revision binding, while later human-authorized context amendments are appended to the active attempt rather than rewriting that claim.
 
 ### User workflow and context continuity
 
@@ -760,14 +762,13 @@ has no partial-output capture and retains its task/workspace association; WS-4 s
   Verify that a stopped attempt cannot start a new attempt or release its workspace in WS-4; recovery is WS-5.
   Preserve the accepted power-loss/storage-rollback limitation.
 
-## 11. Owner decisions recorded; overall design approval pending
+## 11. Owner decisions recorded; complete design approved
 
 The owner selected options A for D2–D8, replaced D1(A)'s transient-write rule with final-state output validation,
 approved the compact task-resume note, delegated content-security decisions to the active harness, and deferred
 stop-and-restart to WS-5. These are design decisions, not runtime authorization. Same-Run in-scope task additions follow the product-spec reassessment rule without duplicate
 approval; materially changed/ambiguous scope and any post-start external-context addition require a Run-local
-HumanDecision. D9 reflects the owner's context-efficiency and cleanup requirements. Remaining expanded-format
-semantics still require design approval before implementation.
+HumanDecision. D9 reflects the owner's context-efficiency and cleanup requirements. The complete design is owner-approved; runtime implementation remains TODO pending separate authorization, implementation, and verification.
 
 1. **D1 — Final-state outputs (owner-approved).** Each mutating task declares `write_targets[]` as its intended final
    outputs. At task completion, capture and validate changes against the post-setup worker baseline before workspace
@@ -847,7 +848,7 @@ semantics still require design approval before implementation.
     project/store UUIDs, markers, custom POSIX/ACL validation, relocation, or previous-root search in WS-4. The
     external-store idea is deferred unless a concrete operational need justifies a separate design.
 
-## 12. Acceptance criteria for the pending design
+## 12. Implementation acceptance criteria for the approved design
 
 Definitions in §§1–11 are authoritative. These acceptance tests verify the selected design and required invariants; they are not alternate rules.
 
@@ -909,13 +910,13 @@ deferred external roots must agree. The kernel cannot override a harness block; 
 exact request when the harness policy permits it. Structural, containment, scope, and digest failures remain
 fail-closed.
 
-## 13. Deferred implementation sequence and change boundary
+## 13. Deferred runtime implementation sequence and change boundary
 
-After complete design approval and separately authorized implementation planning:
+Only after a separate runtime implementation scope and plan are authorized:
 
 1. Before runtime implementation, update the canonical task-first contract for post-setup final-output capture,
    task-local resume context, and harness-owned security assessments while preserving its existing `state_root` and
-   `.kapisch/runs` layout. Do not link this draft from the runtime-loaded contract before that step. Keep any WS-2 note
+   `.kapisch/runs` layout. Do not link this approved design from the runtime-loaded contract until WS-4 implementation is complete and verified. Keep any WS-2 note
    informational; preserve its historical normative body and legacy semantics, and reject unsupported expanded state
    in every legacy reader/input producer before shared-state deployment.
 2. Implement the bounded WS-4 records, deterministic-adapter dataflow, explicit handoffs, admission, capture
@@ -926,4 +927,4 @@ After complete design approval and separately authorized implementation planning
 4. Validate the §12 acceptance criteria. Do not add event sourcing, transaction coordination, authoritative indexes,
    or durability beyond the explicit task-resume note, pending output-capture request, and final-output package.
 
-This revision updates the WS-4 proposal, its informational note in the WS-2 design file, and the execution-order plan and tracker summaries so they agree on D1, D9, D10, and D11. `core/contracts/task-first.md` remains unchanged and has no link or note pointing to this unapproved proposal. The WS-2 historical normative body and all legacy semantics remain unchanged. No executable sources or tests change; this grants no runtime authorization.
+The WS-2 informational note, execution-order plan, and tracker summaries remain aligned with the approved design on D1, D9, D10, and D11. The owner-approved design and PR #87 merge are recorded above. `core/contracts/task-first.md` remains unchanged and has no link or note pointing to this approved but not yet implemented design. The WS-2 historical normative body and all legacy semantics remain unchanged. No executable sources or tests change; WS-4 runtime implementation remains TODO and is not authorized by design approval.
