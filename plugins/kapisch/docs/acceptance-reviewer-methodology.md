@@ -1,10 +1,10 @@
 # Early Reviewer Methodology Slice — Acceptance Record
 
-**Status: INCOMPLETE.** The bounded reviewer slice has passing focused/package checks and a completed fresh independent review of the complete change with no new findings. KRM-002 and KRM-006 are confirmed resolved at the contract level. This does not complete WS-3.1, establish deterministic model conformance, or approve WS-4 implementation; durable methodology binding remains deferred.
+**Status: INCOMPLETE.** The bounded reviewer slice has focused/package checks, live Pi samples, and independent review evidence. A subsequent full-branch review identified PR89-R1 (legacy durable instruction delivery) and PR89-R2 (contradictory proposal status); corrections passed final verification and independent re-review, which confirmed PR89-R1/R2/R3 resolved with no new findings. KRM-002 and KRM-006 were confirmed resolved at the contract level in the earlier review. This does not complete WS-3.1, establish deterministic model conformance, or approve WS-4 implementation; durable methodology binding remains deferred.
 
 ## Scope
 
-The early slice makes documentation and document collections first-class review targets for standalone review; adds the mandatory Decision Challenge baseline and seven independently retrievable conditional methods (the six existing §5.14 methods plus mutation/side-effect justification); adapts existing Pi packaging; preserves the eight lens families and existing durable review contract. The new external methodology applies to standalone mode only until its content/version is bound to durable invocations; durable reviews use retained CoreBundle role and policy contracts. No Kernel/runtime, WS-4, WS-13, or WS-14 implementation is included.
+The early slice makes documentation and document collections first-class review targets for standalone review; adds the mandatory Decision Challenge baseline and seven independently retrievable conditional methods (the six existing §5.14 methods plus mutation/side-effect justification); adapts existing Pi packaging; preserves the eight lens families and existing durable review contract. The new external methodology applies to standalone mode only until its content/version is bound to durable invocations; legacy plugin V3/V4 reviews retain their complete embedded profile procedure and existing skill/transport contracts, while Core-backed reviews use validated retained CoreBundle role and policy contracts. No Kernel/runtime, WS-4, WS-13, or WS-14 implementation is included.
 
 ## Structural and packaging checks
 
@@ -44,6 +44,70 @@ Severity calibration uses the canonical `severity.md`: P1 applies to the concret
 
 ## Independent review and remaining work
 
-The first independent review returned KRM-001 through KRM-005. A follow-up confirmed KRM-001, KRM-003, KRM-004, and KRM-005 resolved, but found a remaining Core review-policy conflict in KRM-002 and introduced KRM-006: unbound installed methodology could change across durable resume. The Core policy now distinguishes change/revision targets from non-diff documents; reviewer roles/profiles limit the external baseline and conditional methods to standalone mode until durable content/version binding exists. Durable reviews use retained CoreBundle role/policy contracts; the existing Version-4 route remains. Regression tests cover effective role-plus-policy consistency and standalone-only retrieval. A fresh independent standalone review examined all 72 changed/new files (24 tracked modifications and 48 untracked files), confirmed KRM-002 and KRM-006 resolved, found no new findings, and issued no approval/readiness decision. It assessed cold-restart and producer-ownership invariants as satisfied for this scope. The portable-package run initially reproduced 13 mismatches because the profile digest vector was stale after intentional profile changes; the expected `profile` digest was regenerated using the canonical package generator, and the final full run passed all 500 cases.
+The first independent review returned KRM-001 through KRM-005. A follow-up confirmed KRM-001, KRM-003, KRM-004, and KRM-005 resolved, but found a remaining Core review-policy conflict in KRM-002 and introduced KRM-006: unbound installed methodology could change across durable resume. The Core policy now distinguishes change/revision targets from non-diff documents; reviewer roles/profiles limit the external baseline and conditional methods to standalone mode until durable content/version binding exists. The earlier correction directed durable reviews to retained CoreBundle contracts; the subsequent PR89-R1 finding below establishes why that was insufficient for legacy plugin consumers. The existing Version-4 transport remains. Regression tests cover effective role-plus-policy consistency and standalone-only retrieval. A fresh independent standalone review examined all 72 changed/new files (24 tracked modifications and 48 untracked files), confirmed KRM-002 and KRM-006 resolved, found no new findings, and issued no approval/readiness decision. It assessed cold-restart and producer-ownership invariants as satisfied for this scope. The portable-package run initially reproduced 13 mismatches because the profile digest vector was stale after intentional profile changes; the expected `profile` digest was regenerated using the canonical package generator, and the final full run passed all 500 cases.
 
-The final reviewer confirmed no new findings and described KRM-002/KRM-006 as resolved at the instruction/dependency level; it did not issue approval or readiness. Remaining limitations: no live durable reviewer dispatch/restart, live Codex invocation, full Core/conformance suite, mutation testing, coverage measurement, or TypeScript type check was run; the local LSP probe was mixed/inconclusive as recorded above. Retain standalone-only external methodology until a future durable content/version-binding contract and restart tests exist. WS-3.1 remains incomplete; its remaining ReviewReport/gate/conformance/adapter work stays at prior roadmap placement, and no commit or external action is part of this slice.
+The earlier reviewer confirmed no new findings and described KRM-002/KRM-006 as resolved at the instruction/dependency level; it did not issue approval or readiness. Remaining limitations: no live durable reviewer dispatch/restart, live Codex invocation, live mutation execution, coverage measurement, or TypeScript type check was run at that review; subsequent Core/conformance results are recorded below; the local LSP probe was mixed/inconclusive as recorded above. Retain standalone-only external methodology until a future durable content/version-binding contract and restart tests exist. WS-3.1 remains incomplete; its remaining ReviewReport/gate/conformance/adapter work stays at prior roadmap placement, and this acceptance record grants no merge, release, or external-action authority.
+
+
+## PR #89 full-branch findings and corrections
+
+A later fresh standalone `kapisch-reviewer` invocation loaded the updated profile,
+baseline, and all seven applicable methods and reviewed the full 72-file branch at
+`167e63d33216c4cf8be3dc6c59f91223cfb4bb0c`. It returned two findings, not approval:
+
+- **PR89-R1 (P2):** the installed legacy plugin did not produce the retained
+  CoreBundle inputs newly required by the shortened profile. The correction
+  restores the prior complete ordered procedure inside the canonical profile,
+  gates it to legacy plugin V3/V4 durable invocations, and preserves the existing
+  review/risk and Version-4 contracts. Core-backed invocations continue to require
+  their exact validated retained contracts and fail closed for missing or
+  mismatched inputs, without falling back to installed instructions. No new
+  persistence mechanism or legacy CoreBundle prerequisite is introduced.
+- **PR89-R2 (P3):** the proposal incorrectly described Pi samples and independent
+  review as pending. It now distinguishes recorded samples/reviews from the
+  still-unverified live durable reconstruction and Codex invocation.
+- **CI regression:** the intentional CoreBundle change invalidated three golden
+  approval hashes in `test_external_approval_retains_exact_artifact_bytes_and_recovers_cold`.
+  The same test passed with the base bundle alone; the three literal expectations
+  were refreshed together. Exact-byte retention, idempotency, and subprocess
+  recovery assertions remain unchanged. The focused test and all 740 Core tests
+  passed after that correction; 18 conformance tests, 500 portable-package cases,
+  and 58 Pi tests also passed before the PR89-R1 correction.
+
+The installed-only regression copies the portable plugin without a Core checkout,
+uses its real installer, then reads the installed profile in a fresh Python
+process and checks delivery of every ordered procedure step, matrix/causality
+requirements, and V4 transport fields. It checks the install receipt against the
+installed bytes. This establishes package/instruction delivery, not live durable
+dispatch or a new legacy version-retention guarantee. Legacy profile/skill upgrade
+binding remains the existing contract; this slice does not solve it by claiming
+that a new Core-backed producer already exists.
+
+The broader local top-level suite encountered six fixture-commit errors because
+the host's quality-gate hook rejected commits in temporary fixture repositories.
+No hook bypass was attempted. The earlier `code-gates run` exited successfully,
+but its collector marked all 55 Pi-generator mutation sites uncovered and executed
+no mutants; that is not mutation-adequacy evidence.
+
+Final correction verification and independent re-review are complete for the
+reported regressions; WS-3.1 and live durable methodology binding remain incomplete.
+
+
+### Correction re-review and Pi integration regression
+
+The correction re-review confirmed PR89-R1 and PR89-R2 resolved and independently
+validated the three refreshed Core golden hashes, including the base-bundle
+comparison. It found PR89-R3: the restored legacy profile used a changed phrase
+that broke the Pi resource regression, plus a generated extra blank line at EOF.
+The canonical profile now restores `Version-4 transport return contract`, removes
+that extra newline, and regenerates both the Pi profile and installed-profile
+digest vector. The transport safeguard assertion remains unchanged.
+
+After this narrow correction, all 58 Pi tests, generated-resource freshness,
+Ruff, Python compilation, and `git diff --check` pass. The preceding full correction
+run passed all 740 Core tests, 18 conformance tests, and 501 portable-package cases
+(the extra case is the installed-only regression). The latest package/digest
+rerun passed all 501 cases. The final focused independent reviewer also reran all
+58 Pi tests, 501 package cases, generated freshness and diff checks; it confirmed
+PR89-R3 and EOF resolved, left PR89-R1/R2 and the Core hash correction resolved,
+and reported no new findings. No approval/readiness decision was issued.
