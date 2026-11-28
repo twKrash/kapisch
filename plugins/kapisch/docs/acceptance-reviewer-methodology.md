@@ -1,0 +1,113 @@
+# Early Reviewer Methodology Slice — Acceptance Record
+
+**Status: INCOMPLETE.** The bounded reviewer slice has focused/package checks, live Pi samples, and independent review evidence. A subsequent full-branch review identified PR89-R1 (legacy durable instruction delivery) and PR89-R2 (contradictory proposal status); corrections passed final verification and independent re-review, which confirmed PR89-R1/R2/R3 resolved with no new findings. KRM-002 and KRM-006 were confirmed resolved at the contract level in the earlier review. This does not complete WS-3.1, establish deterministic model conformance, or approve WS-4 implementation; durable methodology binding remains deferred.
+
+## Scope
+
+The early slice makes documentation and document collections first-class review targets for standalone review; adds the mandatory Decision Challenge baseline and seven independently retrievable conditional methods (the six existing §5.14 methods plus mutation/side-effect justification); adapts existing Pi packaging; preserves the eight lens families and existing durable review contract. The new external methodology applies to standalone mode only until its content/version is bound to durable invocations; legacy plugin V3/V4 reviews retain their complete embedded profile procedure and existing skill/transport contracts, while Core-backed reviews use validated retained CoreBundle role and policy contracts. No Kernel/runtime, WS-4, WS-13, or WS-14 implementation is included.
+
+## Structural and packaging checks
+
+| Check | Result |
+| --- | --- |
+| `python3.11 -m unittest tests.kapisch_validation.test_review_contracts` from `plugins/kapisch` | **PASS** — 14 tests. |
+| `bun run generate` from `harnesses/pi` | **PASS** — generated 6 Pi agents and 11 shared reviewer resources. |
+| `bun run check:generated` from `harnesses/pi` | **PASS** — generated agents and resources are current. |
+| `python3.11 tooling/build/build_bundle.py --check` | **PASS** — all 3 CoreBundle copies match canonical sources. |
+| `python3.11 -m unittest tests.core.test_bundle` | **PASS** — 39 tests. |
+| `bun test` from `harnesses/pi` | **PASS** — 58 tests across 5 files. |
+| `ruff check` and `python3.11 -m py_compile` on all 3 changed Python files | **PASS**. |
+| `python3.11 scripts/test_portable_package.py` from `plugins/kapisch` | **PASS** — 500 validation cases. The clean baseline at `3a4b50bbfb1924f319ab6a009af92ccce8f2cfbb` passed 490 cases under the same Python 3.11.15 environment. The earlier 13 digest-vector failures were isolated to the local-profile digest expectation; the regenerated expected profile value now matches the installed profile, the other vector entries match baseline, and the full suite passes. |
+| `code-gates quick` on changed TypeScript/Python files | **PASS for changed functions** — no complexity/duplicate findings in changed functions. `canonicalAgents` reports CC 10 but is unchanged by this slice. Full mutator was not run; no code was staged and no commit is planned. |
+| LSP diagnostics on changed TypeScript/Python paths | **Mixed/inconclusive** — `harnesses/pi/tests/generated-agents.test.ts` is clean; Pyright reported 33 diagnostics in `tests/core/test_bundle.py`, including unresolved `kapisch_core.bundle` imports, and the reviewer-contract Python check timed out. Ruff, `py_compile`, and the relevant test suites pass; LSP results are not treated as clean. |
+| Codex live invocation | Not run. |
+
+`git diff --check` **PASS** after the acceptance-record edit. A final portable-package rerun after that edit also completed all 500 cases successfully, including the checks that the former early return had skipped.
+
+## Live reviewer evaluation
+
+Behavioral cases were run through the supported native Pi `kapisch-reviewer` invocation with **`gpt-6.1-sol`**, without exposing evaluator oracles. The child used ordinary `read`, `grep`, `find`, `ls`, and `bash` tools; session traces contain no `ctx_*` or headroom tool calls. This is actual harness use, not an inference from generated profiles. The first attempt failed because this host's ignored local Pi settings explicitly required optional tools not loaded into the child. The local ignored configuration was corrected; the project package does not require those tools. That failed attempt is not counted as an acceptance run.
+
+| Case | Observed result | Evaluation |
+| --- | --- | --- |
+| Documentation-only | The blind run identified two independent P1 proposed-plan defects (global selector exceeds tenant scope; authorization follows deletion), a P2 positive-only/wrong-operation verification gap, and a P2 unresolved question about the introduced 30-day threshold. It kept draft/proposed status explicit and did not claim an incident. | **Pass** for no-diff document review, defect detection, verification adequacy, and status-aware severity. The supplied evidence supports P1 as a blocking permission/isolation violation; it does not establish scale or imminent execution needed to justify P0. P1 was not reduced to P2 merely because the plan is proposed. A separate ownership-phrase ambiguity was not required as a finding because the target separately names other-tenant preservation and ownerless records. |
+| Cross-document | Four findings: accepted architecture conflicts with the approved product retention rule (P1); execution plan has a circular prerequisite (P1); D1 completion is unsupported against its dependency (P2); verification omits the required disabled-tenant/owner-request/tenant-preservation properties (P2). | **Pass** for cross-artifact authority, lifecycle, dependency, and proof analysis. It did not infer execution or let a later artifact silently supersede the governing specification. |
+| Decision challenge | One P1 finding: mandatory distributed broker write/read-back is unsupported by stated single-process local requirements and unavailable in the supported local environment. It proposed a materially simpler local append-only audit alternative while leaving room for an undisclosed requirement. | **Pass** for challenging an accepted decision without treating approval as immunity, distinguishing feasibility evidence from unknown runtime failure, and avoiding subjective alternatives. |
+| Mutation ownership | One P1 finding: destructive SQL selects by non-global event ID without a tenant predicate. It covered same-ID cross-tenant and foreign-only triggers, auth-before-effect, and missing negative tests. | **Pass** for mutation scope/ownership and evidence limits; no database mutation or actual data-loss claim. |
+| Negative invariant verification | One P1 implementation-boundary finding for issuing the role update without owner authorization, plus a P2 gap because the positive test proves neither negative invariant. | **Pass** for separating implementation mismatch from unverified upstream/store enforcement and checking no-effect negative cases. |
+| Code regression | One P1 finding: the supplied before/after function changes a missing role from `viewer` to `admin`; direct expression execution confirmed the change. A present but unknown role is not mapped to admin by this code and was not reported as the trigger. | **Pass** for code-change causality, severity, and restraint about unknown roles, broader reachability, and runtime effects. |
+| Correct empty findings | No findings. Six isolated expression checks (missing, empty, spaces, tabs/newline, ordinary, and padded labels) passed; limitations about absent application/test code were explicit. | **Pass** for false-positive restraint and valid empty findings. The selective rerun retrieved semantic, traceability, proof, and executability methods, but not mutation, authority, or temporal methods. |
+
+The initial successful documentation run before refining the semantic procedure missed the material threshold question; the canonical baseline and semantic method now explicitly call out unsourced thresholds that affect mutation eligibility and ambiguous scope terms. A later guided diagnostic run is not counted as blind evidence. The valid blind run surfaced the threshold question; the target's ownership wording is not treated as a required separate finding. These evaluations are behavioral samples, not proof of deterministic model behavior.
+
+Severity calibration uses the canonical `severity.md`: P1 applies to the concrete permission/isolation defects and remains approval-blocking; P2 applies to the bounded verification gap and unresolved threshold decision. P0 must be supported by the policy's immediate/highly-credible catastrophic-impact criterion, not merely by labeling a proposal dangerous. Conversely, proposed status alone does not lower severity or erase the conditional risk. No evaluated target established an occurred incident.
+
+## Independent review and remaining work
+
+The first independent review returned KRM-001 through KRM-005. A follow-up confirmed KRM-001, KRM-003, KRM-004, and KRM-005 resolved, but found a remaining Core review-policy conflict in KRM-002 and introduced KRM-006: unbound installed methodology could change across durable resume. The Core policy now distinguishes change/revision targets from non-diff documents; reviewer roles/profiles limit the external baseline and conditional methods to standalone mode until durable content/version binding exists. The earlier correction directed durable reviews to retained CoreBundle contracts; the subsequent PR89-R1 finding below establishes why that was insufficient for legacy plugin consumers. The existing Version-4 transport remains. Regression tests cover effective role-plus-policy consistency and standalone-only retrieval. A fresh independent standalone review examined all 72 changed/new files (24 tracked modifications and 48 untracked files), confirmed KRM-002 and KRM-006 resolved, found no new findings, and issued no approval/readiness decision. It assessed cold-restart and producer-ownership invariants as satisfied for this scope. The portable-package run initially reproduced 13 mismatches because the profile digest vector was stale after intentional profile changes; the expected `profile` digest was regenerated using the canonical package generator, and the final full run passed all 500 cases.
+
+The earlier reviewer confirmed no new findings and described KRM-002/KRM-006 as resolved at the instruction/dependency level; it did not issue approval or readiness. Remaining limitations: no live durable reviewer dispatch/restart, live Codex invocation, live mutation execution, coverage measurement, or TypeScript type check was run at that review; subsequent Core/conformance results are recorded below; the local LSP probe was mixed/inconclusive as recorded above. Retain standalone-only external methodology until a future durable content/version-binding contract and restart tests exist. WS-3.1 remains incomplete; its remaining ReviewReport/gate/conformance/adapter work stays at prior roadmap placement, and this acceptance record grants no merge, release, or external-action authority.
+
+
+## PR #89 full-branch findings and corrections
+
+A later fresh standalone `kapisch-reviewer` invocation loaded the updated profile,
+baseline, and all seven applicable methods and reviewed the full 72-file branch at
+`167e63d33216c4cf8be3dc6c59f91223cfb4bb0c`. It returned two findings, not approval:
+
+- **PR89-R1 (P2):** the installed legacy plugin did not produce the retained
+  CoreBundle inputs newly required by the shortened profile. The correction
+  restores the prior complete ordered procedure inside the canonical profile,
+  gates it to legacy plugin V3/V4 durable invocations, and preserves the existing
+  review/risk and Version-4 contracts. Core-backed invocations continue to require
+  their exact validated retained contracts and fail closed for missing or
+  mismatched inputs, without falling back to installed instructions. No new
+  persistence mechanism or legacy CoreBundle prerequisite is introduced.
+- **PR89-R2 (P3):** the proposal incorrectly described Pi samples and independent
+  review as pending. It now distinguishes recorded samples/reviews from the
+  still-unverified live durable reconstruction and Codex invocation.
+- **CI regression:** the intentional CoreBundle change invalidated three golden
+  approval hashes in `test_external_approval_retains_exact_artifact_bytes_and_recovers_cold`.
+  The same test passed with the base bundle alone; the three literal expectations
+  were refreshed together. Exact-byte retention, idempotency, and subprocess
+  recovery assertions remain unchanged. The focused test and all 740 Core tests
+  passed after that correction; 18 conformance tests, 500 portable-package cases,
+  and 58 Pi tests also passed before the PR89-R1 correction.
+
+The installed-only regression copies the portable plugin without a Core checkout,
+uses its real installer, then reads the installed profile in a fresh Python
+process and checks delivery of every ordered procedure step, matrix/causality
+requirements, and V4 transport fields. It checks the install receipt against the
+installed bytes. This establishes package/instruction delivery, not live durable
+dispatch or a new legacy version-retention guarantee. Legacy profile/skill upgrade
+binding remains the existing contract; this slice does not solve it by claiming
+that a new Core-backed producer already exists.
+
+The broader local top-level suite encountered six fixture-commit errors because
+the host's quality-gate hook rejected commits in temporary fixture repositories.
+No hook bypass was attempted. The earlier `code-gates run` exited successfully,
+but its collector marked all 55 Pi-generator mutation sites uncovered and executed
+no mutants; that is not mutation-adequacy evidence.
+
+Final correction verification and independent re-review are complete for the
+reported regressions; WS-3.1 and live durable methodology binding remain incomplete.
+
+
+### Correction re-review and Pi integration regression
+
+The correction re-review confirmed PR89-R1 and PR89-R2 resolved and independently
+validated the three refreshed Core golden hashes, including the base-bundle
+comparison. It found PR89-R3: the restored legacy profile used a changed phrase
+that broke the Pi resource regression, plus a generated extra blank line at EOF.
+The canonical profile now restores `Version-4 transport return contract`, removes
+that extra newline, and regenerates both the Pi profile and installed-profile
+digest vector. The transport safeguard assertion remains unchanged.
+
+After this narrow correction, all 58 Pi tests, generated-resource freshness,
+Ruff, Python compilation, and `git diff --check` pass. The preceding full correction
+run passed all 740 Core tests, 18 conformance tests, and 501 portable-package cases
+(the extra case is the installed-only regression). The latest package/digest
+rerun passed all 501 cases. The final focused independent reviewer also reran all
+58 Pi tests, 501 package cases, generated freshness and diff checks; it confirmed
+PR89-R3 and EOF resolved, left PR89-R1/R2 and the Core hash correction resolved,
+and reported no new findings. No approval/readiness decision was issued.

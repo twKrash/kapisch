@@ -1228,17 +1228,19 @@ class GateApprovalTests(unittest.TestCase):
             self.repo, self.payload, self._external_input(self.artifact_bytes)
         )
         self.assertEqual(state_path.read_bytes(), state_before)
+        # These golden values bind the payload to the current CoreBundle bytes;
+        # intentional bundle changes require refreshing all three together.
         self.assertEqual(
             self.target.target,
-            "65b234faa2165d5acc83d2334fff586fde1d78a81859ca270ad8f295d6c882b6",
+            "aed546fba8f865e978b64feacbf3f8b8e510a18a2e19726f4bc47ea529cccd24",
         )
         self.assertEqual(
             ref["approval_id"],
-            "ga-575276f29cccab2e273b4354084e102afaa04fffabeae1de311802aae3ce882e",
+            "ga-54159a69a796d4f77a8b07560bfb5612b2455f6b9a8348904fc291e3c0a8acc7",
         )
         self.assertEqual(
             ref["sha256"],
-            "595e6c71c1ba7891cd7c0ec77b85ca2a83fbaf4801ed79f1310fdd661e75d461",
+            "20509e86cb8fb0565877dfe7a8146881ae90563f5281f72e823a023ed7482ac7",
         )
         record = load_gate_approval(self.repo, ref)
         artifact_ref = record["human_authority"]

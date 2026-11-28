@@ -93,7 +93,7 @@ Only after Phases 1–3 exit. Pi and Claude are separate adapters implementing t
 
 The product spec and proposal add WS-13 (Project Context) and WS-14 (Adaptive Workflows, Modular Skills and Collaborative Context), and extend WS-3.1. Detailed scope and acceptance are owned by the spec and proposal; this section only records sequencing and dependencies.
 
-- The approved Phase 0–4 table and starts-after rules remain unchanged. After merged WS-2 Revision 3, the owner confirms WS-4 as the next Phase 1 implementation priority; WS-5 and WS-6 follow in the existing Phase 1 order. The expanded WS-3.1 documentation-review requirements stay in existing Phase 2 after Phase 1 exit.
+- The approved Phase 0–4 table and starts-after rules remain unchanged. The owner prioritizes the bounded early WS-3.1 reviewer-methodology slice ahead of WS-4 implementation planning; completing that slice neither completes WS-3.1 nor starts Phase 2. After the slice, WS-4 remains the next Phase 1 runtime-implementation priority; WS-5 and WS-6 follow in the existing Phase 1 order. The remaining WS-3.1 deliverables stay in existing Phase 2 after Phase 1 exit.
 - WS-13 and WS-14 are a non-gating, cross-cutting product track, not a new prerequisite phase. They may proceed when their individual hard dependencies are available; they do not block WS-4 or any already-approved slice.
 - Basic Project Context discovery can use existing project instructions and harness tools without WS-4. A WS-13 path that imports or retains durable Run evidence consumes WS-4 only when that primitive is available.
 - WS-14 lightweight direct execution, research-only work, standalone review, and canonical Markdown methodology do not require WS-4. Complex multi-task workflows use WS-4; applicable recovery uses WS-5; external artifact effects retain WS-6 boundaries. These consumers do not change WS-4 scope.
@@ -103,7 +103,7 @@ The product spec and proposal add WS-13 (Project Context) and WS-14 (Adaptive Wo
 - WS-0 graph-free advisory/review, WS-2 Run-local decision authority, WS-5 narrow recovery, and WS-6 external-effect safeguards remain unchanged. Shareable project knowledge does not transfer a prior Run's authority; publishing an external handoff requires the existing authorization. WS-7 presentation invariance remains unchanged.
 - WS-8 aligns installation verification, canonical instruction consolidation, and legacy cutover with the Skills actually shipped by supported harnesses. WS-11/12 verify native loading only for their respective supported harnesses.
 
-This sequencing note records the owner-confirmed WS-4 design status and priority while preserving the approved workstream order. It creates no Kernel, runtime, schema, installation, or implementation authorization; WS-4 runtime implementation remains TODO until separately authorized, implemented, and verified.
+This sequencing note records the owner-confirmed WS-4 design status and priority, plus the bounded reviewer-methodology priority exception, while preserving the approved workstream order. The early slice does not revise the approved WS-4 design or depend on the Kernel, WS-13, WS-14, or future harness adapters. It creates no Kernel, runtime, schema, installation, or WS-4 implementation authorization; WS-4 runtime implementation remains TODO until separately authorized, implemented, and verified.
 
 ## Non-goals of this amendment
 

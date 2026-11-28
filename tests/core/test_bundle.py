@@ -709,6 +709,10 @@ class BundleTests(unittest.TestCase):
                 "behavioral branch matrix",
                 "invariant evidence matrix",
                 "the review policy owns matrix scope",
+                "without requiring a git diff",
+                "document-only or cross-document target",
+                "for a working-tree target",
+                "git ls-files --others --exclude-standard",
             ),
         }
         for role, phrases in required.items():
@@ -1199,6 +1203,62 @@ class BundleTests(unittest.TestCase):
         )
         self.assertIn("Gate.APPROVAL", authority)
         self.assertIn("human approval of a plan", authority)
+
+    def test_non_diff_document_review_is_consistent_across_core_role_and_policy(
+        self,
+    ) -> None:
+        from kapisch_core.bundle import compile_bundle
+
+        bundle = json.loads(compile_bundle(ROOT / "core"))
+        reviewer = bundle["roles"]["reviewer"]["contract"].lower()
+        policy = bundle["policies"]["review"]["contract"].lower()
+        for phrase in (
+            "a document-only or cross-document target",
+            "no base/head range is required",
+            "for document-only targets, trace material claims to governing evidence at the selected depth",
+            "for a non-diff document target, validate the approved artifact identity",
+            "for non-diff document targets, report the artifact inventory",
+            "for document targets, trace governing claims, dependencies, producers/consumers",
+        ):
+            self.assertIn(phrase, reviewer)
+        for phrase in (
+            "for a non-diff document target",
+            "artifact collection",
+            "identity, version, status, audience, and governing sources",
+            "does not require a repository revision or changed-file inventory",
+            "cite the exact reviewed claim and its governing source",
+        ):
+            self.assertIn(phrase, policy)
+        for phrase in (
+            "for a change or revision target",
+            "base and reviewed revision",
+            "working-tree state",
+            "changed evidence edge",
+            "introduced, exposed, or made the behavior unsafe",
+        ):
+            self.assertIn(phrase, policy)
+        for phrase in (
+            "git rev-parse",
+            "git status --porcelain",
+            "git diff --stat <base>...<head>",
+            "git diff --cached <base>",
+            "git ls-files --others --exclude-standard",
+            "how the bound diff introduced, exposed, made newly reachable, or made unsafe",
+        ):
+            self.assertIn(phrase, reviewer)
+
+    def test_external_methodology_is_limited_to_standalone_until_durably_bound(
+        self,
+    ) -> None:
+        from kapisch_core.bundle import compile_bundle
+
+        bundle = json.loads(compile_bundle(ROOT / "core"))
+        reviewer = bundle["roles"]["reviewer"]["contract"].lower()
+        standalone, durable = reviewer.split("in durable workflow mode", 1)
+        self.assertIn("review_mode=standalone", standalone)
+        self.assertIn("reviewer-baseline.md", standalone)
+        self.assertIn("do not require external reviewer-methodology files", durable)
+        self.assertIn("retained corebundle role and policy contracts", durable)
 
     def test_review_policy_owns_behavioral_and_invariant_evidence_matrices(
         self,

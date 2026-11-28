@@ -22,6 +22,16 @@ const names = [
 ] as const;
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const outputDir = join(dirname(fileURLToPath(import.meta.url)), "../agents");
+const reviewerOutputDir = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "../skills/kapisch/references",
+);
+const reviewerBaseFiles = [
+  "reviewer-baseline.md",
+  "review.md",
+  "risk.md",
+  "severity.md",
+];
 const pythonParser = [
   "import json, pathlib, sys, tomllib",
   "print(json.dumps([tomllib.loads(pathlib.Path(p).read_text(encoding='utf-8')) for p in sys.argv[1:]], ensure_ascii=False))",
@@ -119,37 +129,126 @@ export async function expectedAgents(
   );
 }
 
+export async function expectedReviewerResources(
+  root: URL | string = repoRoot,
+): Promise<Map<string, string>> {
+  const rootPath = root instanceof URL ? fileURLToPath(root) : root;
+  const sourceDir = join(
+    rootPath,
+    "plugins/kapisch/skills/kapisch/references",
+  );
+  const files = new Map<string, string>();
+  for (const name of reviewerBaseFiles)
+    files.set(name, readFileSync(join(sourceDir, name), "utf8"));
+  const methodologyDir = join(sourceDir, "reviewer-methodologies");
+  for (const entry of readdirSync(methodologyDir, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+    const relative = `reviewer-methodologies/${entry.name}`;
+    files.set(relative, readFileSync(join(sourceDir, relative), "utf8"));
+  }
+  return files;
+}
+
+function compareNames(left: string, right: string): number {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
+function generatedReviewerResourceFiles(): string[] {
+  const base = readdirSync(reviewerOutputDir)
+    .filter((file: string) => file.endsWith(".md"))
+    .sort(compareNames);
+  const methodology = readdirSync(
+    join(reviewerOutputDir, "reviewer-methodologies"),
+  )
+    .filter((file: string) => file.endsWith(".md"))
+    .map((file: string) => `reviewer-methodologies/${file}`)
+    .sort(compareNames);
+  return [...base, ...methodology].sort(compareNames);
+}
+
+function generatedAgentFilesAreCurrent(files: Map<string, string>): boolean {
+  const actual = readdirSync(outputDir)
+    .filter((file: string) => file.endsWith(".md"))
+    .sort(compareNames);
+  const expected = [...files.keys()]
+    .map((name) => `${name}.md`)
+    .sort(compareNames);
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    console.error(
+      `Generated agent file set differs. Expected: ${expected.join(", ")}; found: ${actual.join(", ")}`,
+    );
+    return false;
+  }
+  for (const [name, content] of files) {
+    if (readFileSync(join(outputDir, `${name}.md`), "utf8") !== content) {
+      console.error(`Generated Pi agent is stale: ${name}.md`);
+      return false;
+    }
+  }
+  return true;
+}
+
+function generatedReviewerResourcesAreCurrent(
+  resources: Map<string, string>,
+): boolean {
+  const actual = generatedReviewerResourceFiles();
+  const expected = [...resources.keys()].sort(compareNames);
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    console.error(
+      `Generated reviewer resource file set differs. Expected: ${expected.join(", ")}; found: ${actual.join(", ")}`,
+    );
+    return false;
+  }
+  for (const [relative, content] of resources) {
+    if (readFileSync(join(reviewerOutputDir, relative), "utf8") !== content) {
+      console.error(`Generated Pi reviewer resource is stale: ${relative}`);
+      return false;
+    }
+  }
+  return true;
+}
+
+function writeGeneratedFiles(files: Map<string, string>): void {
+  mkdirSync(outputDir, { recursive: true });
+  for (const [name, content] of files)
+    writeFileSync(join(outputDir, `${name}.md`), content, "utf8");
+}
+
+function writeReviewerResources(resources: Map<string, string>): void {
+  mkdirSync(reviewerOutputDir, { recursive: true });
+  for (const [relative, content] of resources) {
+    const target = join(reviewerOutputDir, relative);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, content, "utf8");
+  }
+}
+
 export async function main(args = process.argv.slice(2)): Promise<number> {
   const check = args.length === 1 && args[0] === "--check";
   if (args.length > 0 && !check)
     throw new Error(
       "Usage: bun harnesses/pi/scripts/generate-agents.ts [--check]",
     );
-  const files = await expectedAgents(repoRoot);
+  const [files, reviewerResources] = await Promise.all([
+    expectedAgents(repoRoot),
+    expectedReviewerResources(repoRoot),
+  ]);
   if (check) {
-    const actual = readdirSync(outputDir)
-      .filter((file) => file.endsWith(".md"))
-      .sort();
-    const expected = [...files.keys()].map((name) => `${name}.md`).sort();
-    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-      console.error(
-        `Generated agent file set differs. Expected: ${expected.join(", ")}; found: ${actual.join(", ")}`,
-      );
+    if (
+      !generatedAgentFilesAreCurrent(files) ||
+      !generatedReviewerResourcesAreCurrent(reviewerResources)
+    )
       return 1;
-    }
-    for (const [name, content] of files) {
-      if (readFileSync(join(outputDir, `${name}.md`), "utf8") !== content) {
-        console.error(`Generated Pi agent is stale: ${name}.md`);
-        return 1;
-      }
-    }
-    console.log("Pi agents are current.");
+    console.log("Pi agents and reviewer resources are current.");
     return 0;
   }
-  mkdirSync(outputDir, { recursive: true });
-  for (const [name, content] of files)
-    writeFileSync(join(outputDir, `${name}.md`), content, "utf8");
-  console.log(`Generated ${files.size} Pi agents.`);
+  writeGeneratedFiles(files);
+  writeReviewerResources(reviewerResources);
+  console.log(
+    `Generated ${files.size} Pi agents and ${reviewerResources.size} reviewer resources.`,
+  );
   return 0;
 }
 

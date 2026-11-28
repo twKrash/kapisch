@@ -73,6 +73,73 @@ class SetupProfileSafetyTests(unittest.TestCase):
                 (consumer / ".kapisch/local-state/profiles/reviewer.toml").is_file()
             )
 
+    def test_installed_reviewer_delivers_legacy_durable_procedure_without_core(
+        self,
+    ) -> None:
+        # Removing any ordered step must break this package-delivery regression.
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            plugin = root / "plugin"
+            shutil.copytree(PLUGIN_ROOT, plugin)
+            consumer = root / "consumer"
+            environment = dict(os.environ)
+            environment.pop("PYTHONPATH", None)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(plugin / "scripts/setup_profile.py"),
+                    "--role", "reviewer",
+                    "--project-dir", str(consumer),
+                    "--install",
+                ],
+                cwd=root, env=environment, capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            installed = consumer / ".codex/agents/kapisch-reviewer.toml"
+            self.assertFalse((root / "core").exists())
+            source = (
+                "import pathlib,sys,tomllib; "
+                "p=pathlib.Path(sys.argv[1]); "
+                "print(tomllib.loads(p.read_text())['developer_instructions'])"
+            )
+            # A fresh process consumes installed bytes, not controller memory.
+            reload = subprocess.run(
+                [sys.executable, "-c", source, str(installed)],
+                cwd=consumer, env=environment, capture_output=True, text=True,
+            )
+            self.assertEqual(reload.returncode, 0, reload.stderr)
+            instructions = reload.stdout
+            self.assertIn("Legacy plugin durable procedure", instructions)
+            legacy = instructions.split("Legacy plugin durable procedure", 1)[1]
+            for criterion in (
+                "1. Bind the scope.",
+                "2. Read and inventory the diff yourself.",
+                "3. Discover impact, then use question-driven retrieval.",
+                "4. Organize broad diffs only when useful.",
+                "5. Apply depth and verify.",
+                "6. Classify findings.",
+                "7. Check invariants.",
+                "8. Decide.",
+                "9. Report.",
+                "Behavioral branch and Invariant evidence matrices",
+                "introduced, exposed, made newly reachable, or made unsafe",
+                "report status/path/SHA-256",
+            ):
+                with self.subTest(criterion=criterion):
+                    self.assertIn(criterion, legacy)
+            role = (plugin / "roles/reviewer.md").read_text()
+            self.assertIn("Version-4 transport return", role)
+            self.assertIn("legacy plugin V3/V4", role)
+            self.assertIn("missing or mismatched retained contracts", role)
+            self.assertIn("do not substitute the installed legacy procedure", role)
+            receipt = tomllib.loads(
+                (consumer / ".kapisch/local-state/profiles/reviewer.toml").read_text()
+            )
+            self.assertEqual(
+                receipt["installed_sha256"],
+                hashlib.sha256(installed.read_bytes()).hexdigest(),
+            )
+
     def test_lf_and_crlf_templates_render_identically(self) -> None:
         role = "reviewer"
         source = (setup_profile.AGENT_DIR / "kapisch-reviewer.toml").read_bytes()

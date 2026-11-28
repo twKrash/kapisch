@@ -122,7 +122,11 @@ and architecture advice; it creates advisory artifacts but no execution graph
 and cannot authorize implementation. `workflow=review` performs a graph-free,
 read-only independent review: dispatch one fresh `kapisch-reviewer` and return
 findings for the parent/orchestrator to judge; create no graph or durable review
-artifacts. `workflow=task` is graph-free implementation or other bounded
+artifacts. Before evaluation the reviewer reads `references/reviewer-baseline.md`
+for target discovery and progressive method selection. General documentation or
+cross-document review does not require a Git diff; retrieve diff-specific
+`review.md`/`risk.md` methods only for code/change targets or discovered material
+implementation relationships. `workflow=task` is graph-free implementation or other bounded
 execution; `workflow=milestone` requires an explicitly approved multi-step plan
 and durable sequential artifacts. Material scope growth stops for a user
 decision rather than reusing narrower approval.
